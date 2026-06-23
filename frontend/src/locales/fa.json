@@ -1,0 +1,128 @@
+{
+  "app": {
+    "title": "مرکز فرمان TradeBot"
+  },
+  "nav": {
+    "overview": "داشبورد",
+    "strategies": "استراتژی‌ها",
+    "settings": "تنظیمات"
+  },
+  "auth": {
+    "login": "ورود",
+    "logout": "خروج",
+    "username": "نام کاربری",
+    "password": "رمز عبور",
+    "signIn": "ورود به سیستم"
+  },
+  "health": {
+    "hl": "فید Hyperliquid",
+    "celery": "سلری",
+    "trading": "معاملات",
+    "on": "فعال",
+    "off": "غیرفعال",
+    "connected": "متصل",
+    "disconnected": "قطع",
+    "stale": "کهنه",
+    "killSwitch": "توقف اضطراری",
+    "killConfirmTitle": "توقف اضطراری",
+    "killConfirmBody": "معاملات غیرفعال، همه استراتژی‌ها متوقف و پوزیشن‌ها بسته می‌شوند.",
+    "killConfirmType": "CONFIRM را تایپ کنید",
+    "cancel": "انصراف",
+    "confirm": "تایید توقف"
+  },
+  "overview": {
+    "title": "نمای کلی",
+    "loading": "در حال بارگذاری...",
+    "totalBots": "کل بات‌ها",
+    "active": "فعال",
+    "totalTrades": "کل معاملات",
+    "today": "امروز",
+    "filledOrders": "سفارش‌های پر شده",
+    "totalPnl": "کل PnL",
+    "errors24h": "خطا (۲۴س)",
+    "warnings": "هشدار",
+    "recentOrders": "معاملات اخیر",
+    "recentLogs": "لاگ‌های اخیر",
+    "noOrders": "معامله‌ای نیست",
+    "noLogs": "لاگی نیست"
+  },
+  "strategies": {
+    "title": "استراتژی‌ها و اسکریپت",
+    "new": "استراتژی جدید",
+    "uploadPine": "آپلود .pine",
+    "empty": "استراتژی‌ای نیست. یکی بسازید.",
+    "actions": "عملیات",
+    "edit": "ویرایش",
+    "delete": "حذف",
+    "deleteConfirm": "این استراتژی حذف شود؟",
+    "create": "ایجاد",
+    "dropPine": "فایل .pine را اینجا رها کنید",
+    "pinePlaceholder": "// سورس Pine Script v5...",
+    "noCredential": "اول در تنظیمات API key اضافه کنید"
+  },
+  "strategy": {
+    "title": "تنظیم‌گر استراتژی",
+    "name": "نام",
+    "source": "سورس Pine",
+    "symbols": "جفت ارزها",
+    "timeframes": "تایم‌فریم‌ها",
+    "leverage": "لوریج",
+    "positionSize": "درصد حجم",
+    "globalSl": "حد ضرر کلی %",
+    "validate": "اعتبارسنجی",
+    "start": "شروع لایو",
+    "stop": "توقف",
+    "save": "ذخیره",
+    "saved": "ذخیره شد",
+    "saveFailed": "خطا در ذخیره",
+    "addSymbol": "افزودن نماد...",
+    "addTimeframe": "افزودن تایم‌فریم...",
+    "validatedOk": "اعتبارسنجی موفق",
+    "validatedFail": "اعتبارسنجی ناموفق",
+    "starting": "در حال شروع...",
+    "stopping": "در حال توقف...",
+    "created": "استراتژی ساخته شد",
+    "deleted": "استراتژی حذف شد"
+  },
+  "settings": {
+    "title": "تنظیمات",
+    "account": "حساب کاربری",
+    "tradingEnabled": "معاملات فعال شد",
+    "tradingDisabled": "معاملات غیرفعال شد"
+  },
+  "credentials": {
+    "title": "کلید Agent هایپرلیکوید",
+    "add": "افزودن",
+    "edit": "ویرایش",
+    "delete": "حذف",
+    "save": "ذخیره",
+    "verify": "تأیید",
+    "label": "نام",
+    "walletAddress": "آدرس کیف پول Master",
+    "agentKey": "کلید خصوصی Agent",
+    "active": "فعال",
+    "inactive": "غیرفعال",
+    "empty": "کلید ثبت نشده. Agent key هایپرلیکوید را اضافه کنید.",
+    "created": "کلید اضافه شد",
+    "updated": "به‌روز شد",
+    "deleted": "حذف شد",
+    "verified": "تأیید شد",
+    "verifyFailed": "تأیید ناموفق",
+    "failed": "عملیات ناموفق",
+    "deleteConfirm": "این کلید حذف شود؟",
+    "secretsOptional": "برای حفظ کلید قبلی، فیلدهای secret را خالی بگذارید"
+  },
+  "chart": {
+    "pnl": "سود/زیان باز",
+    "noStrategy": "یک استراتژی انتخاب کنید"
+  },
+  "terminal": {
+    "title": "ترمینال لاگ",
+    "all": "همه",
+    "paused": "متوقف"
+  },
+  "status": {
+    "ok": "سالم",
+    "error": "خطا"
+  }
+}

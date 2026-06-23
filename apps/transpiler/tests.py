@@ -1,0 +1,336 @@
+"""Phase 2 verification tests for the Pine Script transpiler."""
+from decimal import Decimal
+from unittest import mock
+
+import numpy as np
+import pandas as pd
+import pytest
+from django.contrib.auth import get_user_model
+
+from apps.credentials.models import ExchangeCredential, Network
+from apps.strategies.models import Strategy
+
+from . import ast_nodes as ast
+from .engine import compile, run_backtest, run_live
+from .exceptions import PineSemanticError, PineSyntaxError, UnsupportedFeatureError
+from .parser import parse
+from .runtime import indicators as ind
+
+SMA_CROSS = """strategy("SMA Cross")
+fast = ta.sma(close, 5)
+slow = ta.sma(close, 20)
+var float held = na
+if ta.crossover(fast, slow)
+    held := close
+    strategy.entry("long", strategy.long)
+if ta.crossunder(fast, slow)
+    strategy.close("long")
+"""
+
+
+def _wave_df(n=120):
+    t = np.arange(n)
+    close = 100 + 10 * np.sin(t / 8.0) + t * 0.05
+    return pd.DataFrame(
+        {"open": close, "high": close + 1, "low": close - 1, "close": close,
+         "volume": np.ones(n) * 10}
+    )
+
+
+# 1. Lexing / parsing
+def test_parse_builds_expected_ast():
+    prog = parse(SMA_CROSS)
+    assert prog.header is not None
+    kinds = [type(n).__name__ for n in prog.body]
+    assert kinds == ["AssignNode", "AssignNode", "StateDeclarationNode", "IfNode", "IfNode"]
+
+
+def test_syntax_error_reports_location():
+    with pytest.raises(PineSyntaxError) as e:
+        parse('strategy("x")\nfast = ta.sma(close, \n')
+    assert e.value.line is not None
+
+
+# 2. Restriction layer
+@pytest.mark.parametrize("bad", ["plot(close)", "plotshape(close)", "bgcolor(close)"])
+def test_restriction_rejects_visual_builtins(bad):
+    with pytest.raises(UnsupportedFeatureError):
+        compile(f'strategy("x")\n{bad}\n')
+
+
+# 3. Semantic
+def test_use_before_declare():
+    with pytest.raises(PineSemanticError):
+        compile('strategy("x")\ny = x + 1\n')
+
+
+def test_type_mismatch_logical_on_float():
+    with pytest.raises(PineSemanticError):
+        compile('strategy("x")\nz = close and 5\n')
+
+
+def test_valid_script_compiles():
+    assert compile(SMA_CROSS).header is not None
+
+
+# 4. Indicator parity
+def test_sma_matches_pandas_reference():
+    close = _wave_df()["close"].to_numpy()
+    assert np.allclose(ind.sma(close, 14), pd.Series(close).rolling(14).mean().to_numpy(),
+                       equal_nan=True)
+
+
+def test_ema_rma_rsi_finite():
+    close = _wave_df()["close"].to_numpy()
+    for fn in (ind.ema, ind.rma, ind.rsi):
+        out = fn(close, 14)
+        assert np.isfinite(out[-1])
+
+
+# 5. Backtest end-to-end
+def test_backtest_produces_trades_and_metrics():
+    res = run_backtest(SMA_CROSS, _wave_df())
+    assert res.metrics["num_trades"] >= 1
+    assert set(res.metrics) == {"num_trades", "net_pnl", "win_rate", "max_drawdown"}
+    t = res.trades[0]
+    assert t["side"] == "long" and t["exit_price"] is not None
+
+
+def test_var_persistence_and_history():
+    # `var` initialises once; `[]` reads prior bars.
+    src = ('strategy("x")\n'
+           'var int counter = 0\n'
+           'counter := counter + 1\n'
+           'prevClose = close[1]\n')
+    # Should run without error across all bars.
+    res = run_backtest(src, _wave_df(30))
+    assert res.metrics["num_trades"] == 0
+
+
+# 6. Live routing (mocked Hyperliquid) + kill-switch
+def _hl_cred(user, **kwargs):
+    cred = ExchangeCredential(
+        user=user,
+        label="agent",
+        wallet_address="0x" + "11" * 20,
+        network=Network.TESTNET,
+        **kwargs,
+    )
+    cred.set_agent_key("0x" + "aa" * 32)
+    cred.save()
+    return cred
+
+
+def _fake_hl_exchange():
+    ex = mock.Mock()
+    ex.market_open.return_value = {
+        "status": "ok",
+        "response": {"data": {"statuses": [{"filled": {"oid": 999}}]}},
+    }
+    return ex
+
+
+def _live_setup(trading_enabled):
+    User = get_user_model()
+    user = User.objects.create_user(
+        username=f"u{trading_enabled}", password="pw", is_trading_enabled=trading_enabled
+    )
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user, credential=cred, name="s", type="t", symbol="BTC",
+        source='strategy("x")\nstrategy.entry("long", strategy.long)\n',
+    )
+    return user, cred, strat
+
+
+@pytest.mark.django_db
+def test_live_places_order_when_enabled():
+    from apps.execution.models import ExecutionLog, OrderRecord
+
+    _, cred, strat = _live_setup(trading_enabled=True)
+    fake_exchange = _fake_hl_exchange()
+
+    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+        run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="BTC")
+
+    assert fake_exchange.market_open.called
+    assert OrderRecord.objects.filter(strategy=strat).count() >= 1
+    assert ExecutionLog.objects.filter(strategy=strat, event="order.placed").exists()
+
+
+@pytest.mark.django_db
+def test_live_blocked_by_kill_switch():
+    from apps.execution.models import ExecutionLog, OrderRecord
+
+    _, cred, strat = _live_setup(trading_enabled=False)
+    fake_exchange = _fake_hl_exchange()
+
+    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+        run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="BTC")
+
+    assert not fake_exchange.market_open.called
+    assert OrderRecord.objects.filter(strategy=strat).count() == 0
+    assert ExecutionLog.objects.filter(strategy=strat, event="order.blocked").exists()
+
+
+# 7. Celery-task path (eager, synchronous)
+@pytest.mark.django_db
+def test_run_backtest_task_persists_results(settings):
+    from .models import Backtest
+    from .tasks import run_backtest_task
+
+    User = get_user_model()
+    user = User.objects.create_user(username="cuser", password="pw")
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user, credential=cred, name="s", type="t", symbol="BTC",
+        source=SMA_CROSS,
+    )
+    bt = Backtest.objects.create(strategy=strat, symbol="BTC")
+    df = _wave_df()
+    candles = df.to_dict("records")
+
+    run_backtest_task.run(bt.id, candles)  # synchronous execution
+    bt.refresh_from_db()
+    assert bt.status == Backtest.Status.DONE
+    assert bt.metrics["num_trades"] >= 1
+    assert bt.trades.count() == bt.metrics["num_trades"]
+
+
+# 8. Phase 3 — live tasks
+def _live_strategy(trading_enabled=True, validated=True):
+    User = get_user_model()
+    user = User.objects.create_user(
+        username=f"live{trading_enabled}{validated}",
+        password="pw",
+        is_trading_enabled=trading_enabled,
+    )
+    cred = _hl_cred(user, is_active=True)
+    strat = Strategy.objects.create(
+        user=user,
+        credential=cred,
+        name="live",
+        type="t",
+        symbol="BTC",
+        timeframe="1m",
+        warmup_bars=10,
+        source='strategy("x")\nstrategy.entry("long", strategy.long)\n',
+        validation_status="ok" if validated else "",
+    )
+    return user, cred, strat
+
+
+@pytest.mark.django_db
+def test_start_live_task_activates_and_creates_session():
+    from unittest import mock
+
+    from apps.strategies.models import StrategyState
+
+    from .live import session_store
+    from .tasks import start_live_strategy_task
+
+    _, _, strat = _live_strategy()
+    df = _wave_df(10)
+    df["ts"] = range(1000, 1000 + len(df) * 60, 60)
+
+    with mock.patch("apps.transpiler.live.runner.fetch_candles", return_value=df):
+        start_live_strategy_task.run(strat.pk)
+
+    strat.refresh_from_db()
+    assert strat.status == Strategy.Status.ACTIVE
+    assert session_store.session_exists(strat.pk)
+    state = StrategyState.objects.get(strategy=strat)
+    assert state.live_started_at is not None
+    assert state.last_bar_ts is not None
+
+
+@pytest.mark.django_db
+def test_stop_live_task_pauses_and_deletes_session():
+    from unittest import mock
+
+    from .live import session_store
+    from .tasks import start_live_strategy_task, stop_live_strategy_task
+
+    _, _, strat = _live_strategy()
+    df = _wave_df(10)
+    df["ts"] = range(1000, 1000 + len(df) * 60, 60)
+
+    with mock.patch("apps.transpiler.live.runner.fetch_candles", return_value=df):
+        start_live_strategy_task.run(strat.pk)
+    assert session_store.session_exists(strat.pk)
+
+    stop_live_strategy_task.run(strat.pk)
+    strat.refresh_from_db()
+    assert strat.status == Strategy.Status.PAUSED
+    assert not session_store.session_exists(strat.pk)
+
+
+@pytest.mark.django_db
+def test_process_live_bar_skips_duplicate_ts():
+    from unittest import mock
+
+    from apps.strategies.models import StrategyState
+
+    from .tasks import process_live_bar_task, start_live_strategy_task
+
+    _, _, strat = _live_strategy()
+    df = _wave_df(10)
+    df["ts"] = range(1000, 1000 + len(df) * 60, 60)
+
+    with mock.patch("apps.transpiler.live.runner.fetch_candles", return_value=df):
+        start_live_strategy_task.run(strat.pk)
+
+    state = StrategyState.objects.get(strategy=strat)
+    last_ts = state.last_bar_ts
+    candle = {"ts": last_ts, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+    result = process_live_bar_task.run(strat.pk, candle)
+    assert result["processed"] is False
+
+
+@pytest.mark.django_db
+def test_live_spot_uses_order_api():
+    from apps.execution.models import OrderRecord
+    from apps.strategies.models import Strategy
+
+    User = get_user_model()
+    user = User.objects.create_user(username="spotu", password="pw", is_trading_enabled=True)
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user, credential=cred, name="s", type="t", symbol="ETH",
+        market_type=Strategy.MarketType.SPOT,
+        source='strategy("x")\nstrategy.entry("long", strategy.long)\n',
+    )
+    fake_exchange = mock.Mock()
+    fake_exchange.order.return_value = {
+        "status": "ok",
+        "response": {"data": {"statuses": [{"filled": {"oid": 1}}]}},
+    }
+    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+        run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="ETH")
+    assert fake_exchange.order.called
+    assert not fake_exchange.market_open.called
+    assert OrderRecord.objects.filter(strategy=strat).exists()
+
+
+@pytest.mark.django_db
+def test_process_live_bar_places_order_on_new_candle():
+    from apps.execution.models import OrderRecord
+
+    from .tasks import process_live_bar_task, start_live_strategy_task
+
+    _, cred, strat = _live_strategy(trading_enabled=True)
+    df = _wave_df(10)
+    df["ts"] = range(1000, 1000 + len(df) * 60, 60)
+
+    fake_exchange = _fake_hl_exchange()
+
+    with mock.patch("apps.transpiler.live.runner.fetch_candles", return_value=df):
+        start_live_strategy_task.run(strat.pk)
+
+    candle = {"ts": 999999, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
+    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+        result = process_live_bar_task.run(strat.pk, candle)
+
+    assert result["processed"] is True
+    assert fake_exchange.market_open.called
+    assert OrderRecord.objects.filter(strategy=strat).exists()

@@ -1,0 +1,54 @@
+import { onUnmounted, ref, watch } from 'vue'
+import { useWebSocket } from '@vueuse/core'
+import { useAuthStore } from '../stores/auth'
+import { useChartStore } from '../stores/chart'
+import { useHealthStore } from '../stores/health'
+import { useTerminalStore } from '../stores/terminal'
+
+export function useDashboardWebSocket() {
+  const connected = ref(false)
+  const auth = useAuthStore()
+  const health = useHealthStore()
+  const terminal = useTerminalStore()
+  const chart = useChartStore()
+
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  const url = `${protocol}://${window.location.host}/ws/dashboard/`
+
+  const { status, data, close, open } = useWebSocket(url, {
+    immediate: false,
+    autoReconnect: { retries: 10, delay: 2000 },
+  })
+
+  watch(status, (s) => {
+    connected.value = s === 'OPEN'
+  })
+
+  watch(data, (raw) => {
+    if (!raw) return
+    try {
+      const payload = JSON.parse(raw) as Record<string, unknown>
+      if (payload.source === 'health') health.applyWsPayload(payload)
+      if (payload.source === 'log') terminal.pushLine(payload)
+      if (payload.source === 'candle_tick') chart.applyCandleTick(payload)
+      if (payload.source === 'pnl') chart.applyPnl(payload)
+      if (payload.source === 'kill_switch' && auth.user) {
+        auth.user.is_trading_enabled = false
+      }
+    } catch {
+      /* ignore malformed */
+    }
+  })
+
+  function connect() {
+    if (auth.user) open()
+  }
+
+  function disconnect() {
+    close()
+  }
+
+  onUnmounted(disconnect)
+
+  return { connected, connect, disconnect, status }
+}

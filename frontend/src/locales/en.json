@@ -1,0 +1,128 @@
+{
+  "app": {
+    "title": "TradeBot Command Center"
+  },
+  "nav": {
+    "overview": "Overview",
+    "strategies": "Strategies",
+    "settings": "Settings"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "username": "Username",
+    "password": "Password",
+    "signIn": "Sign In"
+  },
+  "health": {
+    "hl": "Hyperliquid Feed",
+    "celery": "Celery",
+    "trading": "Trading",
+    "on": "ON",
+    "off": "OFF",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "stale": "Stale",
+    "killSwitch": "KILL SWITCH",
+    "killConfirmTitle": "Emergency Stop",
+    "killConfirmBody": "This will disable trading, stop all strategies, and close all positions.",
+    "killConfirmType": "Type CONFIRM to proceed",
+    "cancel": "Cancel",
+    "confirm": "Confirm Stop"
+  },
+  "overview": {
+    "title": "Dashboard Overview",
+    "loading": "Loading...",
+    "totalBots": "Total Bots",
+    "active": "active",
+    "totalTrades": "Total Trades",
+    "today": "today",
+    "filledOrders": "Filled Orders",
+    "totalPnl": "Total PnL",
+    "errors24h": "Errors (24h)",
+    "warnings": "warnings",
+    "recentOrders": "Recent Orders",
+    "recentLogs": "Recent Logs",
+    "noOrders": "No orders yet",
+    "noLogs": "No logs yet"
+  },
+  "strategies": {
+    "title": "Strategies & Scripts",
+    "new": "New Strategy",
+    "uploadPine": "Upload .pine",
+    "empty": "No strategies yet. Create one to get started.",
+    "actions": "Actions",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this strategy permanently?",
+    "create": "Create",
+    "dropPine": "Drop .pine file here or browse",
+    "pinePlaceholder": "// Pine Script v5 source...",
+    "noCredential": "Add a Hyperliquid credential in Settings first"
+  },
+  "strategy": {
+    "title": "Strategy Configurator",
+    "name": "Name",
+    "source": "Pine Source",
+    "symbols": "Trading Pairs",
+    "timeframes": "Timeframes",
+    "leverage": "Leverage",
+    "positionSize": "Position Size %",
+    "globalSl": "Global Stop-Loss %",
+    "validate": "Validate",
+    "start": "Start Live",
+    "stop": "Stop",
+    "save": "Save Config",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "addSymbol": "Add symbol...",
+    "addTimeframe": "Add timeframe...",
+    "validatedOk": "Validation passed",
+    "validatedFail": "Validation failed",
+    "starting": "Starting live...",
+    "stopping": "Stopping...",
+    "created": "Strategy created",
+    "deleted": "Strategy deleted"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Account",
+    "tradingEnabled": "Trading enabled",
+    "tradingDisabled": "Trading disabled"
+  },
+  "credentials": {
+    "title": "Hyperliquid Agent Credentials",
+    "add": "Add Credential",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "verify": "Verify",
+    "label": "Label",
+    "walletAddress": "Master Wallet Address (0x...)",
+    "agentKey": "Agent Private Key",
+    "active": "Active",
+    "inactive": "Inactive",
+    "empty": "No credentials configured. Add your Hyperliquid agent key to start trading.",
+    "created": "Credential created",
+    "updated": "Credential updated",
+    "deleted": "Credential deleted",
+    "verified": "Credential verified",
+    "verifyFailed": "Verification failed",
+    "failed": "Operation failed",
+    "deleteConfirm": "Delete this credential?",
+    "secretsOptional": "Leave secrets blank to keep existing keys"
+  },
+  "chart": {
+    "pnl": "Unrealized PnL",
+    "noStrategy": "Select a strategy to view chart"
+  },
+  "terminal": {
+    "title": "Audit Terminal",
+    "all": "All",
+    "paused": "Paused"
+  },
+  "status": {
+    "ok": "OK",
+    "error": "Error"
+  }
+}

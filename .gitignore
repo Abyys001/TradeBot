@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# Django
+*.log
+db.sqlite3
+/staticfiles/
+/media/
+
+# Secrets — never commit
+.env
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Test / tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
