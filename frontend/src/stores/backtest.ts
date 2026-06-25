@@ -2,12 +2,20 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api, type Backtest } from '../api/client'
 
+const POLL_INTERVAL_MS = 5000
+
 export const useBacktestStore = defineStore('backtest', () => {
   const backtests = ref<Backtest[]>([])
   const activeId = ref<number | null>(null)
   const loading = ref(false)
 
+  let pollTimer: ReturnType<typeof setInterval> | null = null
+
   const active = computed(() => backtests.value.find((b) => b.id === activeId.value) ?? null)
+
+  const activeBacktests = computed(() =>
+    backtests.value.filter((b) => b.status === 'pending' || b.status === 'running'),
+  )
 
   const forStrategy = computed(() => (strategyId: number) =>
     backtests.value.filter((b) => b.strategy === strategyId),
@@ -17,8 +25,14 @@ export const useBacktestStore = defineStore('backtest', () => {
     loading.value = true
     try {
       const { data } = await api.get<Backtest[]>('/backtests/')
-      backtests.value = strategyId ? data.filter((b) => b.strategy === strategyId) : data
-      return backtests.value
+      if (strategyId) {
+        const strategyRuns = data.filter((b) => b.strategy === strategyId)
+        const other = backtests.value.filter((b) => b.strategy !== strategyId)
+        backtests.value = [...strategyRuns, ...other]
+        return strategyRuns
+      }
+      backtests.value = data
+      return data
     } finally {
       loading.value = false
     }
@@ -66,6 +80,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
     backtests.value.unshift(placeholder)
     activeId.value = data.backtest_id
+    startPollingActive()
     return data.backtest_id
   }
 
@@ -99,6 +114,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
     backtests.value.unshift(placeholder)
     activeId.value = data.backtest_id
+    startPollingActive()
     return data.backtest_id
   }
 
@@ -127,6 +143,33 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
     if (payload.status === 'done' || payload.status === 'failed') {
       void fetchOne(id)
+      void import('./analytics').then(({ useAnalyticsStore }) => {
+        const astore = useAnalyticsStore()
+        if (astore.data) void astore.refreshIfBacktestDone()
+      })
+    }
+    if (activeBacktests.value.length) {
+      startPollingActive()
+    } else {
+      stopPollingActive()
+    }
+  }
+
+  function startPollingActive() {
+    if (pollTimer) return
+    pollTimer = setInterval(() => {
+      if (!activeBacktests.value.length) {
+        stopPollingActive()
+        return
+      }
+      void fetchAll()
+    }, POLL_INTERVAL_MS)
+  }
+
+  function stopPollingActive() {
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
     }
   }
 
@@ -134,6 +177,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     backtests,
     activeId,
     active,
+    activeBacktests,
     loading,
     forStrategy,
     fetchAll,
@@ -143,5 +187,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     pollUntilDone,
     select,
     applyWs,
+    startPollingActive,
+    stopPollingActive,
   }
 })

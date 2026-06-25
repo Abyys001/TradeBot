@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../../stores/strategy'
@@ -9,6 +9,7 @@ import { useToast } from '../../composables/useToast'
 import BacktestHistory from './BacktestHistory.vue'
 import BacktestResults from './BacktestResults.vue'
 import OptimizerPanel from '../optimizer/OptimizerPanel.vue'
+import ProgressBar from '../../components/ProgressBar.vue'
 
 const props = defineProps<{ strategyId: number }>()
 
@@ -23,6 +24,7 @@ const toast = useToast()
 
 const FALLBACK_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
 const running = ref(false)
+const batchIds = ref<number[]>([])
 const newCoin = ref('')
 
 const strategy = computed(() => strategyStore.strategies.find((s) => s.id === props.strategyId) ?? null)
@@ -39,6 +41,19 @@ const availableIntervals = computed(() => {
 })
 
 const strategyBacktests = computed(() => backtestStore.forStrategy(props.strategyId))
+
+const anyActive = computed(() =>
+  strategyBacktests.value.some((b) => b.status === 'pending' || b.status === 'running'),
+)
+
+const batchProgress = computed(() => {
+  if (!batchIds.value.length) return null
+  const runs = batchIds.value
+    .map((id) => backtestStore.backtests.find((b) => b.id === id))
+    .filter((b): b is NonNullable<typeof b> => Boolean(b))
+  const finished = runs.filter((b) => b.status === 'done' || b.status === 'failed').length
+  return { finished, total: batchIds.value.length }
+})
 
 const hasCoverageWarnings = computed(() => coverageWarnings().length > 0)
 
@@ -91,6 +106,15 @@ onMounted(async () => {
     historyStore.fetchDatasets(),
     historyStore.fetchMarkets(selectedNetwork.value),
   ])
+  if (backtestStore.activeBacktests.length) {
+    backtestStore.startPollingActive()
+  }
+})
+
+onUnmounted(() => {
+  if (!backtestStore.activeBacktests.length) {
+    backtestStore.stopPollingActive()
+  }
 })
 
 function addCoin() {
@@ -185,9 +209,22 @@ async function runQuickBacktest() {
   const coin = selectedCoins.value[0]
   const interval = selectedIntervals.value[0]
   if (!coin || !interval) return
+
+  const ds = historyStore.findDataset(coin, interval, selectedNetwork.value)
+  if (!ds) {
+    toast.show(t('backtest.missingData', { pairs: `${coin}/${interval}` }), 'error')
+    return
+  }
+
   running.value = true
   try {
-    const id = await backtestStore.runInline(s.id, coin, interval)
+    const id = await backtestStore.runStored(s.id, {
+      coin,
+      interval,
+      network: selectedNetwork.value,
+      start: ds.start_ts,
+      end: ds.end_ts,
+    })
     toast.show(t('backtest.queued', { count: 1 }), 'success')
     backtestStore.select(id)
     emit('selectBacktest', id)
@@ -235,10 +272,13 @@ async function runBacktests() {
     }
     toast.show(t('backtest.queued', { count: ids.length }), 'success')
     if (ids.length) {
+      batchIds.value = ids
       backtestStore.select(ids[0])
       emit('selectBacktest', ids[0])
     }
-    void Promise.all(ids.map((id) => backtestStore.pollUntilDone(id)))
+    void Promise.all(ids.map((id) => backtestStore.pollUntilDone(id))).then(() => {
+      batchIds.value = []
+    })
   } catch {
     toast.show(t('backtest.runFailed'), 'error')
   } finally {
@@ -335,10 +375,21 @@ function onSelect(id: number) {
         </label>
       </div>
 
+      <div v-if="batchProgress" class="space-y-1">
+        <div class="flex justify-between text-xs text-zinc-500">
+          <span>{{ t('backtest.batchProgress') }}</span>
+          <span>{{ batchProgress.finished }}/{{ batchProgress.total }}</span>
+        </div>
+        <ProgressBar
+          :value="(batchProgress.finished / batchProgress.total) * 100"
+          color="violet"
+        />
+      </div>
+
       <button
         type="button"
         class="w-full rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-        :disabled="running || !selectedCoins.length || !selectedIntervals.length"
+        :disabled="running || anyActive || !selectedCoins.length || !selectedIntervals.length"
         @click="runQuickBacktest"
       >
         {{ t('backtest.quickRun') }}
@@ -347,10 +398,10 @@ function onSelect(id: number) {
       <button
         type="button"
         class="w-full rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
-        :disabled="running || !selectedCoins.length || !selectedIntervals.length"
+        :disabled="running || anyActive || !selectedCoins.length || !selectedIntervals.length"
         @click="runBacktests"
       >
-        {{ running ? t('backtest.running') : t('backtest.run') }}
+        {{ running || anyActive ? t('backtest.running') : t('backtest.run') }}
       </button>
     </div>
 

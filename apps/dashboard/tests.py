@@ -51,6 +51,43 @@ def test_analytics_best_worst(client):
     assert data["count"] == 2
     assert data["best"]["net_pnl"] == 100
     assert data["worst"]["net_pnl"] == -50
+    assert "equity_series" not in data["runs"][0]
+
+
+@pytest.mark.django_db
+def test_analytics_monthly_and_by_asset(client):
+    user = _login(client)
+    strat = Strategy.objects.create(user=user, name="a", type="pine", symbol="BTC")
+    Backtest.objects.create(
+        strategy=strat,
+        symbol="BTC",
+        status=Backtest.Status.DONE,
+        metrics={"net_pnl": 50, "num_trades": 4, "win_rate": 0.5, "funding_paid": 1.5},
+    )
+    Backtest.objects.create(
+        strategy=strat,
+        symbol="ETH",
+        status=Backtest.Status.DONE,
+        metrics={"net_pnl": -10, "num_trades": 2, "win_rate": 0.0, "funding_paid": 0.5},
+    )
+    data = client.get("/api/analytics/").json()
+    assert data["count"] == 2
+    assert len(data["monthly"]) >= 1
+    assert sum(b["net_pnl"] for b in data["by_asset"]) == pytest.approx(40.0)
+    assert data["total_funding_paid"] == pytest.approx(2.0)
+    symbols = {b["symbol"] for b in data["by_asset"]}
+    assert symbols == {"BTC", "ETH"}
+
+
+@pytest.mark.django_db
+def test_analytics_excludes_non_done(client):
+    user = _login(client)
+    strat = Strategy.objects.create(user=user, name="a", type="pine", symbol="BTC")
+    Backtest.objects.create(strategy=strat, symbol="BTC", status=Backtest.Status.PENDING, metrics={})
+    Backtest.objects.create(strategy=strat, symbol="BTC", status=Backtest.Status.FAILED, metrics={})
+    data = client.get("/api/analytics/").json()
+    assert data["count"] == 0
+    assert data["runs"] == []
 
 
 @pytest.mark.django_db

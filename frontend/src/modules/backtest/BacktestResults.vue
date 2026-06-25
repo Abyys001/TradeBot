@@ -4,11 +4,15 @@ import { useI18n } from 'vue-i18n'
 import type { Backtest } from '../../api/client'
 import MetricsCards from './MetricsCards.vue'
 import EquityCurve from './EquityCurve.vue'
+import ProgressBar from '../../components/ProgressBar.vue'
 
 const props = defineProps<{ backtest: Backtest | null }>()
 const { t } = useI18n()
 
 const trades = computed(() => props.backtest?.trades ?? [])
+const isActive = computed(
+  () => props.backtest?.status === 'pending' || props.backtest?.status === 'running',
+)
 </script>
 
 <template>
@@ -31,6 +35,11 @@ const trades = computed(() => props.backtest?.trades ?? [])
       </span>
     </div>
 
+    <div v-if="isActive" class="space-y-1">
+      <p class="text-xs text-zinc-500">{{ t('backtest.progress') }}</p>
+      <ProgressBar indeterminate color="amber" />
+    </div>
+
     <p v-if="backtest.error" class="text-sm text-red-400">{{ backtest.error }}</p>
 
     <MetricsCards v-if="backtest.status === 'done'" :metrics="backtest.metrics" />
@@ -47,6 +56,7 @@ const trades = computed(() => props.backtest?.trades ?? [])
             <th class="px-3 py-2 text-end">{{ t('backtest.entry') }}</th>
             <th class="px-3 py-2 text-end">{{ t('backtest.exit') }}</th>
             <th class="px-3 py-2 text-end">{{ t('backtest.pnl') }}</th>
+            <th class="px-3 py-2 text-end">{{ t('backtest.exitReason') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -57,6 +67,7 @@ const trades = computed(() => props.backtest?.trades ?? [])
             <td class="px-3 py-1.5 text-end" :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">
               {{ tr.pnl }}
             </td>
+            <td class="px-3 py-1.5 text-end text-zinc-500">{{ tr.exit_reason || '—' }}</td>
           </tr>
         </tbody>
       </table>

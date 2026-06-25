@@ -381,6 +381,8 @@ def test_run_backtest_task_persists_results(settings):
     assert bt.status == Backtest.Status.DONE
     assert bt.metrics["num_trades"] >= 1
     assert bt.trades.count() == bt.metrics["num_trades"]
+    assert bt.range_start is not None
+    assert bt.range_end is not None
 
 
 @pytest.mark.django_db
@@ -429,6 +431,36 @@ def test_run_backtest_stored_task_fails_when_no_candles(tmp_path, settings):
     assert res["ok"] is False
     bt.refresh_from_db()
     assert bt.status == Backtest.Status.FAILED
+
+
+@pytest.mark.django_db
+def test_backtest_api_includes_trade_exit_fields(client):
+    from .models import Backtest, BacktestTrade
+
+    User = get_user_model()
+    user = User.objects.create_user(username="apiu", password="pw")
+    client.force_login(user)
+    strat = Strategy.objects.create(user=user, name="s", type="pine", symbol="BTC", source=SMA_CROSS)
+    bt = Backtest.objects.create(strategy=strat, symbol="BTC", status=Backtest.Status.DONE, metrics={})
+    BacktestTrade.objects.create(
+        backtest=bt,
+        side="long",
+        entry_price=Decimal("100"),
+        exit_price=Decimal("110"),
+        size=Decimal("1"),
+        pnl=Decimal("10"),
+        entry_bar=1,
+        exit_bar=5,
+        stop_px=Decimal("90"),
+        limit_px=Decimal("120"),
+        exit_reason="take_profit",
+    )
+
+    data = client.get(f"/api/backtests/{bt.id}/").json()
+    trade = data["trades"][0]
+    assert trade["exit_reason"] == "take_profit"
+    assert float(trade["stop_px"]) == 90.0
+    assert float(trade["limit_px"]) == 120.0
 
 
 @pytest.mark.django_db

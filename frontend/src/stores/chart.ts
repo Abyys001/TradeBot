@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api, type Candle, type ChartMarker } from '../api/client'
+import { api, type Candle, type ChartMarker, type ChartPriceLevel } from '../api/client'
 
 export const useChartStore = defineStore('chart', () => {
   const candles = ref<Candle[]>([])
   const markers = ref<ChartMarker[]>([])
+  const levels = ref<ChartPriceLevel[]>([])
   const pnl = ref<string>('0')
   const loading = ref(false)
 
@@ -21,18 +22,28 @@ export const useChartStore = defineStore('chart', () => {
     }
   }
 
-  async function fetchMarkers(strategyId: number, source = 'live', backtestId?: number) {
+  async function fetchMarkers(
+    strategyId: number,
+    source = 'live',
+    backtestId?: number,
+    network?: string,
+  ) {
     const params: Record<string, string | number> = { strategy_id: strategyId, source }
     if (backtestId) params.backtest_id = backtestId
-    const { data } = await api.get<{ markers: ChartMarker[] }>('/markers/', { params })
+    if (network) params.network = network
+    const { data } = await api.get<{ markers: ChartMarker[]; levels?: ChartPriceLevel[] }>(
+      '/markers/',
+      { params },
+    )
     markers.value = data.markers
+    levels.value = data.levels ?? []
     return data.markers
   }
 
   async function fetchStoredCandles(
     coin: string,
     interval: string,
-    opts?: { start?: number; end?: number; limit?: number },
+    opts?: { start?: number; end?: number; limit?: number; network?: string },
   ) {
     loading.value = true
     try {
@@ -41,6 +52,7 @@ export const useChartStore = defineStore('chart', () => {
         interval,
         start: opts?.start,
         end: opts?.end,
+        network: opts?.network,
       }
       if (opts?.start != null && opts?.end != null) {
         params.limit = opts.limit ?? 50000
@@ -72,5 +84,16 @@ export const useChartStore = defineStore('chart', () => {
     pnl.value = String(payload.pnl ?? '0')
   }
 
-  return { candles, markers, pnl, loading, fetchCandles, fetchStoredCandles, fetchMarkers, applyCandleTick, applyPnl }
+  return {
+    candles,
+    markers,
+    levels,
+    pnl,
+    loading,
+    fetchCandles,
+    fetchStoredCandles,
+    fetchMarkers,
+    applyCandleTick,
+    applyPnl,
+  }
 })

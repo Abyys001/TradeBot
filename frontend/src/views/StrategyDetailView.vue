@@ -47,7 +47,12 @@ function syncModeFromRoute() {
     mode.value = qMode
   }
   const btId = route.query.backtestId
-  if (btId) activeBacktestId.value = Number(btId)
+  if (btId) {
+    const id = Number(btId)
+    activeBacktestId.value = id
+    backtestStore.select(id)
+    mode.value = 'backtest'
+  }
 }
 
 function syncModeFromStrategy() {
@@ -66,8 +71,21 @@ onMounted(async () => {
   syncModeFromStrategy()
   if (activeBacktestId.value) {
     await backtestStore.fetchAll(strategyId.value)
+    await backtestStore.fetchOne(activeBacktestId.value)
   }
 })
+
+watch(
+  () => route.query.backtestId,
+  async (btId) => {
+    if (!btId) return
+    const id = Number(btId)
+    activeBacktestId.value = id
+    backtestStore.select(id)
+    mode.value = 'backtest'
+    await backtestStore.fetchOne(id)
+  },
+)
 
 watch(strategyId, async (id) => {
   if (!Number.isNaN(id)) {

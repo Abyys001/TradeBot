@@ -155,12 +155,14 @@ class MarkersView(APIView):
 
             start_ms = int(bt.range_start.timestamp() * 1000) if bt.range_start else None
             end_ms = int(bt.range_end.timestamp() * 1000) if bt.range_end else None
-            df = load_candles(bt.symbol, bt.timeframe, start_ms, end_ms)
+            df = load_candles(
+                bt.symbol, bt.timeframe, start_ms, end_ms, network=bt.network or "mainnet"
+            )
             ts_list = [int(t // 1000) for t in df["ts"].tolist()] if not df.empty else []
 
             def bar_time(bar_index: int | None) -> int | None:
                 if bar_index is None or bar_index < 0 or bar_index >= len(ts_list):
-                    return bar_index
+                    return None
                 return ts_list[bar_index]
 
             # Exit-reason → marker styling (stop-loss vs take-profit vs liquidation).
@@ -294,12 +296,19 @@ class AnalyticsView(APIView):
                     "profit_factor": m.get("profit_factor"),
                     "max_drawdown": m.get("max_drawdown"),
                     "num_trades": m.get("num_trades"),
-                    "equity_series": m.get("equity_series", []),
                     "created_at": bt.created_at,
                 }
             )
         best = max(rows, key=lambda r: r.get("net_pnl") or 0, default=None)
         worst = min(rows, key=lambda r: r.get("net_pnl") or 0, default=None)
+        if best:
+            best_bt = next((bt for bt in backtests if bt.id == best["backtest_id"]), None)
+            if best_bt:
+                best = {**best, "equity_series": (best_bt.metrics or {}).get("equity_series", [])}
+        if worst:
+            worst_bt = next((bt for bt in backtests if bt.id == worst["backtest_id"]), None)
+            if worst_bt:
+                worst = {**worst, "equity_series": (worst_bt.metrics or {}).get("equity_series", [])}
 
         # Monthly performance buckets (by run creation month).
         monthly: dict[str, dict] = {}

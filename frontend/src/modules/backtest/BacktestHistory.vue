@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Backtest } from '../../api/client'
+import ProgressBar from '../../components/ProgressBar.vue'
 
 const props = defineProps<{
   backtests: Backtest[]
@@ -21,6 +22,10 @@ function statusClass(status: string) {
   if (status === 'failed') return 'text-red-400'
   if (status === 'running') return 'text-amber-400'
   return 'text-zinc-500'
+}
+
+function isActive(status: string) {
+  return status === 'pending' || status === 'running'
 }
 </script>
 
@@ -42,10 +47,16 @@ function statusClass(status: string) {
     >
       <div class="flex justify-between items-center">
         <span class="text-zinc-300">{{ bt.symbol }} / {{ bt.timeframe }}</span>
-        <span :class="statusClass(bt.status)">{{ bt.status }}</span>
+        <span :class="[statusClass(bt.status), { 'animate-pulse': bt.status === 'running' }]">
+          {{ bt.status }}
+        </span>
       </div>
+      <ProgressBar v-if="isActive(bt.status)" indeterminate color="amber" class="mt-1.5" />
       <div v-if="bt.status === 'done'" class="text-zinc-500 mt-0.5">
         PnL: {{ bt.metrics?.net_pnl?.toFixed(2) ?? '—' }} · {{ bt.metrics?.num_trades ?? 0 }} trades
+      </div>
+      <div v-else-if="bt.status === 'failed' && bt.error" class="text-red-400/80 mt-0.5 truncate">
+        {{ bt.error }}
       </div>
     </button>
   </div>

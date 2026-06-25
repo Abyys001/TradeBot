@@ -8,7 +8,7 @@ class BacktestTradeSerializer(serializers.ModelSerializer):
         model = BacktestTrade
         fields = [
             "side", "entry_price", "exit_price", "size", "pnl",
-            "entry_bar", "exit_bar",
+            "entry_bar", "exit_bar", "stop_px", "limit_px", "exit_reason",
         ]
 
 

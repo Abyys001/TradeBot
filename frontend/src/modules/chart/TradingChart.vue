@@ -7,6 +7,7 @@ import {
   CandlestickSeries,
   type IChartApi,
   type ISeriesApi,
+  type IPriceLine,
   type CandlestickData,
   type SeriesMarker,
   type Time,
@@ -35,6 +36,7 @@ const container = ref<HTMLElement | null>(null)
 let chart: IChartApi | null = null
 let series: ISeriesApi<'Candlestick'> | null = null
 let markersApi: ReturnType<typeof createSeriesMarkers<Time>> | null = null
+let priceLines: IPriceLine[] = []
 
 const selectedSymbol = ref('')
 const selectedTimeframe = ref('')
@@ -66,16 +68,29 @@ watch(selected, (s) => {
   selectedTimeframe.value = timeframes.value[0] || s.timeframe
 }, { immediate: true })
 
+function clearPriceLines() {
+  if (!series) return
+  for (const pl of priceLines) {
+    series.removePriceLine(pl)
+  }
+  priceLines = []
+}
+
 async function loadChartData() {
   const s = selected.value
   if (!s || !container.value) return
 
   if (props.mode === 'backtest' && props.backtestId) {
     const bt = activeBacktest.value ?? (await backtestStore.fetchOne(props.backtestId))
+    const network = bt.network ?? 'mainnet'
     const startMs = bt.range_start ? new Date(bt.range_start).getTime() : undefined
     const endMs = bt.range_end ? new Date(bt.range_end).getTime() : undefined
-    await chartStore.fetchStoredCandles(bt.symbol, bt.timeframe, { start: startMs, end: endMs })
-    await chartStore.fetchMarkers(s.id, 'backtest', bt.id)
+    await chartStore.fetchStoredCandles(bt.symbol, bt.timeframe, {
+      start: startMs,
+      end: endMs,
+      network,
+    })
+    await chartStore.fetchMarkers(s.id, 'backtest', bt.id, network)
   } else if (props.mode === 'paper') {
     await chartStore.fetchCandles(selectedSymbol.value, selectedTimeframe.value)
     await chartStore.fetchMarkers(s.id, 'paper')
@@ -84,6 +99,24 @@ async function loadChartData() {
     await chartStore.fetchMarkers(s.id, 'live')
   }
   updateSeries()
+}
+
+function updatePriceLines() {
+  clearPriceLines()
+  if (!series || props.mode !== 'backtest') return
+  for (const level of chartStore.levels) {
+    const isStop = level.type === 'stop'
+    priceLines.push(
+      series.createPriceLine({
+        price: level.price,
+        color: isStop ? '#ef4444' : '#3b82f6',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: isStop ? 'SL' : 'TP',
+      }),
+    )
+  }
 }
 
 function updateSeries() {
@@ -109,6 +142,7 @@ function updateSeries() {
   } else if (series) {
     markersApi = createSeriesMarkers(series, markers)
   }
+  updatePriceLines()
 }
 
 watch(
@@ -128,6 +162,14 @@ watch(
 )
 
 watch([selected, () => props.strategyId, () => props.mode, () => props.backtestId], loadChartData)
+watch(
+  () => [activeBacktest.value?.status, activeBacktest.value?.trades?.length] as const,
+  ([status]) => {
+    if (props.mode === 'backtest' && props.backtestId && status === 'done') {
+      void loadChartData()
+    }
+  },
+)
 watch([selectedSymbol, selectedTimeframe], () => {
   if (props.mode === 'live' || props.mode === 'paper') loadChartData()
 })
@@ -166,6 +208,7 @@ onMounted(() => {
 
   onUnmounted(() => {
     ro.disconnect()
+    clearPriceLines()
     chart?.remove()
     chart = null
     series = null
@@ -201,7 +244,17 @@ onMounted(() => {
       class="absolute top-2 start-2 z-10 rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-300"
     >
       {{ activeBacktest.symbol }} / {{ activeBacktest.timeframe }}
-      <span v-if="activeBacktest.metrics?.net_pnl != null" class="ms-2" :class="activeBacktest.metrics.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'">
+      <span
+        v-if="activeBacktest.status === 'running' || activeBacktest.status === 'pending'"
+        class="ms-2 text-amber-400"
+      >
+        {{ activeBacktest.status }}…
+      </span>
+      <span
+        v-else-if="activeBacktest.metrics?.net_pnl != null"
+        class="ms-2"
+        :class="activeBacktest.metrics.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'"
+      >
         PnL: {{ activeBacktest.metrics.net_pnl.toFixed(2) }}
       </span>
     </div>

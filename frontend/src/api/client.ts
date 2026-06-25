@@ -110,6 +110,12 @@ export interface ChartMarker {
   side?: string
 }
 
+export interface ChartPriceLevel {
+  time: number
+  price: number
+  type: 'stop' | 'take_profit' | string
+}
+
 export interface Credential {
   id: number
   exchange: string
@@ -171,6 +177,9 @@ export interface BacktestTrade {
   pnl: string
   entry_bar: number
   exit_bar: number | null
+  stop_px?: string | null
+  limit_px?: string | null
+  exit_reason?: string
 }
 
 export interface BacktestMetrics {
