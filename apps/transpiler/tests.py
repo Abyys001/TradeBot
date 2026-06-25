@@ -27,6 +27,11 @@ if ta.crossunder(fast, slow)
     strategy.close("long")
 """
 
+EXIT_TPSL = """strategy("Exit TPSL")
+strategy.entry("long", strategy.long, qty=1)
+strategy.exit("x", stop=90, limit=110)
+"""
+
 
 def _wave_df(n=120):
     t = np.arange(n)
@@ -88,12 +93,183 @@ def test_ema_rma_rsi_finite():
 
 
 # 5. Backtest end-to-end
+METRIC_KEYS = {
+    "num_trades", "net_pnl", "gross_pnl", "total_commission", "win_rate", "max_drawdown",
+    "profit_factor", "sharpe_ratio", "avg_trade", "risk_reward", "expectancy", "funding_paid",
+    "leverage", "liquidations", "final_equity", "equity_series",
+}
+
+
 def test_backtest_produces_trades_and_metrics():
     res = run_backtest(SMA_CROSS, _wave_df())
     assert res.metrics["num_trades"] >= 1
-    assert set(res.metrics) == {"num_trades", "net_pnl", "win_rate", "max_drawdown"}
+    assert set(res.metrics) == METRIC_KEYS
     t = res.trades[0]
     assert t["side"] == "long" and t["exit_price"] is not None
+
+
+def test_fill_at_next_bar_open():
+    """Entry on bar i fills at open[i+1] (after slippage)."""
+    src = """strategy("fill")
+if bar_index == 5
+    strategy.entry("long", strategy.long)
+if bar_index == 10
+    strategy.close("long")
+"""
+    df = _wave_df(20)
+    slip = 0.001
+    res = run_backtest(src, df, slippage=slip)
+    assert len(res.trades) == 1
+    expected_entry = float(df["open"].iloc[6]) * (1.0 + slip)
+    assert res.trades[0]["entry_bar"] == 6
+    assert res.trades[0]["entry_price"] == pytest.approx(expected_entry)
+
+
+def test_last_bar_signal_does_not_fill():
+    src = """strategy("last")
+if bar_index == 4
+    strategy.entry("long", strategy.long)
+"""
+    df = _wave_df(5)
+    res = run_backtest(src, df)
+    assert res.metrics["num_trades"] == 0
+
+
+def test_commission_and_slippage_reduce_pnl():
+    src = """strategy("fees")
+if bar_index == 1
+    strategy.entry("long", strategy.long)
+if bar_index == 5
+    strategy.close("long")
+"""
+    df = _wave_df(10)
+    no_fees = run_backtest(src, df, commission=0.0, slippage=0.0)
+    with_fees = run_backtest(src, df, commission=0.001, slippage=0.001)
+    assert with_fees.metrics["total_commission"] > 0
+    assert with_fees.metrics["gross_pnl"] > with_fees.metrics["net_pnl"]
+    assert with_fees.metrics["net_pnl"] < no_fees.metrics["net_pnl"]
+
+
+def test_position_size_gates_entry_once():
+    src = """strategy("pos")
+if bar_index == 5 and strategy.position_size == 0
+    strategy.entry("long", strategy.long)
+if bar_index == 50
+    strategy.close("long")
+"""
+    res = run_backtest(src, _wave_df(60))
+    assert res.metrics["num_trades"] == 1
+
+
+# 5b. input.*
+def test_input_int_default_used_in_rsi():
+    src = """strategy("input rsi")
+len = input.int(14, "Length")
+r = ta.rsi(close, len)
+if bar_index == 30
+    strategy.entry("long", strategy.long)
+"""
+    res = run_backtest(src, _wave_df(60))
+    assert compile(src).header is not None
+
+
+def test_input_float_defval_kwarg():
+    src = 'strategy("x")\nth = input.float(defval=2.5)\n'
+    prog = compile(src)
+    res = run_backtest(src, _wave_df(5))
+    assert res.metrics["num_trades"] == 0
+
+
+# 5c. User-defined functions
+def test_udf_single_line():
+    src = """strategy("udf")
+myAvg(x, y) => (x + y) / 2
+s = myAvg(close, open)
+if bar_index == 10
+    strategy.entry("long", strategy.long)
+"""
+    res = run_backtest(src, _wave_df(30))
+    assert res.metrics["num_trades"] == 1
+
+
+def test_udf_multiline_suite():
+    src = """strategy("udf multi")
+dbl(x) =>
+    y = x * 2
+    y + 1
+z = dbl(close)
+if bar_index == 10
+    strategy.entry("long", strategy.long)
+"""
+    res = run_backtest(src, _wave_df(30))
+    assert res.metrics["num_trades"] == 1
+
+
+def test_udf_wrong_arity_errors():
+    with pytest.raises(PineSemanticError):
+        compile('strategy("x")\nf(a) => a\ny = f(1, 2)\n')
+
+
+# 5d. Indicators + tuple destructuring
+def test_atr_matches_reference():
+    df = _wave_df(80)
+    high, low, close = df["high"].to_numpy(), df["low"].to_numpy(), df["close"].to_numpy()
+    tr = ind.tr(high, low, close)
+    ref = ind.rma(tr, 14)
+    src = """strategy("atr")
+a = ta.atr(14)
+"""
+    ctx_df = df
+    from .runtime.context import ExecutionContext
+    from .runtime.order_router import SimBroker
+    from .runtime import interpreter
+    from .parser import parse
+    from .semantic import analyze
+    prog = parse(src)
+    analyze(prog)
+    broker = SimBroker()
+    ctx = ExecutionContext(ctx_df, broker)
+    interpreter.run(prog, ctx)
+    assert np.allclose(ctx.arrays["a"], ref, equal_nan=True, rtol=1e-5)
+
+
+def test_change_matches_reference():
+    close = _wave_df()["close"].to_numpy()
+    ref = ind.change(close, 5)
+    assert np.allclose(ind.change(close, 5), ref, equal_nan=True)
+
+
+def test_macd_tuple_destructure():
+    src = """strategy("macd")
+[macdLine, signalLine, histLine] = ta.macd(close, 12, 26, 9)
+if ta.crossover(macdLine, signalLine)
+    strategy.entry("long", strategy.long)
+if ta.crossunder(macdLine, signalLine)
+    strategy.close("long")
+"""
+    res = run_backtest(src, _wave_df(120))
+    assert res.metrics["num_trades"] >= 0
+
+
+def test_bb_tuple_destructure():
+    src = """strategy("bb")
+[mid, upper, lower] = ta.bb(close, 20, 2.0)
+if close < lower
+    strategy.entry("long", strategy.long)
+if close > upper
+    strategy.close("long")
+"""
+    res = run_backtest(src, _wave_df(80))
+    assert res.metrics["num_trades"] >= 0
+
+
+def test_barssince_valuewhen():
+    src = """strategy("stateful")
+bs = ta.barssince(close > open)
+vw = ta.valuewhen(close > open, close, 0)
+"""
+    res = run_backtest(src, _wave_df(40))
+    assert res.metrics["num_trades"] == 0
 
 
 def test_var_persistence_and_history():
@@ -150,7 +326,14 @@ def test_live_places_order_when_enabled():
     _, cred, strat = _live_setup(trading_enabled=True)
     fake_exchange = _fake_hl_exchange()
 
-    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+    with (
+        mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange),
+        mock.patch("apps.exchange.hl_meta.resolve_trading_name", return_value="BTC"),
+        mock.patch("apps.exchange.hl_meta.get_asset_meta") as meta,
+        mock.patch("apps.exchange.risk.pre_trade_gate") as gate,
+    ):
+        meta.return_value = mock.Mock(sz_decimals=4, is_spot=False, name="BTC")
+        gate.return_value = mock.Mock(ok=True, reason="", details={})
         run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="BTC")
 
     assert fake_exchange.market_open.called
@@ -165,7 +348,10 @@ def test_live_blocked_by_kill_switch():
     _, cred, strat = _live_setup(trading_enabled=False)
     fake_exchange = _fake_hl_exchange()
 
-    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+    with (
+        mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange),
+        mock.patch("apps.exchange.hl_meta.resolve_trading_name", return_value="BTC"),
+    ):
         run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="BTC")
 
     assert not fake_exchange.market_open.called
@@ -194,6 +380,86 @@ def test_run_backtest_task_persists_results(settings):
     bt.refresh_from_db()
     assert bt.status == Backtest.Status.DONE
     assert bt.metrics["num_trades"] >= 1
+    assert bt.trades.count() == bt.metrics["num_trades"]
+
+
+@pytest.mark.django_db
+def test_run_backtest_stored_task_uses_local_candles(tmp_path, settings):
+    settings.CANDLE_DATA_DIR = str(tmp_path)
+    from apps.exchange import candle_store
+
+    from .models import Backtest
+    from .tasks import run_backtest_stored_task
+
+    User = get_user_model()
+    user = User.objects.create_user(username="storeu", password="pw")
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user, credential=cred, name="s", type="t", symbol="BTC", source=SMA_CROSS,
+    )
+
+    df = _wave_df()
+    df["ts"] = range(1000, 1000 + len(df) * 60, 60)
+    candle_store.save_candles("BTC", "1h", df)
+
+    bt = Backtest.objects.create(strategy=strat, symbol="BTC", timeframe="1h")
+    run_backtest_stored_task.run(bt.id, "BTC", "1h")  # synchronous, no exchange calls
+
+    bt.refresh_from_db()
+    assert bt.status == Backtest.Status.DONE
+    assert bt.metrics["num_trades"] >= 1
+    assert bt.trades.count() == bt.metrics["num_trades"]
+
+
+@pytest.mark.django_db
+def test_run_backtest_stored_task_fails_when_no_candles(tmp_path, settings):
+    settings.CANDLE_DATA_DIR = str(tmp_path)
+    from .models import Backtest
+    from .tasks import run_backtest_stored_task
+
+    User = get_user_model()
+    user = User.objects.create_user(username="nostoreu", password="pw")
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user, credential=cred, name="s", type="t", symbol="BTC", source=SMA_CROSS,
+    )
+    bt = Backtest.objects.create(strategy=strat, symbol="NOSTORE", timeframe="1h")
+    res = run_backtest_stored_task.run(bt.id, "NOSTORE", "1h")
+
+    assert res["ok"] is False
+    bt.refresh_from_db()
+    assert bt.status == Backtest.Status.FAILED
+
+
+@pytest.mark.django_db
+def test_download_to_backtest_e2e(tmp_path, settings):
+    """Stored candles from download path are readable by the backtest engine."""
+    settings.CANDLE_DATA_DIR = str(tmp_path / "candles")
+    from apps.exchange import candle_store
+
+    from .models import Backtest
+    from .tasks import run_backtest_stored_task
+
+    User = get_user_model()
+    user = User.objects.create_user(username="e2eu", password="pw")
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user, credential=cred, name="e2e", type="t", symbol="BTC", source=SMA_CROSS,
+    )
+
+    df = _wave_df()
+    df["ts"] = list(range(1_700_000_000_000, 1_700_000_000_000 + len(df) * 3_600_000, 3_600_000))
+    with mock.patch("apps.exchange.candle_store._save_parquet"):
+        candle_store.save_candles("BTC", "1h", df, network="mainnet")
+
+    bt = Backtest.objects.create(
+        strategy=strat, symbol="BTC", timeframe="1h", network="mainnet",
+    )
+    run_backtest_stored_task.run(bt.id, "BTC", "1h", network="mainnet")
+
+    bt.refresh_from_db()
+    assert bt.status == Backtest.Status.DONE
+    assert bt.metrics.get("num_trades", 0) >= 1
     assert bt.trades.count() == bt.metrics["num_trades"]
 
 
@@ -305,12 +571,49 @@ def test_live_spot_uses_order_api():
         "status": "ok",
         "response": {"data": {"statuses": [{"filled": {"oid": 1}}]}},
     }
-    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+    with (
+        mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange),
+        mock.patch("apps.exchange.hl_meta.aggressive_spot_price", return_value=100.0),
+        mock.patch("apps.exchange.hl_meta.resolve_trading_name", return_value="BTC/USDC"),
+        mock.patch("apps.exchange.hl_meta.get_asset_meta") as meta,
+    ):
+        meta.return_value = mock.Mock(sz_decimals=8, is_spot=True, name="BTC/USDC")
         run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="ETH")
     assert fake_exchange.order.called
     assert not fake_exchange.market_open.called
     assert OrderRecord.objects.filter(strategy=strat).exists()
 
+
+@pytest.mark.django_db
+def test_live_exit_places_trigger_orders_for_perp():
+    from apps.strategies.models import Strategy
+
+    User = get_user_model()
+    user = User.objects.create_user(username="tpslu", password="pw", is_trading_enabled=True)
+    cred = _hl_cred(user)
+    strat = Strategy.objects.create(
+        user=user,
+        credential=cred,
+        name="t",
+        type="t",
+        symbol="BTC",
+        market_type=Strategy.MarketType.PERP,
+        source=EXIT_TPSL,
+    )
+    fake_exchange = mock.Mock()
+    fake_exchange.order.return_value = {
+        "status": "ok",
+        "response": {"data": {"statuses": [{"resting": {"oid": 1}}]}},
+    }
+    with (
+        mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange),
+        mock.patch("apps.exchange.hl_meta.resolve_trading_name", return_value="BTC"),
+        mock.patch("apps.exchange.risk.pre_trade_gate") as gate,
+    ):
+        gate.return_value = mock.Mock(ok=True, reason="", details={})
+        run_live(strat.source, _wave_df(5), credential=cred, strategy=strat, symbol="BTC")
+
+    assert fake_exchange.order.called
 
 @pytest.mark.django_db
 def test_process_live_bar_places_order_on_new_candle():
@@ -328,9 +631,76 @@ def test_process_live_bar_places_order_on_new_candle():
         start_live_strategy_task.run(strat.pk)
 
     candle = {"ts": 999999, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
-    with mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange):
+    with (
+        mock.patch("apps.exchange.hl_client.build_exchange", return_value=fake_exchange),
+        mock.patch("apps.exchange.risk.pre_trade_gate") as gate,
+    ):
+        gate.return_value = mock.Mock(ok=True, reason="", details={})
         result = process_live_bar_task.run(strat.pk, candle)
 
     assert result["processed"] is True
     assert fake_exchange.market_open.called
     assert OrderRecord.objects.filter(strategy=strat).exists()
+
+
+def test_sim_broker_funding_and_liquidation():
+    from apps.transpiler.runtime.sim_broker import SimBroker
+
+    broker = SimBroker(
+        default_qty=1.0,
+        leverage=10.0,
+        initial_balance=100.0,
+        funding_rates={1000: 0.001},
+        maintenance_margin_rate=0.9,
+    )
+    broker.entry("long", "long", 100.0, 0, qty=10.0)
+    broker.on_bar(0, 1000, 100.0, 101.0, 99.0, 100.0)
+    assert broker.funding_paid != 0.0
+    broker.check_liquidation(10.0, 1)
+    assert broker.liquidations >= 1
+
+
+def test_sim_broker_partial_close():
+    from apps.transpiler.runtime.sim_broker import SimBroker
+
+    broker = SimBroker(default_qty=2.0)
+    broker.fill_at_next_open = False
+    broker.entry("p", "long", 100.0, 0, qty=2.0)
+    broker.close("p", 110.0, 1, qty_pct=0.5)
+    assert len(broker.closed) == 1
+    assert "p" in broker.open_trades
+    assert broker.open_trades["p"].size == 1.0
+
+
+def test_sim_broker_sl_tp_intrabar():
+    from apps.transpiler.runtime.sim_broker import SimBroker
+
+    broker = SimBroker(default_qty=1.0)
+    broker.fill_at_next_open = False
+    broker.entry("t", "long", 100.0, 0)
+    broker.exit("t", 100.0, 0, stop=95.0)
+    broker.check_stops(bar_high=102.0, bar_low=94.0, bar_index=1)
+    assert len(broker.closed) == 1
+    assert broker.closed[0].exit_reason == "stop"
+
+
+def test_metrics_sharpe_and_profit_factor():
+    from apps.transpiler.metrics import compute_metrics
+
+    class T:
+        def __init__(self, pnl, gross_pnl=0, commission=0):
+            self.pnl = pnl
+            self.gross_pnl = gross_pnl or pnl
+            self.commission = commission
+
+    m = compute_metrics([T(10), T(-5), T(8)], equity_series=[10000, 10010, 10005, 10013])
+    assert m["num_trades"] == 3
+    assert m["profit_factor"] > 0
+    assert "sharpe_ratio" in m
+
+
+def test_strategy_plugin_registry():
+    from apps.strategies.plugins.registry import get_engine, list_engines
+
+    assert "pine" in list_engines()
+    assert get_engine("pine").name == "pine"

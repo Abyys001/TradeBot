@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../stores/strategy'
-import { useCredentialsStore } from '../stores/credentials'
 import { useToast } from '../composables/useToast'
 import CreateStrategyModal from '../modules/strategy/CreateStrategyModal.vue'
+import ResearchGuide from '../modules/strategy/ResearchGuide.vue'
 import type { Strategy } from '../api/client'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const store = useStrategyStore()
-const credentials = useCredentialsStore()
 const toast = useToast()
 
 const showCreate = ref(false)
@@ -19,11 +19,28 @@ const deleteTarget = ref<Strategy | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const uploadSource = ref('')
 
-onMounted(async () => {
-  await Promise.all([store.fetchAll(), credentials.fetchAll()])
+onMounted(() => {
+  void store.fetchAll()
 })
 
 const list = computed(() => store.strategies)
+
+const dataPrefill = computed(() => {
+  const coin = route.query.dataCoin as string | undefined
+  const interval = route.query.dataInterval as string | undefined
+  const network = (route.query.dataNetwork as string | undefined) || 'mainnet'
+  if (!coin || !interval) return null
+  return { coin, interval, network }
+})
+
+function strategyQuery(backtest = false): Record<string, string> {
+  const query: Record<string, string> = {}
+  if (backtest || route.query.mode === 'backtest') query.mode = 'backtest'
+  if (route.query.dataCoin) query.dataCoin = String(route.query.dataCoin)
+  if (route.query.dataInterval) query.dataInterval = String(route.query.dataInterval)
+  if (route.query.dataNetwork) query.dataNetwork = String(route.query.dataNetwork)
+  return query
+}
 
 function statusClass(status: string) {
   if (status === 'active') return 'bg-emerald-900/50 text-emerald-400'
@@ -38,9 +55,13 @@ function validationClass(v: string) {
   return 'text-zinc-500'
 }
 
-function openDetail(id: number) {
+function openDetail(id: number, backtest = false) {
   store.select(id)
-  router.push({ name: 'strategy-detail', params: { id } })
+  router.push({
+    name: 'strategy-detail',
+    params: { id },
+    query: strategyQuery(backtest),
+  })
 }
 
 async function onValidate(s: Strategy) {
@@ -86,7 +107,7 @@ function onCreated(id: number) {
   showCreate.value = false
   uploadSource.value = ''
   toast.show(t('strategy.created'), 'success')
-  openDetail(id)
+  openDetail(id, true)
 }
 </script>
 
@@ -113,15 +134,22 @@ function onCreated(id: number) {
       </div>
     </div>
 
-    <div v-if="!list.length" class="rounded-xl border border-dashed border-zinc-700 p-12 text-center">
-      <p class="text-zinc-500 mb-4">{{ t('strategies.empty') }}</p>
-      <button
-        type="button"
-        class="rounded-lg bg-emerald-700 px-4 py-2 text-sm text-white hover:bg-emerald-600"
-        @click="showCreate = true"
-      >
-        {{ t('strategies.new') }}
-      </button>
+    <div
+      v-if="dataPrefill"
+      class="mb-4 rounded-lg border border-violet-900/50 bg-violet-950/30 px-3 py-2 text-sm text-violet-300"
+    >
+      {{ t('data.prefillHint', dataPrefill) }}
+    </div>
+
+    <ResearchGuide
+      v-if="!list.length"
+      class="mb-6"
+      @upload="onUploadClick"
+      @create="showCreate = true"
+    />
+
+    <div v-if="!list.length" class="rounded-xl border border-dashed border-zinc-700 p-8 text-center">
+      <p class="text-zinc-500 text-sm">{{ t('strategies.empty') }}</p>
     </div>
 
     <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
@@ -169,7 +197,7 @@ function onCreated(id: number) {
                 {{ t('strategy.stop') }}
               </button>
               <button
-                v-else
+                v-else-if="s.credential"
                 type="button"
                 class="text-xs text-emerald-400 hover:text-emerald-300"
                 @click="onStart(s)"

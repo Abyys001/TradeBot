@@ -61,6 +61,9 @@ class CandleConsumer:
         }
         for strategy_id in strategies_for(network, coin, interval):
             process_live_bar_task.delay(strategy_id, candle)
+            from apps.paper.tasks import process_paper_bar_task
+
+            process_paper_bar_task.delay(strategy_id, candle)
 
 
 def run_consumer() -> None:

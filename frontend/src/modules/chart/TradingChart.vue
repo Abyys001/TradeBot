@@ -14,30 +14,75 @@ import {
 } from 'lightweight-charts'
 import { useStrategyStore } from '../../stores/strategy'
 import { useChartStore } from '../../stores/chart'
+import { useBacktestStore } from '../../stores/backtest'
 import PnlCard from './PnlCard.vue'
 
-const props = defineProps<{ strategyId: number }>()
+const props = withDefaults(
+  defineProps<{
+    strategyId: number
+    mode?: 'live' | 'backtest' | 'paper'
+    backtestId?: number | null
+  }>(),
+  { mode: 'live', backtestId: null },
+)
 
 const { t } = useI18n()
 const strategyStore = useStrategyStore()
 const chartStore = useChartStore()
+const backtestStore = useBacktestStore()
 
 const container = ref<HTMLElement | null>(null)
 let chart: IChartApi | null = null
 let series: ISeriesApi<'Candlestick'> | null = null
 let markersApi: ReturnType<typeof createSeriesMarkers<Time>> | null = null
 
+const selectedSymbol = ref('')
+const selectedTimeframe = ref('')
+
 const selected = computed(() =>
   strategyStore.strategies.find((s) => s.id === props.strategyId) ?? null,
 )
 
+const symbols = computed(() => {
+  const s = selected.value
+  if (!s) return []
+  return s.live_config?.symbols?.length ? s.live_config.symbols : [s.symbol]
+})
+
+const timeframes = computed(() => {
+  const s = selected.value
+  if (!s) return []
+  return s.live_config?.timeframes?.length ? s.live_config.timeframes : [s.timeframe]
+})
+
+const activeBacktest = computed(() => {
+  if (!props.backtestId) return null
+  return backtestStore.backtests.find((b) => b.id === props.backtestId) ?? null
+})
+
+watch(selected, (s) => {
+  if (!s) return
+  selectedSymbol.value = symbols.value[0] || s.symbol
+  selectedTimeframe.value = timeframes.value[0] || s.timeframe
+}, { immediate: true })
+
 async function loadChartData() {
   const s = selected.value
   if (!s || !container.value) return
-  const symbol = s.live_config?.symbols?.[0] || s.symbol
-  const bar = s.live_config?.timeframes?.[0] || s.timeframe
-  await chartStore.fetchCandles(symbol, bar)
-  await chartStore.fetchMarkers(s.id)
+
+  if (props.mode === 'backtest' && props.backtestId) {
+    const bt = activeBacktest.value ?? (await backtestStore.fetchOne(props.backtestId))
+    const startMs = bt.range_start ? new Date(bt.range_start).getTime() : undefined
+    const endMs = bt.range_end ? new Date(bt.range_end).getTime() : undefined
+    await chartStore.fetchStoredCandles(bt.symbol, bt.timeframe, { start: startMs, end: endMs })
+    await chartStore.fetchMarkers(s.id, 'backtest', bt.id)
+  } else if (props.mode === 'paper') {
+    await chartStore.fetchCandles(selectedSymbol.value, selectedTimeframe.value)
+    await chartStore.fetchMarkers(s.id, 'paper')
+  } else {
+    await chartStore.fetchCandles(selectedSymbol.value, selectedTimeframe.value)
+    await chartStore.fetchMarkers(s.id, 'live')
+  }
   updateSeries()
 }
 
@@ -69,7 +114,7 @@ function updateSeries() {
 watch(
   () => chartStore.candles,
   () => {
-    if (!series || !chartStore.candles.length) return
+    if (!series || !chartStore.candles.length || props.mode === 'backtest') return
     const last = chartStore.candles[chartStore.candles.length - 1]
     series.update({
       time: last.time as CandlestickData['time'],
@@ -82,8 +127,10 @@ watch(
   { deep: true },
 )
 
-watch(selected, loadChartData)
-watch(() => props.strategyId, loadChartData)
+watch([selected, () => props.strategyId, () => props.mode, () => props.backtestId], loadChartData)
+watch([selectedSymbol, selectedTimeframe], () => {
+  if (props.mode === 'live' || props.mode === 'paper') loadChartData()
+})
 
 onMounted(() => {
   if (!container.value) return
@@ -122,16 +169,47 @@ onMounted(() => {
     chart?.remove()
     chart = null
     series = null
+    markersApi = null
   })
 })
 </script>
 
 <template>
-  <div class="relative h-full w-full">
+  <div class="relative h-full w-full flex flex-col">
+    <div
+      v-if="selected && (mode === 'live' || mode === 'paper') && (symbols.length > 1 || timeframes.length > 1)"
+      class="absolute top-2 start-2 z-10 flex gap-2"
+    >
+      <select
+        v-if="symbols.length > 1"
+        v-model="selectedSymbol"
+        class="rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-200"
+      >
+        <option v-for="sym in symbols" :key="sym" :value="sym">{{ sym }}</option>
+      </select>
+      <select
+        v-if="timeframes.length > 1"
+        v-model="selectedTimeframe"
+        class="rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-200"
+      >
+        <option v-for="tf in timeframes" :key="tf" :value="tf">{{ tf }}</option>
+      </select>
+    </div>
+
+    <div
+      v-if="selected && mode === 'backtest' && activeBacktest"
+      class="absolute top-2 start-2 z-10 rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-300"
+    >
+      {{ activeBacktest.symbol }} / {{ activeBacktest.timeframe }}
+      <span v-if="activeBacktest.metrics?.net_pnl != null" class="ms-2" :class="activeBacktest.metrics.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'">
+        PnL: {{ activeBacktest.metrics.net_pnl.toFixed(2) }}
+      </span>
+    </div>
+
     <div v-if="!selected" class="flex h-full items-center justify-center text-zinc-500 text-sm">
       {{ t('chart.noStrategy') }}
     </div>
-    <div v-else ref="container" class="h-full w-full" />
-    <PnlCard v-if="selected" :strategy-id="strategyId" />
+    <div v-else ref="container" class="flex-1 w-full min-h-0" />
+    <PnlCard v-if="selected && mode === 'live'" :strategy-id="strategyId" />
   </div>
 </template>

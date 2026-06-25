@@ -9,11 +9,17 @@ from .engine import compile
 from .exceptions import PineError
 from .models import Backtest
 from .serializers import BacktestSerializer
-from .tasks import run_backtest_task
+from .tasks import run_backtest_stored_task, run_backtest_task
 
 
 def _user_strategy(request, pk) -> Strategy:
     return get_object_or_404(Strategy, pk=pk, user=request.user)
+
+
+def _optional_float(data, key: str) -> float | None:
+    if key not in data or data[key] is None:
+        return None
+    return float(data[key])
 
 
 class ValidateStrategyView(APIView):
@@ -55,7 +61,51 @@ class BacktestStrategyView(APIView):
             symbol=request.data.get("symbol", strategy.symbol),
             timeframe=request.data.get("timeframe", ""),
         )
-        run_backtest_task.delay(bt.id, candles)
+        run_backtest_task.delay(
+            bt.id,
+            candles,
+            commission=_optional_float(request.data, "commission"),
+            slippage=_optional_float(request.data, "slippage"),
+        )
+        return Response({"backtest_id": bt.id}, status=status.HTTP_202_ACCEPTED)
+
+
+class BacktestStoredStrategyView(APIView):
+    """POST /api/strategies/<id>/backtest_stored/ — backtest over stored history.
+
+    Body: {"coin": "BTC", "interval": "1h", "network": "mainnet", "start": <ms?>, "end": <ms?>,
+           "commission": <float?>, "slippage": <float?>}
+    """
+
+    def post(self, request, pk=None):
+        strategy = _user_strategy(request, pk)
+        coin = request.data.get("coin") or strategy.symbol
+        interval = request.data.get("interval") or strategy.timeframe
+        network = request.data.get("network", "mainnet")
+        if network not in {"mainnet", "testnet"}:
+            return Response(
+                {"error": f"invalid network: {network}"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if not coin or not interval:
+            return Response(
+                {"error": "coin and interval required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        bt = Backtest.objects.create(
+            strategy=strategy,
+            symbol=coin,
+            timeframe=interval,
+            network=network,
+        )
+        run_backtest_stored_task.delay(
+            bt.id,
+            coin,
+            interval,
+            request.data.get("start"),
+            request.data.get("end"),
+            network=network,
+            commission=_optional_float(request.data, "commission"),
+            slippage=_optional_float(request.data, "slippage"),
+        )
         return Response({"backtest_id": bt.id}, status=status.HTTP_202_ACCEPTED)
 
 

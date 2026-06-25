@@ -9,4 +9,8 @@ urlpatterns = [
     path("api/", include("apps.execution.urls")),
     path("api/", include("apps.transpiler.urls")),
     path("api/", include("apps.dashboard.urls")),
+    path("api/", include("apps.exchange.urls")),
+    path("api/", include("apps.paper.urls")),
+    path("api/", include("apps.optimizer.urls")),
+    path("api/", include("apps.pro.urls")),
 ]

@@ -21,6 +21,11 @@ const { toasts, dismiss } = useToast()
 const navItems = [
   { name: 'overview', path: '/', label: 'nav.overview' },
   { name: 'strategies', path: '/strategies', label: 'nav.strategies' },
+  { name: 'data', path: '/data', label: 'nav.data' },
+  { name: 'analytics', path: '/analytics', label: 'nav.analytics' },
+  { name: 'orders', path: '/orders', label: 'nav.orders' },
+  { name: 'journal', path: '/journal', label: 'nav.journal' },
+  { name: 'marketplace', path: '/marketplace', label: 'nav.marketplace' },
   { name: 'settings', path: '/settings', label: 'nav.settings' },
 ]
 
@@ -58,7 +63,7 @@ onUnmounted(pause)
           {{ t(item.label) }}
         </RouterLink>
       </aside>
-      <main class="flex flex-1 flex-col min-w-0 overflow-hidden">
+      <main class="flex flex-1 flex-col min-w-0 min-h-0 overflow-y-auto">
         <RouterView />
       </main>
     </div>

@@ -17,6 +17,7 @@ x-app-common: &app-common
     CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
   volumes:
     - .:/app
+    - marketdata:/app/data
   depends_on:
     postgres:
       condition: service_healthy
@@ -98,6 +99,17 @@ services:
         fi
       '
 
+  user-feed:
+    <<: *app-common
+    command: >
+      sh -c '
+        if [ "$$RELOAD" = "1" ]; then
+          watchfiles --filter python "python manage.py run_user_feed" /app
+        else
+          python manage.py run_user_feed
+        fi
+      '
+
   candle-consumer:
     <<: *app-common
     command: >
@@ -121,3 +133,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  marketdata:

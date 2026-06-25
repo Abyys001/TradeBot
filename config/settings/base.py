@@ -51,6 +51,10 @@ LOCAL_APPS = [
     "apps.exchange",
     "apps.transpiler",
     "apps.dashboard",
+    "apps.risk",
+    "apps.paper",
+    "apps.optimizer",
+    "apps.pro",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -119,7 +123,36 @@ CELERY_BEAT_SCHEDULE = {
         "task": "dashboard.health_heartbeat",
         "schedule": 5.0,
     },
+    "execution-reconcile-orders": {
+        "task": "execution.reconcile_orders",
+        "schedule": 60.0,
+    },
+    "exchange-sync-active-accounts": {
+        "task": "exchange.sync_active_accounts",
+        "schedule": 30.0,
+    },
+    "exchange-collect-open-interest": {
+        "task": "exchange.collect_open_interest",
+        "schedule": 3600.0,
+    },
+    "exchange-sync-history-incremental": {
+        "task": "exchange.sync_history_incremental",
+        "schedule": float(env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)),
+    },
 }
+
+# Coins polled for forward open-interest history collection (no HL OI history API).
+OI_COLLECT_COINS = ["BTC", "ETH", "SOL", "HYPE"]
+OI_COLLECT_NETWORK = "mainnet"
+
+# Scheduled incremental history sync (public API, no keys required).
+HISTORY_SYNC_ASSETS = env.list("HISTORY_SYNC_ASSETS", default=["BTC", "ETH", "SOL", "HYPE"])
+HISTORY_SYNC_TIMEFRAMES = env.list("HISTORY_SYNC_TIMEFRAMES", default=["1m", "5m", "15m", "1h"])
+HISTORY_SYNC_NETWORK = env("HISTORY_SYNC_NETWORK", default="mainnet")
+HISTORY_SYNC_INTERVAL_SECONDS = env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)
+HISTORY_DOWNLOAD_WORKERS = env.int("HISTORY_DOWNLOAD_WORKERS", default=2)
+HISTORY_FUNDING_COOLDOWN_SEC = env.float("HISTORY_FUNDING_COOLDOWN_SEC", default=1.5)
+DOWNLOAD_TRADES = env.bool("DOWNLOAD_TRADES", default=False)
 
 # --- Auth ---
 AUTH_USER_MODEL = "accounts.User"
@@ -172,6 +205,14 @@ LIVE_SESSION_KEY_PREFIX = env("LIVE_SESSION_KEY_PREFIX", default="live:session")
 HL_NETWORK = env("HL_NETWORK", default="testnet")
 HL_API_URL = env("HL_API_URL", default="")
 HL_CANDLE_CHANNEL_PREFIX = env("HL_CANDLE_CHANNEL_PREFIX", default="hl:candles")
+HL_META_CACHE_TTL = env.int("HL_META_CACHE_TTL", default=300)
+HL_WS_PING_INTERVAL = env.int("HL_WS_PING_INTERVAL", default=55)
+HL_MIN_FREE_MARGIN_USD = env.int("HL_MIN_FREE_MARGIN_USD", default=50)
+
+# Local OHLCV history store (offline backtesting). Default: <repo>/data/candles.
+CANDLE_DATA_DIR = env(
+    "CANDLE_DATA_DIR", default=str(BASE_DIR / "data" / "candles")
+)
 
 # Do not leak secrets in logs.
 LOGGING = {

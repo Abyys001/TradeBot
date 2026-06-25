@@ -21,12 +21,38 @@ export const useChartStore = defineStore('chart', () => {
     }
   }
 
-  async function fetchMarkers(strategyId: number, source = 'live') {
-    const { data } = await api.get<{ markers: ChartMarker[] }>('/markers/', {
-      params: { strategy_id: strategyId, source },
-    })
+  async function fetchMarkers(strategyId: number, source = 'live', backtestId?: number) {
+    const params: Record<string, string | number> = { strategy_id: strategyId, source }
+    if (backtestId) params.backtest_id = backtestId
+    const { data } = await api.get<{ markers: ChartMarker[] }>('/markers/', { params })
     markers.value = data.markers
     return data.markers
+  }
+
+  async function fetchStoredCandles(
+    coin: string,
+    interval: string,
+    opts?: { start?: number; end?: number; limit?: number },
+  ) {
+    loading.value = true
+    try {
+      const params: Record<string, string | number | undefined> = {
+        coin,
+        interval,
+        start: opts?.start,
+        end: opts?.end,
+      }
+      if (opts?.start != null && opts?.end != null) {
+        params.limit = opts.limit ?? 50000
+      } else {
+        params.limit = opts?.limit ?? 2000
+      }
+      const { data } = await api.get<{ candles: Candle[] }>('/history/candles/', { params })
+      candles.value = data.candles
+      return data.candles
+    } finally {
+      loading.value = false
+    }
   }
 
   function applyCandleTick(payload: Record<string, unknown>) {
@@ -46,5 +72,5 @@ export const useChartStore = defineStore('chart', () => {
     pnl.value = String(payload.pnl ?? '0')
   }
 
-  return { candles, markers, pnl, loading, fetchCandles, fetchMarkers, applyCandleTick, applyPnl }
+  return { candles, markers, pnl, loading, fetchCandles, fetchStoredCandles, fetchMarkers, applyCandleTick, applyPnl }
 })

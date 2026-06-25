@@ -1,0 +1,117 @@
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useHistoryStore } from '../stores/history'
+import { useHealthStore } from '../stores/health'
+import StoredDataTable from '../modules/data/StoredDataTable.vue'
+import DownloadForm from '../modules/data/DownloadForm.vue'
+import DownloadJobsList from '../modules/data/DownloadJobsList.vue'
+
+const { t } = useI18n()
+const history = useHistoryStore()
+const healthStore = useHealthStore()
+
+const celeryOffline = computed(() => healthStore.health?.celery?.status !== 'ok')
+
+const staleJobs = computed(() =>
+  history.downloads.filter((d) => d.status === 'pending' && d.is_stale),
+)
+
+const retryingStale = ref(false)
+
+async function retryAllStale() {
+  retryingStale.value = true
+  try {
+    const result = await history.retryStaleDownloads()
+    if (result.count > 0) {
+      await history.fetchDownloads()
+    }
+  } catch {
+    // error surfaced via history.error
+  } finally {
+    retryingStale.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    await history.fetchDatasets()
+    await history.fetchDownloads()
+    void healthStore.fetchHealth()
+    if (history.activeDownloads.length > 0) {
+      history.startPollingActiveDownloads()
+    }
+  } catch {
+    // error surfaced via history.error
+  }
+})
+
+onUnmounted(() => {
+  history.stopPollingActiveDownloads()
+})
+
+watch(
+  () => history.activeDownloads.length,
+  (count) => {
+    if (count > 0) history.startPollingActiveDownloads()
+    else history.stopPollingActiveDownloads()
+  },
+)
+
+async function onSubmitted() {
+  await history.fetchDownloads()
+}
+
+async function onRetry(jobId: number) {
+  await history.retryDownload(jobId)
+}
+</script>
+
+<template>
+  <div class="p-4 space-y-4">
+    <h1 class="text-lg font-semibold text-zinc-100">{{ t('data.title') }}</h1>
+    <p class="text-sm text-zinc-500 -mt-2">{{ t('data.subtitle') }}</p>
+    <p class="text-xs text-zinc-600">{{ t('data.noApiRequired') }}</p>
+
+    <div
+      v-if="celeryOffline"
+      class="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-300"
+    >
+      {{ t('data.celeryOffline') }}
+      <code class="block mt-1 text-xs text-red-200/80">docker compose up -d celery celery-beat</code>
+    </div>
+
+    <div
+      v-if="staleJobs.length"
+      class="rounded-lg border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-300 flex items-center justify-between gap-2"
+    >
+      <span>{{ t('data.staleJobs', { count: staleJobs.length }) }}</span>
+      <button
+        type="button"
+        class="shrink-0 rounded bg-amber-800/60 px-2 py-1 text-xs hover:bg-amber-700/60 disabled:opacity-50"
+        :disabled="retryingStale || celeryOffline"
+        @click="retryAllStale"
+      >
+        {{ retryingStale ? t('data.retrying') : t('data.retryAllStale') }}
+      </button>
+    </div>
+
+    <div
+      v-if="history.error"
+      class="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-300"
+    >
+      {{ t('data.loadError') }}: {{ history.error }}
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+      <DownloadForm @submitted="onSubmitted" />
+      <DownloadJobsList :downloads="history.downloads" @retry="onRetry" />
+    </div>
+
+    <StoredDataTable
+      :datasets="history.datasets"
+      :loading="history.loading"
+      @deleted="history.fetchDatasets()"
+    />
+  </div>
+</template>

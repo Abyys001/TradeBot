@@ -13,8 +13,10 @@ import pandas as pd
 
 from .. import ast_nodes as ast
 from .context import NA, ExecutionContext, SeriesBuffer, is_na
-from .indicators import REGISTRY
+from .indicators import MULTI_REGISTRY, REGISTRY
 from .mathfns import MATH, nz
+
+_MAX_UDF_DEPTH = 64
 
 
 class NotVectorizable(Exception):
@@ -106,15 +108,88 @@ def _vectorize_binop(node, ctx):
     raise NotVectorizable
 
 
+def _state_key(node) -> tuple:
+    return (node.line, node.column, node.namespace, node.name)
+
+
+def _input_default(node, ctx):
+    """Resolve an input.*() or bare input() call to its default constant."""
+    kind = node.name if node.namespace == "input" else "float"
+    kw = {a.name: a.value for a in node.args if a.name is not None}
+    pos = [a.value for a in node.args if a.name is None]
+    if "defval" in kw:
+        return eval_scalar(kw["defval"], ctx)
+    if pos:
+        return eval_scalar(pos[0], ctx)
+    if kind == "source":
+        return ctx.close_price
+    if kind == "bool":
+        return False
+    if kind == "string":
+        return ""
+    if kind == "int":
+        return 0
+    return 0.0
+
+
+def _input_default_vector(node, ctx):
+    kind = node.name if node.namespace == "input" else "float"
+    kw = {a.name: a.value for a in node.args if a.name is not None}
+    pos = [a.value for a in node.args if a.name is None]
+    if "defval" in kw:
+        return _const(kw["defval"], ctx)
+    if pos:
+        return _const(pos[0], ctx)
+    if kind == "source":
+        return ctx.arrays["close"]
+    if kind == "bool":
+        return False
+    if kind == "string":
+        raise NotVectorizable
+    if kind == "int":
+        return 0
+    return 0.0
+
+
+def _vectorize_ta(name, argvals, ctx):
+    if name == "tr":
+        return REGISTRY[name](ctx.arrays["high"], ctx.arrays["low"], ctx.arrays["close"])
+    if name == "atr":
+        length = int(_const(argvals[0], ctx))
+        return REGISTRY[name](ctx.arrays["high"], ctx.arrays["low"], ctx.arrays["close"], length)
+    if name == "vwap":
+        src = as_array(argvals[0], ctx) if argvals else ctx.arrays["hlc3"]
+        return REGISTRY[name](src, ctx.arrays["volume"])
+    if name in ("crossover", "crossunder"):
+        return REGISTRY[name](as_array(argvals[0], ctx), as_array(argvals[1], ctx))
+    if name == "change" and len(argvals) == 1:
+        return REGISTRY[name](as_array(argvals[0], ctx), 1)
+    if name in ("change", "mom", "roc", "stdev", "variance", "cci", "wma", "hma", "rising", "falling"):
+        return REGISTRY[name](as_array(argvals[0], ctx), int(_const(argvals[1], ctx)))
+    src = as_array(argvals[0], ctx)
+    length = int(_const(argvals[1], ctx))
+    return REGISTRY[name](src, length)
+
+
 def _vectorize_builtin(node, ctx):
     ns, name = node.namespace, node.name
     argvals = [a.value for a in node.args]
-    if ns == "ta" and name in REGISTRY:
-        if name in ("crossover", "crossunder"):
-            return REGISTRY[name](as_array(argvals[0], ctx), as_array(argvals[1], ctx))
-        src = as_array(argvals[0], ctx)
-        length = int(_const(argvals[1], ctx))
-        return REGISTRY[name](src, length)
+    if ns == "ta":
+        if name in MULTI_REGISTRY or name in ("barssince", "valuewhen", "cum"):
+            raise NotVectorizable
+        if name in REGISTRY:
+            return _vectorize_ta(name, argvals, ctx)
+        raise NotVectorizable
+    if ns == "input" or (ns is None and name == "input"):
+        default = _input_default_vector(node, ctx)
+        n = ctx.n
+        if isinstance(default, np.ndarray):
+            return default.astype("float64")
+        if isinstance(default, bool):
+            return np.full(n, default, dtype=bool)
+        return np.full(n, float(default))
+    if ns is None and name in ctx.functions:
+        raise NotVectorizable
     if ns == "math":
         a = [as_array(v, ctx) for v in argvals]
         if name == "abs":
@@ -148,6 +223,8 @@ def _vectorize_builtin(node, ctx):
         return np.where(np.isnan(a), rep, a)
     if ns is None and name == "na":
         return np.isnan(as_array(argvals[0], ctx).astype("float64"))
+    if ns == "strategy" and name in ("position_size", "equity", "openprofit"):
+        raise NotVectorizable
     raise NotVectorizable
 
 
@@ -214,11 +291,146 @@ _ARITH = {
 }
 
 
+def _scalar_series_value(node, ctx, offset: int = 0):
+    if isinstance(node, ast.IdentifierNode):
+        if node.name in ctx.scalars:
+            return ctx.scalars[node.name].get(offset) if offset else ctx.scalars[node.name].current
+        if node.name in ctx.arrays:
+            idx = ctx.bar_index - offset
+            return float(ctx.arrays[node.name][idx]) if idx >= 0 else NA
+    if offset == 0:
+        return eval_scalar(node, ctx)
+    if isinstance(node, ast.HistoryAccessNode):
+        k = int(eval_scalar(node.offset, ctx))
+        return _scalar_series_value(node.series, ctx, k)
+    return NA
+
+
+def _scalar_cross(name: str, a_node, b_node, ctx) -> bool:
+    a_cur = _scalar_series_value(a_node, ctx, 0)
+    b_cur = _scalar_series_value(b_node, ctx, 0)
+    a_prev = _scalar_series_value(a_node, ctx, 1)
+    b_prev = _scalar_series_value(b_node, ctx, 1)
+    if is_na(a_cur) or is_na(b_cur) or is_na(a_prev) or is_na(b_prev):
+        return False
+    if name == "crossover":
+        return a_prev <= b_prev and a_cur > b_cur
+    return a_prev >= b_prev and a_cur < b_cur
+
+
+def _eval_multi_ta(node: ast.BuiltinFunctionNode, ctx) -> tuple:
+    name = node.name
+    fn, _ = MULTI_REGISTRY[name]
+    argvals = [a.value for a in node.args]
+    i = ctx.bar_index
+    if name == "macd":
+        results = fn(
+            as_array(argvals[0], ctx),
+            int(_const(argvals[1], ctx)),
+            int(_const(argvals[2], ctx)),
+            int(_const(argvals[3], ctx)),
+        )
+    elif name == "bb":
+        results = fn(
+            as_array(argvals[0], ctx),
+            int(_const(argvals[1], ctx)),
+            float(_const(argvals[2], ctx)),
+        )
+    elif name == "stoch":
+        results = fn(
+            as_array(argvals[0], ctx),
+            as_array(argvals[1], ctx),
+            as_array(argvals[2], ctx),
+            int(_const(argvals[3], ctx)),
+        )
+    else:
+        raise NotVectorizable
+    return tuple(float(r[i]) for r in results)
+
+
+def _scalar_ta_stateful(node, ctx, argvals):
+    name = node.name
+    key = _state_key(node)
+    if name == "barssince":
+        cond = _truthy(eval_scalar(argvals[0], ctx))
+        st = ctx.bar_state.setdefault(key, {"last_true": None})
+        if cond:
+            st["last_true"] = ctx.bar_index
+        if st["last_true"] is None:
+            return NA
+        return float(ctx.bar_index - st["last_true"])
+    if name == "valuewhen":
+        cond = _truthy(eval_scalar(argvals[0], ctx))
+        src = eval_scalar(argvals[1], ctx)
+        occ = int(eval_scalar(argvals[2], ctx)) if len(argvals) > 2 else 0
+        st = ctx.bar_state.setdefault(key, {"hits": []})
+        if cond and not is_na(src):
+            st["hits"].append(src)
+        if len(st["hits"]) <= occ:
+            return NA
+        return st["hits"][-(occ + 1)]
+    if name == "cum":
+        src = eval_scalar(argvals[0], ctx)
+        st = ctx.bar_state.setdefault(key, {"sum": 0.0})
+        if not is_na(src):
+            st["sum"] += float(src)
+        return st["sum"]
+    return NA
+
+
+def _call_user_function(name: str, arg_nodes, ctx) -> object:
+    fn = ctx.functions[name]
+    depth = ctx.bar_state.get("_udf_depth", 0)
+    if depth >= _MAX_UDF_DEPTH:
+        raise RuntimeError("maximum UDF recursion depth exceeded")
+    args = [eval_scalar(v, ctx) for v in arg_nodes]
+    saved: dict[str, SeriesBuffer | None] = {}
+    for param, value in zip(fn.params, args):
+        buf = SeriesBuffer()
+        buf.current = value
+        saved[param] = ctx.scalars.get(param)
+        ctx.scalars[param] = buf
+    ctx.bar_state["_udf_depth"] = depth + 1
+    try:
+        for stmt in fn.body[:-1]:
+            _exec(stmt, ctx)
+        last = fn.body[-1]
+        if isinstance(last, ast.ExprStatementNode):
+            return eval_scalar(last.expr, ctx)
+        if isinstance(last, ast.AssignNode):
+            _exec(last, ctx)
+            return ctx.scalars[last.name].current
+        if not isinstance(
+            last,
+            (ast.StateDeclarationNode, ast.IfNode, ast.ForNode, ast.OrderExecutionNode, ast.TupleAssignNode),
+        ):
+            return eval_scalar(last, ctx)
+        _exec(last, ctx)
+        return NA
+    finally:
+        ctx.bar_state["_udf_depth"] = depth
+        for param, prev in saved.items():
+            if prev is None:
+                ctx.scalars.pop(param, None)
+            else:
+                ctx.scalars[param] = prev
+
+
 def _scalar_builtin(node, ctx):
     ns, name = node.namespace, node.name
     argvals = [a.value for a in node.args]
+    if ns == "ta" and name in ("crossover", "crossunder"):
+        return _scalar_cross(name, argvals[0], argvals[1], ctx)
+    if ns == "ta" and name in MULTI_REGISTRY:
+        return _eval_multi_ta(node, ctx)
+    if ns == "ta" and name in ("barssince", "valuewhen", "cum"):
+        return _scalar_ta_stateful(node, ctx, argvals)
     if ns == "ta" and name in REGISTRY:
         return float(as_array(node, ctx)[ctx.bar_index])
+    if ns == "input" or (ns is None and name == "input"):
+        return _input_default(node, ctx)
+    if ns is None and name in ctx.functions:
+        return _call_user_function(name, argvals, ctx)
     if ns == "math" and name in MATH:
         return MATH[name](*[eval_scalar(v, ctx) for v in argvals])
     if ns is None and name == "nz":
@@ -227,6 +439,15 @@ def _scalar_builtin(node, ctx):
     if ns is None and name == "na":
         return is_na(eval_scalar(argvals[0], ctx))
     if ns == "strategy":
+        if name == "position_size":
+            fn = getattr(ctx.broker, "position_size", None)
+            return float(fn()) if fn else NA
+        if name == "equity":
+            fn = getattr(ctx.broker, "equity", None)
+            return float(fn(ctx.close_price)) if fn else NA
+        if name == "openprofit":
+            fn = getattr(ctx.broker, "open_profit", None)
+            return float(fn(ctx.close_price)) if fn else NA
         return {"long": "long", "short": "short"}.get(name, NA)
     if ns == "syminfo":
         return NA
@@ -242,11 +463,51 @@ def _truthy(v) -> bool:
 
 
 # --------------------------------------------------------------------- bar loop
+def _vectorize_tuple_assign(node: ast.TupleAssignNode, ctx) -> None:
+    call = node.value
+    if not isinstance(call, ast.BuiltinFunctionNode) or call.namespace != "ta":
+        raise NotVectorizable
+    name = call.name
+    if name not in MULTI_REGISTRY:
+        raise NotVectorizable
+    fn, _ = MULTI_REGISTRY[name]
+    argvals = [a.value for a in call.args]
+    if name == "macd":
+        results = fn(
+            as_array(argvals[0], ctx),
+            int(_const(argvals[1], ctx)),
+            int(_const(argvals[2], ctx)),
+            int(_const(argvals[3], ctx)),
+        )
+    elif name == "bb":
+        results = fn(
+            as_array(argvals[0], ctx),
+            int(_const(argvals[1], ctx)),
+            float(_const(argvals[2], ctx)),
+        )
+    elif name == "stoch":
+        results = fn(
+            as_array(argvals[0], ctx),
+            as_array(argvals[1], ctx),
+            as_array(argvals[2], ctx),
+            int(_const(argvals[3], ctx)),
+        )
+    else:
+        raise NotVectorizable
+    for var_name, arr in zip(node.names, results):
+        ctx.arrays[var_name] = np.asarray(arr, dtype="float64")
+
+
 def vectorize_pass(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
     """Phase A — precompute series-pure top-level assignments."""
     ctx._array_cache.clear()
     for stmt in program.body:
-        if isinstance(stmt, ast.AssignNode) and not stmt.reassign:
+        if isinstance(stmt, ast.TupleAssignNode):
+            try:
+                _vectorize_tuple_assign(stmt, ctx)
+            except NotVectorizable:
+                pass
+        elif isinstance(stmt, ast.AssignNode) and not stmt.reassign:
             try:
                 ctx.arrays[stmt.name] = as_array(stmt.value, ctx)
             except NotVectorizable:
@@ -255,6 +516,15 @@ def vectorize_pass(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
 
 def _drive_bar(program: ast.ProgramNode, ctx: ExecutionContext, bar_index: int) -> None:
     ctx.bar_index = bar_index
+    on_bar = getattr(ctx.broker, "on_bar", None)
+    if on_bar:
+        ts_arr = ctx.arrays.get("ts")
+        ts = int(ts_arr[bar_index]) if ts_arr is not None and bar_index < len(ts_arr) else bar_index
+        o = float(ctx.arrays["open"][bar_index])
+        h = float(ctx.arrays["high"][bar_index])
+        l = float(ctx.arrays["low"][bar_index])
+        c = float(ctx.arrays["close"][bar_index])
+        on_bar(bar_index, ts, o, h, l, c)
     for stmt in program.body:
         _exec(stmt, ctx)
     for buf in ctx.scalars.values():
@@ -263,6 +533,8 @@ def _drive_bar(program: ast.ProgramNode, ctx: ExecutionContext, bar_index: int) 
 
 def run_warmup(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
     """Replay all bars to build indicator/scalar state without placing orders."""
+    ctx.functions = {f.name: f for f in program.functions}
+    ctx.bar_state.clear()
     vectorize_pass(program, ctx)
     for i in range(ctx.n):
         _drive_bar(program, ctx, i)
@@ -279,6 +551,8 @@ def run_bar(program: ast.ProgramNode, ctx: ExecutionContext, bar_index: int) -> 
 
 
 def run(program: ast.ProgramNode, ctx: ExecutionContext):
+    ctx.functions = {f.name: f for f in program.functions}
+    ctx.bar_state.clear()
     vectorize_pass(program, ctx)
     for i in range(ctx.n):
         _drive_bar(program, ctx, i)
@@ -319,9 +593,19 @@ def _exec(node, ctx):
         for v in range(start, end + 1):
             buf.current = float(v)
             _exec_block(node.body, ctx)
+    elif isinstance(node, ast.TupleAssignNode):
+        if all(n in ctx.arrays for n in node.names):
+            return
+        vals = _eval_multi_ta(node.value, ctx)
+        for var_name, val in zip(node.names, vals):
+            buf = ctx.scalars.setdefault(var_name, SeriesBuffer())
+            buf.current = val
     elif isinstance(node, ast.OrderExecutionNode):
         _exec_order(node, ctx)
-    # bare expression statements have no side effects in the subset
+    elif isinstance(node, ast.ExprStatementNode):
+        pass
+    elif isinstance(node, ast.FunctionDefNode):
+        pass
 
 
 def _exec_block(body, ctx):
@@ -332,20 +616,32 @@ def _exec_block(body, ctx):
 def _exec_order(node, ctx):
     pos = [a for a in node.args if a.name is None]
     kw = {a.name: a.value for a in node.args if a.name is not None}
-    price = ctx.close_price
     i = ctx.bar_index
+    # Backtest brokers fill at the next bar's open ("placed at bar i close,
+    # executed at i+1 open"). A signal on the final bar has no next bar -> no fill.
+    if getattr(ctx.broker, "fill_at_next_open", False):
+        if i + 1 >= ctx.n:
+            return
+        price = float(ctx.arrays["open"][i + 1])
+        i = i + 1
+    else:
+        price = ctx.close_price
 
     def _qty():
         q = kw.get("qty")
         return eval_scalar(q, ctx) if q is not None else None
 
+    def _kw_float(name: str):
+        v = kw.get(name)
+        return float(eval_scalar(v, ctx)) if v is not None else None
+
     if node.action == "entry":
         oid = eval_scalar(pos[0].value, ctx)
         direction = eval_scalar(pos[1].value, ctx) if len(pos) > 1 else "long"
-        ctx.broker.entry(str(oid), direction, price, i, _qty())
+        ctx.broker.entry(str(oid), direction, price, i, _qty(), limit=_kw_float("limit"))
     elif node.action == "close":
         oid = eval_scalar(pos[0].value, ctx) if pos else "long"
         ctx.broker.close(str(oid), price, i)
     elif node.action == "exit":
         oid = eval_scalar(pos[0].value, ctx) if pos else "exit"
-        ctx.broker.exit(str(oid), price, i)
+        ctx.broker.exit(str(oid), price, i, stop=_kw_float("stop"), limit=_kw_float("limit"))

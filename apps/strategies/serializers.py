@@ -56,6 +56,8 @@ class StrategySerializer(serializers.ModelSerializer):
         ]
 
     def validate_credential(self, credential):
+        if credential is None:
+            return None
         # A user may only attach their own credential.
         if credential.user_id != self.context["request"].user.id:
             raise serializers.ValidationError("Credential does not belong to you.")

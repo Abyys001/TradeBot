@@ -15,7 +15,7 @@ def _client() -> redis.Redis:
     return redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
-def _key(strategy_id: int) -> str:
+def _key(strategy_id: int | str) -> str:
     prefix = getattr(settings, "LIVE_SESSION_KEY_PREFIX", "live:session")
     return f"{prefix}:{strategy_id}"
 
@@ -24,7 +24,7 @@ def source_hash(source: str) -> str:
     return hashlib.sha256(source.encode()).hexdigest()[:16]
 
 
-def save_session(strategy_id: int, *, window: SlidingWindow, ctx, source: str) -> None:
+def save_session(strategy_id: int | str, *, window: SlidingWindow, ctx, source: str) -> None:
     scalar_state = {}
     for name, buf in ctx.scalars.items():
         scalar_state[name] = {
@@ -40,18 +40,18 @@ def save_session(strategy_id: int, *, window: SlidingWindow, ctx, source: str) -
     _client().set(_key(strategy_id), json.dumps(payload))
 
 
-def load_session(strategy_id: int) -> dict | None:
+def load_session(strategy_id: int | str) -> dict | None:
     raw = _client().get(_key(strategy_id))
     if raw is None:
         return None
     return json.loads(raw)
 
 
-def delete_session(strategy_id: int) -> None:
+def delete_session(strategy_id: int | str) -> None:
     _client().delete(_key(strategy_id))
 
 
-def session_exists(strategy_id: int) -> bool:
+def session_exists(strategy_id: int | str) -> bool:
     return _client().exists(_key(strategy_id)) > 0
 
 

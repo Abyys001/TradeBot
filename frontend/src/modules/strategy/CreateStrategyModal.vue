@@ -16,12 +16,25 @@ const toast = useToast()
 const name = ref('New Strategy')
 const credentialId = ref<number | null>(null)
 const symbol = ref('BTC-USDT')
+const selectedTimeframes = ref<string[]>(['1h'])
 const source = ref(props.initialSource || '')
+const engineType = ref('pine')
 const saving = ref(false)
 const dragOver = ref(false)
 
+const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1H', '4H', '1D']
+
+function toggleTf(tf: string) {
+  if (selectedTimeframes.value.includes(tf)) {
+    selectedTimeframes.value = selectedTimeframes.value.filter((x) => x !== tf)
+  } else {
+    selectedTimeframes.value = [...selectedTimeframes.value, tf]
+  }
+}
+
 onMounted(async () => {
   if (!credentials.credentials.length) await credentials.fetchAll()
+  if (!store.engines.length) await store.fetchEngines()
   credentialId.value = credentials.credentials[0]?.id ?? null
 })
 
@@ -45,20 +58,17 @@ function onFileInput(e: Event) {
 }
 
 async function submit() {
-  if (!credentialId.value) {
-    toast.show(t('strategies.noCredential'), 'error')
-    return
-  }
   saving.value = true
   try {
     const s = await store.createStrategy({
       name: name.value,
+      type: engineType.value,
       credential: credentialId.value,
       symbol: symbol.value,
       source: source.value,
       live_config: {
         symbols: [symbol.value],
-        timeframes: ['1m'],
+        timeframes: selectedTimeframes.value.length ? selectedTimeframes.value : ['1h'],
         risk: { leverage: 1, position_size_pct: 5, global_stop_loss_pct: 10 },
       },
     })
@@ -82,19 +92,44 @@ async function submit() {
           <input v-model="name" class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" />
         </div>
         <div>
-          <label class="text-xs text-zinc-500">{{ t('credentials.label') }}</label>
+          <label class="text-xs text-zinc-500">{{ t('strategy.engine') }}</label>
+          <select v-model="engineType" class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm">
+            <option v-for="e in store.engines" :key="e" :value="e">{{ e }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-zinc-500">
+            {{ t('credentials.label') }}
+            <span class="text-zinc-600">({{ t('strategy.credentialOptional') }})</span>
+          </label>
           <select v-model="credentialId" class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm">
+            <option :value="null">{{ t('strategy.noCredentialBacktestOnly') }}</option>
             <option v-for="c in credentials.credentials" :key="c.id" :value="c.id">
               {{ c.label }} ({{ c.network }})
             </option>
           </select>
-          <p v-if="!credentials.credentials.length" class="text-xs text-amber-400 mt-1">
-            {{ t('strategies.noCredential') }}
+          <p v-if="!credentials.credentials.length" class="text-xs text-zinc-500 mt-1">
+            {{ t('strategy.liveRequiresCredential') }}
           </p>
         </div>
         <div>
           <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
           <input v-model="symbol" class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label class="text-xs text-zinc-500">{{ t('strategy.timeframes') }}</label>
+          <div class="mt-1 flex flex-wrap gap-1">
+            <button
+              v-for="tf in TIMEFRAMES"
+              :key="tf"
+              type="button"
+              class="rounded px-2 py-0.5 text-xs transition-colors"
+              :class="selectedTimeframes.includes(tf) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-400'"
+              @click="toggleTf(tf)"
+            >
+              {{ tf }}
+            </button>
+          </div>
         </div>
         <div>
           <label class="text-xs text-zinc-500">{{ t('strategy.source') }}</label>
@@ -124,7 +159,7 @@ async function submit() {
         <button
           type="button"
           class="px-4 py-2 text-sm bg-emerald-700 text-white rounded-lg disabled:opacity-40"
-          :disabled="saving || !credentialId"
+          :disabled="saving"
           @click="submit"
         >
           {{ t('strategies.create') }}

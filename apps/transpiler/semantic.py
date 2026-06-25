@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from . import ast_nodes as ast
 from .exceptions import PineSemanticError, UnsupportedFeatureError
+from .runtime.indicators import MULTI_REGISTRY
 
 # Builtin price/series variables and their types.
 BUILTIN_VARS = {
@@ -32,8 +33,14 @@ FORBIDDEN_PLAIN = {
 # Whole namespaces rejected (drawing objects).
 FORBIDDEN_NAMESPACES = {"label", "table", "box", "line"}
 
+INPUT_TYPES = {
+    "int": "int", "float": "float", "bool": "bool", "string": "string",
+    "source": "float", "default": "float",
+}
+
+BOOL_TA = {"crossover", "crossunder", "rising", "falling"}
+
 NUMERIC = {"int", "float"}
-# Types that should not trigger a hard error when combined (genuinely unknown).
 LENIENT = {"unknown", "na"}
 
 
@@ -45,15 +52,36 @@ class _Scope:
 class SemanticAnalyzer:
     def __init__(self):
         self.scopes = [_Scope()]
+        self.functions: dict[str, ast.FunctionDefNode] = {}
 
-    # --- public ---
     def analyze(self, program: ast.ProgramNode) -> None:
+        for fn in program.functions:
+            if fn.name in self.functions:
+                raise PineSemanticError(
+                    f"function `{fn.name}` is already defined.",
+                    fn.line, fn.column,
+                )
+            self.functions[fn.name] = fn
+
         for stmt in program.body:
             self._restrict(stmt)
+        for fn in program.functions:
+            for stmt in fn.body:
+                self._restrict(stmt)
+
+        for fn in program.functions:
+            self._analyze_function(fn)
         for stmt in program.body:
             self._stmt(stmt)
 
-    # --- scope helpers ---
+    def _analyze_function(self, fn: ast.FunctionDefNode) -> None:
+        self._push()
+        for p in fn.params:
+            self._declare(p, "float")
+        for stmt in fn.body:
+            self._stmt(stmt)
+        self._pop()
+
     def _declare(self, name, type_):
         self.scopes[-1].names[name] = type_
 
@@ -71,7 +99,6 @@ class SemanticAnalyzer:
     def _pop(self):
         self.scopes.pop()
 
-    # --- restriction layer (walk every node) ---
     def _restrict(self, node):
         if isinstance(node, ast.BuiltinFunctionNode):
             if node.namespace in FORBIDDEN_NAMESPACES:
@@ -89,7 +116,6 @@ class SemanticAnalyzer:
         for child in _children(node):
             self._restrict(child)
 
-    # --- statements ---
     def _stmt(self, node):
         if isinstance(node, ast.StateDeclarationNode):
             t = self._expr(node.value)
@@ -102,6 +128,8 @@ class SemanticAnalyzer:
                     node.line, node.column,
                 )
             self._declare(node.name, t if t != "na" else "unknown")
+        elif isinstance(node, ast.TupleAssignNode):
+            self._tuple_assign(node)
         elif isinstance(node, ast.IfNode):
             self._require_bool(node.condition, "if condition")
             self._block(node.then_body)
@@ -121,8 +149,34 @@ class SemanticAnalyzer:
         elif isinstance(node, ast.OrderExecutionNode):
             for arg in node.args:
                 self._expr(arg.value)
-        else:  # bare expression statement
+        elif isinstance(node, ast.ExprStatementNode):
+            self._expr(node.expr)
+        else:
             self._expr(node)
+
+    def _tuple_assign(self, node: ast.TupleAssignNode) -> None:
+        if not isinstance(node.value, ast.BuiltinFunctionNode):
+            raise PineSemanticError(
+                "tuple assignment requires a multi-return builtin call on the right-hand side.",
+                node.line, node.column,
+            )
+        call = node.value
+        if call.namespace != "ta" or call.name not in MULTI_REGISTRY:
+            raise PineSemanticError(
+                f"`{call.namespace}.{call.name}` does not return a tuple.",
+                node.line, node.column,
+            )
+        _, arity = MULTI_REGISTRY[call.name]
+        if len(node.names) != arity:
+            raise PineSemanticError(
+                f"`ta.{call.name}` returns {arity} value(s), but {len(node.names)} name(s) "
+                f"were given.",
+                node.line, node.column,
+            )
+        for arg in call.args:
+            self._expr(arg.value)
+        for n in node.names:
+            self._declare(n, "float")
 
     def _block(self, body):
         self._push()
@@ -130,7 +184,6 @@ class SemanticAnalyzer:
             self._stmt(s)
         self._pop()
 
-    # --- expressions -> inferred type ---
     def _expr(self, node) -> str:
         if isinstance(node, ast.LiteralNode):
             return node.type
@@ -175,7 +228,6 @@ class SemanticAnalyzer:
                 self._assert_numeric(lt, node, f"operand of `{op}`")
                 self._assert_numeric(rt, node, f"operand of `{op}`")
             return "bool"
-        # arithmetic
         if op == "+" and (lt == "string" or rt == "string"):
             return "string"
         self._assert_numeric(lt, node, f"operand of `{op}`")
@@ -187,9 +239,15 @@ class SemanticAnalyzer:
             self._expr(arg.value)
         ns, name = node.namespace, node.name
         if ns == "ta":
-            return "bool" if name in ("crossover", "crossunder") else "float"
+            if name in BOOL_TA:
+                return "bool"
+            if name in MULTI_REGISTRY:
+                return "tuple"
+            return "float"
         if ns == "math":
             return "float"
+        if ns == "input":
+            return INPUT_TYPES.get(name, "unknown")
         if ns == "syminfo":
             return "string" if name in ("tickerid", "ticker", "currency") else "float"
         if ns == "strategy":
@@ -199,9 +257,19 @@ class SemanticAnalyzer:
                 return "bool"
             if name == "nz":
                 return "float"
+            if name == "input":
+                return "float"
+            if name in self.functions:
+                fn = self.functions[name]
+                pos = [a for a in node.args if a.name is None]
+                if len(pos) != len(fn.params):
+                    raise PineSemanticError(
+                        f"`{name}` expects {len(fn.params)} argument(s), got {len(pos)}.",
+                        node.line, node.column,
+                    )
+                return "float"
         return "unknown"
 
-    # --- type assertions ---
     def _require_bool(self, node, what):
         self._assert_bool(self._expr(node), node, what)
 
@@ -219,9 +287,15 @@ class SemanticAnalyzer:
 
 
 def _children(node):
-    """Yield child AST nodes for generic traversal."""
     if isinstance(node, ast.ProgramNode):
         yield from node.body
+        yield from node.functions
+    elif isinstance(node, ast.FunctionDefNode):
+        yield from node.body
+    elif isinstance(node, ast.TupleAssignNode):
+        yield node.value
+    elif isinstance(node, ast.ExprStatementNode):
+        yield node.expr
     elif isinstance(node, ast.StateDeclarationNode):
         yield node.value
     elif isinstance(node, ast.AssignNode):

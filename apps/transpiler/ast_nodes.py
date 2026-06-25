@@ -21,6 +21,24 @@ class Node:
 class ProgramNode(Node):
     header: Optional["StrategyHeaderNode"]
     body: list  # list[Node]
+    functions: list = field(default_factory=list)  # list[FunctionDefNode]
+
+
+@dataclass
+class FunctionDefNode(Node):
+    """User-defined function: `name(params) => body`."""
+
+    name: str
+    params: list[str]
+    body: list  # expr wrapped as one-element list, or suite statements
+
+
+@dataclass
+class TupleAssignNode(Node):
+    """`[a, b, c] = expr` — multi-return destructuring."""
+
+    names: list[str]
+    value: "Node"
 
 
 @dataclass

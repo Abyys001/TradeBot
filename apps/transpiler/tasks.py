@@ -11,6 +11,7 @@ from decimal import Decimal
 import pandas as pd
 from celery import shared_task
 
+from apps.dashboard.publish import publish_dashboard
 from apps.exchange.ws_manager import publish_update
 
 from .engine import compile, run_backtest
@@ -41,6 +42,12 @@ def _notify(strategy, payload):
             publish_update(cred_id, payload)
         except Exception:  # noqa: BLE001 — notification is best-effort
             pass
+    user_id = getattr(strategy, "user_id", None)
+    if user_id:
+        try:
+            publish_dashboard(user_id, payload)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @shared_task(name="transpiler.validate_source")
@@ -62,25 +69,8 @@ def validate_source_task(strategy_id: int):
     return {"ok": True}
 
 
-@shared_task(name="transpiler.run_backtest")
-def run_backtest_task(backtest_id: int, candles: list[dict]):
-    """Run a backtest of the strategy's source over the supplied candles."""
-    bt = Backtest.objects.select_related("strategy").get(pk=backtest_id)
-    strategy = bt.strategy
-    bt.status = Backtest.Status.RUNNING
-    bt.save(update_fields=["status"])
-    _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "running"})
-
-    try:
-        df = _candles_to_df(candles)
-        result = run_backtest(strategy.source, df)
-    except Exception as exc:  # noqa: BLE001
-        bt.status = Backtest.Status.FAILED
-        bt.error = str(exc)
-        bt.save(update_fields=["status", "error"])
-        _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "failed", "error": str(exc)})
-        return {"ok": False, "error": str(exc)}
-
+def _persist_backtest_result(bt, result):
+    """Store metrics + trades for a completed backtest and notify listeners."""
     bt.metrics = result.metrics
     bt.status = Backtest.Status.DONE
     bt.save(update_fields=["metrics", "status"])
@@ -95,11 +85,93 @@ def run_backtest_task(backtest_id: int, candles: list[dict]):
                 pnl=Decimal(str(t["pnl"])),
                 entry_bar=t["entry_bar"],
                 exit_bar=t["exit_bar"],
+                stop_px=Decimal(str(t["stop_px"])) if t.get("stop_px") is not None else None,
+                limit_px=Decimal(str(t["limit_px"])) if t.get("limit_px") is not None else None,
+                exit_reason=t.get("exit_reason", ""),
             )
             for t in result.trades
         ]
     )
-    _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "done", "metrics": result.metrics})
+    _notify(bt.strategy, {"source": "backtest", "backtest_id": bt.id, "status": "done", "metrics": result.metrics})
+
+
+@shared_task(name="transpiler.run_backtest")
+def run_backtest_task(
+    backtest_id: int,
+    candles: list[dict],
+    commission: float | None = None,
+    slippage: float | None = None,
+):
+    """Run a backtest of the strategy's source over the supplied candles."""
+    bt = Backtest.objects.select_related("strategy").get(pk=backtest_id)
+    strategy = bt.strategy
+    bt.status = Backtest.Status.RUNNING
+    bt.save(update_fields=["status"])
+    _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "running"})
+
+    try:
+        df = _candles_to_df(candles)
+        result = run_backtest(strategy.source, df, commission=commission, slippage=slippage)
+    except Exception as exc:  # noqa: BLE001
+        bt.status = Backtest.Status.FAILED
+        bt.error = str(exc)
+        bt.save(update_fields=["status", "error"])
+        _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "failed", "error": str(exc)})
+        return {"ok": False, "error": str(exc)}
+
+    _persist_backtest_result(bt, result)
+    return {"ok": True, "metrics": result.metrics}
+
+
+@shared_task(name="transpiler.run_backtest_stored")
+def run_backtest_stored_task(
+    backtest_id: int,
+    coin: str,
+    interval: str,
+    start: int | None = None,
+    end: int | None = None,
+    *,
+    network: str = "mainnet",
+    commission: float | None = None,
+    slippage: float | None = None,
+):
+    """Run a backtest over locally stored candle history (no exchange calls)."""
+    from datetime import datetime, timezone
+
+    from apps.exchange.candle_store import load_candles, load_funding
+
+    bt = Backtest.objects.select_related("strategy").get(pk=backtest_id)
+    strategy = bt.strategy
+    bt.status = Backtest.Status.RUNNING
+    bt.save(update_fields=["status"])
+    _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "running"})
+
+    try:
+        df = load_candles(coin, interval, start, end, network=network)
+        if df.empty:
+            raise ValueError(f"no stored candles for {coin}/{interval}")
+        funding_df = load_funding(coin, start, end, network=network)
+        bt.range_start = datetime.fromtimestamp(int(df["ts"].min()) / 1000, tz=timezone.utc)
+        bt.range_end = datetime.fromtimestamp(int(df["ts"].max()) / 1000, tz=timezone.utc)
+        bt.save(update_fields=["range_start", "range_end"])
+        live_config = strategy.live_config or {}
+        result = run_backtest(
+            strategy.source,
+            df,
+            commission=commission,
+            slippage=slippage,
+            leverage=live_config.get("leverage"),
+            funding_df=funding_df if not funding_df.empty else None,
+            live_config=live_config,
+        )
+    except Exception as exc:  # noqa: BLE001
+        bt.status = Backtest.Status.FAILED
+        bt.error = str(exc)
+        bt.save(update_fields=["status", "error"])
+        _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "failed", "error": str(exc)})
+        return {"ok": False, "error": str(exc)}
+
+    _persist_backtest_result(bt, result)
     return {"ok": True, "metrics": result.metrics}
 
 

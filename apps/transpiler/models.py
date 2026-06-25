@@ -18,6 +18,7 @@ class Backtest(models.Model):
     )
     symbol = models.CharField(max_length=32)
     timeframe = models.CharField(max_length=16, blank=True, default="")
+    network = models.CharField(max_length=16, default="mainnet")
     range_start = models.DateTimeField(null=True, blank=True)
     range_end = models.DateTimeField(null=True, blank=True)
     metrics = models.JSONField(default=dict, blank=True)
@@ -41,6 +42,13 @@ class BacktestTrade(models.Model):
     pnl = models.DecimalField(max_digits=24, decimal_places=8, default=0)
     entry_bar = models.IntegerField()
     exit_bar = models.IntegerField(null=True, blank=True)
+    stop_px = models.DecimalField(
+        max_digits=24, decimal_places=8, null=True, blank=True
+    )
+    limit_px = models.DecimalField(
+        max_digits=24, decimal_places=8, null=True, blank=True
+    )
+    exit_reason = models.CharField(max_length=16, blank=True, default="")
 
     def __str__(self):
         return f"{self.side} pnl={self.pnl}"

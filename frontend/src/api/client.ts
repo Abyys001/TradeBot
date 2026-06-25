@@ -45,7 +45,7 @@ export interface HealthPayload {
 
 export interface Strategy {
   id: number
-  credential: number
+  credential: number | null
   name: string
   type: string
   symbol: string
@@ -74,6 +74,12 @@ export interface LiveConfig {
     leverage?: number
     position_size_pct?: number
     global_stop_loss_pct?: number
+    risk_per_trade_pct?: number
+    max_daily_loss_pct?: number
+    max_drawdown_pct?: number
+    max_open_trades?: number
+    max_exposure_pct?: number
+    max_leverage?: number
   }
 }
 
@@ -155,4 +161,93 @@ export interface ValidateResult {
   error?: string
   line?: number
   column?: number
+}
+
+export interface BacktestTrade {
+  side: string
+  entry_price: string
+  exit_price: string | null
+  size: string
+  pnl: string
+  entry_bar: number
+  exit_bar: number | null
+}
+
+export interface BacktestMetrics {
+  num_trades?: number
+  net_pnl?: number
+  gross_pnl?: number
+  total_commission?: number
+  win_rate?: number
+  max_drawdown?: number
+  profit_factor?: number | null
+  sharpe_ratio?: number
+  risk_reward?: number
+  expectancy?: number
+  funding_paid?: number
+  equity_series?: number[]
+  leverage?: number
+  liquidations?: number
+}
+
+export interface Backtest {
+  id: number
+  strategy: number
+  status: 'pending' | 'running' | 'done' | 'failed'
+  symbol: string
+  timeframe: string
+  network?: string
+  range_start: string | null
+  range_end: string | null
+  metrics: BacktestMetrics
+  error: string
+  created_at: string
+  trades: BacktestTrade[]
+}
+
+export interface HistoryDataset {
+  coin: string
+  interval: string
+  network?: string
+  kind?: string
+  bars: number
+  start_ts: number
+  end_ts: number
+  size_bytes: number
+  healthy?: boolean
+  gap_count?: number
+  missing_bars?: number
+}
+
+export interface HistoryDownloadProgress {
+  key: string
+  status: string
+  bars?: number
+  start_ts?: number
+  end_ts?: number
+  error?: string
+  note?: string
+  path?: string
+}
+
+export interface HistoryDownload {
+  id: number
+  status: 'pending' | 'running' | 'done' | 'partial' | 'failed'
+  network: string
+  coins: string[]
+  intervals: string[]
+  data_types: string[]
+  start_ms: number
+  end_ms: number
+  progress: Record<string, HistoryDownloadProgress>
+  error: string
+  created_at: string
+  is_stale?: boolean
+}
+
+export interface HistoryMarkets {
+  network: string
+  coins: string[]
+  intervals: string[]
+  error?: string
 }

@@ -11,12 +11,19 @@ const DEFAULT_LIVE_CONFIG: LiveConfig = {
 
 export const useStrategyStore = defineStore('strategy', () => {
   const strategies = ref<Strategy[]>([])
+  const engines = ref<string[]>(['pine'])
   const selectedId = ref<number | null>(null)
   const loading = ref(false)
 
   const selected = computed(() =>
     strategies.value.find((s) => s.id === selectedId.value) ?? null,
   )
+
+  async function fetchEngines() {
+    const { data } = await api.get<{ engines: string[] }>('/strategies/engines/')
+    engines.value = data.engines
+    return data.engines
+  }
 
   async function fetchAll() {
     loading.value = true
@@ -35,7 +42,7 @@ export const useStrategyStore = defineStore('strategy', () => {
       name: 'New Strategy',
       type: 'pine',
       symbol: 'BTC-USDT',
-      credential: payload.credential,
+      credential: payload.credential ?? null,
       live_config: DEFAULT_LIVE_CONFIG,
       ...payload,
     })
@@ -101,11 +108,13 @@ export const useStrategyStore = defineStore('strategy', () => {
 
   return {
     strategies,
+    engines,
     selectedId,
     selected,
     loading,
     validatedStrategies,
     fetchAll,
+    fetchEngines,
     createStrategy,
     updateStrategy,
     validate,

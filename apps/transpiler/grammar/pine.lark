@@ -11,7 +11,10 @@ simple_stmt: _simple _NL
 _simple: declaration
         | reassignment
         | assignment
+        | tuple_assignment
         | expr
+
+tuple_assignment: "[" NAME ("," NAME)* "]" "=" expr
 
 declaration: KW_VAR [TYPE] NAME "=" expr   -> state_declaration
 reassignment: NAME ":=" expr               -> reassignment

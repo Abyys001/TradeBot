@@ -18,7 +18,7 @@ class BacktestSerializer(serializers.ModelSerializer):
     class Meta:
         model = Backtest
         fields = [
-            "id", "strategy", "status", "symbol", "timeframe",
+            "id", "strategy", "status", "symbol", "timeframe", "network",
             "range_start", "range_end", "metrics", "error", "created_at",
             "trades",
         ]
