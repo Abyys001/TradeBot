@@ -24,6 +24,8 @@
     "username": "Username",
     "password": "Password",
     "signIn": "Sign In",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "invalid": "Invalid credentials"
   },
   "health": {

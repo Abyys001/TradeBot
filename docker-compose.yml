@@ -12,6 +12,7 @@ x-app-common: &app-common
     DATABASE_URL: postgres://tradebot:tradebot@postgres:5432/tradebot
     REDIS_URL: redis://redis:6379/0
     RELOAD: ${RELOAD:-1}
+    RUN_MIGRATIONS: "0"
     ALLOWED_HOSTS: localhost,127.0.0.1,web
     CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
     CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
@@ -57,69 +58,78 @@ services:
     <<: *app-common
     ports:
       - "8000:8000"
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    environment:
+      <<: *app-env
+      RUN_MIGRATIONS: "1"
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "daphne -b 0.0.0.0 -p 8000 config.asgi:application" /app
         else
           daphne -b 0.0.0.0 -p 8000 config.asgi:application
         fi
-      '
 
   celery:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "celery -A config worker --loglevel=info" /app
         else
           celery -A config worker --loglevel=info
         fi
-      '
 
   celery-beat:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "celery -A config beat --loglevel=info" /app
         else
           celery -A config beat --loglevel=info
         fi
-      '
 
   market-feed:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "python manage.py run_market_feed" /app
         else
           python manage.py run_market_feed
         fi
-      '
 
   user-feed:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "python manage.py run_user_feed" /app
         else
           python manage.py run_user_feed
         fi
-      '
 
   candle-consumer:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "python manage.py consume_hl_candles" /app
         else
           python manage.py consume_hl_candles
         fi
-      '
 
   frontend:
     build:
