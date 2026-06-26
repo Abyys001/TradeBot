@@ -14,7 +14,26 @@ except Exception:
   sleep 1
 done
 
-echo "Running migrations..."
-python manage.py migrate --noinput
+if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
+  echo "Running migrations..."
+  python manage.py migrate --noinput
+
+  # Dev-only: bootstrap first login when the DB has no users yet.
+  if [ "${DEBUG:-False}" = "True" ] || [ "${DEBUG:-false}" = "true" ]; then
+    python -c "
+import os
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ.get('DJANGO_SETTINGS_MODULE', 'config.settings.dev'))
+import django
+django.setup()
+from apps.accounts.models import User
+if not User.objects.exists():
+    username = os.environ.get('DJANGO_SUPERUSER_USERNAME', 'admin')
+    email = os.environ.get('DJANGO_SUPERUSER_EMAIL', 'admin@localhost')
+    password = os.environ.get('DJANGO_SUPERUSER_PASSWORD', 'admin')
+    User.objects.create_superuser(username, email, password)
+    print(f'Created dev superuser: {username}')
+"
+  fi
+fi
 
 exec "$@"

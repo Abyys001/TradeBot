@@ -156,3 +156,34 @@ export interface ValidateResult {
   line?: number
   column?: number
 }
+
+export interface BacktestMetrics {
+  num_trades: number
+  net_pnl: number
+  win_rate: number
+  max_drawdown: number
+}
+
+export interface BacktestTrade {
+  side: string
+  entry_price: number
+  exit_price: number
+  size: number
+  pnl: number
+  entry_bar: number
+  exit_bar: number | null
+}
+
+export interface Backtest {
+  id: number
+  strategy: number
+  status: 'pending' | 'running' | 'done' | 'failed'
+  symbol: string
+  timeframe: string
+  range_start: string | null
+  range_end: string | null
+  metrics: BacktestMetrics
+  error: string
+  created_at: string
+  trades: BacktestTrade[]
+}

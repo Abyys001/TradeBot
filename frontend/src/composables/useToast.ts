@@ -15,7 +15,7 @@ export function useToast() {
   function show(message: string, type: ToastType = 'info') {
     const id = ++nextId
     toasts.value.push({ id, message, type })
-    setTimeout(() => dismiss(id), 4000)
+    setTimeout(() => dismiss(id), 3000)
   }
 
   function dismiss(id: number) {

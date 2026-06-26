@@ -21,10 +21,13 @@ export const useChartStore = defineStore('chart', () => {
     }
   }
 
-  async function fetchMarkers(strategyId: number, source = 'live') {
-    const { data } = await api.get<{ markers: ChartMarker[] }>('/markers/', {
-      params: { strategy_id: strategyId, source },
-    })
+  async function fetchMarkers(strategyId: number, source = 'live', backtestId?: number) {
+    const params: Record<string, string | number> = {
+      strategy_id: strategyId,
+      source,
+    }
+    if (backtestId != null) params.backtest_id = backtestId
+    const { data } = await api.get<{ markers: ChartMarker[] }>('/markers/', { params })
     markers.value = data.markers
     return data.markers
   }

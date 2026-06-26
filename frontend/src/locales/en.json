@@ -5,7 +5,9 @@
   "nav": {
     "overview": "Overview",
     "strategies": "Strategies",
-    "settings": "Settings"
+    "settings": "Settings",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
   },
   "auth": {
     "login": "Login",
@@ -51,6 +53,8 @@
     "new": "New Strategy",
     "uploadPine": "Upload .pine",
     "empty": "No strategies yet. Create one to get started.",
+    "emptyTitle": "No strategies yet",
+    "emptyCta": "Create Your First Strategy",
     "actions": "Actions",
     "edit": "Edit",
     "delete": "Delete",
@@ -61,7 +65,7 @@
     "noCredential": "Add a Hyperliquid credential in Settings first"
   },
   "strategy": {
-    "title": "Strategy Configurator",
+    "title": "Backtest Engine",
     "name": "Name",
     "source": "Pine Source",
     "symbols": "Trading Pairs",
@@ -124,5 +128,31 @@
   "status": {
     "ok": "OK",
     "error": "Error"
+  },
+  "backtest": {
+    "run": "Run Backtest",
+    "running": "Running backtest...",
+    "complete": "Backtest complete",
+    "failed": "Backtest failed",
+    "results": "Backtest Results",
+    "editPine": "Edit Pine Script",
+    "savePine": "Save & Close",
+    "advanced": "Advanced Settings",
+    "loadValidated": "load from validated",
+    "warmupBars": "Warmup bars",
+    "riskLimits": "Risk limits",
+    "netPnl": "Net Profit",
+    "winRate": "Win Rate",
+    "maxDrawdown": "Max Drawdown",
+    "numTrades": "Trades",
+    "equityCurve": "Equity Curve",
+    "side": "Side",
+    "entry": "Entry",
+    "exit": "Exit",
+    "viewOnChart": "View on Chart",
+    "validateFirst": "Validate your Pine script before running a backtest",
+    "noCandles": "No candle data available for this symbol/timeframe",
+    "noSource": "No source loaded",
+    "hotkeyHint": "Ctrl+Enter to run"
   }
 }

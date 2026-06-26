@@ -1,0 +1,787 @@
+{
+  "C:\\Work\\Project\\TradeBot\\apps\\__init__.py": {
+    "mtime": 1782206448.9494762,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\accounts\\__init__.py": {
+    "mtime": 1782206448.9494762,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\accounts\\admin.py": {
+    "mtime": 1782206448.9504845,
+    "ast_hash": "dcef70cd273e5e08df318477f9572f93",
+    "semantic_hash": "dcef70cd273e5e08df318477f9572f93"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\accounts\\apps.py": {
+    "mtime": 1782206448.9504845,
+    "ast_hash": "93dcdac961285931314d21aafe472787",
+    "semantic_hash": "93dcdac961285931314d21aafe472787"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\accounts\\migrations\\0001_initial.py": {
+    "mtime": 1782206448.951481,
+    "ast_hash": "0f3fc14b4acde7e7f32650bd6c98a9e4",
+    "semantic_hash": "0f3fc14b4acde7e7f32650bd6c98a9e4"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\accounts\\migrations\\__init__.py": {
+    "mtime": 1782206448.951481,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\accounts\\models.py": {
+    "mtime": 1782206448.951481,
+    "ast_hash": "da9345ae492ecb670166606605087f3b",
+    "semantic_hash": "da9345ae492ecb670166606605087f3b"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\__init__.py": {
+    "mtime": 1782206448.9574873,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\apps.py": {
+    "mtime": 1782206448.958487,
+    "ast_hash": "2e833c73585cf57d6c5a943763b945cd",
+    "semantic_hash": "2e833c73585cf57d6c5a943763b945cd"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\health.py": {
+    "mtime": 1782206448.958487,
+    "ast_hash": "d42b53f24de37d61e207c53987af61e7",
+    "semantic_hash": "d42b53f24de37d61e207c53987af61e7"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\overview.py": {
+    "mtime": 1782206448.958487,
+    "ast_hash": "7b647e6b434e654ee5e891e7ed9b8996",
+    "semantic_hash": "7b647e6b434e654ee5e891e7ed9b8996"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\publish.py": {
+    "mtime": 1782206448.9594824,
+    "ast_hash": "22b66b86a0c685d364040c7ccd7f25e7",
+    "semantic_hash": "22b66b86a0c685d364040c7ccd7f25e7"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\tasks.py": {
+    "mtime": 1782206448.9594824,
+    "ast_hash": "18723ba48b19ba4a16e73b72ffa6c939",
+    "semantic_hash": "18723ba48b19ba4a16e73b72ffa6c939"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\urls.py": {
+    "mtime": 1782206448.960774,
+    "ast_hash": "e6fdada79d17b28f21de10f313bdb301",
+    "semantic_hash": "e6fdada79d17b28f21de10f313bdb301"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\dashboard\\views.py": {
+    "mtime": 1782206448.960774,
+    "ast_hash": "0a24d668702f3ac28958c29944bfacbc",
+    "semantic_hash": "0a24d668702f3ac28958c29944bfacbc"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\__init__.py": {
+    "mtime": 1782206448.9617705,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\apps.py": {
+    "mtime": 1782206448.9617705,
+    "ast_hash": "53de9541dfb7c6dfcb6b6fe7421bb269",
+    "semantic_hash": "53de9541dfb7c6dfcb6b6fe7421bb269"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\candle_consumer.py": {
+    "mtime": 1782206448.9627705,
+    "ast_hash": "c5d227337742da4f5b2d8fa5c8527a78",
+    "semantic_hash": "c5d227337742da4f5b2d8fa5c8527a78"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\candles.py": {
+    "mtime": 1782206448.9627705,
+    "ast_hash": "895615062c46b6528580f5812d400198",
+    "semantic_hash": "895615062c46b6528580f5812d400198"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\consumers.py": {
+    "mtime": 1782206448.9637697,
+    "ast_hash": "e0f63de48575b93f06f10eb80a4b872c",
+    "semantic_hash": "e0f63de48575b93f06f10eb80a4b872c"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\hl_client.py": {
+    "mtime": 1782206448.9647703,
+    "ast_hash": "f6ada3e19ee79c570b3ed4616350a6ad",
+    "semantic_hash": "f6ada3e19ee79c570b3ed4616350a6ad"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\hl_cloid.py": {
+    "mtime": 1782206448.9647703,
+    "ast_hash": "448de6372a3bcfe1734802181845ab2e",
+    "semantic_hash": "448de6372a3bcfe1734802181845ab2e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\hl_constants.py": {
+    "mtime": 1782206448.9657714,
+    "ast_hash": "2f698fb953ceb23fd2f9ef57f75998f3",
+    "semantic_hash": "2f698fb953ceb23fd2f9ef57f75998f3"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\hl_errors.py": {
+    "mtime": 1782206448.9657714,
+    "ast_hash": "8de654d599371d904ada999b5bf6ab52",
+    "semantic_hash": "8de654d599371d904ada999b5bf6ab52"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\hl_meta.py": {
+    "mtime": 1782206448.9667704,
+    "ast_hash": "fe7a1e5e4ca1d963cb31d14b2531544c",
+    "semantic_hash": "fe7a1e5e4ca1d963cb31d14b2531544c"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\hl_rate_limit.py": {
+    "mtime": 1782206448.9677699,
+    "ast_hash": "ad7b39a825bedbb24ab71b1f310fc16e",
+    "semantic_hash": "ad7b39a825bedbb24ab71b1f310fc16e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\management\\__init__.py": {
+    "mtime": 1782206448.9687717,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\management\\commands\\__init__.py": {
+    "mtime": 1782206448.9687717,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\management\\commands\\consume_hl_candles.py": {
+    "mtime": 1782206448.9697702,
+    "ast_hash": "1ca856a49aa4135bc3ce9d006a567fc5",
+    "semantic_hash": "1ca856a49aa4135bc3ce9d006a567fc5"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\management\\commands\\run_market_feed.py": {
+    "mtime": 1782206448.9697702,
+    "ast_hash": "fbf13c1e3d6459dbeedcec96e34b7a59",
+    "semantic_hash": "fbf13c1e3d6459dbeedcec96e34b7a59"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\market_ws.py": {
+    "mtime": 1782206448.9710934,
+    "ast_hash": "0ac3077837b7755de8d3a0a5b73a54dd",
+    "semantic_hash": "0ac3077837b7755de8d3a0a5b73a54dd"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\models.py": {
+    "mtime": 1782206448.9710934,
+    "ast_hash": "bcdb2a9aed55c55572d07bba74c293fb",
+    "semantic_hash": "bcdb2a9aed55c55572d07bba74c293fb"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\routing.py": {
+    "mtime": 1782206448.9710934,
+    "ast_hash": "758ecb4c85ad1d8359ce25756e59ec2a",
+    "semantic_hash": "758ecb4c85ad1d8359ce25756e59ec2a"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\subscriptions.py": {
+    "mtime": 1782206448.9720984,
+    "ast_hash": "2c34bd243dab259e08354393b5a77548",
+    "semantic_hash": "2c34bd243dab259e08354393b5a77548"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\tests.py": {
+    "mtime": 1782206448.9730992,
+    "ast_hash": "5689de83d3aae5cf7e44c0d2b36f0915",
+    "semantic_hash": "5689de83d3aae5cf7e44c0d2b36f0915"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\exchange\\ws_manager.py": {
+    "mtime": 1782206448.9730992,
+    "ast_hash": "8584e7b5b529cfd41dcdf3146286f25e",
+    "semantic_hash": "8584e7b5b529cfd41dcdf3146286f25e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\__init__.py": {
+    "mtime": 1782206448.9740994,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\admin.py": {
+    "mtime": 1782206448.9740994,
+    "ast_hash": "1632e46820f237ec645c78bca347c371",
+    "semantic_hash": "1632e46820f237ec645c78bca347c371"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\apps.py": {
+    "mtime": 1782206448.9750998,
+    "ast_hash": "c5946b8569576142076e0e787bfc2cbc",
+    "semantic_hash": "c5946b8569576142076e0e787bfc2cbc"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\migrations\\0001_initial.py": {
+    "mtime": 1782206448.9750998,
+    "ast_hash": "c9f88fbbdd9c925496691cda253608fa",
+    "semantic_hash": "c9f88fbbdd9c925496691cda253608fa"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\migrations\\0002_hyperliquid_order_id.py": {
+    "mtime": 1782206448.9761004,
+    "ast_hash": "3880dd7a7e2d4cea238bf8c86278af84",
+    "semantic_hash": "3880dd7a7e2d4cea238bf8c86278af84"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\migrations\\__init__.py": {
+    "mtime": 1782206448.9761004,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\models.py": {
+    "mtime": 1782206448.9781265,
+    "ast_hash": "85d8fa44d9a650605bcf12f14250bd5e",
+    "semantic_hash": "85d8fa44d9a650605bcf12f14250bd5e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\serializers.py": {
+    "mtime": 1782206448.9796336,
+    "ast_hash": "43be43de5718f9330786d9739131f631",
+    "semantic_hash": "43be43de5718f9330786d9739131f631"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\signals.py": {
+    "mtime": 1782206448.9796336,
+    "ast_hash": "967742019fe1201eb9c667054781dd36",
+    "semantic_hash": "967742019fe1201eb9c667054781dd36"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\urls.py": {
+    "mtime": 1782206448.9796336,
+    "ast_hash": "8ca0c6ed0157b22a58acfc772abcd689",
+    "semantic_hash": "8ca0c6ed0157b22a58acfc772abcd689"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\execution\\views.py": {
+    "mtime": 1782206448.9806416,
+    "ast_hash": "6bf03578a620508f6d2fc1da4c952c48",
+    "semantic_hash": "6bf03578a620508f6d2fc1da4c952c48"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\__init__.py": {
+    "mtime": 1782206448.9816384,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\admin.py": {
+    "mtime": 1782206448.9816384,
+    "ast_hash": "2e158c3dc7cfbcc6d72f9f97fc9b024b",
+    "semantic_hash": "2e158c3dc7cfbcc6d72f9f97fc9b024b"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\apps.py": {
+    "mtime": 1782206448.9826381,
+    "ast_hash": "18375eb26b0ce00ad94dd2a3778c8689",
+    "semantic_hash": "18375eb26b0ce00ad94dd2a3778c8689"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\migrations\\0001_initial.py": {
+    "mtime": 1782206448.9836402,
+    "ast_hash": "5bbb522c50857dfd5d78b221b382feca",
+    "semantic_hash": "5bbb522c50857dfd5d78b221b382feca"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\migrations\\0002_strategy_source_strategy_validation_error_and_more.py": {
+    "mtime": 1782206448.9836402,
+    "ast_hash": "7d6eaa4c978e463abfa91988f3852563",
+    "semantic_hash": "7d6eaa4c978e463abfa91988f3852563"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\migrations\\0003_live_fields.py": {
+    "mtime": 1782206448.9848943,
+    "ast_hash": "451e68a995c0ee204ae035866263eb2c",
+    "semantic_hash": "451e68a995c0ee204ae035866263eb2c"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\migrations\\0004_strategy_live_config.py": {
+    "mtime": 1782206448.9848943,
+    "ast_hash": "b8c33f62a66c6edabdfb945c9b16d713",
+    "semantic_hash": "b8c33f62a66c6edabdfb945c9b16d713"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\migrations\\0005_strategy_market_type.py": {
+    "mtime": 1782206448.9848943,
+    "ast_hash": "84f32c0cdbf28451e031300a6dad67a2",
+    "semantic_hash": "84f32c0cdbf28451e031300a6dad67a2"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\migrations\\__init__.py": {
+    "mtime": 1782206448.9859002,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\models.py": {
+    "mtime": 1782206448.986899,
+    "ast_hash": "9a92a64df59a63d25887220ea7503d11",
+    "semantic_hash": "9a92a64df59a63d25887220ea7503d11"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\serializers.py": {
+    "mtime": 1782206448.986899,
+    "ast_hash": "d2198d806615f5d7ab43078d372236ef",
+    "semantic_hash": "d2198d806615f5d7ab43078d372236ef"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\urls.py": {
+    "mtime": 1782206448.9878995,
+    "ast_hash": "06f90838902d94b38d7fb6e032e748ab",
+    "semantic_hash": "06f90838902d94b38d7fb6e032e748ab"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\strategies\\views.py": {
+    "mtime": 1782206448.9878995,
+    "ast_hash": "ef9bfb8587165b548c19174f157610c8",
+    "semantic_hash": "ef9bfb8587165b548c19174f157610c8"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\__init__.py": {
+    "mtime": 1782206448.9878995,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\admin.py": {
+    "mtime": 1782206448.9894044,
+    "ast_hash": "dea8c1201041a01a0a4a341b6982b596",
+    "semantic_hash": "dea8c1201041a01a0a4a341b6982b596"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\apps.py": {
+    "mtime": 1782206448.9904108,
+    "ast_hash": "8a4fdea43afe4bd77e30ea8f16e86a07",
+    "semantic_hash": "8a4fdea43afe4bd77e30ea8f16e86a07"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\ast_nodes.py": {
+    "mtime": 1782206448.9904108,
+    "ast_hash": "15b580e5bc23014a9a10d28be52d71a8",
+    "semantic_hash": "15b580e5bc23014a9a10d28be52d71a8"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\engine.py": {
+    "mtime": 1782206448.9914417,
+    "ast_hash": "c92ff68a8a6f674536120b15bb07f6af",
+    "semantic_hash": "c92ff68a8a6f674536120b15bb07f6af"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\exceptions.py": {
+    "mtime": 1782206448.992411,
+    "ast_hash": "21d016f56db60d48e47cdc014f251175",
+    "semantic_hash": "21d016f56db60d48e47cdc014f251175"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\live\\__init__.py": {
+    "mtime": 1782206448.9934099,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\live\\runner.py": {
+    "mtime": 1782206448.9944103,
+    "ast_hash": "34b97b7f481e7cc71244145ee1166fd5",
+    "semantic_hash": "34b97b7f481e7cc71244145ee1166fd5"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\live\\session_store.py": {
+    "mtime": 1782206448.99541,
+    "ast_hash": "a7793097037f29a53df8c12caa5b7be1",
+    "semantic_hash": "a7793097037f29a53df8c12caa5b7be1"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\live\\sliding_window.py": {
+    "mtime": 1782206448.99541,
+    "ast_hash": "a46cd1727536631585465f6638c71ffc",
+    "semantic_hash": "a46cd1727536631585465f6638c71ffc"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\live\\tests.py": {
+    "mtime": 1782206448.9964113,
+    "ast_hash": "28cc58e950ecc467e7a0d866202372b6",
+    "semantic_hash": "28cc58e950ecc467e7a0d866202372b6"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\migrations\\0001_initial.py": {
+    "mtime": 1782206448.9974103,
+    "ast_hash": "22d0360113f35a5191d4fd429d391674",
+    "semantic_hash": "22d0360113f35a5191d4fd429d391674"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\migrations\\__init__.py": {
+    "mtime": 1782206448.9974103,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\models.py": {
+    "mtime": 1782206448.9984105,
+    "ast_hash": "a3e714a846884d2071ffcfa2b33dbb63",
+    "semantic_hash": "a3e714a846884d2071ffcfa2b33dbb63"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\parser.py": {
+    "mtime": 1782206448.9984105,
+    "ast_hash": "e6bceef791c173c1e2926b92ab3442ad",
+    "semantic_hash": "e6bceef791c173c1e2926b92ab3442ad"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\runtime\\__init__.py": {
+    "mtime": 1782206448.99941,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\runtime\\context.py": {
+    "mtime": 1782206448.99941,
+    "ast_hash": "f70438421f0ca840bc35d2d973190073",
+    "semantic_hash": "f70438421f0ca840bc35d2d973190073"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\runtime\\indicators.py": {
+    "mtime": 1782206449.00088,
+    "ast_hash": "a50ae4ff8f4abf3ee2889d2d3ca5b083",
+    "semantic_hash": "a50ae4ff8f4abf3ee2889d2d3ca5b083"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\runtime\\interpreter.py": {
+    "mtime": 1782206449.001883,
+    "ast_hash": "552747d42d308e79972b288479b89904",
+    "semantic_hash": "552747d42d308e79972b288479b89904"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\runtime\\mathfns.py": {
+    "mtime": 1782206449.0028799,
+    "ast_hash": "189ff01f2d83a734d64e210d771646fd",
+    "semantic_hash": "189ff01f2d83a734d64e210d771646fd"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\runtime\\order_router.py": {
+    "mtime": 1782206449.0036929,
+    "ast_hash": "db84913e35ce7880ff40126983f7cb59",
+    "semantic_hash": "db84913e35ce7880ff40126983f7cb59"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\semantic.py": {
+    "mtime": 1782206449.0036929,
+    "ast_hash": "1c956dfdcd20d3b4068a23bab4ee8143",
+    "semantic_hash": "1c956dfdcd20d3b4068a23bab4ee8143"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\serializers.py": {
+    "mtime": 1782206449.0046992,
+    "ast_hash": "2907d1873849a82d7694084817f1572c",
+    "semantic_hash": "2907d1873849a82d7694084817f1572c"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\tasks.py": {
+    "mtime": 1782206449.0046992,
+    "ast_hash": "bbf0127999b9dcbd20c9850b8e1c8bf6",
+    "semantic_hash": "bbf0127999b9dcbd20c9850b8e1c8bf6"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\tests.py": {
+    "mtime": 1782206449.005699,
+    "ast_hash": "49dd2d597d41082b4dad1059eccf0353",
+    "semantic_hash": "49dd2d597d41082b4dad1059eccf0353"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\urls.py": {
+    "mtime": 1782206449.005699,
+    "ast_hash": "2a9356eedaba8fb77e7ca079121d980b",
+    "semantic_hash": "2a9356eedaba8fb77e7ca079121d980b"
+  },
+  "C:\\Work\\Project\\TradeBot\\apps\\transpiler\\views.py": {
+    "mtime": 1782206449.005699,
+    "ast_hash": "1ba320661efd37c6f6467316c2dbf1b7",
+    "semantic_hash": "1ba320661efd37c6f6467316c2dbf1b7"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\__init__.py": {
+    "mtime": 1782206449.0067022,
+    "ast_hash": "c2ad49fbe1cba084fbf29443191be143",
+    "semantic_hash": "c2ad49fbe1cba084fbf29443191be143"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\asgi.py": {
+    "mtime": 1782206449.007699,
+    "ast_hash": "cb47ee9200841bb56ec95700adba24dd",
+    "semantic_hash": "cb47ee9200841bb56ec95700adba24dd"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\celery.py": {
+    "mtime": 1782206449.0086992,
+    "ast_hash": "0729edec36a0ea390a60a60a40782027",
+    "semantic_hash": "0729edec36a0ea390a60a60a40782027"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\settings\\__init__.py": {
+    "mtime": 1782206449.0086992,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\settings\\base.py": {
+    "mtime": 1782206449.0097296,
+    "ast_hash": "b0ef37693e3aefe1c8d304f39487b5a5",
+    "semantic_hash": "b0ef37693e3aefe1c8d304f39487b5a5"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\settings\\dev.py": {
+    "mtime": 1782206449.0097296,
+    "ast_hash": "ccb7d8da4878d7e17944b6d6ee440014",
+    "semantic_hash": "ccb7d8da4878d7e17944b6d6ee440014"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\settings\\prod.py": {
+    "mtime": 1782206449.0097296,
+    "ast_hash": "21929f472becd745a1b0095109786e4d",
+    "semantic_hash": "21929f472becd745a1b0095109786e4d"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\urls.py": {
+    "mtime": 1782206449.0112345,
+    "ast_hash": "64c769426ece5a021b084a23110ed8f2",
+    "semantic_hash": "64c769426ece5a021b084a23110ed8f2"
+  },
+  "C:\\Work\\Project\\TradeBot\\config\\wsgi.py": {
+    "mtime": 1782206449.0112345,
+    "ast_hash": "66a9545e4034fdca712c185e2fc7ab3b",
+    "semantic_hash": "66a9545e4034fdca712c185e2fc7ab3b"
+  },
+  "C:\\Work\\Project\\TradeBot\\entrypoint.sh": {
+    "mtime": 1782481734.567464,
+    "ast_hash": "8a77065f8b41b3481fac4758ae00f98a",
+    "semantic_hash": "8a77065f8b41b3481fac4758ae00f98a"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\package.json": {
+    "mtime": 1782481735.635012,
+    "ast_hash": "c1d70dbd8bc7a317b66316454b2b367c",
+    "semantic_hash": "c1d70dbd8bc7a317b66316454b2b367c"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\App.vue": {
+    "mtime": 1782206449.0215833,
+    "ast_hash": "26c2cd4ec1941fad39c35610ff0b2285",
+    "semantic_hash": "26c2cd4ec1941fad39c35610ff0b2285"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\api\\client.ts": {
+    "mtime": 1782481735.4396245,
+    "ast_hash": "3414f6f5f2d8d8901d252febc5bec7e1",
+    "semantic_hash": "3414f6f5f2d8d8901d252febc5bec7e1"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\ActionIconButton.vue": {
+    "mtime": 1782481735.408484,
+    "ast_hash": "eda8b66d1895e1bd1cd61e50c12e5cf5",
+    "semantic_hash": "eda8b66d1895e1bd1cd61e50c12e5cf5"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\AppSidebar.vue": {
+    "mtime": 1782481734.7631125,
+    "ast_hash": "14be854f219161dd3cc5d796242c2dc0",
+    "semantic_hash": "14be854f219161dd3cc5d796242c2dc0"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\BaseModal.vue": {
+    "mtime": 1782481735.3008986,
+    "ast_hash": "b40cbee269d28946d097d996d01c8e42",
+    "semantic_hash": "b40cbee269d28946d097d996d01c8e42"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\ChartSkeleton.vue": {
+    "mtime": 1782481735.2086046,
+    "ast_hash": "b4a0e8a559951191798b3a75d9ec23fb",
+    "semantic_hash": "b4a0e8a559951191798b3a75d9ec23fb"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\HelloWorld.vue": {
+    "mtime": 1782206449.0245843,
+    "ast_hash": "bfbeb55d532ec33016666189313460f0",
+    "semantic_hash": "bfbeb55d532ec33016666189313460f0"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\RangeField.vue": {
+    "mtime": 1782481735.322545,
+    "ast_hash": "7869ddcbb369cf3e15d2c9af99b33f45",
+    "semantic_hash": "7869ddcbb369cf3e15d2c9af99b33f45"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\components\\SkeletonBlock.vue": {
+    "mtime": 1782481734.792631,
+    "ast_hash": "d276c15396922b77177eaa3ab6479f30",
+    "semantic_hash": "d276c15396922b77177eaa3ab6479f30"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\composables\\useDashboardWebSocket.ts": {
+    "mtime": 1782481735.5115695,
+    "ast_hash": "14efb3d906b9b46e88d885505f72b93b",
+    "semantic_hash": "14efb3d906b9b46e88d885505f72b93b"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\composables\\useHotkeys.ts": {
+    "mtime": 1782481735.5007906,
+    "ast_hash": "c7cdea4707213b01f165144de7c8d1b3",
+    "semantic_hash": "c7cdea4707213b01f165144de7c8d1b3"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\composables\\useToast.ts": {
+    "mtime": 1782481735.7036214,
+    "ast_hash": "9cb7fbca8fdb6ad66913a3eb207c93c7",
+    "semantic_hash": "9cb7fbca8fdb6ad66913a3eb207c93c7"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\i18n\\index.ts": {
+    "mtime": 1782206449.0285833,
+    "ast_hash": "bc65ad9d96fac88226a13b58a9899e46",
+    "semantic_hash": "bc65ad9d96fac88226a13b58a9899e46"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\layouts\\AppLayout.vue": {
+    "mtime": 1782481735.4185295,
+    "ast_hash": "970a173f8e5f773d8cc99c1bfbeddbbc",
+    "semantic_hash": "970a173f8e5f773d8cc99c1bfbeddbbc"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\locales\\en.json": {
+    "mtime": 1782481735.6114244,
+    "ast_hash": "8ecd420fe369f2a075f73367f40f50f0",
+    "semantic_hash": "8ecd420fe369f2a075f73367f40f50f0"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\locales\\fa.json": {
+    "mtime": 1782481735.61905,
+    "ast_hash": "bc192baa71dc5129aab61e0d5f9062fe",
+    "semantic_hash": "bc192baa71dc5129aab61e0d5f9062fe"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\main.ts": {
+    "mtime": 1782206449.0310924,
+    "ast_hash": "e0b83df6208718981f4c869907a0f32a",
+    "semantic_hash": "e0b83df6208718981f4c869907a0f32a"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\backtest\\AdvancedSettingsModal.vue": {
+    "mtime": 1782481735.5384295,
+    "ast_hash": "a262d861afecf2f183da9d507e49f700",
+    "semantic_hash": "a262d861afecf2f183da9d507e49f700"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\backtest\\BacktestResultsModal.vue": {
+    "mtime": 1782481735.5517027,
+    "ast_hash": "2b133c5a25f919caa499eb9f6cca8a45",
+    "semantic_hash": "2b133c5a25f919caa499eb9f6cca8a45"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\backtest\\BacktestSidebar.vue": {
+    "mtime": 1782481735.5599859,
+    "ast_hash": "42b6d81df80573149281b7d0cd97b996",
+    "semantic_hash": "42b6d81df80573149281b7d0cd97b996"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\backtest\\PineEditorModal.vue": {
+    "mtime": 1782481735.528829,
+    "ast_hash": "8f82b5dea8355621d17ec175bb1fa4d5",
+    "semantic_hash": "8f82b5dea8355621d17ec175bb1fa4d5"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\chart\\PnlCard.vue": {
+    "mtime": 1782206449.0320933,
+    "ast_hash": "a5b62b83e1cfd1088ac38840f305b818",
+    "semantic_hash": "a5b62b83e1cfd1088ac38840f305b818"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\chart\\TradingChart.vue": {
+    "mtime": 1782481735.5185974,
+    "ast_hash": "ac5f1354cf56a41ffe4951c28f23891f",
+    "semantic_hash": "ac5f1354cf56a41ffe4951c28f23891f"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\health\\HealthHeader.vue": {
+    "mtime": 1782206449.0330923,
+    "ast_hash": "0d802617c80062cf1084a03107bc28b8",
+    "semantic_hash": "0d802617c80062cf1084a03107bc28b8"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\health\\KillSwitchModal.vue": {
+    "mtime": 1782206449.0340922,
+    "ast_hash": "c262517f968a0dd48591105a76413d0d",
+    "semantic_hash": "c262517f968a0dd48591105a76413d0d"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\overview\\StatCard.vue": {
+    "mtime": 1782206449.0355089,
+    "ast_hash": "b65fb792b0de8dd9d6875666f6f88e24",
+    "semantic_hash": "b65fb792b0de8dd9d6875666f6f88e24"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\settings\\AccountPanel.vue": {
+    "mtime": 1782206449.036515,
+    "ast_hash": "b833ec32cc40ddb40443ca531767f431",
+    "semantic_hash": "b833ec32cc40ddb40443ca531767f431"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\settings\\CredentialsPanel.vue": {
+    "mtime": 1782206449.036515,
+    "ast_hash": "36c2577527b8cedffb738f3caec7ebc1",
+    "semantic_hash": "36c2577527b8cedffb738f3caec7ebc1"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\strategy\\CreateStrategyModal.vue": {
+    "mtime": 1782206449.037516,
+    "ast_hash": "b8d30a255d50f7d35c6bf22af1f515a6",
+    "semantic_hash": "b8d30a255d50f7d35c6bf22af1f515a6"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\modules\\terminal\\AuditTerminal.vue": {
+    "mtime": 1782206449.0400224,
+    "ast_hash": "94c862c51abed028a36998ff0df33809",
+    "semantic_hash": "94c862c51abed028a36998ff0df33809"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\router\\index.ts": {
+    "mtime": 1782206449.0410283,
+    "ast_hash": "9e07ef02ed7b9de4ca62770e29434cbe",
+    "semantic_hash": "9e07ef02ed7b9de4ca62770e29434cbe"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\auth.ts": {
+    "mtime": 1782206449.042029,
+    "ast_hash": "0af2b5482264b19bc2ea26f797a3d0ff",
+    "semantic_hash": "0af2b5482264b19bc2ea26f797a3d0ff"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\backtest.ts": {
+    "mtime": 1782481735.4883327,
+    "ast_hash": "4420ce8fdda4db4ba3b0b0411aafbed7",
+    "semantic_hash": "4420ce8fdda4db4ba3b0b0411aafbed7"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\chart.ts": {
+    "mtime": 1782481735.4686573,
+    "ast_hash": "e9477e7689f196f55d036ef8f83b6128",
+    "semantic_hash": "e9477e7689f196f55d036ef8f83b6128"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\health.ts": {
+    "mtime": 1782206449.0437546,
+    "ast_hash": "c40c12f95fb48e6e911bae6ea4f68f40",
+    "semantic_hash": "c40c12f95fb48e6e911bae6ea4f68f40"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\layout.ts": {
+    "mtime": 1782481734.7462597,
+    "ast_hash": "c553b89e14c080bc617373b3dda5ddd9",
+    "semantic_hash": "c553b89e14c080bc617373b3dda5ddd9"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\overview.ts": {
+    "mtime": 1782206449.044789,
+    "ast_hash": "c22bef41d70f997d52508cf4aa40bcb8",
+    "semantic_hash": "c22bef41d70f997d52508cf4aa40bcb8"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\strategy.ts": {
+    "mtime": 1782481735.4605112,
+    "ast_hash": "3d6dbe82521f30395884014c5260e760",
+    "semantic_hash": "3d6dbe82521f30395884014c5260e760"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\stores\\terminal.ts": {
+    "mtime": 1782206449.045836,
+    "ast_hash": "7e9d8cf1953fe02cde259eb000db3af0",
+    "semantic_hash": "7e9d8cf1953fe02cde259eb000db3af0"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\views\\LoginView.vue": {
+    "mtime": 1782206449.0471084,
+    "ast_hash": "02f06f8f8f24d87636713ff4897af8bf",
+    "semantic_hash": "02f06f8f8f24d87636713ff4897af8bf"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\views\\OverviewView.vue": {
+    "mtime": 1782206449.0481546,
+    "ast_hash": "a179fe9942161858ee623a8c19ba48d8",
+    "semantic_hash": "a179fe9942161858ee623a8c19ba48d8"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\views\\SettingsView.vue": {
+    "mtime": 1782206449.0486722,
+    "ast_hash": "5019b080774f147e874745d9c721c427",
+    "semantic_hash": "5019b080774f147e874745d9c721c427"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\views\\StrategiesListView.vue": {
+    "mtime": 1782481735.5786986,
+    "ast_hash": "6620ed5758891d40c80f4ed19a1e2b92",
+    "semantic_hash": "6620ed5758891d40c80f4ed19a1e2b92"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\views\\StrategyDetailView.vue": {
+    "mtime": 1782481735.5680792,
+    "ast_hash": "648b1cb8ae942aa2191215eccbdf4f75",
+    "semantic_hash": "648b1cb8ae942aa2191215eccbdf4f75"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\tsconfig.app.json": {
+    "mtime": 1782206449.0502203,
+    "ast_hash": "fc4471f1e52c1a380fcf44ab1668cfda",
+    "semantic_hash": "fc4471f1e52c1a380fcf44ab1668cfda"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\tsconfig.json": {
+    "mtime": 1782206449.0512595,
+    "ast_hash": "852c3a5df14a4b43ac28e9554ebedf4a",
+    "semantic_hash": "852c3a5df14a4b43ac28e9554ebedf4a"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\tsconfig.node.json": {
+    "mtime": 1782206449.0517857,
+    "ast_hash": "1cd4c6b260b0dccbad5bc0a25029f390",
+    "semantic_hash": "1cd4c6b260b0dccbad5bc0a25029f390"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\vite.config.ts": {
+    "mtime": 1782206449.0523098,
+    "ast_hash": "94a698d9324a53dbec31e0628b701ef8",
+    "semantic_hash": "94a698d9324a53dbec31e0628b701ef8"
+  },
+  "C:\\Work\\Project\\TradeBot\\manage.py": {
+    "mtime": 1782206449.0528321,
+    "ast_hash": "748fc3bde2b025a74f7fd33a93799405",
+    "semantic_hash": "748fc3bde2b025a74f7fd33a93799405"
+  },
+  "C:\\Work\\Project\\TradeBot\\README.md": {
+    "mtime": 1782206448.9479718,
+    "ast_hash": "e51689ffa4f13a8a466ec01ca1d842e9",
+    "semantic_hash": "e51689ffa4f13a8a466ec01ca1d842e9"
+  },
+  "C:\\Work\\Project\\TradeBot\\docker-compose.yml": {
+    "mtime": 1782481734.6846914,
+    "ast_hash": "9330970e9f0de44a486ac604300d24be",
+    "semantic_hash": "9330970e9f0de44a486ac604300d24be"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\README.md": {
+    "mtime": 1782206449.0163963,
+    "ast_hash": "fd996d82c526808fef662fb9e41e3e81",
+    "semantic_hash": "fd996d82c526808fef662fb9e41e3e81"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\index.html": {
+    "mtime": 1782206449.0163963,
+    "ast_hash": "e607a5d32d02ca4c70314687412a6373",
+    "semantic_hash": "e607a5d32d02ca4c70314687412a6373"
+  },
+  "C:\\Work\\Project\\TradeBot\\requirements.txt": {
+    "mtime": 1782206449.0537553,
+    "ast_hash": "3cf168cd03e184ff1f91c9a2166bf961",
+    "semantic_hash": "3cf168cd03e184ff1f91c9a2166bf961"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\public\\favicon.svg": {
+    "mtime": 1782206449.0193968,
+    "ast_hash": "7e840862161341271697daa99a40d76b",
+    "semantic_hash": "7e840862161341271697daa99a40d76b"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\public\\icons.svg": {
+    "mtime": 1782206449.020587,
+    "ast_hash": "21c7473c592c67dc87223d49892c8f0a",
+    "semantic_hash": "21c7473c592c67dc87223d49892c8f0a"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\assets\\hero.png": {
+    "mtime": 1782206449.022584,
+    "ast_hash": "aead493361b27e7510691c5d7072dfc1",
+    "semantic_hash": "aead493361b27e7510691c5d7072dfc1"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\assets\\vite.svg": {
+    "mtime": 1782206449.023585,
+    "ast_hash": "6d5180a782d64c8cf51ba01c2a2184d8",
+    "semantic_hash": "6d5180a782d64c8cf51ba01c2a2184d8"
+  },
+  "C:\\Work\\Project\\TradeBot\\frontend\\src\\assets\\vue.svg": {
+    "mtime": 1782206449.023585,
+    "ast_hash": "081c348d068770af78fcd90980521318",
+    "semantic_hash": "081c348d068770af78fcd90980521318"
+  }
+}

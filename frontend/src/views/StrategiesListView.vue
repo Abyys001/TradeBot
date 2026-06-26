@@ -6,6 +6,7 @@ import { useStrategyStore } from '../stores/strategy'
 import { useCredentialsStore } from '../stores/credentials'
 import { useToast } from '../composables/useToast'
 import CreateStrategyModal from '../modules/strategy/CreateStrategyModal.vue'
+import ActionIconButton from '../components/ActionIconButton.vue'
 import type { Strategy } from '../api/client'
 
 const { t } = useI18n()
@@ -32,10 +33,16 @@ function statusClass(status: string) {
   return 'bg-zinc-800 text-zinc-400'
 }
 
-function validationClass(v: string) {
-  if (v === 'ok') return 'text-emerald-400'
-  if (v === 'error') return 'text-red-400'
-  return 'text-zinc-500'
+function validationBadgeClass(v: string) {
+  if (v === 'ok') return 'bg-emerald-900/50 text-emerald-400'
+  if (v === 'error') return 'bg-red-900/50 text-red-400'
+  return 'bg-zinc-800 text-zinc-400'
+}
+
+function validationLabel(v: string) {
+  if (v === 'ok') return t('status.ok')
+  if (v === 'error') return t('status.error')
+  return 'draft'
 }
 
 function openDetail(id: number) {
@@ -113,14 +120,21 @@ function onCreated(id: number) {
       </div>
     </div>
 
-    <div v-if="!list.length" class="rounded-xl border border-dashed border-zinc-700 p-12 text-center">
-      <p class="text-zinc-500 mb-4">{{ t('strategies.empty') }}</p>
+    <div
+      v-if="!list.length"
+      class="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-700 p-16 text-center"
+    >
+      <svg class="mb-4 h-16 w-16 text-zinc-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+      </svg>
+      <p class="mb-2 text-zinc-400">{{ t('strategies.emptyTitle') }}</p>
+      <p class="mb-6 max-w-sm text-sm text-zinc-600">{{ t('strategies.empty') }}</p>
       <button
         type="button"
-        class="rounded-lg bg-emerald-700 px-4 py-2 text-sm text-white hover:bg-emerald-600"
+        class="rounded-lg bg-emerald-700 px-6 py-2.5 text-sm font-medium text-white hover:bg-emerald-600"
         @click="showCreate = true"
       >
-        {{ t('strategies.new') }}
+        {{ t('strategies.emptyCta') }}
       </button>
     </div>
 
@@ -139,7 +153,7 @@ function onCreated(id: number) {
           <tr
             v-for="s in list"
             :key="s.id"
-            class="border-t border-zinc-800/50 hover:bg-zinc-900/40"
+            class="border-t border-zinc-800/50 transition-colors hover:bg-zinc-800/60"
           >
             <td class="px-4 py-3">
               <button type="button" class="text-zinc-200 hover:text-emerald-400 font-medium" @click="openDetail(s.id)">
@@ -148,37 +162,56 @@ function onCreated(id: number) {
             </td>
             <td class="px-4 py-3 text-zinc-400">{{ s.symbol }}</td>
             <td class="px-4 py-3">
-              <span class="rounded px-2 py-0.5 text-xs" :class="statusClass(s.status)">{{ s.status }}</span>
+              <span class="rounded-full px-2.5 py-0.5 text-xs font-medium" :class="statusClass(s.status)">
+                {{ s.status }}
+              </span>
             </td>
-            <td class="px-4 py-3 text-xs" :class="validationClass(s.validation_status)">
-              {{ s.validation_status || '—' }}
+            <td class="px-4 py-3">
+              <span
+                class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                :class="validationBadgeClass(s.validation_status)"
+              >
+                {{ validationLabel(s.validation_status) }}
+              </span>
             </td>
-            <td class="px-4 py-3 text-end space-x-1">
-              <button type="button" class="text-xs text-zinc-400 hover:text-zinc-200" @click="openDetail(s.id)">
-                {{ t('strategies.edit') }}
-              </button>
-              <button type="button" class="text-xs text-zinc-400 hover:text-zinc-200" @click="onValidate(s)">
-                {{ t('strategy.validate') }}
-              </button>
-              <button
-                v-if="s.status === 'active'"
-                type="button"
-                class="text-xs text-amber-400 hover:text-amber-300"
-                @click="onStop(s)"
-              >
-                {{ t('strategy.stop') }}
-              </button>
-              <button
-                v-else
-                type="button"
-                class="text-xs text-emerald-400 hover:text-emerald-300"
-                @click="onStart(s)"
-              >
-                {{ t('strategy.start') }}
-              </button>
-              <button type="button" class="text-xs text-red-400 hover:text-red-300" @click="deleteTarget = s">
-                {{ t('strategies.delete') }}
-              </button>
+            <td class="px-4 py-3">
+              <div class="flex items-center justify-end gap-0.5">
+                <ActionIconButton :title="t('strategies.edit')" @click="openDetail(s.id)">
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                  </svg>
+                </ActionIconButton>
+                <ActionIconButton :title="t('strategy.validate')" @click="onValidate(s)">
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </ActionIconButton>
+                <ActionIconButton
+                  v-if="s.status === 'active'"
+                  :title="t('strategy.stop')"
+                  variant="warning"
+                  @click="onStop(s)"
+                >
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+                  </svg>
+                </ActionIconButton>
+                <ActionIconButton
+                  v-else
+                  :title="t('strategy.start')"
+                  variant="success"
+                  @click="onStart(s)"
+                >
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                  </svg>
+                </ActionIconButton>
+                <ActionIconButton :title="t('strategies.delete')" variant="danger" @click="deleteTarget = s">
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                </ActionIconButton>
+              </div>
             </td>
           </tr>
         </tbody>

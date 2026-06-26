@@ -5,7 +5,9 @@
   "nav": {
     "overview": "داشبورد",
     "strategies": "استراتژی‌ها",
-    "settings": "تنظیمات"
+    "settings": "تنظیمات",
+    "collapse": "جمع کردن منو",
+    "expand": "باز کردن منو"
   },
   "auth": {
     "login": "ورود",
@@ -51,6 +53,8 @@
     "new": "استراتژی جدید",
     "uploadPine": "آپلود .pine",
     "empty": "استراتژی‌ای نیست. یکی بسازید.",
+    "emptyTitle": "هنوز استراتژی ندارید",
+    "emptyCta": "اولین استراتژی را بسازید",
     "actions": "عملیات",
     "edit": "ویرایش",
     "delete": "حذف",
@@ -61,7 +65,7 @@
     "noCredential": "اول در تنظیمات API key اضافه کنید"
   },
   "strategy": {
-    "title": "تنظیم‌گر استراتژی",
+    "title": "موتور بک‌تست",
     "name": "نام",
     "source": "سورس Pine",
     "symbols": "جفت ارزها",
@@ -124,5 +128,31 @@
   "status": {
     "ok": "سالم",
     "error": "خطا"
+  },
+  "backtest": {
+    "run": "اجرای بک‌تست",
+    "running": "در حال اجرای بک‌تست...",
+    "complete": "بک‌تست تمام شد",
+    "failed": "بک‌تست ناموفق",
+    "results": "نتایج بک‌تست",
+    "editPine": "ویرایش Pine Script",
+    "savePine": "ذخیره و بستن",
+    "advanced": "تنظیمات پیشرفته",
+    "loadValidated": "بارگذاری از معتبرشده‌ها",
+    "warmupBars": "کندل‌های warmup",
+    "riskLimits": "محدودیت‌های ریسک",
+    "netPnl": "سود خالص",
+    "winRate": "نرخ برد",
+    "maxDrawdown": "حداکثر افت",
+    "numTrades": "معاملات",
+    "equityCurve": "منحنی سرمایه",
+    "side": "سمت",
+    "entry": "ورود",
+    "exit": "خروج",
+    "viewOnChart": "نمایش روی چارت",
+    "validateFirst": "قبل از بک‌تست، اسکریپت را اعتبارسنجی کنید",
+    "noCandles": "داده کندل برای این نماد/تایم‌فریم موجود نیست",
+    "noSource": "سورسی بارگذاری نشده",
+    "hotkeyHint": "Ctrl+Enter برای اجرا"
   }
 }
