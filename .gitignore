@@ -13,6 +13,9 @@ db.sqlite3
 /staticfiles/
 /media/
 
+# Downloaded OHLCV history (offline backtesting)
+/data/
+
 # Secrets — never commit
 .env
 

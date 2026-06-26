@@ -11,7 +11,10 @@ simple_stmt: _simple _NL
 _simple: declaration
         | reassignment
         | assignment
+        | tuple_assignment
         | expr
+
+tuple_assignment: "[" NAME ("," NAME)* "]" "=" expr
 
 declaration: KW_VAR [TYPE] NAME "=" expr   -> state_declaration
 reassignment: NAME ":=" expr               -> reassignment
@@ -55,11 +58,14 @@ suite: _NL _INDENT statement+ _DEDENT
         | atom
 
 ?atom: literal
+     | array_lit
      | member_call
      | call
      | member
      | NAME             -> identifier
      | "(" expr ")"
+
+array_lit: "[" [expr ("," expr)*] "]"   -> array_lit
 
 member_call: NAME "." NAME "(" [arguments] ")"
 call: NAME "(" [arguments] ")"
@@ -74,7 +80,6 @@ arguments: argument ("," argument)*
         | STRING  -> string_lit
         | "true"  -> true_lit
         | "false" -> false_lit
-        | "na"    -> na_lit
 
 // --- Terminals ---
 KW_VAR.2: "varip" | "var"

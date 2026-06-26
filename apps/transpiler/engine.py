@@ -1,12 +1,10 @@
-"""Public transpiler API: compile, backtest, and live execution.
-
-    program = compile(source)                  # parse + semantic check
-    result  = run_backtest(source, df)          # SimBroker over an OHLCV frame
-    run_live(source, df_tail, credential, ...)  # LiveBroker -> Hyperliquid
-"""
+"""Public transpiler API: compile, backtest, and live execution."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from apps.risk.config import parse_risk_config
+from apps.risk.manager import RiskManager
 
 from . import ast_nodes as ast
 from .parser import parse
@@ -17,8 +15,6 @@ from .semantic import analyze
 
 
 def compile(source: str) -> ast.ProgramNode:
-    """Parse and semantically validate. Raises PineSyntaxError /
-    PineSemanticError / UnsupportedFeatureError on invalid input."""
     program = parse(source)
     analyze(program)
     return program
@@ -30,39 +26,154 @@ class BacktestResult:
     trades: list
 
 
-def run_backtest(source: str, df, *, default_qty: float = 1.0) -> BacktestResult:
-    """Compile then run over an OHLCV DataFrame with a simulated broker."""
+def _header_kwargs(program: ast.ProgramNode) -> dict:
+    out: dict = {}
+    if program.header is not None:
+        for a in program.header.args:
+            if a.name is None:
+                continue
+            if isinstance(a.value, ast.LiteralNode):
+                out[a.name] = a.value.value
+            elif isinstance(a.value, ast.BuiltinFunctionNode) and a.value.namespace == "strategy":
+                out[a.name] = a.value.name
+    return out
+
+
+def _header_qty_mode(hk: dict) -> bool:
+    qty_type = hk.get("default_qty_type", "")
+    return str(qty_type) == "percent_of_equity"
+
+
+def _coerce_float(value, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _build_funding_map(funding_df) -> dict[int, float]:
+    if funding_df is None or funding_df.empty:
+        return {}
+    return {int(row.ts): float(row.funding_rate) for row in funding_df.itertuples()}
+
+
+def run_backtest_pine(
+    source: str,
+    df,
+    *,
+    default_qty: float | None = None,
+    commission: float | None = None,
+    slippage: float | None = None,
+    leverage: float | None = None,
+    initial_balance: float | None = None,
+    funding_df=None,
+    live_config: dict | None = None,
+    allow_pyramiding: bool = False,
+    chart_interval: str = "1h",
+    symbol: str = "",
+) -> BacktestResult:
     program = compile(source)
-    broker = SimBroker(default_qty=default_qty)
-    ctx = ExecutionContext(df, broker, header=program.header)
+    hk = _header_kwargs(program)
+    qty = default_qty if default_qty is not None else _coerce_float(
+        hk.get("default_qty_value", hk.get("qty")), 1.0
+    )
+    init_bal = initial_balance if initial_balance is not None else _coerce_float(
+        hk.get("initial_capital"), 10_000.0
+    )
+    comm = commission if commission is not None else _coerce_float(hk.get("commission_value"), 0.0)
+    slip = slippage if slippage is not None else _coerce_float(hk.get("slippage"), 0.0)
+    lev = leverage if leverage is not None else _coerce_float(
+        (live_config or {}).get("leverage", 1), 1.0
+    )
+
+    risk_cfg = parse_risk_config(live_config)
+    risk_mgr = RiskManager(risk_cfg, initial_balance=init_bal)
+    funding_rates = _build_funding_map(funding_df)
+
+    broker = SimBroker(
+        default_qty=qty,
+        commission=comm,
+        slippage=slip,
+        leverage=lev,
+        initial_balance=init_bal,
+        funding_rates=funding_rates,
+        allow_pyramiding=allow_pyramiding or bool((live_config or {}).get("pyramiding")),
+        risk_manager=risk_mgr,
+        qty_is_percent_of_equity=_header_qty_mode(hk),
+    )
+    ctx = ExecutionContext(
+        df,
+        broker,
+        header=program.header,
+        chart_interval=chart_interval,
+        symbol=symbol,
+        program=program,
+    )
     interpreter.run(program, ctx)
     return BacktestResult(metrics=broker.metrics(), trades=broker.trades())
 
 
+def run_backtest(
+    source: str,
+    df,
+    *,
+    default_qty: float | None = None,
+    commission: float | None = None,
+    slippage: float | None = None,
+    leverage: float | None = None,
+    initial_balance: float | None = None,
+    funding_df=None,
+    live_config: dict | None = None,
+    allow_pyramiding: bool = False,
+    chart_interval: str = "1h",
+    symbol: str = "",
+    engine: str = "pine",
+    params: dict | None = None,
+) -> BacktestResult:
+    """Run backtest via the strategy plugin registry (default: Pine)."""
+    from apps.strategies.plugins.registry import get_engine
+
+    plugin = get_engine(engine)
+    compiled = plugin.compile(source, params=params)
+    kwargs = {
+        "default_qty": default_qty,
+        "commission": commission,
+        "slippage": slippage,
+        "leverage": leverage,
+        "initial_balance": initial_balance,
+        "funding_df": funding_df,
+        "live_config": live_config,
+        "allow_pyramiding": allow_pyramiding,
+        "chart_interval": chart_interval,
+        "symbol": symbol,
+        "source": source,
+        "params": params,
+    }
+    return plugin.run_backtest(compiled, df, **{k: v for k, v in kwargs.items() if v is not None})
+
+
 def run_live(source: str, df, *, credential, strategy, symbol):
-    """Compile then run over recent bars with the live Hyperliquid broker.
-
-    `df` should end at the current bar; orders fire on the final bar's logic.
-    The LiveBroker enforces the per-user kill-switch before any order.
-
-    For incremental live execution use ``LiveIncrementalRunner`` (Phase 3).
-    """
     program = compile(source)
     broker = LiveBroker(credential=credential, strategy=strategy, symbol=symbol)
-    ctx = ExecutionContext(df, broker, header=program.header)
+    ctx = ExecutionContext(
+        df,
+        broker,
+        header=program.header,
+        chart_interval=strategy.timeframe,
+        symbol=symbol,
+        program=program,
+    )
     interpreter.run(program, ctx)
     return broker
 
 
 def start_live(strategy) -> None:
-    """Seed, warmup, and register a strategy for live candle processing."""
     from .live.runner import LiveIncrementalRunner
 
     LiveIncrementalRunner().seed_and_warmup(strategy)
 
 
 def stop_live(strategy) -> None:
-    """Stop live execution and clear session state."""
     from .live.runner import LiveIncrementalRunner
 
     LiveIncrementalRunner.stop(strategy)

@@ -29,9 +29,18 @@ def get_market_feed_status() -> dict:
 
 def get_celery_status() -> dict:
     try:
+        from config.celery import app
+
+        replies = app.control.inspect(timeout=3.0).ping()
+        if replies:
+            return {"status": "ok", "workers": len(replies)}
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
         from config.celery import ping
 
-        result = ping.delay().get(timeout=2)
+        result = ping.delay().get(timeout=5)
         if result == "pong":
             return {"status": "ok", "workers": 1}
         return {"status": "error", "workers": 0, "detail": str(result)}

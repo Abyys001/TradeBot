@@ -1,0 +1,22 @@
+// Representative TradingView-style strategy using input.*, UDF, MACD tuple, RSI.
+strategy("RSI MACD Sample", commission_value=0.00045, slippage=0.0005)
+
+rsiLen = input.int(14, "RSI Length")
+fastLen = input.int(12, "Fast")
+slowLen = input.int(26, "Slow")
+sigLen = input.int(9, "Signal")
+
+avg2(x, y) => (x + y) / 2
+mid = avg2(close, open)
+
+rsiVal = ta.rsi(close, rsiLen)
+[macdLine, signalLine, histLine] = ta.macd(close, fastLen, slowLen, sigLen)
+
+longCond = ta.crossover(macdLine, signalLine) and rsiVal < 70
+exitCond = ta.crossunder(macdLine, signalLine) or rsiVal > 75
+
+if longCond and strategy.position_size == 0
+    strategy.entry("long", strategy.long)
+
+if exitCond and strategy.position_size > 0
+    strategy.close("long")

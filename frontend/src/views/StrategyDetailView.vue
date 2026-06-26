@@ -1,25 +1,152 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../stores/strategy'
+<<<<<<< HEAD
 import BacktestSidebar from '../modules/backtest/BacktestSidebar.vue'
 import TradingChart from '../modules/chart/TradingChart.vue'
+=======
+import { useBacktestStore } from '../stores/backtest'
+import { useHistoryStore } from '../stores/history'
+import { useLayoutStore } from '../stores/layout'
+import { useStrategyForm } from '../composables/useStrategyForm'
+import { useBacktestHotkeys } from '../composables/useBacktestHotkeys'
+import { useToast } from '../composables/useToast'
+import TradingChart from '../modules/chart/TradingChart.vue'
+import BacktestPanel from '../modules/backtest/BacktestPanel.vue'
+import BacktestResultsModal from '../modules/backtest/BacktestResultsModal.vue'
+import PineScriptModal from '../modules/strategy/PineScriptModal.vue'
+import AdvancedSettingsModal from '../modules/strategy/AdvancedSettingsModal.vue'
+import OptimizerPanel from '../modules/optimizer/OptimizerPanel.vue'
+import ChartSkeleton from '../components/ChartSkeleton.vue'
+
+const SIDEBAR_W = '288px'
+>>>>>>> 1af07065fe5a87dc8ca34e162c3bf176e3907b0c
 
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const store = useStrategyStore()
+<<<<<<< HEAD
+=======
+const backtestStore = useBacktestStore()
+const historyStore = useHistoryStore()
+const layout = useLayoutStore()
+const toast = useToast()
+
+const activeBacktestId = ref<number | null>(null)
+const showPineModal = ref(false)
+const showAdvancedModal = ref(false)
+const resultsModalBacktestId = ref<number | null>(null)
+const lastAutoShownId = ref<number | null>(null)
+const backtestPanelRef = ref<InstanceType<typeof BacktestPanel> | null>(null)
+>>>>>>> 1af07065fe5a87dc8ca34e162c3bf176e3907b0c
 
 const strategyId = computed(() => Number(route.params.id))
+const strategyForm = useStrategyForm(strategyId)
 
+<<<<<<< HEAD
 onMounted(async () => {
   store.select(strategyId.value)
   await store.fetchAll({ preserveSelection: true })
+=======
+const activeBacktest = computed(() => backtestStore.active)
+const resultsBacktest = computed(() => {
+  if (!resultsModalBacktestId.value) return null
+  return backtestStore.backtests.find((b) => b.id === resultsModalBacktestId.value) ?? null
+>>>>>>> 1af07065fe5a87dc8ca34e162c3bf176e3907b0c
 })
 
-watch(strategyId, (id) => {
-  if (!Number.isNaN(id)) store.select(id)
+const showViewResultsBtn = computed(
+  () => activeBacktest.value?.status === 'done' && activeBacktest.value?.metrics,
+)
+
+const isBacktestRunning = computed(() => {
+  const bt = activeBacktest.value
+  if (!bt || activeBacktestId.value !== bt.id) return false
+  return bt.status === 'pending' || bt.status === 'running'
+})
+
+const hotkeysBlocked = computed(
+  () =>
+    showPineModal.value ||
+    showAdvancedModal.value ||
+    !!resultsModalBacktestId.value ||
+    layout.optimizerPanelOpen,
+)
+
+const gridColumns = computed(() => `minmax(0, 1fr) ${SIDEBAR_W}`)
+
+useBacktestHotkeys({
+  run: () => backtestPanelRef.value?.runBacktests(),
+  canRun: () => backtestPanelRef.value?.canRun ?? false,
+  blocked: hotkeysBlocked,
+})
+
+function syncBacktestFromRoute() {
+  const btId = route.query.backtestId
+  if (btId) {
+    const id = Number(btId)
+    activeBacktestId.value = id
+    backtestStore.select(id)
+  }
+}
+
+function openResults(id: number) {
+  resultsModalBacktestId.value = id
+}
+
+function closeResults() {
+  resultsModalBacktestId.value = null
+}
+
+async function initBacktestData(id: number) {
+  await Promise.all([
+    backtestStore.fetchAll(id),
+    historyStore.fetchDatasets(),
+    historyStore.fetchMarkets('mainnet'),
+  ])
+  if (backtestStore.activeBacktests.length) {
+    backtestStore.startPollingActive()
+  }
+}
+
+onMounted(async () => {
+  layout.applyBacktestModeDefaults()
+  layout.setBacktestPanelOpen(true)
+
+  await store.fetchAll()
+  store.select(strategyId.value)
+  syncBacktestFromRoute()
+  await initBacktestData(strategyId.value)
+  if (activeBacktestId.value) {
+    await backtestStore.fetchOne(activeBacktestId.value)
+  }
+})
+
+onUnmounted(() => {
+  if (!backtestStore.activeBacktests.length) {
+    backtestStore.stopPollingActive()
+  }
+})
+
+watch(
+  () => route.query.backtestId,
+  async (btId) => {
+    if (!btId) return
+    const id = Number(btId)
+    activeBacktestId.value = id
+    backtestStore.select(id)
+    await backtestStore.fetchOne(id)
+  },
+)
+
+watch(strategyId, async (id) => {
+  if (!Number.isNaN(id)) {
+    store.select(id)
+    await initBacktestData(id)
+  }
 })
 
 watch(
@@ -30,9 +157,42 @@ watch(
     }
   },
 )
+
+watch(
+  () => backtestStore.active?.status,
+  (status, prev) => {
+    const id = backtestStore.activeId
+    const bt = backtestStore.active
+    if (status === 'done' && prev !== 'done' && id && id !== lastAutoShownId.value) {
+      lastAutoShownId.value = id
+      toast.show(t('backtest.completed'), 'success')
+      openResults(id)
+    }
+    if (status === 'failed' && prev !== 'failed' && bt) {
+      toast.show(bt.error || t('backtest.runFailed'), 'error')
+    }
+  },
+)
+
+function onSelectBacktest(id: number | null) {
+  activeBacktestId.value = id
+  if (id) {
+    void router.replace({
+      query: { ...route.query, backtestId: String(id) },
+    })
+  } else {
+    const { backtestId: _removed, ...rest } = route.query
+    void router.replace({ query: rest })
+  }
+}
+
+function onViewResults(id: number) {
+  openResults(id)
+}
 </script>
 
 <template>
+<<<<<<< HEAD
   <div class="flex flex-1 min-h-0">
     <main class="relative flex min-w-0 flex-1 flex-col">
       <div class="border-b border-zinc-800 px-4 py-2">
@@ -43,5 +203,131 @@ watch(
       </div>
     </main>
     <BacktestSidebar :strategy-id="strategyId" />
+=======
+  <div class="flex h-full min-h-0 flex-col">
+    <div v-if="!store.selected" class="flex flex-1 items-center justify-center text-zinc-500">
+      {{ t('overview.loading') }}
+    </div>
+    <template v-else>
+      <div
+        class="relative grid min-h-0 flex-1 overflow-hidden"
+        :style="{ gridTemplateColumns: gridColumns }"
+      >
+        <main class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-3 py-2">
+            <button
+              type="button"
+              class="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              @click="router.push({ name: 'strategies' })"
+            >
+              ← {{ t('backtest.backToStrategies') }}
+            </button>
+            <div class="min-w-0">
+              <h1 class="text-sm font-semibold text-violet-200">{{ t('backtest.engineTitle') }}</h1>
+              <p class="truncate text-xs text-zinc-500">{{ store.selected.name }}</p>
+            </div>
+            <div class="ms-auto flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
+                @click="showPineModal = true"
+              >
+                {{ t('backtest.editPineScript') }}
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
+                @click="showAdvancedModal = true"
+              >
+                ⚙ {{ t('backtest.advancedSettings') }}
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border px-3 py-1 text-xs transition-colors"
+                :class="layout.optimizerPanelOpen ? 'border-amber-700 bg-amber-950 text-amber-200' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300'"
+                @click="layout.toggleOptimizerPanel()"
+              >
+                {{ t('backtest.optimize') }}
+              </button>
+            </div>
+          </div>
+
+          <div class="relative min-h-0 flex-1 overflow-hidden">
+            <TradingChart
+              class="h-full w-full"
+              :strategy-id="strategyId"
+              mode="backtest"
+              :backtest-id="activeBacktestId"
+            />
+            <div
+              v-if="isBacktestRunning"
+              class="absolute inset-0 z-10 bg-zinc-950/60 backdrop-blur-[1px]"
+            >
+              <ChartSkeleton />
+            </div>
+            <button
+              v-if="showViewResultsBtn && activeBacktestId"
+              type="button"
+              class="absolute end-4 top-4 z-20 rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white shadow-lg hover:bg-violet-600"
+              @click="openResults(activeBacktestId!)"
+            >
+              {{ t('backtest.viewResults') }}
+            </button>
+          </div>
+        </main>
+
+        <aside class="min-h-0 overflow-y-auto border-s border-zinc-800 bg-zinc-950">
+          <div class="flex h-full w-72 flex-col">
+            <div class="shrink-0 border-b border-zinc-800 px-3 py-2">
+              <span class="text-sm font-medium text-violet-200">{{ t('backtest.engineTitle') }}</span>
+            </div>
+            <div class="min-h-0 flex-1 overflow-hidden">
+              <BacktestPanel
+                ref="backtestPanelRef"
+                :strategy-id="strategyId"
+                @select-backtest="onSelectBacktest"
+                @view-results="onViewResults"
+              />
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div
+        v-show="layout.optimizerPanelOpen"
+        class="absolute inset-y-0 end-0 z-40 flex w-80 max-w-[90vw] flex-col border-s border-zinc-700 bg-zinc-950 shadow-2xl"
+      >
+        <div class="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-2">
+          <span class="text-sm font-medium text-amber-200">{{ t('backtest.optimize') }}</span>
+          <button
+            type="button"
+            class="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+            @click="layout.setOptimizerPanelOpen(false)"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto p-3">
+          <OptimizerPanel :strategy-id="strategyId" />
+        </div>
+      </div>
+
+      <PineScriptModal
+        v-if="showPineModal"
+        :strategy-form="strategyForm"
+        @close="showPineModal = false"
+      />
+      <AdvancedSettingsModal
+        v-if="showAdvancedModal"
+        :strategy-form="strategyForm"
+        @close="showAdvancedModal = false"
+      />
+      <BacktestResultsModal
+        v-if="resultsBacktest"
+        :backtest="resultsBacktest"
+        @close="closeResults"
+      />
+    </template>
+>>>>>>> 1af07065fe5a87dc8ca34e162c3bf176e3907b0c
   </div>
 </template>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTerminalStore } from '../../stores/terminal'
+
+const props = defineProps<{ strategyId?: number }>()
 
 const { t } = useI18n()
 const terminal = useTerminalStore()
@@ -25,6 +27,19 @@ function levelClass(level: string) {
   if (level === 'debug') return 'text-zinc-600'
   return 'text-zinc-300'
 }
+
+onMounted(() => {
+  terminal.setStrategyFilter(props.strategyId ?? null)
+  void terminal.fetchLogs({ strategy: props.strategyId ?? null })
+})
+
+watch(
+  () => props.strategyId,
+  (id) => {
+    terminal.setStrategyFilter(id ?? null)
+    void terminal.fetchLogs({ strategy: id ?? null })
+  },
+)
 
 watch(
   () => lines.value.length,

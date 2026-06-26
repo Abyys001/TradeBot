@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api, type Candle, type ChartMarker } from '../api/client'
+import { api, type Candle, type ChartMarker, type ChartPriceLevel } from '../api/client'
 
 export const useChartStore = defineStore('chart', () => {
   const candles = ref<Candle[]>([])
   const markers = ref<ChartMarker[]>([])
+  const levels = ref<ChartPriceLevel[]>([])
   const pnl = ref<string>('0')
   const loading = ref(false)
 
@@ -21,6 +22,7 @@ export const useChartStore = defineStore('chart', () => {
     }
   }
 
+<<<<<<< HEAD
   async function fetchMarkers(strategyId: number, source = 'live', backtestId?: number) {
     const params: Record<string, string | number> = {
       strategy_id: strategyId,
@@ -28,8 +30,51 @@ export const useChartStore = defineStore('chart', () => {
     }
     if (backtestId != null) params.backtest_id = backtestId
     const { data } = await api.get<{ markers: ChartMarker[] }>('/markers/', { params })
+=======
+  async function fetchMarkers(
+    strategyId: number,
+    source = 'live',
+    backtestId?: number,
+    network?: string,
+  ) {
+    const params: Record<string, string | number> = { strategy_id: strategyId, source }
+    if (backtestId) params.backtest_id = backtestId
+    if (network) params.network = network
+    const { data } = await api.get<{ markers: ChartMarker[]; levels?: ChartPriceLevel[] }>(
+      '/markers/',
+      { params },
+    )
+>>>>>>> 1af07065fe5a87dc8ca34e162c3bf176e3907b0c
     markers.value = data.markers
+    levels.value = data.levels ?? []
     return data.markers
+  }
+
+  async function fetchStoredCandles(
+    coin: string,
+    interval: string,
+    opts?: { start?: number; end?: number; limit?: number; network?: string },
+  ) {
+    loading.value = true
+    try {
+      const params: Record<string, string | number | undefined> = {
+        coin,
+        interval,
+        start: opts?.start,
+        end: opts?.end,
+        network: opts?.network,
+      }
+      if (opts?.start != null && opts?.end != null) {
+        params.limit = opts.limit ?? 50000
+      } else {
+        params.limit = opts?.limit ?? 2000
+      }
+      const { data } = await api.get<{ candles: Candle[] }>('/history/candles/', { params })
+      candles.value = data.candles
+      return data.candles
+    } finally {
+      loading.value = false
+    }
   }
 
   function applyCandleTick(payload: Record<string, unknown>) {
@@ -49,5 +94,16 @@ export const useChartStore = defineStore('chart', () => {
     pnl.value = String(payload.pnl ?? '0')
   }
 
-  return { candles, markers, pnl, loading, fetchCandles, fetchMarkers, applyCandleTick, applyPnl }
+  return {
+    candles,
+    markers,
+    levels,
+    pnl,
+    loading,
+    fetchCandles,
+    fetchStoredCandles,
+    fetchMarkers,
+    applyCandleTick,
+    applyPnl,
+  }
 })

@@ -7,21 +7,32 @@ export interface TerminalLine {
   level: string
   message: string
   created_at: string
+  strategy_id?: number | null
 }
 
 export const useTerminalStore = defineStore('terminal', () => {
   const lines = ref<TerminalLine[]>([])
   const levelFilter = ref<string>('all')
+  const strategyFilter = ref<number | null>(null)
   const paused = ref(false)
 
-  async function fetchLogs(limit = 100) {
-    const { data } = await api.get<ExecutionLog[]>('/logs/', { params: { limit } })
+  async function fetchLogs(opts?: { limit?: number; strategy?: number | null }) {
+    const limit = opts?.limit ?? 100
+    const strategy = opts?.strategy ?? strategyFilter.value
+    const params: Record<string, string | number> = { limit }
+    if (strategy != null) params.strategy = strategy
+    const { data } = await api.get<ExecutionLog[]>('/logs/', { params })
     lines.value = data.reverse().map((log) => ({
       id: String(log.id),
       level: log.level,
       message: formatLogMessage(log),
       created_at: log.created_at,
+      strategy_id: log.strategy,
     }))
+  }
+
+  function setStrategyFilter(strategyId: number | null) {
+    strategyFilter.value = strategyId
   }
 
   function formatLogMessage(log: ExecutionLog): string {
@@ -46,20 +57,37 @@ export const useTerminalStore = defineStore('terminal', () => {
 
   function pushLine(payload: Record<string, unknown>) {
     if (payload.source !== 'log') return
+    const strategyId = payload.strategy_id != null ? Number(payload.strategy_id) : null
+    if (strategyFilter.value != null && strategyId != null && strategyId !== strategyFilter.value) return
     const line: TerminalLine = {
       id: `${Date.now()}-${Math.random()}`,
       level: String(payload.level || 'info'),
       message: String(payload.message || payload.event),
       created_at: String(payload.created_at || new Date().toISOString()),
+      strategy_id: strategyId,
     }
     lines.value.push(line)
     if (lines.value.length > 500) lines.value.shift()
   }
 
   const filteredLines = computed(() => {
-    if (levelFilter.value === 'all') return lines.value
-    return lines.value.filter((l) => l.level === levelFilter.value)
+    let result = lines.value
+    if (strategyFilter.value != null) {
+      result = result.filter((l) => l.strategy_id == null || l.strategy_id === strategyFilter.value)
+    }
+    if (levelFilter.value === 'all') return result
+    return result.filter((l) => l.level === levelFilter.value)
   })
 
-  return { lines, levelFilter, paused, fetchLogs, pushLine, filteredLines, formatLogMessage }
+  return {
+    lines,
+    levelFilter,
+    strategyFilter,
+    paused,
+    fetchLogs,
+    setStrategyFilter,
+    pushLine,
+    filteredLines,
+    formatLogMessage,
+  }
 })

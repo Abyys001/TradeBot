@@ -34,11 +34,23 @@ class SeriesBuffer:
 
 
 class ExecutionContext:
-    def __init__(self, df, broker, *, header=None):
+    def __init__(
+        self,
+        df,
+        broker,
+        *,
+        header=None,
+        chart_interval: str = "1h",
+        symbol: str = "",
+        program=None,
+    ):
         self.df = df.reset_index(drop=True)
         self.n = len(self.df)
         self.broker = broker
         self.header = header
+        self.chart_interval = chart_interval
+        self.symbol = symbol
+        self.program = program
         self.bar_index = 0
 
         # Base + derived columns as float arrays.
@@ -46,6 +58,8 @@ class ExecutionContext:
         for col in ("open", "high", "low", "close", "volume"):
             if col in self.df.columns:
                 self.arrays[col] = self.df[col].to_numpy(dtype="float64")
+        if "ts" in self.df.columns:
+            self.arrays["ts"] = self.df["ts"].to_numpy(dtype="int64")
         for name, fn in DERIVED.items():
             try:
                 self.arrays[name] = fn(self.df).to_numpy(dtype="float64")
@@ -54,6 +68,10 @@ class ExecutionContext:
 
         # Path-dependent scalar variables.
         self.scalars: dict[str, SeriesBuffer] = {}
+        # User-defined functions (name -> FunctionDefNode), set by interpreter.run.
+        self.functions: dict = {}
+        # Per-call-site state for barssince / valuewhen / cum.
+        self.bar_state: dict = {}
         # Cache of vectorized expression results, keyed by id(node).
         self._array_cache: dict[int, np.ndarray] = {}
 

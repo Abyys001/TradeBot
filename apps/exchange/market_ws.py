@@ -25,6 +25,7 @@ class MarketFeed:
         self._subscribed: set[tuple[str, str, str]] = set()
         self._info_by_network: dict[str, object] = {}
         self._lock = threading.Lock()
+        self._last_msg_ts = time.time()
 
     def run(self) -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -32,6 +33,8 @@ class MarketFeed:
 
         registry = threading.Thread(target=self._poll_registry, daemon=True)
         registry.start()
+        ping = threading.Thread(target=self._ping_loop, daemon=True)
+        ping.start()
 
         try:
             while not self._stop.is_set():
@@ -41,6 +44,26 @@ class MarketFeed:
             for info in self._info_by_network.values():
                 try:
                     info.disconnect_websocket()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _ping_loop(self) -> None:
+        interval = 55
+        try:
+            from django.conf import settings
+
+            interval = int(getattr(settings, "HL_WS_PING_INTERVAL", 55))
+        except Exception:  # noqa: BLE001
+            interval = 55
+        while not self._stop.is_set():
+            self._stop.wait(interval)
+            if self._stop.is_set():
+                return
+            if time.time() - float(getattr(self, "_last_msg_ts", 0)) < 60:
+                continue
+            for info in list(self._info_by_network.values()):
+                try:
+                    info.ws_manager.ws.send('{"method":"ping"}')
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -80,6 +103,7 @@ class MarketFeed:
         interval = normalize_interval(interval)
 
         def callback(msg):
+            self._last_msg_ts = time.time()
             self._handle_message(network, coin, interval, msg)
 
         info.subscribe({"type": "candle", "coin": coin, "interval": interval}, callback)
