@@ -22,6 +22,8 @@ class Strategy(models.Model):
         "credentials.ExchangeCredential",
         on_delete=models.PROTECT,
         related_name="strategies",
+        null=True,
+        blank=True,
     )
     name = models.CharField(max_length=128)
     type = models.CharField(max_length=64, help_text="Strategy type identifier.")

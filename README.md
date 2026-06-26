@@ -63,11 +63,37 @@ docker compose up -d --build       # detached
 | `celery` | task worker |
 | `celery-beat` | scheduler (health heartbeat) |
 | `market-feed` | Hyperliquid candle WS → Redis Pub/Sub |
+| `user-feed` | Hyperliquid private WS (orderUpdates/userFills) → `OrderRecord` sync |
 | `candle-consumer` | Pub/Sub → Celery `process_live_bar_task` |
 | `postgres` | `:5432` |
 | `redis` | `:6379` |
 
 Open **http://localhost:8080** for the dashboard UI.
+
+### Backtest without exchange API key
+
+You can download historical OHLCV, upload Pine Script, and run backtests **without** adding a Hyperliquid agent key:
+
+1. **Historical Data** (`/data`) — download OHLCV, funding, and open-interest snapshots from the public Hyperliquid API (no API key). Requires the **Celery worker** and **Redis**:
+
+```bash
+docker compose up -d postgres redis web celery celery-beat frontend
+```
+
+Data is stored in **PostgreSQL** (canonical, queryable) and **Parquet** (fast backtest reads) under `data/` (persisted via the `marketdata` Docker volume). Jobs stuck in `pending` usually mean Celery is offline — check the red/green indicator in the header or the banner on the Data page. Use **Retry all stale** on the Data page after starting Celery, or `POST /api/history/downloads/retry-stale/`.
+
+**Troubleshooting (فارسی):** اگر کارهای دانلود در وضعیت `pending` می‌مانند، worker سلری را اجرا کنید: `docker compose up -d celery celery-beat`. سپس از دکمه «تلاش مجدد همه» در صفحه داده تاریخی استفاده کنید. فید Hyperliquid قرمز فقط برای چارت لایو است و روی دانلود تاریخی تأثیری ندارد.
+
+2. **Strategies** — upload `.pine` or create strategy; choose **No API — backtest only**
+3. Open the strategy → **Backtest** tab → pick coin/timeframe → Run Backtest
+
+After UI changes, rebuild the frontend container:
+
+```bash
+docker compose build frontend web
+docker compose run --rm web python manage.py migrate
+docker compose up -d
+```
 
 Create an admin user (once):
 
@@ -101,11 +127,19 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
+If you change `requirements.txt`, rebuild the image:
+
+```bash
+docker compose build web
+docker compose up -d
+```
+
 ```bash
 python manage.py runserver 0.0.0.0:8000
 celery -A config worker --loglevel=info
 celery -A config beat --loglevel=info
 python manage.py run_market_feed
+python manage.py run_user_feed
 ```
 
 ## Phase 1 verification
@@ -166,15 +200,17 @@ Indicators are computed vectorized (NumPy/pandas) and indexed per bar — the
 |--------|------|
 | `grammar/pine.lark` + `parser.py` | Lark LALR grammar (indentation-aware) → AST |
 | `semantic.py` | scope tracking, type lattice, **RestrictionLayer** (rejects `plot`/`plotshape`/`bgcolor`/… at compile time) |
-| `runtime/indicators.py` | `ta.sma/ema/rma/rsi/crossover/crossunder/highest/lowest` |
+| `runtime/indicators.py` | `ta.sma/ema/rma/rsi/atr/macd/bb/stoch/...` + `barssince/valuewhen/cum` |
 | `runtime/interpreter.py` | vectorize pass + bar loop |
 | `runtime/order_router.py` | `SimBroker` (backtest) / `LiveBroker` (Hyperliquid EIP-712) |
 | `engine.py` | `compile()`, `run_backtest()`, `run_live()` |
 
 ### Curated Pine v5 subset
-`strategy(...)`, `var`/`varip`, `=`/`:=`, `if/else if/else`, `for`, `[]`,
-arithmetic/logical/comparison/ternary, `ta.*`, `math.*`, `syminfo.*`, `nz`/`na`,
-`strategy.entry/close/exit`. Visual/drawing builtins are rejected.
+`strategy(...)`, `var`/`varip`, `=`/`:=`, tuple assignment `[a,b,c] = ta.macd(...)`,
+`if/else if/else`, `for`, user-defined functions `f(x) => ...`, `[]`,
+arithmetic/logical/comparison/ternary, `input.*` (defaults only), `ta.*`, `math.*`,
+`syminfo.*`, `nz`/`na`, `strategy.entry/close/exit`, `strategy.position_size/equity/openprofit`.
+Backtests fill at next bar open with optional commission/slippage. Visual/drawing builtins are rejected.
 
 ### Endpoints
 | Method | Path | Purpose |
@@ -256,6 +292,22 @@ When a strategy is started, the platform seeds historical candles via Hyperliqui
 pytest apps/exchange apps/transpiler   # Phase 3 + prior phases
 pytest                                   # full suite (34)
 ```
+
+---
+
+## Trading Framework
+
+TradeBot is evolving into a full **algorithmic trading framework** on Hyperliquid:
+data management → realistic backtests → strategy plugins → risk gates → paper → live → analytics → optimization.
+
+See the living roadmap: [`docs/TRADING_FRAMEWORK_ROADMAP.md`](docs/TRADING_FRAMEWORK_ROADMAP.md)
+
+| App | Responsibility |
+|-----|----------------|
+| `apps.risk` | Shared `RiskManager` (daily loss, drawdown, exposure, leverage caps) |
+| `apps.paper` | Virtual accounts + `PaperBroker` on live candle feed |
+| `apps.optimizer` | Grid search, walk-forward, Monte Carlo |
+| `apps.pro` | Strategy versions, journal, marketplace, replay sessions |
 
 ---
 

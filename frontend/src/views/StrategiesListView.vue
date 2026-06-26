@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../stores/strategy'
-import { useCredentialsStore } from '../stores/credentials'
 import { useToast } from '../composables/useToast'
 import CreateStrategyModal from '../modules/strategy/CreateStrategyModal.vue'
+import ResearchGuide from '../modules/strategy/ResearchGuide.vue'
+import StrategiesEmptyState from '../components/StrategiesEmptyState.vue'
 import type { Strategy } from '../api/client'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const store = useStrategyStore()
-const credentials = useCredentialsStore()
 const toast = useToast()
 
 const showCreate = ref(false)
@@ -19,28 +20,64 @@ const deleteTarget = ref<Strategy | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const uploadSource = ref('')
 
-onMounted(async () => {
-  await Promise.all([store.fetchAll(), credentials.fetchAll()])
+const badgeBase = 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium'
+const iconBtnBase = 'rounded-md p-1.5 text-zinc-600 transition-colors hover:bg-zinc-800'
+
+onMounted(() => {
+  void store.fetchAll()
 })
 
 const list = computed(() => store.strategies)
 
-function statusClass(status: string) {
-  if (status === 'active') return 'bg-emerald-900/50 text-emerald-400'
-  if (status === 'paused') return 'bg-amber-900/50 text-amber-400'
-  if (status === 'stopped') return 'bg-red-900/50 text-red-400'
-  return 'bg-zinc-800 text-zinc-400'
+const dataPrefill = computed(() => {
+  const coin = route.query.dataCoin as string | undefined
+  const interval = route.query.dataInterval as string | undefined
+  const network = (route.query.dataNetwork as string | undefined) || 'mainnet'
+  if (!coin || !interval) return null
+  return { coin, interval, network }
+})
+
+function strategyQuery(): Record<string, string> {
+  const query: Record<string, string> = {}
+  if (route.query.dataCoin) query.dataCoin = String(route.query.dataCoin)
+  if (route.query.dataInterval) query.dataInterval = String(route.query.dataInterval)
+  if (route.query.dataNetwork) query.dataNetwork = String(route.query.dataNetwork)
+  return query
 }
 
-function validationClass(v: string) {
-  if (v === 'ok') return 'text-emerald-400'
-  if (v === 'error') return 'text-red-400'
-  return 'text-zinc-500'
+function statusClass(status: string) {
+  if (status === 'active') return 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+  if (status === 'paused') return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
+  if (status === 'stopped') return 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30'
+  return 'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/40'
+}
+
+function statusLabel(status: string) {
+  if (status === 'active') return t('strategies.statusActive')
+  if (status === 'paused') return t('strategies.statusPaused')
+  if (status === 'stopped') return t('strategies.statusStopped')
+  return t('strategies.statusDraft')
+}
+
+function pineClass(v: string) {
+  if (v === 'ok') return 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+  if (v === 'error') return 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30'
+  return 'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/40'
+}
+
+function pineLabel(v: string) {
+  if (v === 'ok') return t('strategies.pineOk')
+  if (v === 'error') return t('strategies.pineError')
+  return t('strategies.pineDraft')
 }
 
 function openDetail(id: number) {
   store.select(id)
-  router.push({ name: 'strategy-detail', params: { id } })
+  router.push({
+    name: 'strategy-detail',
+    params: { id },
+    query: strategyQuery(),
+  })
 }
 
 async function onValidate(s: Strategy) {
@@ -113,16 +150,23 @@ function onCreated(id: number) {
       </div>
     </div>
 
-    <div v-if="!list.length" class="rounded-xl border border-dashed border-zinc-700 p-12 text-center">
-      <p class="text-zinc-500 mb-4">{{ t('strategies.empty') }}</p>
-      <button
-        type="button"
-        class="rounded-lg bg-emerald-700 px-4 py-2 text-sm text-white hover:bg-emerald-600"
-        @click="showCreate = true"
-      >
-        {{ t('strategies.new') }}
-      </button>
+    <div
+      v-if="dataPrefill"
+      class="mb-4 rounded-lg border border-violet-900/50 bg-violet-950/30 px-3 py-2 text-sm text-violet-300"
+    >
+      {{ t('data.prefillHint', dataPrefill) }}
     </div>
+
+    <div v-if="!list.length" class="flex min-h-[50vh] flex-col items-center justify-center">
+      <StrategiesEmptyState @create="showCreate = true" @upload="onUploadClick" />
+    </div>
+
+    <ResearchGuide
+      v-if="!list.length"
+      class="mb-6"
+      @upload="onUploadClick"
+      @create="showCreate = true"
+    />
 
     <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
       <table class="w-full text-sm">
@@ -130,8 +174,8 @@ function onCreated(id: number) {
           <tr>
             <th class="text-start px-4 py-3">{{ t('strategy.name') }}</th>
             <th class="text-start px-4 py-3">{{ t('strategy.symbols') }}</th>
-            <th class="text-start px-4 py-3">Status</th>
-            <th class="text-start px-4 py-3">Pine</th>
+            <th class="text-start px-4 py-3">{{ t('strategies.statusColumn') }}</th>
+            <th class="text-start px-4 py-3">{{ t('strategies.pineColumn') }}</th>
             <th class="text-end px-4 py-3">{{ t('strategies.actions') }}</th>
           </tr>
         </thead>
@@ -139,7 +183,7 @@ function onCreated(id: number) {
           <tr
             v-for="s in list"
             :key="s.id"
-            class="border-t border-zinc-800/50 hover:bg-zinc-900/40"
+            class="cursor-default border-t border-zinc-800/50 transition-colors duration-150 hover:bg-zinc-800/40"
           >
             <td class="px-4 py-3">
               <button type="button" class="text-zinc-200 hover:text-emerald-400 font-medium" @click="openDetail(s.id)">
@@ -148,37 +192,70 @@ function onCreated(id: number) {
             </td>
             <td class="px-4 py-3 text-zinc-400">{{ s.symbol }}</td>
             <td class="px-4 py-3">
-              <span class="rounded px-2 py-0.5 text-xs" :class="statusClass(s.status)">{{ s.status }}</span>
+              <span :class="[badgeBase, statusClass(s.status)]">{{ statusLabel(s.status) }}</span>
             </td>
-            <td class="px-4 py-3 text-xs" :class="validationClass(s.validation_status)">
-              {{ s.validation_status || '—' }}
+            <td class="px-4 py-3">
+              <span :class="[badgeBase, pineClass(s.validation_status)]">{{ pineLabel(s.validation_status) }}</span>
             </td>
-            <td class="px-4 py-3 text-end space-x-1">
-              <button type="button" class="text-xs text-zinc-400 hover:text-zinc-200" @click="openDetail(s.id)">
-                {{ t('strategies.edit') }}
-              </button>
-              <button type="button" class="text-xs text-zinc-400 hover:text-zinc-200" @click="onValidate(s)">
-                {{ t('strategy.validate') }}
-              </button>
-              <button
-                v-if="s.status === 'active'"
-                type="button"
-                class="text-xs text-amber-400 hover:text-amber-300"
-                @click="onStop(s)"
-              >
-                {{ t('strategy.stop') }}
-              </button>
-              <button
-                v-else
-                type="button"
-                class="text-xs text-emerald-400 hover:text-emerald-300"
-                @click="onStart(s)"
-              >
-                {{ t('strategy.start') }}
-              </button>
-              <button type="button" class="text-xs text-red-400 hover:text-red-300" @click="deleteTarget = s">
-                {{ t('strategies.delete') }}
-              </button>
+            <td class="px-4 py-3">
+              <div class="flex items-center justify-end gap-0.5">
+                <button
+                  type="button"
+                  :class="[iconBtnBase, 'hover:text-zinc-200']"
+                  :title="t('strategies.edit')"
+                  @click="openDetail(s.id)"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  :class="[iconBtnBase, 'hover:text-violet-400']"
+                  :title="t('strategy.validate')"
+                  @click="onValidate(s)"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <path d="m9 11 3 3L22 4" />
+                  </svg>
+                </button>
+                <button
+                  v-if="s.status === 'active'"
+                  type="button"
+                  :class="[iconBtnBase, 'hover:text-amber-400']"
+                  :title="t('strategy.stop')"
+                  @click="onStop(s)"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="6" y="6" width="12" height="12" rx="1" />
+                  </svg>
+                </button>
+                <button
+                  v-else-if="s.credential"
+                  type="button"
+                  :class="[iconBtnBase, 'hover:text-emerald-400']"
+                  :title="t('strategy.start')"
+                  @click="onStart(s)"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="6 3 20 12 6 21 6 3" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  :class="[iconBtnBase, 'hover:text-red-400']"
+                  :title="t('strategies.delete')"
+                  @click="deleteTarget = s"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>

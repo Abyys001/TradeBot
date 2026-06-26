@@ -1,8 +1,11 @@
 import { onUnmounted, ref, watch } from 'vue'
 import { useWebSocket } from '@vueuse/core'
 import { useAuthStore } from '../stores/auth'
+import { useBacktestStore } from '../stores/backtest'
 import { useChartStore } from '../stores/chart'
 import { useHealthStore } from '../stores/health'
+import { useHistoryStore } from '../stores/history'
+import { usePaperStore } from '../stores/paper'
 import { useTerminalStore } from '../stores/terminal'
 
 export function useDashboardWebSocket() {
@@ -11,6 +14,9 @@ export function useDashboardWebSocket() {
   const health = useHealthStore()
   const terminal = useTerminalStore()
   const chart = useChartStore()
+  const backtest = useBacktestStore()
+  const history = useHistoryStore()
+  const paper = usePaperStore()
 
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const url = `${protocol}://${window.location.host}/ws/dashboard/`
@@ -32,6 +38,9 @@ export function useDashboardWebSocket() {
       if (payload.source === 'log') terminal.pushLine(payload)
       if (payload.source === 'candle_tick') chart.applyCandleTick(payload)
       if (payload.source === 'pnl') chart.applyPnl(payload)
+      if (payload.source === 'backtest') backtest.applyWs(payload)
+      if (payload.source === 'history_download') history.applyWs(payload)
+      if (payload.source === 'paper') paper.applyWs(payload)
       if (payload.source === 'kill_switch' && auth.user) {
         auth.user.is_trading_enabled = false
       }

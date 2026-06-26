@@ -18,7 +18,7 @@ async function submit() {
     await auth.login(username.value, password.value)
     router.push({ name: 'overview' })
   } catch {
-    error.value = 'Invalid credentials'
+    error.value = t('auth.invalid')
   }
 }
 </script>

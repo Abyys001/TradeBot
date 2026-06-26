@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../../stores/strategy'
 import { useCredentialsStore } from '../../stores/credentials'
 import { useToast } from '../../composables/useToast'
 import type { LiveConfig } from '../../api/client'
+import VersionHistory from '../pro/VersionHistory.vue'
 
 const props = defineProps<{ strategyId: number }>()
 
@@ -30,13 +31,23 @@ const newSymbol = ref('')
 const saving = ref(false)
 const dragOver = ref(false)
 const validationMsg = ref('')
+const showAdvancedRisk = ref(false)
+const engineType = ref('pine')
 
 const selected = computed(() => store.strategies.find((s) => s.id === props.strategyId) ?? null)
+
+const hasCredential = computed(() => !!selected.value?.credential)
+
+onMounted(async () => {
+  if (!credentials.credentials.length) await credentials.fetchAll()
+  if (!store.engines.length) await store.fetchEngines()
+})
 
 watch(
   [selected, () => props.strategyId],
   ([s]) => {
     if (!s) return
+    engineType.value = s.type || 'pine'
     form.value = {
       name: s.name,
       credential: s.credential,
@@ -48,6 +59,12 @@ watch(
           leverage: s.live_config?.risk?.leverage ?? 1,
           position_size_pct: s.live_config?.risk?.position_size_pct ?? 5,
           global_stop_loss_pct: s.live_config?.risk?.global_stop_loss_pct ?? 10,
+          risk_per_trade_pct: s.live_config?.risk?.risk_per_trade_pct ?? 1,
+          max_daily_loss_pct: s.live_config?.risk?.max_daily_loss_pct ?? 5,
+          max_drawdown_pct: s.live_config?.risk?.max_drawdown_pct ?? 15,
+          max_open_trades: s.live_config?.risk?.max_open_trades ?? 3,
+          max_exposure_pct: s.live_config?.risk?.max_exposure_pct ?? 50,
+          max_leverage: s.live_config?.risk?.max_leverage ?? 10,
         },
       },
     }
@@ -98,11 +115,22 @@ async function save() {
   try {
     await store.updateStrategy(selected.value.id, {
       name: form.value.name,
-      credential: form.value.credential ?? undefined,
+      credential: form.value.credential,
       source: form.value.source,
+      type: engineType.value,
       live_config: form.value.live_config,
     })
     toast.show(t('strategy.saved'), 'success')
+    if (engineType.value === 'pine' && form.value.source.trim()) {
+      const result = await store.validate(selected.value.id)
+      if (result.ok) {
+        validationMsg.value = ''
+      } else {
+        const loc =
+          result.line != null ? ` (line ${result.line}, col ${result.column ?? '?'})` : ''
+        validationMsg.value = `${result.error || t('strategy.validatedFail')}${loc}`
+      }
+    }
   } catch {
     toast.show(t('strategy.saveFailed'), 'error')
   } finally {
@@ -115,7 +143,7 @@ async function validate() {
   await save()
   const result = await store.validate(selected.value.id)
   if (result.ok) {
-    validationMsg.value = t('strategy.validatedOk')
+    validationMsg.value = ''
     toast.show(t('strategy.validatedOk'), 'success')
   } else {
     const loc =
@@ -156,15 +184,31 @@ function loadSourceFrom(id: number) {
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('credentials.label') }}</label>
+      <label class="text-xs text-zinc-500">{{ t('strategy.engine') }}</label>
+      <select
+        v-model="engineType"
+        class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+      >
+        <option v-for="e in store.engines" :key="e" :value="e">{{ e }}</option>
+      </select>
+      <p v-if="engineType === 'ai'" class="text-xs text-zinc-500 mt-1">{{ t('strategy.aiHint') }}</p>
+    </div>
+
+    <div>
+      <label class="text-xs text-zinc-500">
+        {{ t('credentials.label') }}
+        <span class="text-zinc-600">({{ t('strategy.credentialOptional') }})</span>
+      </label>
       <select
         v-model="form.credential"
         class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
       >
+        <option :value="null">{{ t('strategy.noCredentialBacktestOnly') }}</option>
         <option v-for="c in credentials.credentials" :key="c.id" :value="c.id">
           {{ c.label }}
         </option>
       </select>
+      <p v-if="!hasCredential" class="text-xs text-zinc-500 mt-1">{{ t('strategy.liveRequiresCredential') }}</p>
     </div>
 
     <div>
@@ -194,15 +238,11 @@ function loadSourceFrom(id: number) {
       />
       <div class="mt-1 flex items-center gap-2">
         <span
-          v-if="selected.validation_status === 'ok'"
-          class="text-xs text-emerald-400"
-        >✓ {{ t('strategy.validatedOk') }}</span>
-        <span
-          v-else-if="selected.validation_status === 'error'"
+          v-if="selected.validation_status === 'error'"
           class="text-xs text-red-400"
         >✗ {{ selected.validation_error || t('strategy.validatedFail') }}</span>
       </div>
-      <p v-if="validationMsg" class="text-xs text-zinc-500 mt-1 font-mono">{{ validationMsg }}</p>
+      <p v-if="validationMsg" class="mt-1 font-mono text-xs text-red-400">{{ validationMsg }}</p>
     </div>
 
     <div>
@@ -285,6 +325,26 @@ function loadSourceFrom(id: number) {
       </div>
     </div>
 
+    <div>
+      <button
+        type="button"
+        class="text-xs text-zinc-500 hover:text-zinc-300"
+        @click="showAdvancedRisk = !showAdvancedRisk"
+      >
+        {{ showAdvancedRisk ? '▼' : '▶' }} {{ t('strategy.advancedRisk') }}
+      </button>
+      <div v-if="showAdvancedRisk" class="grid grid-cols-2 gap-2 mt-2">
+        <div v-for="field in ['risk_per_trade_pct', 'max_daily_loss_pct', 'max_drawdown_pct', 'max_open_trades', 'max_exposure_pct', 'max_leverage']" :key="field">
+          <label class="text-[10px] text-zinc-600">{{ field }}</label>
+          <input
+            v-model.number="(form.live_config.risk as Record<string, number>)[field]"
+            type="number"
+            class="mt-0.5 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+          />
+        </div>
+      </div>
+    </div>
+
     <div class="flex flex-wrap gap-2">
       <button
         type="button"
@@ -297,12 +357,16 @@ function loadSourceFrom(id: number) {
       <button type="button" class="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700" @click="validate">
         {{ t('strategy.validate') }}
       </button>
-      <button type="button" class="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600" @click="start">
-        {{ t('strategy.start') }}
-      </button>
-      <button type="button" class="rounded-lg bg-amber-800 px-3 py-1.5 text-xs hover:bg-amber-700" @click="stop">
-        {{ t('strategy.stop') }}
-      </button>
+      <template v-if="hasCredential">
+        <button type="button" class="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600" @click="start">
+          {{ t('strategy.start') }}
+        </button>
+        <button type="button" class="rounded-lg bg-amber-800 px-3 py-1.5 text-xs hover:bg-amber-700" @click="stop">
+          {{ t('strategy.stop') }}
+        </button>
+      </template>
     </div>
+
+    <VersionHistory :strategy-id="strategyId" />
   </div>
 </template>

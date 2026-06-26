@@ -35,6 +35,31 @@ const router = createRouter({
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
         },
+        {
+          path: 'data',
+          name: 'data',
+          component: () => import('../views/DataView.vue'),
+        },
+        {
+          path: 'analytics',
+          name: 'analytics',
+          component: () => import('../views/AnalyticsView.vue'),
+        },
+        {
+          path: 'orders',
+          name: 'orders',
+          component: () => import('../views/OrdersView.vue'),
+        },
+        {
+          path: 'journal',
+          name: 'journal',
+          component: () => import('../views/JournalView.vue'),
+        },
+        {
+          path: 'marketplace',
+          name: 'marketplace',
+          component: () => import('../views/MarketplaceView.vue'),
+        },
       ],
     },
   ],

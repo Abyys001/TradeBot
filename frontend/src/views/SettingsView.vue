@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AccountPanel from '../modules/settings/AccountPanel.vue'
 import CredentialsPanel from '../modules/settings/CredentialsPanel.vue'
+import SignumSettingsPanel from '../modules/settings/SignumSettingsPanel.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -11,5 +12,6 @@ const { t } = useI18n()
     <h1 class="text-lg font-semibold text-zinc-200">{{ t('settings.title') }}</h1>
     <AccountPanel />
     <CredentialsPanel />
+    <SignumSettingsPanel />
   </div>
 </template>

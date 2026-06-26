@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import re
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -37,10 +39,33 @@ class _TokenBucket:
 
     def wait(self, weight: int = 1) -> None:
         while not self.acquire(weight):
-            time.sleep(0.05)
+            time.sleep(0.1)
 
 
 _ip_bucket = _TokenBucket(_IP_WEIGHT_LIMIT, _IP_WINDOW_SEC)
+
+
+def is_rate_limit_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "429" in msg or "too many requests" in msg or "rate limit" in msg
+
+
+def sanitize_hl_error(exc: BaseException) -> str:
+    """Short, user-facing message for HL API failures."""
+    if is_rate_limit_error(exc):
+        return (
+            "Hyperliquid rate limit (HTTP 429) — too many requests. "
+            "Wait a minute and retry, or download fewer pairs at once."
+        )
+    msg = str(exc).strip()
+    if msg.startswith("(") and len(msg) > 120:
+        code = re.search(r"\((\d{3}),", msg)
+        if code:
+            return f"Hyperliquid API error (HTTP {code.group(1)})"
+        return "Hyperliquid API error"
+    if len(msg) > 240:
+        return msg[:240] + "…"
+    return msg
 
 
 def _redis():
@@ -68,7 +93,12 @@ def nonce_lock(credential_id: int, ttl: int = 10):
         r.delete(key)
 
 
-def with_rate_limit(weight: int = 1, max_retries: int = 3):
+def with_rate_limit(
+    weight: int = 1,
+    max_retries: int = 3,
+    *,
+    max_backoff: float = 8.0,
+):
     """Decorator: IP token bucket + exponential backoff on rate-limit errors."""
 
     def decorator(fn: Callable[..., T]) -> Callable[..., T]:
@@ -80,10 +110,17 @@ def with_rate_limit(weight: int = 1, max_retries: int = 3):
                 try:
                     return fn(*args, **kwargs)
                 except Exception as exc:  # noqa: BLE001
-                    msg = str(exc).lower()
-                    if "429" in msg or "rate" in msg or "limit" in msg:
+                    if is_rate_limit_error(exc):
                         last_exc = exc
-                        time.sleep(min(2**attempt, 8))
+                        delay = min(2**attempt + random.uniform(0.25, 1.0), max_backoff)
+                        logger.warning(
+                            "HL rate limit on %s (attempt %s/%s), sleeping %.1fs",
+                            fn.__name__,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                        )
+                        time.sleep(delay)
                         continue
                     raise
             if last_exc:

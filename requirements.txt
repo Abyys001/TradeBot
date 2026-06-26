@@ -25,6 +25,7 @@ cryptography==44.0.0
 lark==1.2.2
 pandas==2.2.3
 numpy==2.1.3
+pyarrow==18.1.0
 
 # --- Dev / Docker hot reload ---
 watchfiles==1.0.4

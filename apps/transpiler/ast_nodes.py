@@ -21,6 +21,24 @@ class Node:
 class ProgramNode(Node):
     header: Optional["StrategyHeaderNode"]
     body: list  # list[Node]
+    functions: list = field(default_factory=list)  # list[FunctionDefNode]
+
+
+@dataclass
+class FunctionDefNode(Node):
+    """User-defined function: `name(params) => body`."""
+
+    name: str
+    params: list[str]
+    body: list  # expr wrapped as one-element list, or suite statements
+
+
+@dataclass
+class TupleAssignNode(Node):
+    """`[a, b, c] = expr` — multi-return destructuring."""
+
+    names: list[str]
+    value: "Node"
 
 
 @dataclass
@@ -131,3 +149,10 @@ class IdentifierNode(Node):
 class LiteralNode(Node):
     value: object  # float | int | str | bool | None(=na)
     type: str  # "float" | "int" | "string" | "bool" | "na"
+
+
+@dataclass
+class ArrayLiteralNode(Node):
+    """`[a, b, c]` — TradingView option lists (compile-time only)."""
+
+    elements: list  # list[Node]
