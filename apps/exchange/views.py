@@ -61,10 +61,12 @@ class HistoryDatasetsView(APIView):
         return Response({"datasets": datasets})
 
     def delete(self, request):
-        network = request.data.get("network", "mainnet")
-        coin = request.data.get("coin")
-        interval = request.data.get("interval")
-        kind = request.data.get("kind", "ohlcv")
+        # Accept JSON body or query params (some proxies strip DELETE bodies).
+        src = {**request.query_params.dict(), **(request.data or {})}
+        network = src.get("network", "mainnet")
+        coin = src.get("coin")
+        interval = src.get("interval")
+        kind = src.get("kind", "ohlcv")
 
         if network not in _VALID_NETWORKS:
             return Response({"error": f"invalid network: {network}"}, status=status.HTTP_400_BAD_REQUEST)
@@ -72,16 +74,27 @@ class HistoryDatasetsView(APIView):
             return Response({"error": "coin required"}, status=status.HTTP_400_BAD_REQUEST)
         if kind not in _VALID_KINDS:
             return Response({"error": f"invalid kind: {kind}"}, status=status.HTTP_400_BAD_REQUEST)
-        if kind == "ohlcv" and not interval:
-            return Response({"error": "interval required for ohlcv"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             norm_coin = normalize_coin(coin)
-            norm_interval = normalize_interval(interval) if interval else ""
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        deleted = delete_dataset(network, norm_coin, norm_interval or "1h", kind=kind)
+        if kind == "ohlcv":
+            if not interval:
+                return Response({"error": "interval required for ohlcv"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                norm_interval = normalize_interval(interval)
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            norm_interval = ""
+
+        try:
+            deleted = delete_dataset(network, norm_coin, norm_interval or "1h", kind=kind)
+        except OSError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         if not deleted:
             return Response({"error": "dataset not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response({"ok": True})

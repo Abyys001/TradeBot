@@ -41,7 +41,14 @@ class LiveIncrementalRunner:
 
         program = compile(strategy.source)
         broker = WarmupBroker()
-        ctx = ExecutionContext(window.to_dataframe(), broker, header=program.header)
+        ctx = ExecutionContext(
+            window.to_dataframe(),
+            broker,
+            header=program.header,
+            chart_interval=strategy.timeframe,
+            symbol=strategy.symbol,
+            program=program,
+        )
         interpreter.run_warmup(program, ctx)
 
         save_session(strategy.pk, window=window, ctx=ctx, source=strategy.source)
@@ -93,7 +100,14 @@ class LiveIncrementalRunner:
             strategy=strategy,
             symbol=strategy.symbol,
         )
-        ctx = ExecutionContext(window.to_dataframe(), broker, header=program.header)
+        ctx = ExecutionContext(
+            window.to_dataframe(),
+            broker,
+            header=program.header,
+            chart_interval=strategy.timeframe,
+            symbol=strategy.symbol,
+            program=program,
+        )
         ctx.scalars = restore_scalars(session)
 
         last_bar = ctx.n - 1

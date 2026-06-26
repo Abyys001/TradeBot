@@ -34,11 +34,23 @@ class SeriesBuffer:
 
 
 class ExecutionContext:
-    def __init__(self, df, broker, *, header=None):
+    def __init__(
+        self,
+        df,
+        broker,
+        *,
+        header=None,
+        chart_interval: str = "1h",
+        symbol: str = "",
+        program=None,
+    ):
         self.df = df.reset_index(drop=True)
         self.n = len(self.df)
         self.broker = broker
         self.header = header
+        self.chart_interval = chart_interval
+        self.symbol = symbol
+        self.program = program
         self.bar_index = 0
 
         # Base + derived columns as float arrays.

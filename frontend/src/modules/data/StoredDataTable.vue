@@ -51,8 +51,11 @@ async function deleteDataset(d: HistoryDataset) {
     })
     toast.show(t('data.deleted'), 'success')
     emit('deleted')
-  } catch {
-    toast.show(t('data.deleteFailed'), 'error')
+  } catch (err: unknown) {
+    const msg =
+      (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+      t('data.deleteFailed')
+    toast.show(msg, 'error')
   } finally {
     deletingKey.value = null
   }
@@ -124,7 +127,6 @@ async function deleteDataset(d: HistoryDataset) {
               :to="{
                 path: '/strategies',
                 query: {
-                  mode: 'backtest',
                   dataCoin: d.coin,
                   dataInterval: d.interval,
                   dataNetwork: d.network || 'mainnet',

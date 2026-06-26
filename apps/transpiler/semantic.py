@@ -24,11 +24,17 @@ BUILTIN_VARS = {
 # Plain (namespace-less) builtins that ARE supported.
 ALLOWED_PLAIN = {"nz", "na", "input"}
 
-# Plain builtins rejected as visual / non-headless.
+# Plain builtins rejected as visual / non-headless (`plot` allowed as no-op).
 FORBIDDEN_PLAIN = {
-    "plot", "plotshape", "plotchar", "plotcandle", "plotbar", "plotarrow",
+    "plotshape", "plotchar", "plotcandle", "plotbar", "plotarrow",
     "bgcolor", "barcolor", "hline", "fill", "alert", "alertcondition",
 }
+
+# Keyword args ignored for TradingView UI compatibility.
+IGNORED_KWARGS = frozenset({
+    "options", "minval", "maxval", "min", "max", "step",
+    "title", "linewidth", "color", "overlay", "display",
+})
 
 # Whole namespaces rejected (drawing objects).
 FORBIDDEN_NAMESPACES = {"label", "table", "box", "line"}
@@ -187,6 +193,10 @@ class SemanticAnalyzer:
     def _expr(self, node) -> str:
         if isinstance(node, ast.LiteralNode):
             return node.type
+        if isinstance(node, ast.ArrayLiteralNode):
+            for el in node.elements:
+                self._expr(el)
+            return "array"
         if isinstance(node, ast.IdentifierNode):
             t = self._resolve(node.name)
             if t is None:
@@ -250,6 +260,16 @@ class SemanticAnalyzer:
             return INPUT_TYPES.get(name, "unknown")
         if ns == "syminfo":
             return "string" if name in ("tickerid", "ticker", "currency") else "float"
+        if ns == "str" and name == "tostring":
+            return "string"
+        if ns == "timeframe":
+            return "int" if name == "multiplier" else "string"
+        if ns == "color":
+            return "color"
+        if ns == "barmerge":
+            return "unknown"
+        if ns == "request" and name == "security":
+            return "float"
         if ns == "strategy":
             return "float" if name in ("position_size", "equity", "openprofit") else "unknown"
         if ns is None:
@@ -327,6 +347,8 @@ def _children(node):
     elif isinstance(node, ast.HistoryAccessNode):
         yield node.series
         yield node.offset
+    elif isinstance(node, ast.ArrayLiteralNode):
+        yield from node.elements
 
 
 def analyze(program: ast.ProgramNode) -> None:

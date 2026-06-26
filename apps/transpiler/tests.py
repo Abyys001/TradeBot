@@ -15,6 +15,9 @@ from .engine import compile, run_backtest, run_live
 from .exceptions import PineSemanticError, PineSyntaxError, UnsupportedFeatureError
 from .parser import parse
 from .runtime import indicators as ind
+from .runtime import interpreter
+from .runtime.context import ExecutionContext
+from .runtime.order_router import WarmupBroker
 
 SMA_CROSS = """strategy("SMA Cross")
 fast = ta.sma(close, 5)
@@ -57,10 +60,27 @@ def test_syntax_error_reports_location():
 
 
 # 2. Restriction layer
-@pytest.mark.parametrize("bad", ["plot(close)", "plotshape(close)", "bgcolor(close)"])
+@pytest.mark.parametrize("bad", ["plotshape(close)", "bgcolor(close)"])
 def test_restriction_rejects_visual_builtins(bad):
     with pytest.raises(UnsupportedFeatureError):
         compile(f'strategy("x")\n{bad}\n')
+
+
+def test_plot_is_allowed_noop():
+    compile('strategy("x")\nplot(close)\n')
+
+
+def test_mid_file_line_comments_allowed():
+    src = """strategy("x")
+
+// === SIGNUM INPUTS ===
+signum_bot_id = input.string("PTl6LD6u", "Signum Bot ID")
+"""
+    compile(src)
+
+
+def test_inline_line_comment_after_statement():
+    compile('strategy("x")\nx = input.string("80%", "size") // trailing note\n')
 
 
 # 3. Semantic
@@ -96,7 +116,7 @@ def test_ema_rma_rsi_finite():
 METRIC_KEYS = {
     "num_trades", "net_pnl", "gross_pnl", "total_commission", "win_rate", "max_drawdown",
     "profit_factor", "sharpe_ratio", "avg_trade", "risk_reward", "expectancy", "funding_paid",
-    "leverage", "liquidations", "final_equity", "equity_series",
+    "leverage", "liquidations", "final_equity", "equity_series", "initial_balance",
 }
 
 
@@ -736,3 +756,192 @@ def test_strategy_plugin_registry():
 
     assert "pine" in list_engines()
     assert get_engine("pine").name == "pine"
+
+
+OCC_SIGNUM = """strategy("OCC 1H - Signum Edition", overlay=true, initial_capital=30, default_qty_type=strategy.percent_of_equity, default_qty_value=90)
+
+signum_bot_id = input.string("PTl6LD6u", "Signum Bot ID")
+order_size_val = input.string("80%", "Order Size (as string)")
+
+multiplier   = input.int(3, "Multiplier (Trend Speed)", minval=1)
+basisType    = input.string("SMMA", "MA Type", options=["SMA", "EMA", "DEMA", "TEMA", "WMA", "VWMA", "SMMA", "HullMA", "LSMA", "ALMA"])
+basisLen     = input.int(8, "MA Period", minval=1)
+
+getMA(type, src, length) =>
+    float res = na
+    if type == "SMA"
+        res := ta.sma(src, length)
+    else if type == "EMA"
+        res := ta.ema(src, length)
+    else if type == "DEMA"
+        e = ta.ema(src, length)
+        res := 2 * e - ta.ema(e, length)
+    else if type == "WMA"
+        res := ta.wma(src, length)
+    else if type == "VWMA"
+        res := ta.vwma(src, length)
+    else if type == "SMMA"
+        float smma = na
+        smma := na(smma[1]) ? ta.sma(src, length) : (smma[1] * (length - 1) + src) / length
+        res := smma
+    else if type == "HullMA"
+        res := ta.wma(2 * ta.wma(src, length / 2) - ta.wma(src, length), math.round(math.sqrt(length)))
+    res
+
+ma_c = getMA(basisType, close, basisLen)
+ma_o = getMA(basisType, open, basisLen)
+
+res_str = str.tostring(timeframe.multiplier * multiplier)
+c_alt = request.security(syminfo.tickerid, res_str, ma_c[1], lookahead=barmerge.lookahead_off)
+o_alt = request.security(syminfo.tickerid, res_str, ma_o[1], lookahead=barmerge.lookahead_off)
+
+signum_json = '{"action": "{{strategy.order.action}}", "ticker": "{{ticker}}", "order_size": "' + order_size_val + '", "position_size": "{{strategy.position_size}}", "schema": "2", "timestamp": "{{time}}", "bot_id": "' + signum_bot_id + '"}'
+
+if ta.crossover(c_alt, o_alt)
+    strategy.entry("long", strategy.long, alert_message=signum_json)
+
+if ta.crossunder(c_alt, o_alt)
+    strategy.entry("short", strategy.short, alert_message=signum_json)
+
+plot(c_alt, color=color.green, linewidth=2, title="Long Trend")
+plot(o_alt, color=color.red, linewidth=2, title="Short Trend")
+"""
+
+
+def test_occ_signum_strategy_compiles():
+    prog = compile(OCC_SIGNUM)
+    assert prog.header is not None
+
+
+def _hourly_trend_df(n=240):
+    t = np.arange(n)
+    close = 100.0 + np.sin(t / 12.0) * 5.0 + t * 0.02
+    ts = (1_700_000_000_000 + t * 3_600_000).astype(np.int64)
+    return pd.DataFrame(
+        {
+            "ts": ts,
+            "open": close - 0.1,
+            "high": close + 0.5,
+            "low": close - 0.5,
+            "close": close,
+            "volume": np.ones(n) * 100.0,
+        }
+    )
+
+
+def test_occ_signum_backtest_runs():
+    res = run_backtest(OCC_SIGNUM, _hourly_trend_df(), chart_interval="1h", symbol="HYPE")
+    assert res.metrics["initial_balance"] == 30.0
+    assert "num_trades" in res.metrics
+
+
+def _volatile_occ_df(n=360):
+    """OHLCV with phase-shifted close/open so HTF OCC MAs cross."""
+    t = np.arange(n)
+    close = 100.0 + np.sin(t / 8.0) * 15.0
+    open_ = 100.0 + np.sin(t / 8.0 - 1.5) * 15.0
+    ts = (1_700_000_000_000 + t * 3_600_000).astype(np.int64)
+    return pd.DataFrame(
+        {
+            "ts": ts,
+            "open": open_,
+            "high": np.maximum(close, open_) + 1.0,
+            "low": np.minimum(close, open_) - 1.0,
+            "close": close,
+            "volume": np.ones(n) * 100.0,
+        }
+    )
+
+
+def test_udf_ta_sma_on_series_param():
+    src = """strategy("udf sma")
+getMA(type, src, length) =>
+    float res = na
+    if type == "SMA"
+        res := ta.sma(src, length)
+    res
+ma_c = getMA("SMA", close, 8)
+"""
+    df = _hourly_trend_df(80)
+    program = compile(src)
+    ctx = ExecutionContext(df, WarmupBroker(), chart_interval="1h", program=program)
+    ctx.functions = {f.name: f for f in program.functions}
+    interpreter.run_warmup(program, ctx)
+    finite = sum(1 for v in ctx.scalars["ma_c"].values if v == v)
+    assert finite >= len(df) - 8
+
+
+def test_getMA_smma_finite():
+    src = """strategy("udf smma")
+getMA(type, src, length) =>
+    float res = na
+    if type == "SMMA"
+        float smma = na
+        smma := na(smma[1]) ? ta.sma(src, length) : (smma[1] * (length - 1) + src) / length
+        res := smma
+    res
+ma_c = getMA("SMMA", close, 8)
+"""
+    df = _hourly_trend_df(80)
+    program = compile(src)
+    ctx = ExecutionContext(df, WarmupBroker(), chart_interval="1h", program=program)
+    ctx.functions = {f.name: f for f in program.functions}
+    interpreter.run_warmup(program, ctx)
+    finite = sum(1 for v in ctx.scalars["ma_c"].values if v == v)
+    assert finite >= len(df) - 8
+
+
+def test_occ_signum_c_alt_has_values():
+    df = _hourly_trend_df(240)
+    program = compile(OCC_SIGNUM)
+    ctx = ExecutionContext(df, WarmupBroker(), chart_interval="1h", symbol="HYPE", program=program)
+    ctx.functions = {f.name: f for f in program.functions}
+    interpreter.vectorize_pass(program, ctx)
+    assert np.isfinite(ctx.arrays["c_alt"]).sum() > 8
+    assert np.isfinite(ctx.arrays["o_alt"]).sum() > 8
+
+
+def test_occ_signum_produces_trades():
+    res = run_backtest(OCC_SIGNUM, _volatile_occ_df(), chart_interval="1h", symbol="HYPE")
+    assert res.metrics["num_trades"] > 0
+
+
+def test_percent_of_equity_sizing():
+    src = """strategy("pct", default_qty_type=strategy.percent_of_equity, default_qty_value=50, initial_capital=100)
+if bar_index == 5
+    strategy.entry("long", strategy.long)
+"""
+    df = _wave_df(20)
+    res = run_backtest(src, df)
+    assert res.metrics["initial_balance"] == 100.0
+    if res.trades:
+        assert res.trades[0]["size"] > 0
+
+
+def test_position_reversal_on_opposite_entry():
+    src = """strategy("rev")
+if bar_index == 5
+    strategy.entry("long", strategy.long)
+if bar_index == 10
+    strategy.entry("short", strategy.short)
+if bar_index == 15
+    strategy.close("short")
+"""
+    df = _wave_df(25)
+    res = run_backtest(src, df)
+    sides = [t["side"] for t in res.trades]
+    assert "long" in sides
+    assert "short" in sides
+
+
+def test_request_security_htf_smma():
+    src = """strategy("htf")
+basisLen = 4
+ma_c = ta.sma(close, basisLen)
+res_str = str.tostring(timeframe.multiplier * 2)
+c_alt = request.security(syminfo.tickerid, res_str, ma_c[1], lookahead=barmerge.lookahead_off)
+if ta.crossover(c_alt, ta.sma(close, 3))
+    strategy.entry("long", strategy.long)
+"""
+    res = run_backtest(src, _hourly_trend_df(120), chart_interval="1h", symbol="BTC")
+    assert "num_trades" in res.metrics

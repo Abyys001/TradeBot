@@ -1,6 +1,7 @@
 """Tests for the Hyperliquid exchange layer (no live network)."""
 from unittest import mock
 
+import pandas as pd
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -561,6 +562,50 @@ def test_latest_timestamp_and_delete_dataset(tmp_path, settings):
 
     assert candle_store.delete_dataset("mainnet", "ETH", "4h", kind="ohlcv")
     assert candle_store.latest_timestamp("mainnet", "ETH", "4h", kind="ohlcv") is None
+
+
+@pytest.mark.django_db
+def test_delete_dataset_api_kinds(client, tmp_path, settings):
+    settings.CANDLE_DATA_DIR = str(tmp_path / "candles")
+    from apps.exchange import candle_store
+
+    user = _make_user()
+    client.force_login(user)
+
+    candle_store.save_candles(
+        "BTC",
+        "1h",
+        candles._normalize_rows([_hl_candle(1000, 1, 2, 0.5, 1.5)]),
+        network="mainnet",
+    )
+    candle_store.save_funding(
+        "BTC",
+        pd.DataFrame({"ts": [1000], "funding_rate": [0.1], "premium": [0.0]}),
+        network="mainnet",
+    )
+    candle_store.save_open_interest(
+        "BTC",
+        pd.DataFrame({"ts": [1000], "open_interest": [123.0]}),
+        network="mainnet",
+    )
+
+    ohlcv = client.delete(
+        "/api/history/datasets/",
+        {"network": "mainnet", "coin": "BTC", "interval": "1h", "kind": "ohlcv"},
+    )
+    assert ohlcv.status_code == 200
+
+    funding = client.delete(
+        "/api/history/datasets/",
+        {"network": "mainnet", "coin": "BTC", "interval": "funding", "kind": "funding"},
+    )
+    assert funding.status_code == 200, funding.content
+
+    oi = client.delete(
+        "/api/history/datasets/",
+        {"network": "mainnet", "coin": "BTC", "interval": "open_interest", "kind": "open_interest"},
+    )
+    assert oi.status_code == 200, oi.content
 
 
 @pytest.mark.django_db

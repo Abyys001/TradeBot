@@ -149,3 +149,10 @@ class IdentifierNode(Node):
 class LiteralNode(Node):
     value: object  # float | int | str | bool | None(=na)
     type: str  # "float" | "int" | "string" | "bool" | "na"
+
+
+@dataclass
+class ArrayLiteralNode(Node):
+    """`[a, b, c]` — TradingView option lists (compile-time only)."""
+
+    elements: list  # list[Node]

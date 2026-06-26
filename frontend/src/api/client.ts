@@ -136,6 +136,17 @@ export interface CredentialCreatePayload {
   network?: string
 }
 
+export interface SignumConfig {
+  enabled: boolean
+  order_size_default: string
+  use_settings_bot_id: boolean
+  has_bot_id?: boolean
+  has_webhook_url?: boolean
+  bot_id?: string
+  webhook_url?: string
+  updated_at?: string
+}
+
 export interface OverviewPayload {
   strategies: {
     total: number
@@ -197,6 +208,8 @@ export interface BacktestMetrics {
   equity_series?: number[]
   leverage?: number
   liquidations?: number
+  initial_balance?: number
+  final_equity?: number
 }
 
 export interface Backtest {

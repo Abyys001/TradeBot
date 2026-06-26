@@ -30,9 +30,18 @@ def _header_kwargs(program: ast.ProgramNode) -> dict:
     out: dict = {}
     if program.header is not None:
         for a in program.header.args:
-            if a.name is not None and isinstance(a.value, ast.LiteralNode):
+            if a.name is None:
+                continue
+            if isinstance(a.value, ast.LiteralNode):
                 out[a.name] = a.value.value
+            elif isinstance(a.value, ast.BuiltinFunctionNode) and a.value.namespace == "strategy":
+                out[a.name] = a.value.name
     return out
+
+
+def _header_qty_mode(hk: dict) -> bool:
+    qty_type = hk.get("default_qty_type", "")
+    return str(qty_type) == "percent_of_equity"
 
 
 def _coerce_float(value, fallback: float) -> float:
@@ -56,15 +65,20 @@ def run_backtest_pine(
     commission: float | None = None,
     slippage: float | None = None,
     leverage: float | None = None,
-    initial_balance: float = 10_000.0,
+    initial_balance: float | None = None,
     funding_df=None,
     live_config: dict | None = None,
     allow_pyramiding: bool = False,
+    chart_interval: str = "1h",
+    symbol: str = "",
 ) -> BacktestResult:
     program = compile(source)
     hk = _header_kwargs(program)
     qty = default_qty if default_qty is not None else _coerce_float(
         hk.get("default_qty_value", hk.get("qty")), 1.0
+    )
+    init_bal = initial_balance if initial_balance is not None else _coerce_float(
+        hk.get("initial_capital"), 10_000.0
     )
     comm = commission if commission is not None else _coerce_float(hk.get("commission_value"), 0.0)
     slip = slippage if slippage is not None else _coerce_float(hk.get("slippage"), 0.0)
@@ -73,7 +87,7 @@ def run_backtest_pine(
     )
 
     risk_cfg = parse_risk_config(live_config)
-    risk_mgr = RiskManager(risk_cfg, initial_balance=initial_balance)
+    risk_mgr = RiskManager(risk_cfg, initial_balance=init_bal)
     funding_rates = _build_funding_map(funding_df)
 
     broker = SimBroker(
@@ -81,12 +95,20 @@ def run_backtest_pine(
         commission=comm,
         slippage=slip,
         leverage=lev,
-        initial_balance=initial_balance,
+        initial_balance=init_bal,
         funding_rates=funding_rates,
         allow_pyramiding=allow_pyramiding or bool((live_config or {}).get("pyramiding")),
         risk_manager=risk_mgr,
+        qty_is_percent_of_equity=_header_qty_mode(hk),
     )
-    ctx = ExecutionContext(df, broker, header=program.header)
+    ctx = ExecutionContext(
+        df,
+        broker,
+        header=program.header,
+        chart_interval=chart_interval,
+        symbol=symbol,
+        program=program,
+    )
     interpreter.run(program, ctx)
     return BacktestResult(metrics=broker.metrics(), trades=broker.trades())
 
@@ -99,10 +121,12 @@ def run_backtest(
     commission: float | None = None,
     slippage: float | None = None,
     leverage: float | None = None,
-    initial_balance: float = 10_000.0,
+    initial_balance: float | None = None,
     funding_df=None,
     live_config: dict | None = None,
     allow_pyramiding: bool = False,
+    chart_interval: str = "1h",
+    symbol: str = "",
     engine: str = "pine",
     params: dict | None = None,
 ) -> BacktestResult:
@@ -120,6 +144,8 @@ def run_backtest(
         "funding_df": funding_df,
         "live_config": live_config,
         "allow_pyramiding": allow_pyramiding,
+        "chart_interval": chart_interval,
+        "symbol": symbol,
         "source": source,
         "params": params,
     }
@@ -129,7 +155,14 @@ def run_backtest(
 def run_live(source: str, df, *, credential, strategy, symbol):
     program = compile(source)
     broker = LiveBroker(credential=credential, strategy=strategy, symbol=symbol)
-    ctx = ExecutionContext(df, broker, header=program.header)
+    ctx = ExecutionContext(
+        df,
+        broker,
+        header=program.header,
+        chart_interval=strategy.timeframe,
+        symbol=symbol,
+        program=program,
+    )
     interpreter.run(program, ctx)
     return broker
 

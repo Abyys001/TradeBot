@@ -192,7 +192,7 @@ export const useHistoryStore = defineStore('history', () => {
     interval: string
     kind: string
   }) {
-    await api.delete('/history/datasets/', { data: payload })
+    await api.delete('/history/datasets/', { params: payload })
     datasets.value = datasets.value.filter(
       (d) =>
         !(

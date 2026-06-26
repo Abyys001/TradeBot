@@ -76,7 +76,7 @@ function goToBacktest(run: AnalyticsRun) {
   router.push({
     name: 'strategy-detail',
     params: { id: run.strategy_id },
-    query: { mode: 'backtest', backtestId: String(run.backtest_id) },
+    query: { backtestId: String(run.backtest_id) },
   })
 }
 

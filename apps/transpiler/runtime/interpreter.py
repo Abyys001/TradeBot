@@ -15,6 +15,8 @@ from .. import ast_nodes as ast
 from .context import NA, ExecutionContext, SeriesBuffer, is_na
 from .indicators import MULTI_REGISTRY, REGISTRY
 from .mathfns import MATH, nz
+from .security import evaluate_security
+from .timeframe import pine_multiplier, pine_period
 
 _MAX_UDF_DEPTH = 64
 
@@ -47,7 +49,11 @@ def _vectorize(node, ctx) -> np.ndarray:
         if node.type in ("int", "float"):
             return np.full(n, float(node.value))
         raise NotVectorizable
+    if isinstance(node, ast.ArrayLiteralNode):
+        raise NotVectorizable
     if isinstance(node, ast.IdentifierNode):
+        if node.name == "na":
+            return np.full(n, NA)
         if node.name in ctx.arrays:
             return ctx.arrays[node.name]
         if node.name == "bar_index":
@@ -96,6 +102,10 @@ def _vectorize_binop(node, ctx):
     if op == ">=":
         return l >= r
     if op == "+":
+        if isinstance(node.left, ast.LiteralNode) and node.left.type == "string":
+            raise NotVectorizable
+        if isinstance(node.right, ast.LiteralNode) and node.right.type == "string":
+            raise NotVectorizable
         return l + r
     if op == "-":
         return l - r
@@ -160,6 +170,9 @@ def _vectorize_ta(name, argvals, ctx):
     if name == "vwap":
         src = as_array(argvals[0], ctx) if argvals else ctx.arrays["hlc3"]
         return REGISTRY[name](src, ctx.arrays["volume"])
+    if name == "vwma":
+        length = int(_const(argvals[1], ctx))
+        return REGISTRY[name](as_array(argvals[0], ctx), ctx.arrays["volume"], length)
     if name in ("crossover", "crossunder"):
         return REGISTRY[name](as_array(argvals[0], ctx), as_array(argvals[1], ctx))
     if name == "change" and len(argvals) == 1:
@@ -183,6 +196,8 @@ def _vectorize_builtin(node, ctx):
     if ns == "input" or (ns is None and name == "input"):
         default = _input_default_vector(node, ctx)
         n = ctx.n
+        if isinstance(default, str):
+            raise NotVectorizable
         if isinstance(default, np.ndarray):
             return default.astype("float64")
         if isinstance(default, bool):
@@ -223,6 +238,13 @@ def _vectorize_builtin(node, ctx):
         return np.where(np.isnan(a), rep, a)
     if ns is None and name == "na":
         return np.isnan(as_array(argvals[0], ctx).astype("float64"))
+    if ns is None and name == "plot":
+        return np.full(ctx.n, NA)
+    if ns == "request" and name == "security":
+        if ctx.program is None or len(argvals) < 3:
+            raise NotVectorizable
+        tf_str = str(_const(argvals[1], ctx))
+        return evaluate_security(ctx.program, ctx, expr=argvals[2], tf_str=tf_str)
     if ns == "strategy" and name in ("position_size", "equity", "openprofit"):
         raise NotVectorizable
     raise NotVectorizable
@@ -233,7 +255,11 @@ def eval_scalar(node, ctx):
     i = ctx.bar_index
     if isinstance(node, ast.LiteralNode):
         return NA if node.type == "na" else node.value
+    if isinstance(node, ast.ArrayLiteralNode):
+        return [eval_scalar(el, ctx) for el in node.elements]
     if isinstance(node, ast.IdentifierNode):
+        if node.name == "na":
+            return NA
         if node.name in ctx.scalars:
             return ctx.scalars[node.name].current
         if node.name in ctx.arrays:
@@ -304,6 +330,34 @@ def _scalar_series_value(node, ctx, offset: int = 0):
         k = int(eval_scalar(node.offset, ctx))
         return _scalar_series_value(node.series, ctx, k)
     return NA
+
+
+def _scalar_ta_simple(name: str, argvals, ctx):
+    """Scalar `ta.*` for UDF params backed by SeriesBuffer (no full-series vectorize)."""
+    if len(argvals) < 2:
+        return None
+    length = int(eval_scalar(argvals[1], ctx))
+    src_node = argvals[0]
+    if not isinstance(src_node, ast.IdentifierNode) or src_node.name not in ctx.scalars:
+        return None
+    buf = ctx.scalars[src_node.name]
+    vals = [v for v in buf.values if not is_na(v)]
+    cur = buf.current
+    if not is_na(cur):
+        vals.append(cur)
+    if len(vals) < length:
+        return NA
+    window = np.asarray(vals[-length:], dtype="float64")
+    if name == "sma":
+        return float(window.mean())
+    if name == "ema":
+        return float(pd.Series(window).ewm(span=length, adjust=False).mean().iloc[-1])
+    if name == "wma":
+        weights = np.arange(1, length + 1, dtype="float64")
+        return float(np.dot(window, weights) / weights.sum())
+    if name == "rma":
+        return float(pd.Series(window).ewm(alpha=1.0 / length, adjust=False).mean().iloc[-1])
+    return None
 
 
 def _scalar_cross(name: str, a_node, b_node, ctx) -> bool:
@@ -378,6 +432,19 @@ def _scalar_ta_stateful(node, ctx, argvals):
     return NA
 
 
+def _bind_udf_param(ctx, arg_node, value) -> SeriesBuffer:
+    """Bind a UDF parameter; series identifiers get bar history from ``ctx.arrays``."""
+    buf = SeriesBuffer()
+    if isinstance(arg_node, ast.IdentifierNode) and arg_node.name in ctx.arrays:
+        arr = ctx.arrays[arg_node.name]
+        i = ctx.bar_index
+        buf.values = [float(arr[j]) for j in range(i)]
+        buf.current = float(arr[i])
+    else:
+        buf.current = value
+    return buf
+
+
 def _call_user_function(name: str, arg_nodes, ctx) -> object:
     fn = ctx.functions[name]
     depth = ctx.bar_state.get("_udf_depth", 0)
@@ -385,9 +452,8 @@ def _call_user_function(name: str, arg_nodes, ctx) -> object:
         raise RuntimeError("maximum UDF recursion depth exceeded")
     args = [eval_scalar(v, ctx) for v in arg_nodes]
     saved: dict[str, SeriesBuffer | None] = {}
-    for param, value in zip(fn.params, args):
-        buf = SeriesBuffer()
-        buf.current = value
+    for param, arg_node, value in zip(fn.params, arg_nodes, args):
+        buf = _bind_udf_param(ctx, arg_node, value)
         saved[param] = ctx.scalars.get(param)
         ctx.scalars[param] = buf
     ctx.bar_state["_udf_depth"] = depth + 1
@@ -426,6 +492,9 @@ def _scalar_builtin(node, ctx):
     if ns == "ta" and name in ("barssince", "valuewhen", "cum"):
         return _scalar_ta_stateful(node, ctx, argvals)
     if ns == "ta" and name in REGISTRY:
+        simple = _scalar_ta_simple(name, argvals, ctx)
+        if simple is not None:
+            return simple
         return float(as_array(node, ctx)[ctx.bar_index])
     if ns == "input" or (ns is None and name == "input"):
         return _input_default(node, ctx)
@@ -438,6 +507,29 @@ def _scalar_builtin(node, ctx):
         return nz(eval_scalar(argvals[0], ctx), rep)
     if ns is None and name == "na":
         return is_na(eval_scalar(argvals[0], ctx))
+    if ns is None and name == "plot":
+        return NA
+    if ns == "str" and name == "tostring":
+        v = eval_scalar(argvals[0], ctx)
+        if is_na(v):
+            return ""
+        if isinstance(v, float) and v == int(v):
+            return str(int(v))
+        return str(v)
+    if ns == "timeframe":
+        if name == "multiplier":
+            return pine_multiplier(ctx.chart_interval or "1h")
+        if name == "period":
+            return pine_period(ctx.chart_interval or "1h")
+    if ns == "color":
+        return name
+    if ns == "barmerge":
+        return name
+    if ns == "request" and name == "security":
+        if ctx.program is None or len(argvals) < 3:
+            return NA
+        arr = as_array(node, ctx)
+        return float(arr[ctx.bar_index])
     if ns == "strategy":
         if name == "position_size":
             fn = getattr(ctx.broker, "position_size", None)
@@ -450,7 +542,13 @@ def _scalar_builtin(node, ctx):
             return float(fn(ctx.close_price)) if fn else NA
         return {"long": "long", "short": "short"}.get(name, NA)
     if ns == "syminfo":
-        return NA
+        sym = ctx.symbol or ""
+        if name == "tickerid":
+            return f"{sym}USDT" if sym and "USDT" not in sym.upper() else sym
+        if name == "ticker":
+            return sym
+        if name == "currency":
+            return "USDT"
     return NA
 
 
@@ -604,6 +702,9 @@ def _exec(node, ctx):
         _exec_order(node, ctx)
     elif isinstance(node, ast.ExprStatementNode):
         pass
+    elif isinstance(node, ast.BuiltinFunctionNode):
+        if node.namespace is None and node.name == "plot":
+            pass
     elif isinstance(node, ast.FunctionDefNode):
         pass
 
@@ -635,10 +736,44 @@ def _exec_order(node, ctx):
         v = kw.get(name)
         return float(eval_scalar(v, ctx)) if v is not None else None
 
+    def _alert_payload(direction: str):
+        alert_node = kw.get("alert_message")
+        if alert_node is None:
+            return None
+        template = eval_scalar(alert_node, ctx)
+        if not isinstance(template, str):
+            return None
+        action = "buy" if str(direction).lower() in ("long", "strategy.long") else "sell"
+        ts_arr = ctx.arrays.get("ts")
+        ts_ms = int(ts_arr[ctx.bar_index]) if ts_arr is not None and ctx.bar_index < len(ts_arr) else 0
+        pos_fn = getattr(ctx.broker, "position_size", None)
+        pos_size = float(pos_fn()) if pos_fn else 0.0
+        strategy = getattr(ctx.broker, "strategy", None)
+        user = getattr(strategy, "user", None) if strategy else None
+        from apps.integrations.signum import build_signum_payload
+
+        return build_signum_payload(
+            template,
+            user=user,
+            action=action,
+            ticker=ctx.symbol or "",
+            position_size=pos_size,
+            timestamp_ms=ts_ms,
+        )
+
     if node.action == "entry":
         oid = eval_scalar(pos[0].value, ctx)
         direction = eval_scalar(pos[1].value, ctx) if len(pos) > 1 else "long"
-        ctx.broker.entry(str(oid), direction, price, i, _qty(), limit=_kw_float("limit"))
+        alert = _alert_payload(str(direction))
+        ctx.broker.entry(
+            str(oid),
+            direction,
+            price,
+            i,
+            _qty(),
+            limit=_kw_float("limit"),
+            alert_message=alert,
+        )
     elif node.action == "close":
         oid = eval_scalar(pos[0].value, ctx) if pos else "long"
         ctx.broker.close(str(oid), price, i)

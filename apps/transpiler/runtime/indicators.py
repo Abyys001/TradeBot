@@ -133,6 +133,14 @@ def vwap(hlc3, volume):
     return out.to_numpy()
 
 
+def vwma(src, volume, length: int):
+    s, v = _s(src), _s(volume)
+    length = int(length)
+    pv = (s * v).rolling(length).sum()
+    vol = v.rolling(length).sum()
+    return (pv / vol.replace(0, np.nan)).to_numpy()
+
+
 def rising(src, length: int):
     s = _s(src)
     rising_bar = s.diff() > 0
@@ -178,7 +186,7 @@ REGISTRY = {
     "highest": highest, "lowest": lowest,
     "tr": tr, "atr": atr, "change": change, "mom": mom, "roc": roc,
     "stdev": stdev, "variance": variance, "cci": cci, "wma": wma, "hma": hma,
-    "vwap": vwap, "rising": rising, "falling": falling,
+    "vwap": vwap, "vwma": vwma, "rising": rising, "falling": falling,
 }
 
 # name -> (callable, return_count)

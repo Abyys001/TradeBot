@@ -41,6 +41,10 @@ const { t } = useI18n()
       <div class="text-lg font-semibold text-zinc-200">{{ metrics.num_trades ?? '—' }}</div>
     </div>
     <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2">
+      <div class="text-xs text-zinc-500">{{ t('backtest.initialCapital') }}</div>
+      <div class="text-lg font-semibold text-zinc-200">{{ metrics.initial_balance?.toFixed(2) ?? '—' }}</div>
+    </div>
+    <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2">
       <div class="text-xs text-zinc-500">{{ t('backtest.sharpe') }}</div>
       <div class="text-lg font-semibold text-zinc-200">{{ metrics.sharpe_ratio?.toFixed(2) ?? '—' }}</div>
     </div>

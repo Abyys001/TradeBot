@@ -208,8 +208,11 @@ class PineTransformer(Transformer):
     def na_lit(self, meta, children):
         return ast.LiteralNode(value=None, type="na", **_pos(meta))
 
-
-_TRANSFORMER = PineTransformer()
+    def array_lit(self, meta, children):
+        elems = children[0] if children and children[0] is not None else []
+        if not isinstance(elems, list):
+            elems = [elems] if elems is not None else []
+        return ast.ArrayLiteralNode(elements=elems, **_pos(meta))
 
 
 _TRANSFORMER = PineTransformer()
@@ -281,6 +284,30 @@ def _extract_functions(source: str) -> tuple[str, list[ast.FunctionDefNode]]:
     return "\n".join(out) + ("\n" if source.endswith("\n") else ""), functions
 
 
+def _strip_line_comment(line: str) -> str:
+    """Remove `//` comments while preserving `//` inside string literals."""
+    in_str: str | None = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if in_str:
+            if ch == in_str and line[i - 1] != "\\":
+                in_str = None
+        elif ch in "\"'":
+            in_str = ch
+        elif ch == "/" and i + 1 < len(line) and line[i + 1] == "/":
+            return line[:i].rstrip()
+        i += 1
+    return line
+
+
+def _strip_comments(source: str) -> str:
+    """Drop line comments before Lark parse (indenter does not ignore mid-file COMMENT)."""
+    return "\n".join(_strip_line_comment(line) for line in source.splitlines()) + (
+        "\n" if source.endswith("\n") else ""
+    )
+
+
 def _parse_function_body_expr(expr_src: str, line: int) -> list:
     mini = f"__udf_ret__ = {expr_src}\n"
     prog = _TRANSFORMER.transform(_parser().parse(mini))
@@ -292,6 +319,7 @@ def parse(source: str) -> ast.ProgramNode:
     """Parse Pine source into a ProgramNode, or raise PineSyntaxError."""
     if not source.endswith("\n"):
         source += "\n"
+    source = _strip_comments(source)
     source, functions = _extract_functions(source)
     try:
         tree = _parser().parse(source)

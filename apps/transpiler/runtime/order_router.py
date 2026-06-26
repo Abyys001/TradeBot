@@ -465,6 +465,11 @@ class LiveBroker:
 
     def entry(self, oid, direction, price, bar_index, qty=None, **kwargs):
         is_buy = str(direction).lower() in ("long", "strategy.long")
+        target_side = "long" if is_buy else "short"
+        for open_oid, meta in list(self._open_orders.items()):
+            if meta.get("side") != target_side:
+                self.close(open_oid, price, bar_index, reason="reversal")
+
         qty = qty or 1
         limit_px = kwargs.get("limit")
         rec = None
@@ -475,7 +480,19 @@ class LiveBroker:
         else:
             rec = self._place_perp(is_buy=is_buy, oid=oid, price=price, qty=qty)
         if rec is not None:
-            self._open_orders[str(oid)] = {"side": "long" if is_buy else "short", "qty": qty}
+            self._open_orders[str(oid)] = {"side": target_side, "qty": qty}
+            alert_message = kwargs.get("alert_message")
+            if alert_message:
+                from apps.execution.models import ExecutionLog
+                from apps.integrations.tasks import signum_send_webhook_task
+
+                ExecutionLog.objects.create(
+                    strategy=self.strategy,
+                    level="info",
+                    event="signum.webhook",
+                    payload={"oid": oid, "preview": alert_message[:500]},
+                )
+                signum_send_webhook_task.delay(self.strategy.user_id, alert_message)
         return rec
 
     def close(self, oid, price, bar_index, **kwargs):

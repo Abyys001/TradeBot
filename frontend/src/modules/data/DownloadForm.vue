@@ -70,6 +70,10 @@ function toggleCoin(coin: string) {
   }
 }
 
+function removeCoin(coin: string) {
+  selectedCoins.value = selectedCoins.value.filter((c) => c !== coin)
+}
+
 function toggleInterval(iv: string) {
   if (selectedIntervals.value.includes(iv)) {
     selectedIntervals.value = selectedIntervals.value.filter((x) => x !== iv)
@@ -168,8 +172,21 @@ async function submit() {
           {{ coin }}
         </button>
       </div>
-      <div v-if="selectedCoins.length" class="mt-2 flex flex-wrap gap-1">
-        <span v-for="c in selectedCoins" :key="c" class="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">{{ c }}</span>
+      <div v-if="selectedCoins.length" class="mt-2">
+        <p class="text-[10px] text-zinc-500 mb-1">{{ t('data.selectedCoins') }}</p>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="c in selectedCoins"
+            :key="c"
+            type="button"
+            class="inline-flex items-center gap-1 rounded bg-emerald-900/70 px-2 py-0.5 text-xs text-emerald-300 hover:bg-emerald-800/80"
+            :title="t('data.removeCoin', { coin: c })"
+            @click="removeCoin(c)"
+          >
+            <span>{{ c }}</span>
+            <span class="text-emerald-400/90 leading-none" aria-hidden="true">×</span>
+          </button>
+        </div>
       </div>
     </div>
 

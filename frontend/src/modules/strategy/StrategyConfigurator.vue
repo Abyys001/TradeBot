@@ -121,6 +121,16 @@ async function save() {
       live_config: form.value.live_config,
     })
     toast.show(t('strategy.saved'), 'success')
+    if (engineType.value === 'pine' && form.value.source.trim()) {
+      const result = await store.validate(selected.value.id)
+      if (result.ok) {
+        validationMsg.value = ''
+      } else {
+        const loc =
+          result.line != null ? ` (line ${result.line}, col ${result.column ?? '?'})` : ''
+        validationMsg.value = `${result.error || t('strategy.validatedFail')}${loc}`
+      }
+    }
   } catch {
     toast.show(t('strategy.saveFailed'), 'error')
   } finally {
@@ -133,7 +143,7 @@ async function validate() {
   await save()
   const result = await store.validate(selected.value.id)
   if (result.ok) {
-    validationMsg.value = t('strategy.validatedOk')
+    validationMsg.value = ''
     toast.show(t('strategy.validatedOk'), 'success')
   } else {
     const loc =
@@ -228,15 +238,11 @@ function loadSourceFrom(id: number) {
       />
       <div class="mt-1 flex items-center gap-2">
         <span
-          v-if="selected.validation_status === 'ok'"
-          class="text-xs text-emerald-400"
-        >✓ {{ t('strategy.validatedOk') }}</span>
-        <span
-          v-else-if="selected.validation_status === 'error'"
+          v-if="selected.validation_status === 'error'"
           class="text-xs text-red-400"
         >✗ {{ selected.validation_error || t('strategy.validatedFail') }}</span>
       </div>
-      <p v-if="validationMsg" class="text-xs text-zinc-500 mt-1 font-mono">{{ validationMsg }}</p>
+      <p v-if="validationMsg" class="mt-1 font-mono text-xs text-red-400">{{ validationMsg }}</p>
     </div>
 
     <div>

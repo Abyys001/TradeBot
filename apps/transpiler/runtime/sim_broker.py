@@ -44,6 +44,7 @@ class SimBroker:
         funding_rates: dict[int, float] | None = None,
         allow_pyramiding: bool = False,
         risk_manager=None,
+        qty_is_percent_of_equity: bool = False,
     ):
         self.default_qty = default_qty
         self.commission = commission
@@ -55,6 +56,7 @@ class SimBroker:
         self.funding_rates = funding_rates or {}
         self.allow_pyramiding = allow_pyramiding
         self.risk_manager = risk_manager
+        self.qty_is_percent_of_equity = qty_is_percent_of_equity
 
         self.open_trades: dict[str, Trade] = {}
         self.closed: list[Trade] = []
@@ -139,6 +141,14 @@ class SimBroker:
         if oid in self.open_trades and not self.allow_pyramiding:
             return
 
+        side = "long" if str(direction).lower() in ("long", "strategy.long") else "short"
+
+        if not self.allow_pyramiding:
+            for open_oid in list(self.open_trades):
+                t = self.open_trades[open_oid]
+                if t.side != side:
+                    self.close(open_oid, price, bar_index, reason="reversal")
+
         if self.risk_manager:
             eq = self.equity(price)
             decision = self.risk_manager.pre_trade(
@@ -150,8 +160,14 @@ class SimBroker:
             if not decision.ok:
                 return
 
-        side = "long" if str(direction).lower() in ("long", "strategy.long") else "short"
-        size = qty if qty is not None else self.default_qty
+        if qty is not None:
+            size = float(qty)
+        elif self.qty_is_percent_of_equity:
+            eq = self.equity(price)
+            pct = self.default_qty / 100.0
+            size = (eq * pct) / price if price > 0 else 0.0
+        else:
+            size = self.default_qty
         fill = self._entry_fill(side, price)
         entry_comm = self._commission_cost(fill, size)
         self.cash -= entry_comm
@@ -228,6 +244,7 @@ class SimBroker:
         )
         base["leverage"] = self.leverage
         base["liquidations"] = self.liquidations
+        base["initial_balance"] = self.initial_balance
         base["final_equity"] = round(self.equity(self.equity_series[-1] if self.equity_series else self.initial_balance), 8)
         if self.equity_series:
             base["equity_series"] = [round(x, 4) for x in self.equity_series]

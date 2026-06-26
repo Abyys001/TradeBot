@@ -125,7 +125,14 @@ def run_backtest_task(
             bt.range_start = datetime.fromtimestamp(int(df["ts"].min()) / 1000, tz=timezone.utc)
             bt.range_end = datetime.fromtimestamp(int(df["ts"].max()) / 1000, tz=timezone.utc)
             bt.save(update_fields=["range_start", "range_end"])
-        result = run_backtest(strategy.source, df, commission=commission, slippage=slippage)
+        result = run_backtest(
+            strategy.source,
+            df,
+            commission=commission,
+            slippage=slippage,
+            chart_interval=bt.timeframe or "1h",
+            symbol=bt.symbol or "",
+        )
     except Exception as exc:  # noqa: BLE001
         bt.status = Backtest.Status.FAILED
         bt.error = str(exc)
@@ -177,6 +184,8 @@ def run_backtest_stored_task(
             leverage=live_config.get("leverage"),
             funding_df=funding_df if not funding_df.empty else None,
             live_config=live_config,
+            chart_interval=interval,
+            symbol=coin,
         )
     except Exception as exc:  # noqa: BLE001
         bt.status = Backtest.Status.FAILED

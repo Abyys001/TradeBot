@@ -16,6 +16,15 @@ class PaperBroker(SimBroker):
     def __init__(self, account, **kwargs):
         super().__init__(**kwargs)
         self.account = account
+        self.strategy = account.strategy
+
+    def entry(self, oid, direction, price, bar_index, qty=None, **kwargs):
+        super().entry(oid, direction, price, bar_index, qty, **kwargs)
+        alert_message = kwargs.get("alert_message")
+        if alert_message:
+            from apps.integrations.tasks import signum_send_webhook_task
+
+            signum_send_webhook_task.delay(self.account.user_id, alert_message)
 
     def sync_account(self, mark_price: float) -> None:
         eq = self.equity(mark_price)

@@ -36,7 +36,14 @@ class PaperIncrementalRunner:
         window.load_df(df)
         program = compile(strategy.source)
         broker = WarmupBroker()
-        ctx = ExecutionContext(window.to_dataframe(), broker, header=program.header)
+        ctx = ExecutionContext(
+            window.to_dataframe(),
+            broker,
+            header=program.header,
+            chart_interval=strategy.timeframe,
+            symbol=strategy.symbol,
+            program=program,
+        )
         interpreter.run_warmup(program, ctx)
         save_session(f"paper:{account.pk}", window=window, ctx=ctx, source=strategy.source)
 
@@ -82,7 +89,15 @@ class PaperIncrementalRunner:
             initial_balance=float(account.balance),
             allow_pyramiding=bool(live_config.get("pyramiding")),
         )
-        ctx = ExecutionContext(window.to_dataframe(), broker, header=program.header)
+        broker.strategy = strategy
+        ctx = ExecutionContext(
+            window.to_dataframe(),
+            broker,
+            header=program.header,
+            chart_interval=strategy.timeframe,
+            symbol=strategy.symbol,
+            program=program,
+        )
         ctx.scalars = restore_scalars(session)
         interpreter.run_bar(program, ctx, ctx.n - 1)
         broker.sync_account(float(candle["close"]))
