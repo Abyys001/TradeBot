@@ -1,8 +1,12 @@
 """Paginated Hyperliquid OHLCV backfill for offline backtesting.
 
-``candleSnapshot`` caps ~5000 rows per request. We page **backward** from
-``end_ms`` in <=5000-bar windows until ``start_ms`` or the HL history floor.
-Fine intervals (1m) reach less far back than 1h/4h/1d.
+``candleSnapshot`` returns at most ~5000 rows per request. When the requested
+range is larger, Hyperliquid returns the **most recent** 5000 bars inside
+``[start_ms, end_ms]``. We therefore shrink ``end_ms`` to the oldest bar minus
+one millisecond and repeat until ``start_ms`` or the HL history floor is reached.
+
+Note: HL also enforces a retention window per interval (e.g. ~5000 most recent
+1h bars). Older intraday history is not available regardless of pagination.
 """
 from __future__ import annotations
 
@@ -48,10 +52,9 @@ def fetch_candles_range(
 ) -> pd.DataFrame:
     """Fetch all closed candles for *coin*/*interval* in ``[start_ms, end_ms]``.
 
-    Hyperliquid ``candleSnapshot`` only returns data when the window is near
-  ``end_ms``; paging forward from an old ``start_ms`` yields an empty first
-    window. We therefore page **backward** from ``end_ms`` in <=5000-bar
-    windows until ``start_ms`` or the history floor is reached.
+    Hyperliquid returns up to 5000 candles per call, preferring the newest bars
+    inside the requested range. When a full page is returned and the oldest bar
+    is still after ``start_ms``, we move ``end_ms`` backward and request again.
     """
     if start_ms >= end_ms:
         raise ValueError("start_ms must be before end_ms")
@@ -60,8 +63,6 @@ def fetch_candles_range(
 
     sym = normalize_coin(coin)
     iv = normalize_interval(interval)
-    bar_ms = _INTERVAL_MS.get(iv, 60_000)
-    window_ms = _MAX_ROWS * bar_ms
 
     info = Info(network_url(network), skip_ws=True)
 
@@ -70,28 +71,27 @@ def fetch_candles_range(
     cursor_end = end_ms
 
     while cursor_end > start_ms:
-        cursor_start = cursor_end - window_ms
-        if cursor_start < 0:
-            cursor_start = 0
         try:
-            rows = _call_candles(info.candles_snapshot, sym, iv, cursor_start, cursor_end)
+            rows = _call_candles(info.candles_snapshot, sym, iv, start_ms, cursor_end)
         except Exception as exc:  # noqa: BLE001
             raise HistoryFetchError(f"{sym}/{iv}: {exc}") from exc
 
         df = _normalize_rows(rows)
-        new = df[~df["ts"].isin(seen)] if not df.empty else df
+        if df.empty:
+            break
+
+        new = df[~df["ts"].isin(seen)]
         if new.empty:
             break
 
         frames.append(new)
         seen.update(int(t) for t in new["ts"].tolist())
 
-        first_ts = int(new["ts"].min())
-        if first_ts <= start_ms:
+        oldest = int(new["ts"].min())
+        if oldest <= start_ms or len(rows) < _MAX_ROWS:
             break
-        # Overlap by one bar; HL returns nothing if end is strictly before last window.
-        cursor_end = first_ts
 
+        cursor_end = oldest - 1
         if sleep:
             time.sleep(sleep)
 

@@ -130,9 +130,10 @@ def download_pair(
     if actual_start > effective_start + bar_ms:
         result["status"] = "partial"
         result["note"] = (
-            f"Hyperliquid only exposes ~5000 recent bars for {interval}; "
-            f"earliest available is {_ms_to_date(actual_start)} "
-            f"(requested {_ms_to_date(start_ms)})."
+            f"Hyperliquid retains at most ~5000 recent {interval} candles "
+            f"(earliest available: {_ms_to_date(actual_start)}; "
+            f"requested {_ms_to_date(start_ms)}). "
+            f"Use 1d or 1w for longer history."
         )
     logger.info(
         "asset downloaded asset=%s timeframe=%s network=%s bars=%s",

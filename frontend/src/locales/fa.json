@@ -192,6 +192,7 @@
     "endDate": "پایان (اختیاری)",
     "coins": "ارزها",
     "intervals": "بازه‌ها",
+    "intervalRetentionHint": "Hyperliquid حدود ۵۰۰۰ کندل اخیر را برای بازه‌های intraday (۱m تا 4h) نگه می‌دارد. برای بک‌تست چندساله از ۲۰۲۳، از 1d یا 1w استفاده کنید.",
     "dataTypes": "انواع داده",
     "dataTypeFunding": "نرخ فاندینگ",
     "dataTypeOpenInterest": "بهره باز",

@@ -192,6 +192,7 @@
     "endDate": "End (optional)",
     "coins": "Coins",
     "intervals": "Intervals",
+    "intervalRetentionHint": "Hyperliquid keeps ~5,000 recent bars per intraday interval (1m–4h). For multi-year backtests from 2023, use 1d or 1w.",
     "dataTypes": "Data Types",
     "dataTypeFunding": "Funding",
     "dataTypeOpenInterest": "Open Interest",

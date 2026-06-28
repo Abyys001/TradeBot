@@ -97,7 +97,7 @@ def _save_parquet(path: Path, df: pd.DataFrame, columns: list[str], dedup_key: s
             .sort_values(dedup_key)
             .reset_index(drop=True)
         )
-        merged.to_parquet(path, index=False)
+        merged.to_parquet(path, index=False, engine="pyarrow")
     return path
 
 

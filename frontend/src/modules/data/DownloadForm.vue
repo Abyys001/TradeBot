@@ -229,9 +229,8 @@ async function submit() {
           {{ iv }}
         </button>
       </div>
+      <p class="mt-1.5 text-xs text-zinc-500">{{ t('data.intervalRetentionHint') }}</p>
     </div>
-
-    <button
       type="button"
       class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
       :disabled="submitting || celeryOffline"
