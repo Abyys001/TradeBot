@@ -3,6 +3,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.execution.models import ExecutionLog
 from apps.transpiler.tasks import start_live_strategy_task, stop_live_strategy_task
 
 from .models import Strategy
@@ -92,6 +93,36 @@ class StrategyPositionsView(APIView):
         except Exception:  # noqa: BLE001
             pass
         return Response({"positions": positions, "funding": funding})
+
+
+class ClosePositionView(APIView):
+    """POST /api/strategies/<id>/close-position/ — market-close a single position.
+
+    Body: ``{"coin": "BTC"}``. De-risk action allowed regardless of the
+    kill-switch; only a configured credential is required.
+    """
+
+    def post(self, request, pk=None):
+        strategy = _user_strategy(request, pk)
+        coin = (request.data or {}).get("coin")
+        if not coin:
+            return Response({"errors": ["coin is required"]}, status=status.HTTP_400_BAD_REQUEST)
+        if not strategy.credential:
+            return Response(
+                {"errors": ["no credential configured"]}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        from apps.exchange.hl_client import close_position
+
+        result = close_position(strategy.credential, coin)
+        ExecutionLog.objects.create(
+            strategy=strategy,
+            level=ExecutionLog.Level.INFO if result.get("ok") else ExecutionLog.Level.ERROR,
+            event="position.closed_manual",
+            payload={"coin": coin, "result": result},
+        )
+        http_status = status.HTTP_200_OK if result.get("ok") else status.HTTP_502_BAD_GATEWAY
+        return Response(result, status=http_status)
 
 
 class StrategyEnginesView(APIView):

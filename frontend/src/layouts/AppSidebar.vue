@@ -11,6 +11,7 @@ const layout = useLayoutStore()
 const navItems = [
   { name: 'overview', path: '/', label: 'nav.overview', icon: 'overview' },
   { name: 'strategies', path: '/strategies', label: 'nav.strategies', icon: 'strategies' },
+  { name: 'live', path: '/live', label: 'nav.live', icon: 'live' },
   { name: 'data', path: '/data', label: 'nav.data', icon: 'data' },
   { name: 'analytics', path: '/analytics', label: 'nav.analytics', icon: 'analytics' },
   { name: 'orders', path: '/orders', label: 'nav.orders', icon: 'orders' },
@@ -71,6 +72,9 @@ function isActive(path: string) {
         </svg>
         <svg v-else-if="item.icon === 'strategies'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" d="M4 19V5M4 19h16M8 19V9M12 19V13M16 19V7" />
+        </svg>
+        <svg v-else-if="item.icon === 'live'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2 6 4-14 2 8h6" />
         </svg>
         <svg v-else-if="item.icon === 'data'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />

@@ -31,6 +31,11 @@ const router = createRouter({
           component: () => import('../views/StrategyDetailView.vue'),
         },
         {
+          path: 'live',
+          name: 'live',
+          component: () => import('../views/LiveTradingView.vue'),
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),

@@ -99,6 +99,24 @@ def cancel_all_orders(cred) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def close_position(cred, coin: str) -> dict:
+    """Market-close a single perp position for the given coin (best-effort).
+
+    User-initiated de-risk action; allowed even when the master kill-switch is
+    off since it only reduces exposure. Mirrors the per-coin block in
+    ``close_all_positions``.
+    """
+    try:
+        exchange = build_exchange(cred)
+        resp = exchange.market_close(coin=normalize_coin(coin), sz=None)
+        return {"ok": True, "coin": coin, "response": resp}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "close_position failed for cred %s coin %s: %s", cred.pk, coin, type(exc).__name__
+        )
+        return {"ok": False, "coin": coin, "error": type(exc).__name__}
+
+
 def update_leverage(cred, coin: str, leverage: int, *, is_cross: bool = True) -> dict:
     """Set per-asset leverage on Hyperliquid before live trading."""
     from .hl_meta import resolve_trading_name

@@ -102,8 +102,20 @@ export const useStrategyStore = defineStore('strategy', () => {
     return data
   }
 
+  async function closePosition(id: number, coin: string) {
+    const { data } = await api.post<{ ok: boolean; coin: string; error?: string }>(
+      `/strategies/${id}/close-position/`,
+      { coin },
+    )
+    return data
+  }
+
   const validatedStrategies = computed(() =>
     strategies.value.filter((s) => s.validation_status === 'ok'),
+  )
+
+  const liveStrategies = computed(() =>
+    strategies.value.filter((s) => s.status === 'active'),
   )
 
   return {
@@ -113,6 +125,7 @@ export const useStrategyStore = defineStore('strategy', () => {
     selected,
     loading,
     validatedStrategies,
+    liveStrategies,
     fetchAll,
     fetchEngines,
     createStrategy,
@@ -120,6 +133,7 @@ export const useStrategyStore = defineStore('strategy', () => {
     validate,
     start,
     stop,
+    closePosition,
     deleteStrategy,
     select,
   }

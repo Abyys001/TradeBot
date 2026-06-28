@@ -5,6 +5,7 @@
   "nav": {
     "overview": "Overview",
     "strategies": "Strategies",
+    "live": "Live Trading",
     "data": "Historical Data",
     "analytics": "Analytics",
     "orders": "Orders",
@@ -323,8 +324,79 @@
     "title": "Open Positions",
     "empty": "No open positions",
     "size": "Size",
+    "side": "Side",
+    "entry": "Entry",
+    "mark": "Mark",
     "liq": "Liq. Price",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "close": "Close at Market",
+    "closeConfirmTitle": "Close position",
+    "closeConfirmBody": "Market-close your entire {coin} position now?",
+    "closing": "Closing...",
+    "closed": "Position closed",
+    "closeFailed": "Failed to close position"
+  },
+  "live": {
+    "title": "Live Trading",
+    "newDeployment": "New deployment",
+    "commandCenter": "Live Command Center",
+    "noLive": "No live strategies running. Launch one with the setup wizard.",
+    "launchWizard": "Launch Setup Wizard",
+    "wizard": {
+      "title": "Live Trading Setup",
+      "subtitle": "Configure and deploy a strategy to live trading.",
+      "next": "Next",
+      "back": "Back",
+      "step1": "Exchange Authentication",
+      "step2": "Strategy Injection",
+      "step3": "Market & Risk",
+      "step4": "Pre-Flight & Deploy",
+      "step1Desc": "Connect your Hyperliquid agent wallet.",
+      "step2Desc": "Upload or write your Pine Script strategy.",
+      "step3Desc": "Choose pairs, timeframe, leverage and risk.",
+      "step4Desc": "Review and launch the live engine."
+    },
+    "cred": {
+      "title": "Hyperliquid Node",
+      "selectExisting": "Use an existing credential",
+      "addNew": "Add new credential",
+      "connected": "Connected to {network}",
+      "notConnected": "Not connected",
+      "verifying": "Verifying...",
+      "saveConnect": "Save & Connect",
+      "securityNote": "Only the Agent key is needed — never the Master wallet key. Keys are encrypted (AES-256) at rest."
+    },
+    "strategyStep": {
+      "title": "Strategy Engine",
+      "name": "Strategy name",
+      "openEditor": "Open Editor",
+      "validating": "Validating...",
+      "validated": "Strategy validated",
+      "needSource": "Add a Pine source before validating."
+    },
+    "risk": {
+      "title": "Market & Risk Configuration",
+      "pairs": "Trading Pairs",
+      "timeframe": "Timeframe",
+      "addPair": "Add pair...",
+      "leverage": "Leverage",
+      "positionSize": "Allocation %",
+      "stopLoss": "Global Stop-Loss %"
+    },
+    "deploy": {
+      "title": "Pre-Flight Check",
+      "credential": "Credential",
+      "strategy": "Strategy",
+      "pairs": "Pairs",
+      "timeframe": "Timeframe",
+      "leverage": "Leverage",
+      "allocation": "Allocation",
+      "stopLoss": "Stop-Loss",
+      "initialize": "Initialize Live Engine 🚀",
+      "deploying": "Deploying...",
+      "deployed": "Live engine initialized",
+      "tradingDisabled": "Trading is disabled. Enable it from the header or Settings before deploying."
+    }
   },
   "analytics": {
     "title": "Analytics Dashboard",

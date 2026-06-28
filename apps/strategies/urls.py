@@ -1,7 +1,14 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import StartStrategyView, StopStrategyView, StrategyEnginesView, StrategyPositionsView, StrategyViewSet
+from .views import (
+    ClosePositionView,
+    StartStrategyView,
+    StopStrategyView,
+    StrategyEnginesView,
+    StrategyPositionsView,
+    StrategyViewSet,
+)
 
 router = DefaultRouter()
 router.register("strategies", StrategyViewSet, basename="strategy")
@@ -11,4 +18,5 @@ urlpatterns = [
     path("strategies/<int:pk>/start/", StartStrategyView.as_view(), name="strategy-start"),
     path("strategies/<int:pk>/stop/", StopStrategyView.as_view(), name="strategy-stop"),
     path("strategies/<int:pk>/positions/", StrategyPositionsView.as_view(), name="strategy-positions"),
+    path("strategies/<int:pk>/close-position/", ClosePositionView.as_view(), name="strategy-close-position"),
 ] + router.urls
