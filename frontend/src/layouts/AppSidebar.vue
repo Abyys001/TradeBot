@@ -14,8 +14,6 @@ const navItems = [
   { name: 'data', path: '/data', label: 'nav.data', icon: 'data' },
   { name: 'analytics', path: '/analytics', label: 'nav.analytics', icon: 'analytics' },
   { name: 'orders', path: '/orders', label: 'nav.orders', icon: 'orders' },
-  { name: 'journal', path: '/journal', label: 'nav.journal', icon: 'journal' },
-  { name: 'marketplace', path: '/marketplace', label: 'nav.marketplace', icon: 'marketplace' },
   { name: 'settings', path: '/settings', label: 'nav.settings', icon: 'settings' },
 ]
 
@@ -82,13 +80,6 @@ function isActive(path: string) {
         <svg v-else-if="item.icon === 'orders'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
           <rect x="9" y="3" width="6" height="4" rx="1" />
-        </svg>
-        <svg v-else-if="item.icon === 'journal'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-        </svg>
-        <svg v-else-if="item.icon === 'marketplace'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-          <polyline points="9 22 9 12 15 12 15 22" />
         </svg>
         <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3" />

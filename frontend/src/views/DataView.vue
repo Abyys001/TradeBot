@@ -5,6 +5,7 @@ import { useHistoryStore } from '../stores/history'
 import { useHealthStore } from '../stores/health'
 import StoredDataTable from '../modules/data/StoredDataTable.vue'
 import DownloadForm from '../modules/data/DownloadForm.vue'
+import ArchiveImportForm from '../modules/data/ArchiveImportForm.vue'
 import DownloadJobsList from '../modules/data/DownloadJobsList.vue'
 
 const { t } = useI18n()
@@ -68,7 +69,7 @@ async function onRetry(jobId: number) {
 </script>
 
 <template>
-  <div class="p-4 space-y-4">
+  <div class="p-3 space-y-4 sm:p-4">
     <h1 class="text-lg font-semibold text-zinc-100">{{ t('data.title') }}</h1>
     <p class="text-sm text-zinc-500 -mt-2">{{ t('data.subtitle') }}</p>
     <p class="text-xs text-zinc-600">{{ t('data.noApiRequired') }}</p>
@@ -103,10 +104,11 @@ async function onRetry(jobId: number) {
       {{ t('data.loadError') }}: {{ history.error }}
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4 items-start">
       <DownloadForm @submitted="onSubmitted" />
-      <DownloadJobsList :downloads="history.downloads" @retry="onRetry" />
+      <ArchiveImportForm @submitted="onSubmitted" />
     </div>
+      <DownloadJobsList :downloads="history.downloads" @retry="onRetry" />
 
     <StoredDataTable
       :datasets="history.datasets"

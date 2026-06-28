@@ -5,7 +5,6 @@ import { useBacktestStore } from '../../stores/backtest'
 import BacktestRunForm from './BacktestRunForm.vue'
 import BacktestHistory from './BacktestHistory.vue'
 import ProgressBar from '../../components/ProgressBar.vue'
-import BacktestResultsSkeleton from '../../components/BacktestResultsSkeleton.vue'
 
 const props = defineProps<{ strategyId: number }>()
 
@@ -43,7 +42,7 @@ defineExpose({ runBacktests, canRun })
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-3">
+  <div class="flex flex-col gap-2.5 p-4">
     <BacktestRunForm
       ref="formRef"
       :strategy-id="strategyId"
@@ -56,7 +55,7 @@ defineExpose({ runBacktests, canRun })
       @select="onSelect"
     />
 
-    <div v-if="activeBacktest" class="space-y-2 border-t border-zinc-800 pt-3">
+    <div v-if="activeBacktest" class="space-y-1.5 border-t border-zinc-800 pt-2.5">
       <div class="flex items-center gap-2 text-xs">
         <span class="text-zinc-400">{{ activeBacktest.symbol }} / {{ activeBacktest.timeframe }}</span>
         <span
@@ -71,10 +70,9 @@ defineExpose({ runBacktests, canRun })
           {{ activeBacktest.status }}
         </span>
       </div>
-      <div v-if="isActive" class="space-y-2">
+      <div v-if="isActive" class="space-y-1.5">
         <p class="text-xs text-zinc-500">{{ t('backtest.progress') }}</p>
         <ProgressBar indeterminate color="amber" />
-        <BacktestResultsSkeleton compact :show-chart="false" :show-table="false" />
       </div>
       <p v-if="activeBacktest.error" class="text-xs text-red-400">{{ activeBacktest.error }}</p>
     </div>

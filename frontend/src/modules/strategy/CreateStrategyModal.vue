@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../../stores/strategy'
 import { useCredentialsStore } from '../../stores/credentials'
 import { useToast } from '../../composables/useToast'
+import TradingPairSelector from '../../components/TradingPairSelector.vue'
 
 const props = defineProps<{ initialSource?: string }>()
 const emit = defineEmits<{ close: []; created: [id: number] }>()
@@ -15,7 +16,7 @@ const toast = useToast()
 
 const name = ref('New Strategy')
 const credentialId = ref<number | null>(null)
-const symbol = ref('BTC-USDT')
+const selectedSymbols = ref<string[]>(['BTC-USDT'])
 const selectedTimeframes = ref<string[]>(['1h'])
 const source = ref(props.initialSource || '')
 const engineType = ref('pine')
@@ -64,10 +65,10 @@ async function submit() {
       name: name.value,
       type: engineType.value,
       credential: credentialId.value,
-      symbol: symbol.value,
+      symbol: selectedSymbols.value[0] || 'BTC-USDT',
       source: source.value,
       live_config: {
-        symbols: [symbol.value],
+        symbols: selectedSymbols.value.length ? selectedSymbols.value : ['BTC-USDT'],
         timeframes: selectedTimeframes.value.length ? selectedTimeframes.value : ['1h'],
         risk: { leverage: 1, position_size_pct: 5, global_stop_loss_pct: 10 },
       },
@@ -114,7 +115,12 @@ async function submit() {
         </div>
         <div>
           <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
-          <input v-model="symbol" class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" />
+          <TradingPairSelector
+            v-model="selectedSymbols"
+            multiple
+            class="mt-1"
+          />
+          <p class="mt-1 text-[10px] text-zinc-600">{{ t('strategy.pairsHint') }}</p>
         </div>
         <div>
           <label class="text-xs text-zinc-500">{{ t('strategy.timeframes') }}</label>

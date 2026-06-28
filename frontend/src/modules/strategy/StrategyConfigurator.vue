@@ -6,6 +6,7 @@ import { useCredentialsStore } from '../../stores/credentials'
 import { useToast } from '../../composables/useToast'
 import type { LiveConfig } from '../../api/client'
 import VersionHistory from '../pro/VersionHistory.vue'
+import TradingPairSelector from '../../components/TradingPairSelector.vue'
 
 const props = defineProps<{ strategyId: number }>()
 
@@ -27,7 +28,6 @@ const form = ref({
   } as LiveConfig,
 })
 
-const newSymbol = ref('')
 const saving = ref(false)
 const dragOver = ref(false)
 const validationMsg = ref('')
@@ -72,18 +72,6 @@ watch(
   },
   { immediate: true },
 )
-
-function addSymbol() {
-  const v = newSymbol.value.trim().toUpperCase()
-  if (v && !form.value.live_config.symbols?.includes(v)) {
-    form.value.live_config.symbols = [...(form.value.live_config.symbols || []), v]
-  }
-  newSymbol.value = ''
-}
-
-function removeSymbol(s: string) {
-  form.value.live_config.symbols = form.value.live_config.symbols?.filter((x) => x !== s)
-}
 
 function addTf(tf: string) {
   if (!form.value.live_config.timeframes?.includes(tf)) {
@@ -247,25 +235,11 @@ function loadSourceFrom(id: number) {
 
     <div>
       <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
-      <div class="flex flex-wrap gap-1 mt-1 mb-1">
-        <span
-          v-for="sym in form.live_config.symbols"
-          :key="sym"
-          class="inline-flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 text-xs"
-        >
-          {{ sym }}
-          <button type="button" class="text-zinc-500 hover:text-red-400" @click="removeSymbol(sym)">×</button>
-        </span>
-      </div>
-      <div class="flex gap-1">
-        <input
-          v-model="newSymbol"
-          :placeholder="t('strategy.addSymbol')"
-          class="flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
-          @keydown.enter.prevent="addSymbol"
-        />
-        <button type="button" class="rounded bg-zinc-800 px-2 text-xs" @click="addSymbol">+</button>
-      </div>
+      <TradingPairSelector
+        v-model="form.live_config.symbols!"
+        multiple
+        class="mt-1"
+      />
     </div>
 
     <div>

@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "apps.optimizer",
     "apps.pro",
     "apps.integrations",
+    "apps.telegram",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -201,6 +202,9 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # --- Live engine (Phase 3) ---
 LIVE_WINDOW_BUFFER = env.int("LIVE_WINDOW_BUFFER", default=50)
 LIVE_SESSION_KEY_PREFIX = env("LIVE_SESSION_KEY_PREFIX", default="live:session")
+
+# --- Telegram ---
+TELEGRAM_ALERT_ENABLED = env.bool("TELEGRAM_ALERT_ENABLED", default=False)
 
 # --- Hyperliquid ---
 HL_NETWORK = env("HL_NETWORK", default="testnet")

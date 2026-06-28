@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Backtest } from '../../api/client'
@@ -8,7 +8,7 @@ import EquityCurve from './EquityCurve.vue'
 import BacktestResultsSkeleton from '../../components/BacktestResultsSkeleton.vue'
 
 const props = defineProps<{ backtest: Backtest }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; viewChart: [] }>()
 
 const { t } = useI18n()
 
@@ -80,7 +80,7 @@ const isLoading = computed(
           <div class="border-b border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs font-medium text-zinc-400">
             {{ t('backtest.tradesTitle', { count: trades.length }) }}
           </div>
-          <div class="max-h-48 overflow-y-auto">
+          <div class="max-h-48 overflow-x-auto overflow-y-auto">
             <table class="w-full text-xs">
               <thead class="sticky top-0 bg-zinc-900/95 text-zinc-500 uppercase">
                 <tr>
@@ -119,13 +119,21 @@ const isLoading = computed(
     </div>
 
     <template #footer>
-      <div class="flex justify-end">
+      <div class="flex justify-end gap-2">
         <button
           type="button"
           class="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700"
           @click="emit('close')"
         >
           {{ t('modal.close') }}
+        </button>
+        <button
+          v-if="!isLoading && backtest.status === 'done'"
+          type="button"
+          class="rounded-lg bg-violet-700 px-4 py-2 text-sm text-white hover:bg-violet-600"
+          @click="emit('viewChart'); emit('close')"
+        >
+          {{ t('backtest.viewOnChart') }}
         </button>
       </div>
     </template>

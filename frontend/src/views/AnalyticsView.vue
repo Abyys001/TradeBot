@@ -104,7 +104,7 @@ function fmtDate(iso: string) {
 </script>
 
 <template>
-  <div class="p-4 space-y-6 max-w-6xl">
+  <div class="p-3 space-y-6 max-w-6xl sm:p-4">
     <div class="flex items-center justify-between">
       <h1 class="text-lg font-semibold text-zinc-100">{{ t('analytics.title') }}</h1>
       <button
@@ -217,7 +217,7 @@ function fmtDate(iso: string) {
         <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-900/50 text-xs font-medium text-zinc-400">
           {{ t('analytics.byAsset') }}
         </div>
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto"><table class="w-full text-sm">
           <thead class="text-xs text-zinc-500 uppercase bg-zinc-900/30">
             <tr>
               <th class="px-3 py-2 text-start">{{ t('data.coin') }}</th>
@@ -245,11 +245,11 @@ function fmtDate(iso: string) {
               <td class="px-3 py-2 text-end text-zinc-500">{{ a.funding_paid.toFixed(2) }}</td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </div>
 
       <div class="rounded-xl border border-zinc-800 overflow-hidden">
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto"><table class="w-full text-sm">
           <thead class="text-xs text-zinc-500 uppercase bg-zinc-900/50">
             <tr>
               <th class="px-3 py-2 text-start">{{ t('strategies.name') }}</th>
@@ -298,7 +298,7 @@ function fmtDate(iso: string) {
               <td class="px-3 py-2 text-end text-zinc-500">{{ fmtDate(r.created_at) }}</td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </div>
     </template>
   </div>

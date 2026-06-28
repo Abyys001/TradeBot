@@ -2,6 +2,7 @@
 import AccountPanel from '../modules/settings/AccountPanel.vue'
 import CredentialsPanel from '../modules/settings/CredentialsPanel.vue'
 import SignumSettingsPanel from '../modules/settings/SignumSettingsPanel.vue'
+import TelegramPanel from '../modules/settings/TelegramPanel.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -13,5 +14,6 @@ const { t } = useI18n()
     <AccountPanel />
     <CredentialsPanel />
     <SignumSettingsPanel />
+    <TelegramPanel />
   </div>
 </template>

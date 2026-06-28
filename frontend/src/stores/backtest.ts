@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { api, type Backtest } from '../api/client'
+import { api, type Backtest, type Candle } from '../api/client'
 
 const POLL_INTERVAL_MS = 5000
 
@@ -8,6 +8,9 @@ export const useBacktestStore = defineStore('backtest', () => {
   const backtests = ref<Backtest[]>([])
   const activeId = ref<number | null>(null)
   const loading = ref(false)
+  const inlineRunning = ref(false)
+  const lastResult = ref<Backtest | null>(null)
+  const showResults = ref(false)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -16,6 +19,8 @@ export const useBacktestStore = defineStore('backtest', () => {
   const activeBacktests = computed(() =>
     backtests.value.filter((b) => b.status === 'pending' || b.status === 'running'),
   )
+
+  const running = computed(() => inlineRunning.value || activeBacktests.value.length > 0)
 
   const forStrategy = computed(() => (strategyId: number) =>
     backtests.value.filter((b) => b.strategy === strategyId),
@@ -47,6 +52,10 @@ export const useBacktestStore = defineStore('backtest', () => {
       backtests.value.unshift(data)
     }
     return data
+  }
+
+  async function fetchBacktest(id: number) {
+    return fetchOne(id)
   }
 
   async function runInline(strategyId: number, coin: string, interval: string) {
@@ -118,13 +127,45 @@ export const useBacktestStore = defineStore('backtest', () => {
     return data.backtest_id
   }
 
+  async function runBacktest(
+    strategyId: number,
+    payload: { symbol: string; timeframe: string; candles: Candle[] },
+  ) {
+    inlineRunning.value = true
+    lastResult.value = null
+    try {
+      const { data } = await api.post<{ backtest_id: number }>(
+        `/strategies/${strategyId}/backtest/`,
+        payload,
+      )
+      activeId.value = data.backtest_id
+      const result = await pollUntilDone(data.backtest_id)
+      lastResult.value = result
+      return result
+    } finally {
+      inlineRunning.value = false
+    }
+  }
+
   async function pollUntilDone(id: number, intervalMs = 1500, maxAttempts = 120) {
     for (let i = 0; i < maxAttempts; i++) {
       const bt = await fetchOne(id)
       if (bt.status === 'done' || bt.status === 'failed') return bt
       await new Promise((r) => setTimeout(r, intervalMs))
     }
-    return fetchOne(id)
+    const bt = await fetchOne(id)
+    if (bt.status !== 'done' && bt.status !== 'failed') {
+      const idx = backtests.value.findIndex((b) => b.id === id)
+      if (idx >= 0) {
+        backtests.value[idx].status = 'failed'
+        backtests.value[idx].error = 'Backtest timed out — Celery worker may be offline'
+      }
+      if (activeId.value === id) {
+        lastResult.value = { ...backtests.value[idx], status: 'failed' }
+      }
+      stopPollingActive()
+    }
+    return backtests.value.find((b) => b.id === id) ?? bt
   }
 
   function select(id: number | null) {
@@ -142,7 +183,11 @@ export const useBacktestStore = defineStore('backtest', () => {
       if (payload.metrics) bt.metrics = payload.metrics as Backtest['metrics']
     }
     if (payload.status === 'done' || payload.status === 'failed') {
-      void fetchOne(id)
+      inlineRunning.value = false
+      void fetchOne(id).then((bt) => {
+        lastResult.value = bt
+        if (bt.status === 'done') showResults.value = true
+      })
       void import('./analytics').then(({ useAnalyticsStore }) => {
         const astore = useAnalyticsStore()
         if (astore.data) void astore.refreshIfBacktestDone()
@@ -153,6 +198,18 @@ export const useBacktestStore = defineStore('backtest', () => {
     } else {
       stopPollingActive()
     }
+  }
+
+  function applyWsPayload(payload: Record<string, unknown>) {
+    applyWs(payload)
+  }
+
+  function openResults() {
+    showResults.value = true
+  }
+
+  function closeResults() {
+    showResults.value = false
   }
 
   function startPollingActive() {
@@ -173,21 +230,50 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
   }
 
+  async function resolveStale(id: number) {
+    try {
+      await api.post(`/backtests/${id}/resolve-stale/`)
+      return fetchOne(id)
+    } catch {
+      return fetchOne(id)
+    }
+  }
+
+  async function retryStaleBacktests() {
+    try {
+      const { data } = await api.post<{ resolved: number }>('/backtests/retry-stale/')
+      return data.resolved
+    } catch {
+      return 0
+    }
+  }
+
   return {
     backtests,
     activeId,
     active,
     activeBacktests,
     loading,
+    inlineRunning,
+    running,
+    lastResult,
+    showResults,
     forStrategy,
     fetchAll,
     fetchOne,
+    fetchBacktest,
     runInline,
     runStored,
+    runBacktest,
     pollUntilDone,
     select,
     applyWs,
+    applyWsPayload,
+    openResults,
+    closeResults,
     startPollingActive,
     stopPollingActive,
+    resolveStale,
+    retryStaleBacktests,
   }
 })

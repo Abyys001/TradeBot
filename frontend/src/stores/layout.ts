@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+﻿import { defineStore } from 'pinia'
 import { computed } from 'vue'
 import { useStorage } from '@vueuse/core'
 
@@ -48,6 +48,7 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   return {
+    isNavCollapsed: navCollapsed,
     navCollapsed,
     backtestPanelOpen,
     strategyDrawerOpen,

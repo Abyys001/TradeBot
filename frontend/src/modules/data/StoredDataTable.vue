@@ -73,7 +73,7 @@ async function deleteDataset(d: HistoryDataset) {
     <div v-else-if="!sorted.length" class="px-4 py-8 text-center text-sm text-zinc-500">
       {{ t('data.noDatasets') }}
     </div>
-    <table v-else class="w-full text-sm">
+    <div v-else class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="text-zinc-500 text-xs uppercase">
         <tr class="border-b border-zinc-800">
           <th class="px-4 py-2 text-start">{{ t('data.network') }}</th>
@@ -147,7 +147,7 @@ async function deleteDataset(d: HistoryDataset) {
           </td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
     <DatasetDetailModal v-if="detailDataset" :dataset="detailDataset" @close="detailDataset = null" />
   </div>
 </template>

@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ArchiveImportView,
     HistoryCandlesView,
     HistoryCoverageView,
     HistoryDatasetsView,
@@ -23,5 +24,6 @@ urlpatterns = [
     path("history/gaps/", HistoryGapsView.as_view(), name="history-gaps"),
     path("history/quality/", HistoryQualityView.as_view(), name="history-quality"),
     path("history/markets/", HistoryMarketsView.as_view(), name="history-markets"),
+    path("history/import-archive/", ArchiveImportView.as_view(), name="history-import-archive"),
     path("", include(router.urls)),
 ]

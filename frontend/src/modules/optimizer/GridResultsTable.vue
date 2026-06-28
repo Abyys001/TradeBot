@@ -13,7 +13,7 @@ const sorted = computed(() =>
 
 <template>
   <div class="rounded-lg border border-zinc-800 overflow-hidden">
-    <table class="w-full text-[10px]">
+    <div class="overflow-x-auto"><table class="w-full text-[10px]">
       <thead class="text-zinc-500 bg-zinc-900/50">
         <tr>
           <th class="px-2 py-1 text-start">{{ t('optimizer.params') }}</th>
@@ -28,6 +28,6 @@ const sorted = computed(() =>
           <td class="px-2 py-1 text-end text-zinc-400">{{ r.metrics.sharpe_ratio?.toFixed(2) ?? '—' }}</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
   </div>
 </template>

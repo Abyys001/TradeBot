@@ -83,7 +83,7 @@ onMounted(refresh)
     </div>
     <div v-if="trades.length" class="border-t border-zinc-800 pt-2">
       <div class="text-xs text-zinc-500 mb-1">{{ t('paper.trades') }}</div>
-      <table class="w-full text-[10px]">
+      <div class="overflow-x-auto"><table class="w-full text-[10px]">
         <thead class="text-zinc-600">
           <tr>
             <th class="text-start py-0.5">{{ t('paper.side') }}</th>
@@ -98,7 +98,7 @@ onMounted(refresh)
             </td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </template>

@@ -62,7 +62,7 @@ defineExpose({ refresh })
     </div>
     <div v-if="loading && !positions.length" class="px-3 py-4 text-xs text-zinc-500">{{ t('overview.loading') }}</div>
     <div v-else-if="!positions.length" class="px-3 py-4 text-xs text-zinc-500">{{ t('positions.empty') }}</div>
-    <table v-else class="w-full text-xs">
+    <div v-else class="overflow-x-auto"><table class="w-full text-xs">
       <thead class="text-zinc-500">
         <tr>
           <th class="px-3 py-1 text-start">{{ t('data.coin') }}</th>
@@ -81,6 +81,6 @@ defineExpose({ refresh })
           </td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
   </div>
 </template>

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useIntervalFn } from '@vueuse/core'

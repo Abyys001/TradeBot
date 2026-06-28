@@ -93,7 +93,7 @@ async function retryJob(job: HistoryDownload, event: Event) {
     <div v-if="!sorted.length" class="px-4 py-8 text-center text-sm text-zinc-500">
       {{ t('data.noJobs') }}
     </div>
-    <table v-else class="w-full text-sm">
+    <div v-else class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="text-zinc-500 text-xs uppercase">
         <tr class="border-b border-zinc-800">
           <th class="px-4 py-2 text-start">ID</th>
@@ -174,6 +174,6 @@ async function retryJob(job: HistoryDownload, event: Event) {
           </tr>
         </template>
       </tbody>
-    </table>
+    </table></div>
   </div>
 </template>

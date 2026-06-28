@@ -61,7 +61,7 @@ function goStrategy(id: number | null) {
         />
       </div>
 
-      <div class="grid lg:grid-cols-2 gap-6">
+      <div class="grid md:grid-cols-2 gap-6">
         <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
           <h2 class="text-sm font-medium text-zinc-400 px-4 py-3 border-b border-zinc-800">
             {{ t('overview.recentOrders') }}
@@ -69,23 +69,25 @@ function goStrategy(id: number | null) {
           <div v-if="!overview.data.recent_orders.length" class="p-4 text-sm text-zinc-600">
             {{ t('overview.noOrders') }}
           </div>
-          <table v-else class="w-full text-xs">
-            <tbody>
-              <tr
-                v-for="order in overview.data.recent_orders"
-                :key="order.id"
-                class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
-                @click="goStrategy(order.strategy)"
-              >
-                <td class="px-4 py-2 text-zinc-300">{{ order.symbol }}</td>
-                <td class="px-4 py-2" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
-                  {{ order.side.toUpperCase() }}
-                </td>
-                <td class="px-4 py-2 text-zinc-500">{{ order.status }}</td>
-                <td class="px-4 py-2 text-zinc-600">{{ formatTime(order.created_at) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-else class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <tbody>
+                <tr
+                  v-for="order in overview.data.recent_orders"
+                  :key="order.id"
+                  class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                  @click="goStrategy(order.strategy)"
+                >
+                  <td class="px-4 py-2 text-zinc-300">{{ order.symbol }}</td>
+                  <td class="px-4 py-2" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
+                    {{ order.side.toUpperCase() }}
+                  </td>
+                  <td class="px-4 py-2 text-zinc-500">{{ order.status }}</td>
+                  <td class="px-4 py-2 text-zinc-600">{{ formatTime(order.created_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
@@ -95,20 +97,22 @@ function goStrategy(id: number | null) {
           <div v-if="!overview.data.recent_logs.length" class="p-4 text-sm text-zinc-600">
             {{ t('overview.noLogs') }}
           </div>
-          <table v-else class="w-full text-xs">
-            <tbody>
-              <tr
-                v-for="log in overview.data.recent_logs"
-                :key="log.id"
-                class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
-                @click="goStrategy(log.strategy)"
-              >
-                <td class="px-4 py-2 font-mono text-zinc-500">{{ log.level }}</td>
-                <td class="px-4 py-2 text-zinc-300">{{ log.event }}</td>
-                <td class="px-4 py-2 text-zinc-600">{{ formatTime(log.created_at) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-else class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <tbody>
+                <tr
+                  v-for="log in overview.data.recent_logs"
+                  :key="log.id"
+                  class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                  @click="goStrategy(log.strategy)"
+                >
+                  <td class="px-4 py-2 font-mono text-zinc-500">{{ log.level }}</td>
+                  <td class="px-4 py-2 text-zinc-300">{{ log.event }}</td>
+                  <td class="px-4 py-2 text-zinc-600">{{ formatTime(log.created_at) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
     </template>

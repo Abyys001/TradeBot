@@ -23,7 +23,7 @@ from apps.exchange.history_download import VALID_DATA_TYPES, build_initial_progr
 
 from .models import HistoryDownload
 from .serializers import HistoryDownloadSerializer, is_stale_pending
-from .tasks import download_history_task
+from .tasks import download_history_task, import_archive_task
 
 _VALID_NETWORKS = frozenset({"mainnet", "testnet"})
 _VALID_DATA_TYPES = frozenset(VALID_DATA_TYPES)
@@ -436,3 +436,63 @@ class HistoryDownloadViewSet(
                 {"source": "history_download", "status": "pending", "retried": retried},
             )
         return Response({"retried": retried, "failed": failed, "count": len(retried)})
+
+
+class ArchiveImportView(APIView):
+    """POST /api/history/import-archive/ — import a Dwellir Parquet/CSV archive.
+
+    Body::
+        {
+            "file_path": "/data/archives/BTC-1h-full.parquet",
+            "coin": "BTC",          // optional — inferred from filename
+            "interval": "1h",       // optional — inferred from filename
+            "network": "mainnet"    // optional, default "mainnet"
+        }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        file_path = request.data.get("file_path")
+        if not file_path:
+            return Response(
+                {"error": "file_path is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        import os
+        if not os.path.isfile(file_path):
+            return Response(
+                {"error": f"file not found: {file_path}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        coin = request.data.get("coin")
+        interval = request.data.get("interval")
+        network = request.data.get("network", "mainnet")
+        if network not in _VALID_NETWORKS:
+            return Response(
+                {"error": f"invalid network: {network}"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        job = HistoryDownload.objects.create(
+            user=request.user,
+            network=network,
+            coins=[coin or "?"],
+            intervals=[interval or "?"],
+            data_types=["ohlcv"],
+            start_ms=0,
+            end_ms=0,
+            status=HistoryDownload.Status.PENDING,
+        )
+        import_archive_task.delay(file_path, coin=coin, interval=interval, network=network, job_id=job.id)
+
+        publish_dashboard(
+            request.user.pk,
+            {
+                "source": "history_download",
+                "job_id": job.id,
+                "status": "pending",
+                "progress": {},
+            },
+        )
+        return Response(
+            HistoryDownloadSerializer(job).data, status=status.HTTP_202_ACCEPTED
+        )

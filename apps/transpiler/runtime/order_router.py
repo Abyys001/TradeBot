@@ -493,6 +493,17 @@ class LiveBroker:
                     payload={"oid": oid, "preview": alert_message[:500]},
                 )
                 signum_send_webhook_task.delay(self.strategy.user_id, alert_message)
+            from apps.telegram.tasks import dispatch_telegram_alert
+
+            dispatch_telegram_alert.delay(
+                user_id=self.strategy.user_id,
+                strategy_name=self.strategy.name,
+                symbol=self.symbol,
+                action=f"{'LONG' if is_buy else 'SHORT'} Entry",
+                price=f"Entry Price: ${price}" if price else "",
+                leverage=f"Leverage: {self._leverage}x",
+                qty=str(qty),
+            )
         return rec
 
     def close(self, oid, price, bar_index, **kwargs):

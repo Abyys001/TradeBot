@@ -49,7 +49,7 @@ const isActive = computed(
     />
 
     <div v-if="trades.length" class="rounded-lg border border-zinc-800 overflow-hidden">
-      <table class="w-full text-xs">
+      <div class="overflow-x-auto"><table class="w-full text-xs">
         <thead class="text-zinc-500 uppercase bg-zinc-900/50">
           <tr>
             <th class="px-3 py-2 text-start">{{ t('backtest.side') }}</th>
@@ -70,7 +70,7 @@ const isActive = computed(
             <td class="px-3 py-1.5 text-end text-zinc-500">{{ tr.exit_reason || '—' }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </template>

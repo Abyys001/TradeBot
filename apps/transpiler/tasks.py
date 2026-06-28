@@ -133,6 +133,7 @@ def run_backtest_task(
             chart_interval=bt.timeframe or "1h",
             symbol=bt.symbol or "",
         )
+        _persist_backtest_result(bt, result)
     except Exception as exc:  # noqa: BLE001
         bt.status = Backtest.Status.FAILED
         bt.error = str(exc)
@@ -140,7 +141,6 @@ def run_backtest_task(
         _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "failed", "error": str(exc)})
         return {"ok": False, "error": str(exc)}
 
-    _persist_backtest_result(bt, result)
     return {"ok": True, "metrics": result.metrics}
 
 
@@ -187,6 +187,7 @@ def run_backtest_stored_task(
             chart_interval=interval,
             symbol=coin,
         )
+        _persist_backtest_result(bt, result)
     except Exception as exc:  # noqa: BLE001
         bt.status = Backtest.Status.FAILED
         bt.error = str(exc)
@@ -194,8 +195,34 @@ def run_backtest_stored_task(
         _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "failed", "error": str(exc)})
         return {"ok": False, "error": str(exc)}
 
-    _persist_backtest_result(bt, result)
     return {"ok": True, "metrics": result.metrics}
+
+
+def _recover_positions_if_any(strategy: Strategy) -> dict[str, object] | None:
+    """Query HL for open positions and return recovered position/PnL or None."""
+    from apps.exchange.hl_client import build_info
+
+    if strategy.credential.network == "spot":
+        return None
+    try:
+        info = build_info(strategy.credential.network)
+        state_data = info.user_state(strategy.credential.wallet_address) or {}
+        for item in state_data.get("assetPositions") or []:
+            pos = item.get("position") or {}
+            from apps.exchange.hl_constants import normalize_coin
+
+            if normalize_coin(pos.get("coin", "")) == normalize_coin(strategy.symbol):
+                try:
+                    return {
+                        "position": float(pos.get("szi", 0)),
+                        "entry_px": float(pos.get("entryPx", 0)),
+                        "pnl": float(pos.get("unrealizedPnl", 0)),
+                    }
+                except (TypeError, ValueError):
+                    return None
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 @shared_task(name="transpiler.start_live_strategy")
@@ -219,6 +246,16 @@ def start_live_strategy_task(strategy_id: int):
         state.save(update_fields=["live_error"])
         _notify(strategy, {"source": "live", "status": "failed", "error": str(exc)})
         return {"ok": False, "error": str(exc)}
+
+    recovered = _recover_positions_if_any(strategy)
+    if recovered is not None:
+        from apps.strategies.models import StrategyState
+
+        state, _ = StrategyState.objects.get_or_create(strategy=strategy)
+        state.position = recovered["position"]
+        state.entry_price = recovered["entry_px"]
+        state.pnl = recovered["pnl"]
+        state.save(update_fields=["position", "entry_price", "pnl"])
 
     strategy.status = Strategy.Status.ACTIVE
     strategy.save(update_fields=["status"])

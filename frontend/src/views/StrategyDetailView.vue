@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -15,9 +15,8 @@ import BacktestResultsModal from '../modules/backtest/BacktestResultsModal.vue'
 import PineScriptModal from '../modules/strategy/PineScriptModal.vue'
 import AdvancedSettingsModal from '../modules/strategy/AdvancedSettingsModal.vue'
 import OptimizerPanel from '../modules/optimizer/OptimizerPanel.vue'
+import LiveDeploymentPanel from '../modules/live/LiveDeploymentPanel.vue'
 import ChartSkeleton from '../components/ChartSkeleton.vue'
-
-const SIDEBAR_W = '288px'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,6 +33,7 @@ const showAdvancedModal = ref(false)
 const resultsModalBacktestId = ref<number | null>(null)
 const lastAutoShownId = ref<number | null>(null)
 const backtestPanelRef = ref<InstanceType<typeof BacktestPanel> | null>(null)
+const sidebarTab = ref<'backtest' | 'live'>('backtest')
 
 const strategyId = computed(() => Number(route.params.id))
 const strategyForm = useStrategyForm(strategyId)
@@ -61,8 +61,6 @@ const hotkeysBlocked = computed(
     !!resultsModalBacktestId.value ||
     layout.optimizerPanelOpen,
 )
-
-const gridColumns = computed(() => `minmax(0, 1fr) ${SIDEBAR_W}`)
 
 useBacktestHotkeys({
   run: () => backtestPanelRef.value?.runBacktests(),
@@ -102,7 +100,7 @@ onMounted(async () => {
   layout.applyBacktestModeDefaults()
   layout.setBacktestPanelOpen(true)
 
-  await store.fetchAll()
+  await store.fetchAll({ preserveSelection: true })
   store.select(strategyId.value)
   syncBacktestFromRoute()
   await initBacktestData(strategyId.value)
@@ -183,10 +181,7 @@ function onViewResults(id: number) {
       {{ t('overview.loading') }}
     </div>
     <template v-else>
-      <div
-        class="relative grid min-h-0 flex-1 overflow-hidden"
-        :style="{ gridTemplateColumns: gridColumns }"
-      >
+      <div class="relative flex min-h-0 flex-1 overflow-hidden">
         <main class="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-3 py-2">
             <button
@@ -194,7 +189,7 @@ function onViewResults(id: number) {
               class="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
               @click="router.push({ name: 'strategies' })"
             >
-              ← {{ t('backtest.backToStrategies') }}
+              ΓåÉ {{ t('backtest.backToStrategies') }}
             </button>
             <div class="min-w-0">
               <h1 class="text-sm font-semibold text-violet-200">{{ t('backtest.engineTitle') }}</h1>
@@ -213,7 +208,7 @@ function onViewResults(id: number) {
                 class="rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
                 @click="showAdvancedModal = true"
               >
-                ⚙ {{ t('backtest.advancedSettings') }}
+                ΓÜÖ {{ t('backtest.advancedSettings') }}
               </button>
               <button
                 type="button"
@@ -250,22 +245,63 @@ function onViewResults(id: number) {
           </div>
         </main>
 
-        <aside class="min-h-0 overflow-y-auto border-s border-zinc-800 bg-zinc-950">
-          <div class="flex h-full w-72 flex-col">
-            <div class="shrink-0 border-b border-zinc-800 px-3 py-2">
-              <span class="text-sm font-medium text-violet-200">{{ t('backtest.engineTitle') }}</span>
-            </div>
-            <div class="min-h-0 flex-1 overflow-hidden">
-              <BacktestPanel
-                ref="backtestPanelRef"
-                :strategy-id="strategyId"
-                @select-backtest="onSelectBacktest"
-                @view-results="onViewResults"
-              />
+        <aside
+          v-show="layout.backtestPanelOpen"
+          class="scrollbar-styled flex min-h-0 flex-col overflow-x-hidden overflow-y-auto border-s border-zinc-800 bg-zinc-950 fixed inset-y-0 end-0 z-40 w-80 max-w-[85vw] shadow-2xl lg:relative lg:inset-auto lg:z-auto lg:w-[400px] lg:max-w-none lg:shadow-none"
+        >
+          <div class="sticky top-0 z-10 shrink-0 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur-sm">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex gap-1">
+                <button
+                  type="button"
+                  class="rounded px-2 py-0.5 text-xs font-medium transition-colors"
+                  :class="sidebarTab === 'backtest' ? 'bg-violet-700 text-white' : 'text-zinc-400 hover:text-zinc-200'"
+                  @click="sidebarTab = 'backtest'"
+                >
+                  {{ t('live.tabBacktest') }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded px-2 py-0.5 text-xs font-medium transition-colors"
+                  :class="sidebarTab === 'live' ? 'bg-violet-700 text-white' : 'text-zinc-400 hover:text-zinc-200'"
+                  @click="sidebarTab = 'live'"
+                >
+                  {{ t('live.tabLive') }}
+                </button>
+              </div>
+              <button type="button" class="rounded px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 lg:hidden" @click="layout.setBacktestPanelOpen(false)">✘</button>
             </div>
           </div>
+          <BacktestPanel
+            v-show="sidebarTab === 'backtest'"
+            ref="backtestPanelRef"
+            class="min-h-0 flex-1"
+            :strategy-id="strategyId"
+            @select-backtest="onSelectBacktest"
+            @view-results="onViewResults"
+          />
+          <LiveDeploymentPanel
+            v-show="sidebarTab === 'live'"
+            class="min-h-0 flex-1"
+            :strategy-id="strategyId"
+          />
         </aside>
       </div>
+
+      <div
+        v-if="layout.backtestPanelOpen"
+        class="fixed inset-0 z-30 bg-black/50 lg:hidden"
+        @click="layout.setBacktestPanelOpen(false)"
+      />
+
+      <button
+        v-if="!layout.backtestPanelOpen"
+        type="button"
+        class="fixed bottom-4 end-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-violet-700 text-white shadow-lg hover:bg-violet-600 lg:hidden"
+        @click="layout.setBacktestPanelOpen(true)"
+      >
+        ⚙
+      </button>
 
       <div
         v-show="layout.optimizerPanelOpen"
@@ -278,10 +314,10 @@ function onViewResults(id: number) {
             class="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             @click="layout.setOptimizerPanelOpen(false)"
           >
-            ✕
+            Γ£ò
           </button>
         </div>
-        <div class="min-h-0 flex-1 overflow-y-auto p-3">
+        <div class="scrollbar-styled min-h-0 flex-1 overflow-y-auto p-3">
           <OptimizerPanel :strategy-id="strategyId" />
         </div>
       </div>

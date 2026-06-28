@@ -39,7 +39,7 @@ function formatTime(iso: string) {
 </script>
 
 <template>
-  <div class="p-4 space-y-4 max-w-5xl">
+  <div class="p-3 space-y-4 max-w-5xl sm:p-4">
     <div class="flex items-center justify-between">
       <h1 class="text-lg font-semibold text-zinc-100">{{ t('orders.title') }}</h1>
       <button
@@ -64,7 +64,7 @@ function formatTime(iso: string) {
     <div v-if="orders.loading" class="text-sm text-zinc-500">{{ t('overview.loading') }}</div>
     <div v-else-if="!filtered.length" class="text-sm text-zinc-500">{{ t('orders.empty') }}</div>
     <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
-      <table class="w-full text-sm">
+      <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead class="text-xs text-zinc-500 uppercase bg-zinc-900/50">
           <tr>
             <th class="px-3 py-2 text-start">{{ t('strategies.name') }}</th>
@@ -90,7 +90,7 @@ function formatTime(iso: string) {
             <td class="px-3 py-2 text-end text-zinc-500 text-xs">{{ formatTime(o.created_at) }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </template>

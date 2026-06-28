@@ -32,3 +32,33 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
+
+/* Dark panel scrollbars (backtest sidebar, optimizer drawer, etc.) */
+.scrollbar-styled {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 92, 246, 0.55) rgba(24, 24, 27, 0.85);
+}
+
+.scrollbar-styled::-webkit-scrollbar {
+  width: 7px;
+}
+
+.scrollbar-styled::-webkit-scrollbar-track {
+  margin: 4px 0;
+  background: transparent;
+  border-radius: 999px;
+}
+
+.scrollbar-styled::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.65), rgba(109, 40, 217, 0.55));
+  border: 2px solid rgba(9, 9, 11, 0.85);
+  border-radius: 999px;
+}
+
+.scrollbar-styled::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(196, 181, 253, 0.85), rgba(139, 92, 246, 0.75));
+}
+
+.scrollbar-styled::-webkit-scrollbar-corner {
+  background: transparent;
+}

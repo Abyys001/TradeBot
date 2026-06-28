@@ -66,15 +66,41 @@ class LiveIncrementalRunner:
             network=strategy.credential.network,
         )
 
-    def on_closed_candle(self, strategy: Strategy, candle: dict) -> bool:
-        """Process one closed candle. Returns True if processed, False if skipped."""
+    def _backfill_gap(self, strategy: Strategy, state: StrategyState, ts: int) -> int:
+        """Fetch missed candles when gap detected, replay them, return latest ts."""
+        from apps.exchange.candles import fetch_candles
+
+        gap_start = state.last_bar_ts + 1
+        extra_bars = getattr(settings, "LIVE_BACKFILL_EXTRA", 50)
+        df = fetch_candles(
+            strategy.symbol,
+            strategy.timeframe,
+            extra_bars,
+            before_ts=ts,
+            network=strategy.credential.network,
+        )
+        if df.empty:
+            return state.last_bar_ts
+        missed = df[df["ts"] > gap_start]
+        if missed.empty:
+            return state.last_bar_ts
+        for _, row in missed.iterrows():
+            if not self._process_one(strategy, state, {
+                "ts": row["ts"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "volume": row.get("volume", 0),
+            }):
+                break
+        return state.last_bar_ts
+
+    def _process_one(self, strategy: Strategy, state: StrategyState, candle: dict) -> bool:
+        """Process a single candle (internal, no gap check)."""
         from apps.execution.models import ExecutionLog
 
-        state, _ = StrategyState.objects.get_or_create(strategy=strategy)
         ts = int(candle["ts"])
-        if state.last_bar_ts is not None and ts <= state.last_bar_ts:
-            return False
-
         ExecutionLog.objects.create(
             strategy=strategy,
             level=ExecutionLog.Level.DEBUG,
@@ -93,7 +119,6 @@ class LiveIncrementalRunner:
 
         window = SlidingWindow.from_rows(window_max_size(strategy), session["window"])
         window.append_closed(candle)
-
         program = compile(strategy.source)
         broker = LiveBroker(
             credential=strategy.credential,
@@ -109,10 +134,8 @@ class LiveIncrementalRunner:
             program=program,
         )
         ctx.scalars = restore_scalars(session)
-
         last_bar = ctx.n - 1
         interpreter.run_bar(program, ctx, last_bar)
-
         action = broker.last_action if hasattr(broker, "last_action") else "No Action"
         ExecutionLog.objects.create(
             strategy=strategy,
@@ -120,13 +143,10 @@ class LiveIncrementalRunner:
             event="strategy.evaluated",
             payload={"name": strategy.name, "action": action},
         )
-
         save_session(strategy.pk, window=window, ctx=ctx, source=strategy.source)
-
         state.last_bar_ts = ts
         state.live_error = ""
         state.save(update_fields=["last_bar_ts", "live_error"])
-
         publish_update(
             strategy.credential_id,
             {
@@ -164,6 +184,16 @@ class LiveIncrementalRunner:
                 },
             )
         return True
+
+    def on_closed_candle(self, strategy: Strategy, candle: dict) -> bool:
+        """Process one closed candle. Returns True if processed, False if skipped."""
+        state, _ = StrategyState.objects.get_or_create(strategy=strategy)
+        ts = int(candle["ts"])
+        if state.last_bar_ts is not None and ts <= state.last_bar_ts:
+            return False
+        if state.last_bar_ts is not None and ts - state.last_bar_ts > 60000:
+            self._backfill_gap(strategy, state, ts)
+        return self._process_one(strategy, state, candle)
 
     @staticmethod
     def stop(strategy: Strategy) -> None:

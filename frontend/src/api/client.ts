@@ -273,3 +273,18 @@ export interface HistoryMarkets {
   intervals: string[]
   error?: string
 }
+
+export interface TelegramConfig {
+  bot_token: string
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AlertWhitelistEntry {
+  id: number
+  chat_id: number
+  label: string
+  enabled: boolean
+  created_at: string
+}

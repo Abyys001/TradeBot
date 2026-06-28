@@ -38,6 +38,58 @@ def _final_job_status(progress: dict) -> str:
     return HistoryDownload.Status.DONE
 
 
+@shared_task(name="exchange.import_archive")
+def import_archive_task(
+    file_path: str,
+    coin: str | None = None,
+    interval: str | None = None,
+    network: str = "mainnet",
+    job_id: int | None = None,
+) -> dict:
+    """Celery task: import a Dwellir Parquet/CSV archive into local storage."""
+    from .archive_importer import import_archive as _do_import
+
+    if job_id:
+        from .models import HistoryDownload
+        job = HistoryDownload.objects.filter(pk=job_id).first()
+        if job:
+            job.status = HistoryDownload.Status.RUNNING
+            job.save(update_fields=["status"])
+
+    try:
+        result = _do_import(file_path, coin=coin, interval=interval, network=network)
+        key = f"{result['coin']}/{result['interval']}"
+        progress = {
+            key: {
+                "key": key,
+                "status": "done",
+                "bars": result["bars"],
+                "start_ts": result["start_ts"],
+                "end_ts": result["end_ts"],
+                "path": result["path"],
+            }
+        }
+        if job_id and job:
+            job.progress = progress
+            job.status = HistoryDownload.Status.DONE
+            job.save(update_fields=["status", "progress"])
+            from apps.dashboard.publish import publish_dashboard
+            publish_dashboard(job.user_id, {
+                "source": "history_download",
+                "job_id": job.id,
+                "status": "done",
+                "progress": progress,
+            })
+        return {"ok": True, **result}
+    except Exception as exc:
+        logger.error("archive import failed: %s", exc)
+        if job_id and job:
+            job.status = HistoryDownload.Status.FAILED
+            job.error = str(exc)
+            job.save(update_fields=["status", "error"])
+        return {"ok": False, "error": str(exc)}
+
+
 @shared_task(name="exchange.download_history")
 def download_history_task(job_id: int) -> dict:
     try:
@@ -144,6 +196,7 @@ def sync_history_incremental_task() -> dict:
         start_ms,
         network=network,
         data_types=["ohlcv"],
+        fallback=False,
     )
     done = sum(1 for v in outcome["progress"].values() if v.get("status") == "done")
     logger.info("sync completed scheduled pairs_done=%s", done)

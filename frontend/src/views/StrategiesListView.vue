@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -169,7 +169,7 @@ function onCreated(id: number) {
     />
 
     <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
-      <table class="w-full text-sm">
+      <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead class="bg-zinc-900/80 text-xs text-zinc-500 uppercase">
           <tr>
             <th class="text-start px-4 py-3">{{ t('strategy.name') }}</th>
@@ -259,7 +259,7 @@ function onCreated(id: number) {
             </td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
     </div>
 
     <CreateStrategyModal

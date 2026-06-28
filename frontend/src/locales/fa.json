@@ -8,9 +8,9 @@
     "data": "داده تاریخی",
     "analytics": "تحلیل",
     "orders": "سفارش‌ها",
-    "journal": "ژورنال",
-    "marketplace": "مارکت‌پلیس",
     "settings": "تنظیمات",
+    "collapse": "جمع کردن منو",
+    "expand": "باز کردن منو",
     "toggleExpand": "باز کردن منو",
     "toggleCollapse": "جمع کردن منو"
   },
@@ -66,6 +66,7 @@
     "uploadPine": "آپلود .pine",
     "empty": "استراتژی‌ای نیست. یکی بسازید.",
     "emptyTitle": "هنوز استراتژی‌ای ندارید",
+    "emptyCta": "اولین استراتژی را بسازید",
     "createFirst": "اولین استراتژی را بسازید",
     "actions": "عملیات",
     "statusColumn": "وضعیت",
@@ -94,7 +95,7 @@
     "researchStep3Hint": "استراتژی را باز کنید، تب Backtest را انتخاب کنید و اجرا کنید."
   },
   "strategy": {
-    "title": "تنظیم‌گر استراتژی",
+    "title": "موتور بک‌تست",
     "name": "نام",
     "source": "سورس Pine",
     "symbols": "جفت ارزها",
@@ -122,7 +123,14 @@
     "liveRequiresCredential": "معامله زنده به API key در تنظیمات نیاز دارد",
     "engine": "موتور",
     "aiHint": "موتور AI از سیگنال پلاگین استفاده می‌کند نه Pine.",
-    "advancedRisk": "محدودیت‌های ریسک پیشرفته"
+    "advancedRisk": "محدودیت‌های ریسک پیشرفته",
+    "searchPairs": "جستجوی جفت (مثلاً BTC، ETH)...",
+    "popularPairs": "محبوب",
+    "noPairsFound": "جفتی پیدا نشد",
+    "pairSelected": "انتخاب‌شده",
+    "pairsLoading": "در حال بارگذاری بازار از Hyperliquid...",
+    "pairsFallback": "از لیست پیش‌فرض استفاده می‌شود — برای لیست کامل اتصال برقرار کنید",
+    "pairsHint": "یک یا چند جفت انتخاب کنید. با نام ارز یا جفت جستجو کنید."
   },
   "settings": {
     "title": "تنظیمات",
@@ -278,6 +286,12 @@
     "runFailed": "شروع بک‌تست ناموفق",
     "validateFirst": "ابتدا خطاهای Pine را برطرف کنید",
     "missingData": "داده ذخیره‌شده برای: {pairs}",
+    "dataReady": "داده دانلود شده",
+    "dataMissing": "داده‌ای برای این جفت/تایم‌فریم نیست",
+    "downloadMissing": "دانلود داده",
+    "downloadQueued": "دانلود در صف — پس از اتمام بک‌تست بزنید",
+    "downloading": "در حال دانلود…",
+    "downloadInProgress": "دانلود تاریخچه در حال انجام…",
     "needDownload": "برخی جفت‌ها داده ندارند.",
     "coverageStart": "{pair}: داده از {have} شروع می‌شود، اما بک‌تست از {want} می‌خواهد",
     "coverageEnd": "{pair}: داده تا {have} است، اما بک‌تست تا {want} می‌خواهد",
@@ -310,7 +324,19 @@
     "strategyPanel": "استراتژی",
     "optimize": "بهینه‌سازی",
     "moreMetrics": "معیارهای بیشتر",
-    "tradesTitle": "معاملات ({count})"
+    "tradesTitle": "معاملات ({count})",
+    "complete": "بک‌تست تمام شد",
+    "failed": "بک‌تست ناموفق",
+    "results": "نتایج بک‌تست",
+    "editPine": "ویرایش Pine Script",
+    "savePine": "ذخیره و بستن",
+    "advanced": "تنظیمات پیشرفته",
+    "warmupBars": "کندل‌های warmup",
+    "riskLimits": "محدودیت‌های ریسک",
+    "viewOnChart": "نمایش روی چارت",
+    "noCandles": "داده کندل برای این نماد/تایم‌فریم موجود نیست",
+    "noSource": "سورسی بارگذاری نشده",
+    "hotkeyHint": "Ctrl+Enter برای اجرا"
   },
   "paper": {
     "mode": "کاغذی",
@@ -370,24 +396,6 @@
       "walkforward": "Walk-forward",
       "montecarlo": "Monte Carlo"
     }
-  },
-  "journal": {
-    "title": "ژورنال معاملات",
-    "new": "یادداشت جدید",
-    "empty": "یادداشتی نیست",
-    "entryTitle": "عنوان",
-    "noStrategy": "بدون استراتژی",
-    "save": "ذخیره",
-    "untitled": "بدون عنوان"
-  },
-  "marketplace": {
-    "title": "مارکت‌پلیس استراتژی",
-    "publish": "انتشار استراتژی",
-    "publishBtn": "انتشار",
-    "description": "توضیحات",
-    "empty": "بسته عمومی نیست",
-    "import": "وارد کردن",
-    "noDescription": "بدون توضیح"
   },
   "versions": {
     "title": "تاریخچه نسخه",

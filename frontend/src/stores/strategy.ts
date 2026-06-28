@@ -25,12 +25,17 @@ export const useStrategyStore = defineStore('strategy', () => {
     return data.engines
   }
 
-  async function fetchAll() {
+  async function fetchAll(opts?: { preserveSelection?: boolean }) {
     loading.value = true
+    const prev = selectedId.value
     try {
       const { data } = await api.get<Strategy[]>('/strategies/')
       strategies.value = data
-      if (!selectedId.value && data.length) selectedId.value = data[0].id
+      if (opts?.preserveSelection && prev != null) {
+        selectedId.value = data.some((s) => s.id === prev) ? prev : (data[0]?.id ?? null)
+      } else if (!selectedId.value && data.length) {
+        selectedId.value = data[0].id
+      }
       return data
     } finally {
       loading.value = false
@@ -113,8 +118,8 @@ export const useStrategyStore = defineStore('strategy', () => {
     selected,
     loading,
     validatedStrategies,
-    fetchAll,
     fetchEngines,
+    fetchAll,
     createStrategy,
     updateStrategy,
     validate,

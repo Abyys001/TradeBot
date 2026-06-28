@@ -25,6 +25,13 @@ class Command(BaseCommand):
         parser.add_argument("--start", default=_DEFAULT_START, help="YYYY-MM-DD")
         parser.add_argument("--end", default=None, help="YYYY-MM-DD (default: now)")
         parser.add_argument("--network", default="mainnet")
+        parser.add_argument(
+            "--no-fallback",
+            action="store_false",
+            dest="fallback",
+            default=True,
+            help="Disable auto-fallback to coarser intervals when fine data is partial",
+        )
 
     def handle(self, *args, **opts):
         try:
@@ -39,6 +46,7 @@ class Command(BaseCommand):
             start_ms,
             end_ms,
             network=opts["network"],
+            fallback=opts["fallback"],
             on_progress=self._log_progress,
         )
 
@@ -51,6 +59,15 @@ class Command(BaseCommand):
                         f"{key}: {result['bars']} rows [{lo:%Y-%m-%d} .. {hi:%Y-%m-%d}]"
                     )
                 )
+            elif result.get("status") == "partial":
+                lo = datetime.fromtimestamp(result["start_ts"] / 1000, tz=timezone.utc)
+                hi = datetime.fromtimestamp(result["end_ts"] / 1000, tz=timezone.utc)
+                msg = f"{key}: partial {result['bars']} rows [{lo:%Y-%m-%d} .. {hi:%Y-%m-%d}]"
+                fb = result.get("fallback")
+                if fb:
+                    parts = [f"{r['interval']}:{r['bars']}rows" for r in fb]
+                    msg += f" fallback({', '.join(parts)})"
+                self.stdout.write(self.style.WARNING(msg))
             elif result.get("status") == "empty":
                 self.stdout.write(f"{key}: no data")
             elif result.get("status") == "skipped":

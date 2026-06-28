@@ -16,6 +16,7 @@ import {
 import { useStrategyStore } from '../../stores/strategy'
 import { useChartStore } from '../../stores/chart'
 import { useBacktestStore } from '../../stores/backtest'
+import ChartSkeleton from '../../components/ChartSkeleton.vue'
 import PnlCard from './PnlCard.vue'
 
 const props = withDefaults(
@@ -43,6 +44,10 @@ const selectedTimeframe = ref('')
 
 const selected = computed(() =>
   strategyStore.strategies.find((s) => s.id === props.strategyId) ?? null,
+)
+
+const showSkeleton = computed(
+  () => chartStore.loading || backtestStore.running || strategyStore.loading,
 )
 
 const symbols = computed(() => {
@@ -174,6 +179,13 @@ watch([selectedSymbol, selectedTimeframe], () => {
   if (props.mode === 'live' || props.mode === 'paper') loadChartData()
 })
 
+watch(
+  () => backtestStore.lastResult,
+  (bt) => {
+    if (bt?.status === 'done' && bt.id) void loadChartData()
+  },
+)
+
 onMounted(() => {
   if (!container.value) return
   chart = createChart(container.value, {
@@ -259,10 +271,11 @@ onMounted(() => {
       </span>
     </div>
 
-    <div v-if="!selected" class="flex h-full items-center justify-center text-zinc-500 text-sm">
+    <div v-if="!selected && !strategyStore.loading" class="flex h-full items-center justify-center text-zinc-500 text-sm">
       {{ t('chart.noStrategy') }}
     </div>
-    <div v-else ref="container" class="flex-1 w-full min-h-0" />
+    <div v-show="selected || strategyStore.loading" ref="container" class="flex-1 w-full min-h-0" />
+    <ChartSkeleton v-if="showSkeleton && (selected || strategyStore.loading)" />
     <PnlCard v-if="selected && mode === 'live'" :strategy-id="strategyId" />
   </div>
 </template>

@@ -29,7 +29,7 @@ export const useChartStore = defineStore('chart', () => {
     network?: string,
   ) {
     const params: Record<string, string | number> = { strategy_id: strategyId, source }
-    if (backtestId) params.backtest_id = backtestId
+    if (backtestId != null) params.backtest_id = backtestId
     if (network) params.network = network
     const { data } = await api.get<{ markers: ChartMarker[]; levels?: ChartPriceLevel[] }>(
       '/markers/',

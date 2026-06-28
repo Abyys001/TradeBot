@@ -1,4 +1,5 @@
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -120,3 +121,36 @@ class BacktestViewSet(
         return Backtest.objects.filter(
             strategy__user=self.request.user
         ).prefetch_related("trades")
+
+    @action(detail=True, methods=["post"], url_path="resolve-stale")
+    def resolve_stale(self, request, pk=None):
+        """Force-mark a stuck backtest as failed (e.g., Celery worker offline)."""
+        bt = get_object_or_404(Backtest, pk=pk, strategy__user=request.user)
+        if bt.status in (Backtest.Status.PENDING, Backtest.Status.RUNNING):
+            bt.status = Backtest.Status.FAILED
+            bt.error = "Resolved: backtest was stuck (Celery worker may be offline)"
+            bt.save(update_fields=["status", "error"])
+            return Response(BacktestSerializer(bt).data, status=status.HTTP_200_OK)
+        return Response(
+            {"error": f"backtest is already {bt.status}"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @action(detail=False, methods=["post"], url_path="retry-stale")
+    def retry_stale(self, request):
+        """Re-queue all backtests stuck in pending/running for >5 minutes."""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        cutoff = timezone.now() - timedelta(minutes=5)
+        stale = Backtest.objects.filter(
+            strategy__user=request.user,
+            status__in=(Backtest.Status.PENDING, Backtest.Status.RUNNING),
+            created_at__lt=cutoff,
+        )
+        count = stale.count()
+        stale.update(
+            status=Backtest.Status.FAILED,
+            error="Resolved: stuck (no completion in 5+ min)",
+        )
+        return Response({"resolved": count})

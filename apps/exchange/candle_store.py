@@ -5,11 +5,16 @@ without the network segment are still read for backward compatibility.
 """
 from __future__ import annotations
 
-import fcntl
 import logging
 from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
+
+import sys
+if sys.platform == "win32":
+    import portalocker as fcntl
+else:
+    import fcntl
 
 import pandas as pd
 from django.conf import settings

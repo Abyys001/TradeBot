@@ -20,7 +20,7 @@ const open = ref(false)
       <span>{{ open ? '▼' : '▶' }}</span>
     </button>
     <div v-show="open" class="max-h-48 overflow-y-auto border-t border-zinc-800/50">
-      <table class="w-full text-xs">
+      <div class="overflow-x-auto"><table class="w-full text-xs">
         <thead class="sticky top-0 text-zinc-500 uppercase bg-zinc-900/90">
           <tr>
             <th class="px-3 py-2 text-start">{{ t('backtest.side') }}</th>
@@ -41,7 +41,7 @@ const open = ref(false)
             <td class="px-3 py-1.5 text-end text-zinc-500">{{ tr.exit_reason || '—' }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </template>

@@ -27,6 +27,10 @@ class MarketFeed:
         self._lock = threading.Lock()
         self._last_msg_ts = time.time()
 
+    @property
+    def connection_healthy(self) -> bool:
+        return time.time() - self._last_msg_ts < 10
+
     def run(self) -> None:
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, lambda *_: self._stop.set())
@@ -35,6 +39,8 @@ class MarketFeed:
         registry.start()
         ping = threading.Thread(target=self._ping_loop, daemon=True)
         ping.start()
+        monitor = threading.Thread(target=self._connection_monitor, daemon=True)
+        monitor.start()
 
         try:
             while not self._stop.is_set():
@@ -46,6 +52,26 @@ class MarketFeed:
                     info.disconnect_websocket()
                 except Exception:  # noqa: BLE001
                     pass
+
+    def _connection_monitor(self) -> None:
+        while not self._stop.is_set():
+            self._stop.wait(2)
+            if self._stop.is_set():
+                return
+            if self.connection_healthy:
+                continue
+            logger.warning("market feed heartbeat lost — reconnecting")
+            with self._lock:
+                for network, info in list(self._info_by_network.items()):
+                    try:
+                        info.disconnect_websocket()
+                    except Exception:  # noqa: BLE001
+                        pass
+                self._info_by_network.clear()
+                self._subscribed.clear()
+            self._last_msg_ts = time.time()
+            self._sync_subscriptions()
+            logger.info("market feed reconnected")
 
     def _ping_loop(self) -> None:
         interval = 55

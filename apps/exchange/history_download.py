@@ -22,6 +22,23 @@ from apps.exchange.hl_rate_limit import sanitize_hl_error
 logger = logging.getLogger(__name__)
 
 DEFAULT_START = "2023-01-01"
+
+# When Hyperliquid lacks data for a fine interval (~5000 candle retention),
+# automatically fall back to coarser intervals for the older range.
+_FALLBACK_CHAIN: dict[str, list[str]] = {
+    "1m": ["5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"],
+    "3m": ["15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"],
+    "5m": ["15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"],
+    "15m": ["30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"],
+    "30m": ["1h", "2h", "4h", "6h", "12h", "1d", "1w"],
+    "1h": ["4h", "12h", "1d", "1w"],
+    "2h": ["4h", "12h", "1d", "1w"],
+    "4h": ["12h", "1d", "1w"],
+    "6h": ["12h", "1d", "1w"],
+    "12h": ["1d", "1w"],
+    "1d": ["1w"],
+    "1w": [],
+}
 VALID_DATA_TYPES = ("ohlcv", "funding", "open_interest")
 
 
@@ -67,8 +84,14 @@ def download_pair(
     *,
     network: str = "mainnet",
     known: set[str] | None = None,
+    fallback: bool = True,
 ) -> dict:
-    """Download one coin/interval pair. Returns a progress result dict."""
+    """Download one coin/interval pair. Returns a progress result dict.
+
+    When *fallback* is True and Hyperliquid returns fewer candles than needed
+    (its ~5000-candle retention limit), automatically downloads coarser
+    intervals for the missing older range.
+    """
     coin = normalize_coin(coin)
     interval = normalize_interval(interval)
     key = f"{coin}/{interval}"
@@ -119,7 +142,8 @@ def download_pair(
 
     actual_start = int(df["ts"].min())
     bar_ms = _INTERVAL_MS.get(interval, 60_000)
-    result = {
+    fallback_results: list[dict] = []
+    result: dict = {
         "key": key,
         "status": "done",
         "bars": int(len(df)),
@@ -127,14 +151,60 @@ def download_pair(
         "end_ts": int(df["ts"].max()),
         "path": str(path),
     }
+
     if actual_start > effective_start + bar_ms:
         result["status"] = "partial"
+        oldest_available = _ms_to_date(actual_start)
         result["note"] = (
             f"Hyperliquid retains at most ~5000 recent {interval} candles "
-            f"(earliest available: {_ms_to_date(actual_start)}; "
+            f"(earliest available: {oldest_available}; "
             f"requested {_ms_to_date(start_ms)}). "
             f"Use 1d or 1w for longer history."
         )
+
+        if fallback:
+            fb_intervals = _FALLBACK_CHAIN.get(interval, [])
+            missing_end = actual_start
+            for fb_iv in fb_intervals:
+                if start_ms >= missing_end:
+                    break
+                logger.info(
+                    "fallback asset=%s from=%s to=%s range=%s..%s",
+                    coin, interval, fb_iv,
+                    _ms_to_date(start_ms), _ms_to_date(missing_end),
+                )
+                try:
+                    fb_df = fetch_candles_range(coin, fb_iv, start_ms, missing_end, network=network)
+                except HistoryFetchError as exc:
+                    logger.warning("fallback API err asset=%s tf=%s err=%s", coin, fb_iv, exc)
+                    continue
+                if fb_df.empty:
+                    continue
+                try:
+                    fb_path = save_candles(coin, fb_iv, fb_df, network=network)
+                except OSError as exc:
+                    logger.warning("fallback save err asset=%s tf=%s err=%s", coin, fb_iv, exc)
+                    continue
+                fb_oldest = int(fb_df["ts"].min())
+                fb_bar_ms = _INTERVAL_MS.get(fb_iv, 86_400_000)
+                fallback_results.append({
+                    "interval": fb_iv,
+                    "bars": int(len(fb_df)),
+                    "start_ts": fb_oldest,
+                    "end_ts": int(fb_df["ts"].max()),
+                    "path": str(fb_path),
+                })
+                if fb_oldest <= start_ms + fb_bar_ms:
+                    break
+                missing_end = fb_oldest
+
+            if fallback_results:
+                joined = ", ".join(r["interval"] for r in fallback_results)
+                result["fallback"] = fallback_results
+                result["note"] += (
+                    f" Auto-downloaded fallback: {joined}."
+                )
+
     logger.info(
         "asset downloaded asset=%s timeframe=%s network=%s bars=%s",
         coin,
@@ -282,6 +352,7 @@ def download_history(
     data_types: list[str] | None = None,
     on_progress=None,
     existing_progress: dict | None = None,
+    fallback: bool = True,
 ) -> dict:
     """Download requested *data_types* for *coins*. Optional *on_progress(key, result)*."""
     end_ms = end_ms or int(time.time() * 1000)
@@ -323,7 +394,8 @@ def download_history(
                     (
                         key,
                         lambda c=raw_coin, iv=interval: download_pair(
-                            c, iv, start_ms, end_ms, network=network, known=known
+                            c, iv, start_ms, end_ms, network=network, known=known,
+                            fallback=fallback,
                         ),
                     )
                 )

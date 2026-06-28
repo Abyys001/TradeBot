@@ -36,7 +36,7 @@ async function onKillConfirm() {
 </script>
 
 <template>
-  <header class="flex items-center gap-4 border-b border-zinc-800 bg-zinc-900/80 px-4 py-2 backdrop-blur">
+  <header class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800 bg-zinc-900/80 px-2 py-1.5 backdrop-blur sm:gap-x-4 sm:px-4 sm:py-2">
     <h1 class="text-sm font-semibold text-zinc-300 me-auto">{{ t('app.title') }}</h1>
 
     <div class="flex items-center gap-2 text-xs text-zinc-400" :title="health.health?.hl_market_feed?.status">
