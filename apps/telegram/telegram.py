@@ -40,6 +40,8 @@ def build_trade_alert(
     qty: str = "",
     pnl: str = "",
     time_str: str = "",
+    exit_reason: str = "",
+    position_side: str = "",
 ) -> str:
     lines = [
         "<b>🔴 LIVE EXECUTION</b>",
@@ -47,6 +49,8 @@ def build_trade_alert(
         f"📊 Asset: {symbol}",
         f"🛒 Action: {action}",
     ]
+    if position_side:
+        lines.append(f"📐 Side: {position_side}")
     if price:
         lines.append(f"💰 {price}")
     if leverage:
@@ -54,7 +58,10 @@ def build_trade_alert(
     if qty:
         lines.append(f"📦 Size: {qty}")
     if pnl:
-        lines.append(f"📈 PnL: {pnl}")
+        emoji = "🟢" if pnl.startswith("+") else "🔴"
+        lines.append(f"{emoji} PnL: {pnl}")
+    if exit_reason:
+        lines.append(f"🏁 Exit reason: {exit_reason}")
     if time_str:
         lines.append(f"⏱️ Time: {time_str} UTC")
     return "\n".join(lines)

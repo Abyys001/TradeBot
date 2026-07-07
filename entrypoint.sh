@@ -6,8 +6,10 @@ until python -c "
 import os, sys
 import psycopg
 url = os.environ.get('DATABASE_URL', '')
+# Enforce a short connect timeout so the startup script fails fast
+# when the database is unreachable (e.g. Docker networking issues).
 try:
-    psycopg.connect(url).close()
+    psycopg.connect(url, connect_timeout=5).close()
 except Exception:
     sys.exit(1)
 " 2>/dev/null; do

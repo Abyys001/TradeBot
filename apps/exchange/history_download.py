@@ -21,7 +21,7 @@ from apps.exchange.hl_rate_limit import sanitize_hl_error
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_START = "2023-01-01"
+DEFAULT_START = "2020-01-01"
 
 # When Hyperliquid lacks data for a fine interval (~5000 candle retention),
 # automatically fall back to coarser intervals for the older range.
@@ -53,6 +53,35 @@ def known_perp_coins(network: str) -> set[str]:
     data = _load_meta(network)
     perp = data.get("perp") or {}
     return {item.get("name") for item in perp.get("universe") or [] if item.get("name")}
+
+
+def ensure_data_available(
+    coin: str,
+    interval: str,
+    start_ms: int,
+    end_ms: int,
+    *,
+    network: str = "mainnet",
+) -> dict:
+    """Guarantee that [start_ms, end_ms] is locally stored; download if needed.
+
+    Returns ``{"status": "ok", ...}`` on success or ``{"status": "failed", "error": ...}``.
+    Never raises — failures are encoded in the returned dict.
+    """
+    from apps.exchange.candle_store import dataset_coverage
+
+    coin = normalize_coin(coin)
+    interval = normalize_interval(interval)
+
+    cov = dataset_coverage(network, coin, interval, kind="ohlcv")
+    if cov is not None:
+        if cov["start_ts"] <= start_ms and cov["end_ts"] >= end_ms:
+            return {"status": "ok", "bars": cov["bars"], "note": "coverage satisfied"}
+
+    result = download_pair(coin, interval, start_ms, end_ms, network=network, fallback=True)
+    if result.get("status") in ("done", "partial", "skipped"):
+        return {"status": "ok", **result}
+    return {"status": "failed", "error": result.get("error", "download failed")}
 
 
 def _effective_start_ms(

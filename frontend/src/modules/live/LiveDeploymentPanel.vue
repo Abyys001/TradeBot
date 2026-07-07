@@ -138,7 +138,7 @@ const canStart = computed(() => {
         </button>
       </div>
 
-      <div v-if="activeTab === 'status'" class="flex-1 overflow-y-auto p-4 space-y-3">
+      <div v-if="activeTab === 'status'" class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-4 space-y-3">
         <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-2">
           <div class="flex justify-between">
             <span class="text-zinc-500">{{ t('live.statusNotRunning') }}</span>
@@ -193,7 +193,7 @@ const canStart = computed(() => {
         </div>
       </div>
 
-      <div v-if="activeTab === 'config'" class="flex-1 overflow-y-auto p-4 space-y-3">
+      <div v-if="activeTab === 'config'" class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-4 space-y-3">
         <label class="block text-xs text-zinc-500">
           {{ t('live.selectCredential') }}
           <select

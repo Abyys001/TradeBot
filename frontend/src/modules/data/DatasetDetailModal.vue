@@ -47,7 +47,7 @@ onMounted(async () => {
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
     @click.self="emit('close')"
   >
-    <div class="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-950 shadow-xl max-h-[80vh] overflow-y-auto">
+    <div class="scrollbar-styled scrollbar-thin w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-950 shadow-xl max-h-[80vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
         <h3 class="text-sm font-medium text-zinc-200">
           {{ dataset.coin }} / {{ dataset.interval || dataset.kind }}
@@ -67,7 +67,7 @@ onMounted(async () => {
           </div>
           <div v-if="gaps.length" class="space-y-1">
             <div class="text-xs text-zinc-500">{{ t('data.detailGaps', { count: gaps.length }) }}</div>
-            <ul class="text-xs text-amber-300 space-y-1 max-h-32 overflow-y-auto">
+            <ul class="scrollbar-styled scrollbar-thin text-xs text-amber-300 space-y-1 max-h-32 overflow-y-auto">
               <li v-for="(g, i) in gaps.slice(0, 20)" :key="i">
                 {{ fmtTs(Number(g.start_ts || g.start)) }} → {{ fmtTs(Number(g.end_ts || g.end)) }}
               </li>
@@ -75,7 +75,7 @@ onMounted(async () => {
           </div>
           <div v-if="funding.length" class="space-y-1">
             <div class="text-xs text-zinc-500">{{ t('data.detailFunding', { count: funding.length }) }}</div>
-            <div class="text-xs text-zinc-400 max-h-40 overflow-y-auto font-mono">
+            <div class="scrollbar-styled scrollbar-thin text-xs text-zinc-400 max-h-40 overflow-y-auto font-mono">
               <div v-for="(f, i) in funding.slice(-10)" :key="i">
                 {{ new Date(f.time * 1000).toISOString().slice(0, 16) }}: {{ f.funding_rate.toExponential(3) }}
               </div>

@@ -59,11 +59,13 @@ def fetch_candles(
     if limit <= 0:
         raise ValueError("limit must be positive")
 
+    from django.conf import settings
     from hyperliquid.info import Info
 
     interval = normalize_interval(bar)
     symbol = normalize_coin(coin)
-    info = Info(network_url(network), skip_ws=True)
+    _timeout = getattr(settings, "HL_API_TIMEOUT", 30)
+    info = Info(network_url(network), skip_ws=True, timeout=_timeout)
 
     end_time = int(time.time() * 1000)
     bar_ms = _INTERVAL_MS.get(interval, 60_000)

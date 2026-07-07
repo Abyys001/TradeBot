@@ -47,7 +47,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </svg>
         </button>
       </div>
-      <div class="min-h-0 flex-1 overflow-y-auto p-5">
+      <div class="scrollbar-styled scrollbar-thin min-h-0 flex-1 overflow-y-auto p-5">
         <slot />
       </div>
       <div v-if="$slots.footer" class="shrink-0 border-t border-zinc-800 px-5 py-4">

@@ -69,7 +69,7 @@ async function onRetry(jobId: number) {
 </script>
 
 <template>
-  <div class="p-3 space-y-4 sm:p-4">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 space-y-4 sm:p-4">
     <h1 class="text-lg font-semibold text-zinc-100">{{ t('data.title') }}</h1>
     <p class="text-sm text-zinc-500 -mt-2">{{ t('data.subtitle') }}</p>
     <p class="text-xs text-zinc-600">{{ t('data.noApiRequired') }}</p>

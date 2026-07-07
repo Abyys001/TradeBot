@@ -10,6 +10,7 @@ Note: HL also enforces a retention window per interval (e.g. ~5000 most recent
 """
 from __future__ import annotations
 
+import logging
 import time
 
 import pandas as pd
@@ -17,6 +18,8 @@ import pandas as pd
 from .candles import _INTERVAL_MS, _normalize_rows
 from .hl_constants import normalize_coin, normalize_interval, network_url
 from .hl_rate_limit import sanitize_hl_error, with_rate_limit
+
+logger = logging.getLogger(__name__)
 
 # Max rows HL returns per candleSnapshot call.
 _MAX_ROWS = 5000
@@ -59,16 +62,28 @@ def fetch_candles_range(
     if start_ms >= end_ms:
         raise ValueError("start_ms must be before end_ms")
 
+    from django.conf import settings
     from hyperliquid.info import Info
 
     sym = normalize_coin(coin)
     iv = normalize_interval(interval)
+    _timeout = getattr(settings, "HL_API_TIMEOUT", 30)
 
-    info = Info(network_url(network), skip_ws=True)
+    info = Info(network_url(network), skip_ws=True, timeout=_timeout)
+
+    def _ts_to_date(ms: int) -> str:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+
+    logger.info(
+        "fetch started asset=%s interval=%s range=[%s..%s] network=%s",
+        sym, iv, _ts_to_date(start_ms), _ts_to_date(end_ms), network,
+    )
 
     frames: list[pd.DataFrame] = []
     seen: set[int] = set()
     cursor_end = end_ms
+    page = 0
 
     while cursor_end > start_ms:
         try:
@@ -86,8 +101,17 @@ def fetch_candles_range(
 
         frames.append(new)
         seen.update(int(t) for t in new["ts"].tolist())
+        page += 1
 
         oldest = int(new["ts"].min())
+        newest = int(new["ts"].max())
+        total_so_far = sum(len(f) for f in frames)
+        logger.info(
+            "fetch page=%d asset=%s interval=%s bars=%d range=[%s..%s] total=%d",
+            page, sym, iv, len(new),
+            _ts_to_date(oldest), _ts_to_date(newest), total_so_far,
+        )
+
         if oldest <= start_ms or len(rows) < _MAX_ROWS:
             break
 
@@ -101,6 +125,10 @@ def fetch_candles_range(
     out = pd.concat(frames, ignore_index=True)
     out = out.drop_duplicates(subset="ts").sort_values("ts").reset_index(drop=True)
     out = out[(out["ts"] >= start_ms) & (out["ts"] <= end_ms)].reset_index(drop=True)
+    logger.info(
+        "fetch done asset=%s interval=%s pages=%d total_bars=%d",
+        sym, iv, page, len(out),
+    )
     return out
 
 
@@ -130,10 +158,12 @@ def fetch_funding_range(
     if start_ms >= end_ms:
         raise ValueError("start_ms must be before end_ms")
 
+    from django.conf import settings
     from hyperliquid.info import Info
 
     sym = normalize_coin(coin)
-    info = Info(network_url(network), skip_ws=True)
+    _timeout = getattr(settings, "HL_API_TIMEOUT", 30)
+    info = Info(network_url(network), skip_ws=True, timeout=_timeout)
 
     frames: list[pd.DataFrame] = []
     seen: set[int] = set()
@@ -195,10 +225,12 @@ def fetch_open_interest_snapshot(
     snapshot. One row per requested coin: ``ts=now, coin, open_interest``. Build
     history by polling this forward over time (see ``collect_open_interest``).
     """
+    from django.conf import settings
     from hyperliquid.info import Info
 
     wanted = {normalize_coin(c) for c in coins}
-    info = Info(network_url(network), skip_ws=True)
+    _timeout = getattr(settings, "HL_API_TIMEOUT", 30)
+    info = Info(network_url(network), skip_ws=True, timeout=_timeout)
 
     try:
         meta, ctxs = _call_candles(info.meta_and_asset_ctxs)

@@ -1,14 +1,16 @@
 from rest_framework import serializers
 
-from .models import ExchangeCredential
+from .models import Exchange, ExchangeCredential
 
 
 class ExchangeCredentialSerializer(serializers.ModelSerializer):
-    """Agent key is write-only; never returned in API responses."""
+    """Secrets are write-only; never returned in API responses."""
 
     agent_private_key = serializers.CharField(
         write_only=True, required=False, trim_whitespace=False
     )
+    api_key = serializers.CharField(write_only=True, required=False, trim_whitespace=False)
+    api_secret = serializers.CharField(write_only=True, required=False, trim_whitespace=False)
 
     class Meta:
         model = ExchangeCredential
@@ -24,6 +26,8 @@ class ExchangeCredentialSerializer(serializers.ModelSerializer):
             "last_verified_at",
             "created_at",
             "agent_private_key",
+            "api_key",
+            "api_secret",
         ]
         read_only_fields = [
             "is_active",
@@ -34,21 +38,36 @@ class ExchangeCredentialSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        key = validated_data.pop("agent_private_key", None)
-        if not key:
-            raise serializers.ValidationError(
-                {"agent_private_key": "This field is required."}
-            )
+        agent_key = validated_data.pop("agent_private_key", None)
+        api_key = validated_data.pop("api_key", None)
+        api_secret = validated_data.pop("api_secret", None)
         cred = ExchangeCredential(user=self.context["request"].user, **validated_data)
-        cred.set_agent_key(key)
+
+        if validated_data.get("exchange") == Exchange.TABDEAL:
+            if not api_key or not api_secret:
+                raise serializers.ValidationError(
+                    {"api_key": "api_key and api_secret are required for Tabdeal credentials."}
+                )
+            cred.set_api_credentials(api_key, api_secret)
+        else:
+            if not agent_key:
+                raise serializers.ValidationError(
+                    {"agent_private_key": "This field is required."}
+                )
+            cred.set_agent_key(agent_key)
+
         cred.save()
         return cred
 
     def update(self, instance, validated_data):
-        key = validated_data.pop("agent_private_key", None)
+        agent_key = validated_data.pop("agent_private_key", None)
+        api_key = validated_data.pop("api_key", None)
+        api_secret = validated_data.pop("api_secret", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        if key:
-            instance.set_agent_key(key)
+        if agent_key:
+            instance.set_agent_key(agent_key)
+        if api_key and api_secret:
+            instance.set_api_credentials(api_key, api_secret)
         instance.save()
         return instance

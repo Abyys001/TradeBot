@@ -17,7 +17,7 @@ const FALLBACK_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '
 const DATA_TYPES = ['ohlcv', 'funding', 'open_interest'] as const
 
 const network = ref('mainnet')
-const startDate = ref('2023-01-01')
+const startDate = ref('2020-01-01')
 const endDate = ref('')
 const coinSearch = ref('')
 const selectedCoins = ref<string[]>(['BTC'])
@@ -144,7 +144,15 @@ async function submit() {
       </label>
       <label class="text-xs text-zinc-500">
         {{ t('data.startDate') }}
-        <input v-model="startDate" type="date" class="mt-1 block rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200" />
+        <div class="mt-1 flex items-center gap-1.5">
+          <input v-model="startDate" type="date" class="block rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200" />
+          <button
+            type="button"
+            class="shrink-0 rounded px-2 py-1.5 text-xs bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+            title="Set to earliest possible (2020-01-01) — HL will return from its launch date"
+            @click="startDate = '2020-01-01'"
+          >Max</button>
+        </div>
       </label>
       <label class="text-xs text-zinc-500">
         {{ t('data.endDate') }}
@@ -160,7 +168,7 @@ async function submit() {
         :placeholder="t('data.searchCoins')"
         class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200"
       />
-      <div class="mt-2 flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+      <div class="scrollbar-styled scrollbar-thin mt-2 flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
         <button
           v-for="coin in availableCoins"
           :key="coin"

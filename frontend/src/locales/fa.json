@@ -9,6 +9,7 @@
     "analytics": "تحلیل",
     "orders": "سفارش‌ها",
     "settings": "تنظیمات",
+    "telegram": "تلگرام",
     "collapse": "جمع کردن منو",
     "expand": "باز کردن منو",
     "toggleExpand": "باز کردن منو",
@@ -237,6 +238,8 @@
     "staleJobs": "{count} کار دانلود گیر کرده (احتمالاً سلری آفلاین است).",
     "stale": "گیرکرده",
     "staleJobHint": "این کار بیش از حد در pending مانده. سلری را اجرا کنید و Retry بزنید.",
+    "statusPending": "در انتظار",
+    "jobsCount": "دانلود",
     "retry": "تلاش مجدد",
     "retrying": "در حال تلاش...",
     "retryAllStale": "تلاش مجدد همه",
@@ -299,6 +302,7 @@
     "network": "شبکه",
     "startDate": "شروع (اختیاری)",
     "endDate": "پایان (اختیاری)",
+    "initialCapital": "سرمایه اولیه",
     "history": "تاریخچه اجرا",
     "noRuns": "بک‌تستی نیست",
     "selectRun": "یک اجرا را برای نتایج انتخاب کنید",
@@ -316,6 +320,7 @@
     "profitFactor": "ضریب سود",
     "riskReward": "R:R",
     "side": "سمت",
+    "time": "زمان",
     "entry": "ورود",
     "exit": "خروج",
     "pnl": "سود/زیان",
@@ -373,7 +378,9 @@
     "monthly": "PnL ماهانه",
     "byAsset": "بر اساس دارایی",
     "funding": "Funding",
-    "date": "تاریخ"
+    "date": "تاریخ",
+    "historyChart": "تاریخچه بک‌تست‌ها",
+    "noHistoryData": "داده‌ای برای نمایش وجود ندارد"
   },
   "orders": {
     "title": "تاریخچه سفارش‌ها",
@@ -408,5 +415,31 @@
   "status": {
     "ok": "سالم",
     "error": "خطا"
+  },
+  "telegram": {
+    "title": "اعلان‌های تلگرام",
+    "subtitle": "دریافت هشدار معاملات از طریق ربات تلگرام",
+    "enabled": "فعال‌سازی اعلان‌های تلگرام",
+    "botToken": "توکن ربات",
+    "botTokenHint": "دریافت از @BotFather در تلگرام",
+    "chatId": "شناسه گفتگو",
+    "chatIdLabel": "برچسب",
+    "chatIdHint": "شناسه عددی تلگرام (کاربر یا گروه)",
+    "whitelistTitle": "گفتگوهای مجاز",
+    "whitelistEmpty": "هنوز گفتگویی اضافه نشده",
+    "addChat": "افزودن گفتگو",
+    "removeChat": "حذف",
+    "test": "ارسال پیام تست",
+    "testSent": "پیام تست ارسال شد",
+    "testFailed": "تست ناموفق — توکن و شناسه گفتگو را بررسی کنید",
+    "saved": "تنظیمات تلگرام ذخیره شد",
+    "saveFailed": "ذخیره تنظیمات تلگرام ناموفق بود",
+    "configured": "پیکربندی شد",
+    "statusChecking": "در حال بررسی...",
+    "statusOk": "فعال و تأیید شد",
+    "statusInvalid": "توکن نامعتبر",
+    "statusDisabled": "پیکربندی ولی غیرفعال",
+    "refreshStatus": "بروزرسانی",
+    "lastTest": "آخرین تست"
   }
 }

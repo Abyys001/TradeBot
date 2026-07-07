@@ -8,7 +8,9 @@ class BacktestTradeSerializer(serializers.ModelSerializer):
         model = BacktestTrade
         fields = [
             "side", "entry_price", "exit_price", "size", "pnl",
+            "gross_pnl", "commission",
             "entry_bar", "exit_bar", "stop_px", "limit_px", "exit_reason",
+            "entry_time", "exit_time",
         ]
 
 
@@ -19,6 +21,7 @@ class BacktestSerializer(serializers.ModelSerializer):
         model = Backtest
         fields = [
             "id", "strategy", "status", "symbol", "timeframe", "network",
+            "initial_balance",
             "range_start", "range_end", "metrics", "error", "created_at",
             "trades",
         ]

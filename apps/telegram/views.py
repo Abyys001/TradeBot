@@ -1,3 +1,6 @@
+import logging
+
+import requests
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -5,7 +8,9 @@ from rest_framework.response import Response
 
 from .models import AlertWhitelist, TelegramConfig
 from .serializers import AlertWhitelistSerializer, TelegramConfigSerializer
-from .telegram import send_message
+from .telegram import TELEGRAM_API_BASE, send_message
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramConfigViewSet(viewsets.GenericViewSet):
@@ -19,14 +24,18 @@ class TelegramConfigViewSet(viewsets.GenericViewSet):
     def list(self, request):
         config = self.get_object()
         serializer = self.get_serializer(config)
-        return Response(serializer.data)
+        data = serializer.data
+        data["has_bot_token"] = bool(config.bot_token)
+        return Response(data)
 
     def create(self, request):
         config = self.get_object()
         serializer = self.get_serializer(config, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(serializer.data)
+        data = serializer.data
+        data["has_bot_token"] = bool(config.bot_token)
+        return Response(data)
 
     @action(detail=False, methods=["post"])
     def test(self, request):
@@ -48,6 +57,41 @@ class TelegramConfigViewSet(viewsets.GenericViewSet):
             if send_message(config.bot_token, entry.chat_id, text):
                 sent += 1
         return Response({"sent": sent, "total": whitelist.count()})
+
+    @action(detail=False, methods=["get"])
+    def status(self, request):
+        config = self.get_object()
+        if not config.bot_token:
+            return Response(
+                {"valid": False, "configured": False, "error": "No bot token set"}
+            )
+        try:
+            resp = requests.get(
+                f"{TELEGRAM_API_BASE}{config.bot_token}/getMe", timeout=10
+            )
+            data = resp.json()
+            if data.get("ok"):
+                bot = data.get("result", {})
+                return Response(
+                    {
+                        "valid": True,
+                        "configured": config.enabled,
+                        "username": bot.get("username"),
+                        "first_name": bot.get("first_name"),
+                    }
+                )
+            return Response(
+                {
+                    "valid": False,
+                    "configured": config.enabled,
+                    "error": data.get("description", "Invalid token"),
+                }
+            )
+        except requests.RequestException as e:
+            logger.warning("telegram getMe failed: %s", e)
+            return Response(
+                {"valid": False, "configured": config.enabled, "error": str(e)}
+            )
 
 
 class AlertWhitelistViewSet(viewsets.ModelViewSet):

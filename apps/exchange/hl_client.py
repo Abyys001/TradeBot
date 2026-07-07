@@ -11,9 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 def build_info(network: str, *, skip_ws: bool = True):
+    from django.conf import settings
     from hyperliquid.info import Info
 
-    return Info(network_url(network), skip_ws=skip_ws, timeout=5)
+    timeout = getattr(settings, "HL_API_TIMEOUT", 30)
+    return Info(network_url(network), skip_ws=skip_ws, timeout=timeout)
 
 
 def build_exchange(cred):
@@ -36,9 +38,8 @@ def verify_credential(cred) -> tuple[bool, str]:
         info = build_info(cred.network)
         state = info.user_state(cred.wallet_address)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Credential %s verify failed: %s", cred.pk, type(exc).__name__)
-        cred.is_active = False
-        cred.save(update_fields=["is_active"])
+        logger.warning("Credential %s verify network error: %s", cred.pk, type(exc).__name__)
+        # Don't deactivate on network errors — could be transient.
         return False, f"request failed: {type(exc).__name__}"
 
     if state is None:
@@ -57,7 +58,8 @@ def verify_credential(cred) -> tuple[bool, str]:
     try:
         approved = info.extra_agents(cred.wallet_address) or []
     except Exception:  # noqa: BLE001
-        approved = []
+        logger.warning("Credential %s extra_agents check failed", cred.pk)
+        return False, "could not verify agent approval"
     approved_lower = {str(a).lower() for a in approved}
     if agent.address.lower() not in approved_lower:
         cred.is_active = False

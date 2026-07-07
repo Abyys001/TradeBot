@@ -25,7 +25,7 @@ function goStrategy(id: number | null) {
 </script>
 
 <template>
-  <div class="flex-1 overflow-y-auto p-6 space-y-6">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-6 space-y-6">
     <h1 class="text-lg font-semibold text-zinc-200">{{ t('overview.title') }}</h1>
 
     <div v-if="overview.loading && !overview.data" class="text-zinc-500 text-sm">

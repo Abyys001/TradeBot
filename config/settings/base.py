@@ -57,6 +57,7 @@ LOCAL_APPS = [
     "apps.pro",
     "apps.integrations",
     "apps.telegram",
+    "apps.copytrading",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -120,6 +121,15 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "UTC"
+# Hard kill after 30 min; soft signal at 25 min so tasks can save progress first.
+CELERY_TASK_SOFT_TIME_LIMIT = 1500
+CELERY_TASK_TIME_LIMIT = 1800
+# Fetch one task at a time so a long download doesn't block shorter tasks.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+# Restart worker process after N tasks to avoid slow memory growth.
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 200
+# Keep result tombstones for 1 hour (default 24 h is too long for high-frequency tasks).
+CELERY_RESULT_EXPIRES = 3600
 CELERY_BEAT_SCHEDULE = {
     "dashboard-health-heartbeat": {
         "task": "dashboard.health_heartbeat",
@@ -141,6 +151,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "exchange.sync_history_incremental",
         "schedule": float(env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)),
     },
+    "execution-retry-stale-orders": {
+        "task": "execution.retry_stale_orders",
+        "schedule": 30.0,
+    },
 }
 
 # Coins polled for forward open-interest history collection (no HL OI history API).
@@ -154,6 +168,8 @@ HISTORY_SYNC_NETWORK = env("HISTORY_SYNC_NETWORK", default="mainnet")
 HISTORY_SYNC_INTERVAL_SECONDS = env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)
 HISTORY_DOWNLOAD_WORKERS = env.int("HISTORY_DOWNLOAD_WORKERS", default=2)
 HISTORY_FUNDING_COOLDOWN_SEC = env.float("HISTORY_FUNDING_COOLDOWN_SEC", default=1.5)
+# Hyperliquid API read timeout in seconds (applies to all Info() and Exchange() calls).
+HL_API_TIMEOUT = env.int("HL_API_TIMEOUT", default=30)
 DOWNLOAD_TRADES = env.bool("DOWNLOAD_TRADES", default=False)
 
 # --- Auth ---
@@ -206,6 +222,10 @@ LIVE_SESSION_KEY_PREFIX = env("LIVE_SESSION_KEY_PREFIX", default="live:session")
 # --- Telegram ---
 TELEGRAM_ALERT_ENABLED = env.bool("TELEGRAM_ALERT_ENABLED", default=False)
 
+# --- Tabdeal (copy-trading exchange; UNVERIFIED endpoint scaffold, see apps/exchange/tabdeal_*.py) ---
+TABDEAL_API_BASE_URL = env("TABDEAL_API_BASE_URL", default="https://api.tabdeal.org")
+TABDEAL_RECV_WINDOW_MS = env.int("TABDEAL_RECV_WINDOW_MS", default=5000)
+
 # --- Hyperliquid ---
 HL_NETWORK = env("HL_NETWORK", default="testnet")
 HL_API_URL = env("HL_API_URL", default="")
@@ -213,6 +233,7 @@ HL_CANDLE_CHANNEL_PREFIX = env("HL_CANDLE_CHANNEL_PREFIX", default="hl:candles")
 HL_META_CACHE_TTL = env.int("HL_META_CACHE_TTL", default=300)
 HL_WS_PING_INTERVAL = env.int("HL_WS_PING_INTERVAL", default=55)
 HL_MIN_FREE_MARGIN_USD = env.int("HL_MIN_FREE_MARGIN_USD", default=50)
+HL_API_TIMEOUT = env.int("HL_API_TIMEOUT", default=30)
 
 # Local OHLCV history store (offline backtesting). Default: <repo>/data/candles.
 CANDLE_DATA_DIR = env(

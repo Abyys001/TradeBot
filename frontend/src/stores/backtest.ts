@@ -95,9 +95,17 @@ export const useBacktestStore = defineStore('backtest', () => {
 
   async function runStored(
     strategyId: number,
-    payload: { coin: string; interval: string; network?: string; start?: number; end?: number },
+    payload: {
+      coin: string
+      interval: string
+      network?: string
+      start?: number
+      end?: number
+      initial_capital?: number
+      commission?: number
+    },
   ) {
-    const { data } = await api.post<{ backtest_id: number }>(
+    const { data } = await api.post<{ backtest_id: number; cached?: boolean }>(
       `/strategies/${strategyId}/backtest_stored/`,
       {
         coin: payload.coin,
@@ -105,8 +113,18 @@ export const useBacktestStore = defineStore('backtest', () => {
         network: payload.network ?? 'mainnet',
         start: payload.start,
         end: payload.end,
+        initial_capital: payload.initial_capital ?? 10_000,
+        commission: payload.commission,
       },
     )
+    // If cached, fetch the existing result without adding a duplicate placeholder
+    if (data.cached) {
+      const existing = backtests.value.find((b) => b.id === data.backtest_id)
+      if (!existing) await fetchOne(data.backtest_id)
+      activeId.value = data.backtest_id
+      showResults.value = true
+      return data.backtest_id
+    }
     const placeholder: Backtest = {
       id: data.backtest_id,
       strategy: strategyId,
@@ -114,6 +132,7 @@ export const useBacktestStore = defineStore('backtest', () => {
       symbol: payload.coin,
       timeframe: payload.interval,
       network: payload.network ?? 'mainnet',
+      initial_balance: payload.initial_capital ?? 10_000,
       range_start: null,
       range_end: null,
       metrics: {},

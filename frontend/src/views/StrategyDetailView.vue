@@ -182,7 +182,7 @@ function onViewResults(id: number) {
     </div>
     <template v-else>
       <div class="relative flex min-h-0 flex-1 overflow-hidden">
-        <main class="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <main class="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
           <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-3 py-2">
             <button
               type="button"
@@ -247,7 +247,7 @@ function onViewResults(id: number) {
 
         <aside
           v-show="layout.backtestPanelOpen"
-          class="scrollbar-styled flex min-h-0 flex-col overflow-x-hidden overflow-y-auto border-s border-zinc-800 bg-zinc-950 fixed inset-y-0 end-0 z-40 w-80 max-w-[85vw] shadow-2xl lg:relative lg:inset-auto lg:z-auto lg:w-[400px] lg:max-w-none lg:shadow-none"
+          class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex min-h-0 flex-col overflow-x-hidden overflow-y-auto border-s border-zinc-800 bg-zinc-950 fixed inset-y-0 end-0 z-40 w-80 max-w-[85vw] shadow-2xl lg:relative lg:inset-auto lg:z-auto lg:w-[400px] lg:max-w-none lg:shadow-none"
         >
           <div class="sticky top-0 z-10 shrink-0 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur-sm">
             <div class="flex items-center justify-between mb-2">
@@ -317,7 +317,7 @@ function onViewResults(id: number) {
             Γ£ò
           </button>
         </div>
-        <div class="scrollbar-styled min-h-0 flex-1 overflow-y-auto p-3">
+        <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade min-h-0 flex-1 overflow-y-auto p-3">
           <OptimizerPanel :strategy-id="strategyId" />
         </div>
       </div>

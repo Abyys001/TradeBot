@@ -9,6 +9,7 @@
     "analytics": "Analytics",
     "orders": "Orders",
     "settings": "Settings",
+    "telegram": "Telegram",
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "toggleExpand": "Expand sidebar",
@@ -200,7 +201,7 @@
     "endDate": "End (optional)",
     "coins": "Coins",
     "intervals": "Intervals",
-    "intervalRetentionHint": "Hyperliquid keeps ~5,000 recent bars per intraday interval (1m–4h). For multi-year backtests from 2023, use 1d or 1w.",
+    "intervalRetentionHint": "HL retention: 1m–1h stores only the most recent ~5,000 bars. 4h and 1d retrieve the full HL history since launch (paginated automatically). Use 4h or 1d for the longest backtests.",
     "dataTypes": "Data Types",
     "dataTypeFunding": "Funding",
     "dataTypeOpenInterest": "Open Interest",
@@ -237,6 +238,8 @@
     "staleJobs": "{count} download job(s) appear stuck (Celery may be offline).",
     "stale": "stale",
     "staleJobHint": "This job has been pending too long. Start the Celery worker and click Retry.",
+    "statusPending": "Pending",
+    "jobsCount": "jobs",
     "retry": "Retry",
     "retrying": "Retrying...",
     "retryAllStale": "Retry all stale",
@@ -299,6 +302,7 @@
     "network": "Network",
     "startDate": "Start (optional)",
     "endDate": "End (optional)",
+    "initialCapital": "Initial Capital",
     "history": "Run History",
     "noRuns": "No backtests yet",
     "selectRun": "Select a backtest run to view results",
@@ -316,6 +320,7 @@
     "profitFactor": "Profit Factor",
     "riskReward": "R:R",
     "side": "Side",
+    "time": "Time",
     "entry": "Entry",
     "exit": "Exit",
     "pnl": "PnL",
@@ -373,7 +378,9 @@
     "monthly": "Monthly PnL",
     "byAsset": "By asset",
     "funding": "Funding",
-    "date": "Date"
+    "date": "Date",
+    "historyChart": "Backtest History",
+    "noHistoryData": "No backtest data to chart"
   },
   "orders": {
     "title": "Order History",
@@ -463,6 +470,12 @@
     "testFailed": "Test failed — check Bot Token and Chat IDs",
     "saved": "Telegram settings saved",
     "saveFailed": "Failed to save Telegram settings",
-    "configured": "configured"
+    "configured": "configured",
+    "statusOk": "Active & Verified",
+    "statusChecking": "Checking...",
+    "statusInvalid": "Invalid Token",
+    "statusDisabled": "Configured but Disabled",
+    "refreshStatus": "Refresh",
+    "lastTest": "Last test"
   }
 }

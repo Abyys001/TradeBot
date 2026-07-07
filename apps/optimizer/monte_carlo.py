@@ -7,6 +7,7 @@ import random
 def monte_carlo_equity(
     trade_pnls: list[float],
     *,
+    seed: int | None = None,
     initial_balance: float = 10_000.0,
     simulations: int = 1000,
 ) -> dict:
@@ -14,10 +15,11 @@ def monte_carlo_equity(
     if not trade_pnls:
         return {"simulations": 0, "median_final": initial_balance, "p5_final": initial_balance, "p95_final": initial_balance}
 
+    rng = random.Random(seed)
     finals: list[float] = []
     for _ in range(simulations):
         shuffled = trade_pnls[:]
-        random.shuffle(shuffled)
+        rng.shuffle(shuffled)
         equity = initial_balance
         for pnl in shuffled:
             equity += pnl

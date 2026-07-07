@@ -9,9 +9,10 @@ class Trade:
         "oid", "side", "entry_price", "exit_price", "size", "pnl",
         "gross_pnl", "commission", "entry_bar", "exit_bar",
         "stop_px", "limit_px", "exit_reason",
+        "entry_time", "exit_time",
     )
 
-    def __init__(self, oid, side, entry_price, size, entry_bar, entry_commission=0.0):
+    def __init__(self, oid, side, entry_price, size, entry_bar, entry_commission=0.0, entry_time=0):
         self.oid = oid
         self.side = side
         self.entry_price = entry_price
@@ -25,6 +26,8 @@ class Trade:
         self.stop_px = None
         self.limit_px = None
         self.exit_reason = ""
+        self.entry_time = entry_time
+        self.exit_time = None
 
 
 class SimBroker:
@@ -65,6 +68,7 @@ class SimBroker:
         self.equity_series: list[float] = []
         self._last_funding_ts: int | None = None
         self.liquidations = 0
+        self._bar_times: dict[int, int] = {}
 
     def _entry_fill(self, side: str, price: float) -> float:
         return price * (1.0 + self.slippage) if side == "long" else price * (1.0 - self.slippage)
@@ -95,6 +99,7 @@ class SimBroker:
     def _close_trade(self, t: Trade, fill: float, bar_index: int, reason: str = "") -> None:
         t.exit_price = fill
         t.exit_bar = bar_index
+        t.exit_time = self._bar_times.get(bar_index, 0)
         t.exit_reason = reason
         direction = 1.0 if t.side == "long" else -1.0
         t.gross_pnl = (fill - t.entry_price) * t.size * direction
@@ -171,7 +176,7 @@ class SimBroker:
         fill = self._entry_fill(side, price)
         entry_comm = self._commission_cost(fill, size)
         self.cash -= entry_comm
-        self.open_trades[oid] = Trade(oid, side, fill, size, bar_index, entry_commission=entry_comm)
+        self.open_trades[oid] = Trade(oid, side, fill, size, bar_index, entry_commission=entry_comm, entry_time=self._bar_times.get(bar_index, 0))
 
     def check_stops(self, bar_high: float, bar_low: float, bar_index: int) -> None:
         for oid in list(self.open_trades):
@@ -212,6 +217,7 @@ class SimBroker:
             self.realized -= payment
 
     def on_bar(self, bar_index: int, ts: int, o: float, h: float, l: float, c: float) -> None:
+        self._bar_times[bar_index] = ts
         self.apply_funding(ts, c)
         self.check_stops(h, l, bar_index)
         self.check_liquidation(c, bar_index)
@@ -266,6 +272,8 @@ class SimBroker:
                 "exit_reason": t.exit_reason,
                 "stop_px": t.stop_px,
                 "limit_px": t.limit_px,
+                "entry_time": t.entry_time,
+                "exit_time": t.exit_time,
             }
             for t in self.closed
         ]

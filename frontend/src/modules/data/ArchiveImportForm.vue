@@ -12,10 +12,6 @@ const { t } = useI18n()
 const history = useHistoryStore()
 const healthStore = useHealthStore()
 const toast = useToast()
-
-type SourceMode = 'api' | 'archive'
-
-const sourceMode = ref<SourceMode>('api')
 const network = ref('mainnet')
 const filePath = ref('')
 const archiveCoin = ref('')
@@ -80,28 +76,12 @@ async function submitArchive() {
 
 <template>
   <div class="rounded-xl border border-zinc-800 p-4 space-y-4">
-    <h3 class="text-sm font-medium text-zinc-200">Import Data</h3>
-
-    <div class="flex gap-2 rounded-lg border border-zinc-700 bg-zinc-900 p-1">
-      <button
-        type="button"
-        class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-        :class="sourceMode === 'api' ? 'bg-violet-700 text-white' : 'text-zinc-400 hover:text-zinc-200'"
-        @click="sourceMode = 'api'"
-      >
-        {{ t('data.downloadTitle') }}
-      </button>
-      <button
-        type="button"
-        class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-        :class="sourceMode === 'archive' ? 'bg-violet-700 text-white' : 'text-zinc-400 hover:text-zinc-200'"
-        @click="sourceMode = 'archive'"
-      >
-        Full Archive
-      </button>
+    <div>
+      <h3 class="text-sm font-medium text-zinc-200">Import Archive</h3>
+      <p class="text-xs text-zinc-500 mt-0.5">Import a local Parquet or CSV file directly into the data store.</p>
     </div>
 
-    <div v-if="sourceMode === 'archive'" class="space-y-3">
+    <div class="space-y-3">
       <label class="text-xs text-zinc-500">
         File Path
         <input
@@ -142,7 +122,7 @@ async function submitArchive() {
             />
             <div
               v-if="archiveCoin && availableCoins.length"
-              class="absolute left-0 right-0 top-full z-10 mt-1 max-h-32 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900"
+              class="scrollbar-styled scrollbar-thin absolute left-0 right-0 top-full z-10 mt-1 max-h-32 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900"
             >
               <button
                 v-for="c in availableCoins.filter((c) => c.startsWith(archiveCoin.toUpperCase())).slice(0, 10)"
@@ -171,14 +151,13 @@ async function submitArchive() {
 
       <button
         type="button"
-        class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50 w-full"
+        class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50 w-full"
         :disabled="submitting || celeryOffline || !filePath.trim()"
+        :title="celeryOffline ? t('data.celeryOffline') : undefined"
         @click="submitArchive"
       >
         {{ submitting ? 'Importing…' : 'Import Archive' }}
       </button>
     </div>
-
-    <slot v-else />
   </div>
 </template>

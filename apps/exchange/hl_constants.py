@@ -25,6 +25,10 @@ BAR_MAP: dict[str, str] = {
 
 NETWORK_CHOICES = ("mainnet", "testnet")
 
+# Hyperliquid perpetuals fee schedule (decimal fractions).
+HL_MAKER_FEE: float = 0.0002   # 0.02% maker rebate
+HL_TAKER_FEE: float = 0.0005   # 0.05% taker fee (default for backtest fills)
+
 
 def normalize_interval(bar: str) -> str:
     """Map user bar label to HL interval."""

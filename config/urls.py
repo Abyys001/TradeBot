@@ -16,4 +16,5 @@ urlpatterns = [
     path("api/", include("apps.pro.urls")),
     path("api/", include("apps.integrations.urls")),
     path("api/", include("apps.telegram.urls")),
+    path("api/", include("apps.copytrading.urls")),
 ]

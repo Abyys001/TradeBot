@@ -310,7 +310,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <ul class="max-h-56 overflow-y-auto py-1">
+        <ul class="scrollbar-styled scrollbar-thin max-h-56 overflow-y-auto py-1">
           <li v-if="!filteredPairs.length" class="px-3 py-3 text-xs text-zinc-500">
             {{ t('strategy.noPairsFound') }}
           </li>

@@ -128,7 +128,7 @@ function onCreated(id: number) {
 </script>
 
 <template>
-  <div class="flex-1 overflow-y-auto p-6">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-6">
     <div class="flex items-center justify-between mb-6">
       <h1 class="text-lg font-semibold text-zinc-200">{{ t('strategies.title') }}</h1>
       <div class="flex gap-2">

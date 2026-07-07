@@ -9,6 +9,12 @@ import ProgressBar from '../../components/ProgressBar.vue'
 const props = defineProps<{ backtest: Backtest | null }>()
 const { t } = useI18n()
 
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium', hour12: false })
+}
+
 const trades = computed(() => props.backtest?.trades ?? [])
 const isActive = computed(
   () => props.backtest?.status === 'pending' || props.backtest?.status === 'running',
@@ -53,6 +59,7 @@ const isActive = computed(
         <thead class="text-zinc-500 uppercase bg-zinc-900/50">
           <tr>
             <th class="px-3 py-2 text-start">{{ t('backtest.side') }}</th>
+            <th class="px-3 py-2 text-start">{{ t('backtest.time') }}</th>
             <th class="px-3 py-2 text-end">{{ t('backtest.entry') }}</th>
             <th class="px-3 py-2 text-end">{{ t('backtest.exit') }}</th>
             <th class="px-3 py-2 text-end">{{ t('backtest.pnl') }}</th>
@@ -62,6 +69,10 @@ const isActive = computed(
         <tbody>
           <tr v-for="(tr, i) in trades" :key="i" class="border-t border-zinc-800/50">
             <td class="px-3 py-1.5 text-zinc-300">{{ tr.side }}</td>
+            <td class="px-3 py-1.5 text-zinc-400">
+              <div>{{ fmtTime(tr.entry_time) }}</div>
+              <div v-if="tr.exit_time" class="text-zinc-500">→ {{ fmtTime(tr.exit_time) }}</div>
+            </td>
             <td class="px-3 py-1.5 text-end text-zinc-400">{{ tr.entry_price }}</td>
             <td class="px-3 py-1.5 text-end text-zinc-400">{{ tr.exit_price ?? '—' }}</td>
             <td class="px-3 py-1.5 text-end" :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">

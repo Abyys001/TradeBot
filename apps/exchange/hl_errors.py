@@ -47,6 +47,26 @@ _ERROR_MAP: dict[str, HLErrorInfo] = {
         "Post-only order would cross the book",
         "Adjust limit price or use IOC/GTC",
     ),
+    "badTriggerPx": HLErrorInfo(
+        "badTriggerPxRejected",
+        "Trigger price rejected: direction invalid for current position side",
+        "SL must be below entry for longs and above for shorts; TP is opposite",
+    ),
+    "marginCanceled": HLErrorInfo(
+        "marginCanceled",
+        "Order canceled due to insufficient margin at execution time",
+        "Add collateral or reduce position; order may be retryable via non-final status handler",
+    ),
+    "iocCancelRejected": HLErrorInfo(
+        "iocCancelRejected",
+        "IOC order expired — unfilled portion canceled by exchange",
+        "Expected for IOC; inspect filled_size in orderUpdates to see the partial fill",
+    ),
+    "reduceOnlyCanceled": HLErrorInfo(
+        "reduceOnlyCanceled",
+        "Reduce-only order canceled: position already closed or not large enough",
+        "Verify an open position exists before placing reduce-only orders",
+    ),
 }
 
 

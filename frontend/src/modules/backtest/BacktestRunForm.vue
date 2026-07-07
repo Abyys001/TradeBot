@@ -51,6 +51,7 @@ const selectedIntervals = ref<string[]>([])
 const selectedNetwork = ref('mainnet')
 const startDate = ref('')
 const endDate = ref('')
+const initialCapital = ref<number>(10_000)
 
 const strategyPairLabels = computed(() =>
   strategySymbols.value.map((coin) => coinToPair(coin)),
@@ -295,6 +296,7 @@ async function runQuickBacktest() {
       network: selectedNetwork.value,
       start: ds.start_ts,
       end: ds.end_ts,
+      initial_capital: initialCapital.value,
     })
     toast.show(t('backtest.queued', { count: 1 }), 'success')
     backtestStore.select(id)
@@ -331,6 +333,7 @@ async function runBacktests() {
           network: selectedNetwork.value,
           start: range.start,
           end: range.end,
+          initial_capital: initialCapital.value,
         })
         ids.push(id)
       }
@@ -443,6 +446,22 @@ defineExpose({ runBacktests, canRun })
         <input v-model="endDate" type="date" :class="selectClass" />
       </label>
     </div>
+
+    <label class="text-xs text-zinc-500 block">
+      {{ t('backtest.initialCapital') }}
+      <div class="relative mt-1">
+        <input
+          v-model.number="initialCapital"
+          type="number"
+          min="100"
+          step="100"
+          :class="selectClass"
+        />
+        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[10px] text-zinc-500">
+          USDT · fee 0.05%
+        </span>
+      </div>
+    </label>
 
     <div v-if="batchProgress" class="space-y-1">
       <div class="flex justify-between text-xs text-zinc-500">

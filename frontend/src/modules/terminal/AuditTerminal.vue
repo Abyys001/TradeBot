@@ -81,7 +81,7 @@ watch(
     </div>
     <div
       ref="box"
-      class="flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed"
+      class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed"
       @mouseenter="terminal.paused = true"
       @mouseleave="terminal.paused = false"
     >

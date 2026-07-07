@@ -19,7 +19,7 @@ from apps.exchange.candle_store import (
     load_funding_from_db,
 )
 from apps.exchange.hl_constants import BAR_MAP, normalize_coin, normalize_interval
-from apps.exchange.history_download import VALID_DATA_TYPES, build_initial_progress, date_to_ms, job_has_retryable_pairs, known_perp_coins, reset_pairs_for_retry
+from apps.exchange.history_download import DEFAULT_START, VALID_DATA_TYPES, build_initial_progress, date_to_ms, job_has_retryable_pairs, known_perp_coins, reset_pairs_for_retry
 
 from .models import HistoryDownload
 from .serializers import HistoryDownloadSerializer, is_stale_pending
@@ -298,7 +298,7 @@ class HistoryDownloadViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        start_str = request.data.get("start", "2023-01-01")
+        start_str = request.data.get("start", DEFAULT_START)
         end_str = request.data.get("end")
 
         try:

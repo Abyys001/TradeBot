@@ -154,7 +154,7 @@ function validationBadgeClass(status: string) {
 
 <template>
   <aside class="flex h-full w-80 shrink-0 flex-col border-s border-zinc-800 bg-zinc-900/30">
-  <div class="flex-1 overflow-y-auto p-4">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-4">
     <div v-if="!selected && store.loading" class="space-y-3">
       <SkeletonBlock class="h-6 w-32" />
       <SkeletonBlock class="h-10 w-full" />

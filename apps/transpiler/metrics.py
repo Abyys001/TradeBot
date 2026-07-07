@@ -50,20 +50,22 @@ def compute_metrics(
     avg_loss = abs(mean([_trade_val(t, "pnl") for t in losses])) if losses else 0.0
     risk_reward = avg_win / avg_loss if avg_loss > 0 else 0.0
 
-    # Max drawdown from equity series or trade PnL ladder
+    # Max drawdown as percentage of peak equity
     max_dd = 0.0
     if equity_series and len(equity_series) > 1:
         peak = equity_series[0]
         for eq in equity_series:
             peak = max(peak, eq)
-            max_dd = min(max_dd, eq - peak)
+            if peak > 0:
+                max_dd = min(max_dd, (eq - peak) / peak * 100)
     else:
-        equity, peak = 0.0, 0.0
+        equity, peak = initial_balance, initial_balance
         for t in closed_trades:
             pnl = _trade_val(t, "pnl")
             equity += pnl
             peak = max(peak, equity)
-            max_dd = min(max_dd, equity - peak)
+            if peak > 0:
+                max_dd = min(max_dd, (equity - peak) / peak * 100)
 
     # Sharpe from per-trade returns vs initial balance
     returns = []

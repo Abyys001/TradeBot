@@ -36,6 +36,11 @@ const router = createRouter({
           component: () => import('../views/SettingsView.vue'),
         },
         {
+          path: 'settings/telegram',
+          name: 'telegram-settings',
+          component: () => import('../views/TelegramSettingsView.vue'),
+        },
+        {
           path: 'data',
           name: 'data',
           component: () => import('../views/DataView.vue'),

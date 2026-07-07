@@ -116,7 +116,7 @@ async function runMonteCarlo() {
     </button>
     <p v-if="optimizer.error" class="text-[10px] text-red-400">{{ optimizer.error }}</p>
     <GridResultsTable v-if="tab === 'grid' && optimizer.gridResults.length" :results="optimizer.gridResults" />
-    <div v-if="tab === 'walkforward' && optimizer.walkForwardWindows.length" class="text-[10px] text-zinc-400 space-y-1 max-h-32 overflow-y-auto">
+    <div v-if="tab === 'walkforward' && optimizer.walkForwardWindows.length" class="scrollbar-styled scrollbar-thin text-[10px] text-zinc-400 space-y-1 max-h-32 overflow-y-auto">
       <div v-for="(w, i) in optimizer.walkForwardWindows" :key="i">
         W{{ i + 1 }} test PnL: {{ w.test_metrics?.net_pnl?.toFixed(2) ?? '—' }}
       </div>

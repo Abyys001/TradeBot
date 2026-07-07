@@ -75,14 +75,26 @@ class BacktestStoredStrategyView(APIView):
     """POST /api/strategies/<id>/backtest_stored/ — backtest over stored history.
 
     Body: {"coin": "BTC", "interval": "1h", "network": "mainnet", "start": <ms?>, "end": <ms?>,
-           "commission": <float?>, "slippage": <float?>}
+           "commission": <float?>, "slippage": <float?>, "initial_capital": <float?>}
+    Returns a cached result if identical params completed within 24 h.
     """
 
     def post(self, request, pk=None):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.exchange.hl_constants import HL_TAKER_FEE
+
         strategy = _user_strategy(request, pk)
         coin = request.data.get("coin") or strategy.symbol
         interval = request.data.get("interval") or strategy.timeframe
         network = request.data.get("network", "mainnet")
+        initial_balance = float(request.data.get("initial_capital", 10_000.0))
+        commission = _optional_float(request.data, "commission")
+        if commission is None:
+            commission = HL_TAKER_FEE
+
         if network not in {"mainnet", "testnet"}:
             return Response(
                 {"error": f"invalid network: {network}"}, status=status.HTTP_400_BAD_REQUEST
@@ -91,11 +103,31 @@ class BacktestStoredStrategyView(APIView):
             return Response(
                 {"error": "coin and interval required"}, status=status.HTTP_400_BAD_REQUEST
             )
+
+        # Return cached result if identical params completed within 24 h
+        cutoff = timezone.now() - timedelta(hours=24)
+        cached = (
+            Backtest.objects.filter(
+                strategy=strategy,
+                symbol=coin,
+                timeframe=interval,
+                network=network,
+                initial_balance=initial_balance,
+                status=Backtest.Status.DONE,
+                created_at__gte=cutoff,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if cached:
+            return Response({"backtest_id": cached.id, "cached": True}, status=status.HTTP_200_OK)
+
         bt = Backtest.objects.create(
             strategy=strategy,
             symbol=coin,
             timeframe=interval,
             network=network,
+            initial_balance=initial_balance,
         )
         run_backtest_stored_task.delay(
             bt.id,
@@ -104,10 +136,11 @@ class BacktestStoredStrategyView(APIView):
             request.data.get("start"),
             request.data.get("end"),
             network=network,
-            commission=_optional_float(request.data, "commission"),
+            commission=commission,
             slippage=_optional_float(request.data, "slippage"),
+            initial_balance=initial_balance,
         )
-        return Response({"backtest_id": bt.id}, status=status.HTTP_202_ACCEPTED)
+        return Response({"backtest_id": bt.id, "cached": False}, status=status.HTTP_202_ACCEPTED)
 
 
 class BacktestViewSet(

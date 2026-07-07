@@ -33,32 +33,190 @@ body {
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Dark panel scrollbars (backtest sidebar, optimizer drawer, etc.) */
-.scrollbar-styled {
+/* ========================================
+   Scrollbar System — Fully Customizable
+   ========================================
+   Usage:  <div class="scrollbar-styled">...</div>
+           <div class="scrollbar-styled scrollbar-thin">...</div>
+           <div class="scrollbar-styled scrollbar-emerald">...</div>
+           <div class="scrollbar-hover">...</div>
+           <div class="scrollbar-none">...</div>
+   ======================================== */
+
+/* ---------- Design Tokens ---------- */
+:root {
+  --sb-width: 7px;
+  --sb-height: 7px;
+  --sb-track: rgba(24, 24, 27, 0.85);
+  --sb-track-radius: 999px;
+  --sb-track-margin: 4px;
+  --sb-thumb: linear-gradient(180deg, rgba(167, 139, 250, 0.65), rgba(109, 40, 217, 0.55));
+  --sb-thumb-hover: linear-gradient(180deg, rgba(196, 181, 253, 0.85), rgba(139, 92, 246, 0.75));
+  --sb-thumb-active: linear-gradient(180deg, rgba(196, 181, 253, 1), rgba(139, 92, 246, 0.9));
+  --sb-thumb-radius: 999px;
+  --sb-thumb-border: 2px solid rgba(9, 9, 11, 0.85);
+  --sb-thumb-shadow: none;
+  --sb-corner: transparent;
+  --sb-transition-duration: 0.15s;
+}
+
+/* ---------- Base (applied to any .scrollbar-* class) ---------- */
+.scrollbar-styled,
+.scrollbar-thin,
+.scrollbar-wide,
+.scrollbar-hover {
   scrollbar-width: thin;
   scrollbar-color: rgba(139, 92, 246, 0.55) rgba(24, 24, 27, 0.85);
 }
 
-.scrollbar-styled::-webkit-scrollbar {
-  width: 7px;
+/* ---------- Webkit pseudo-elements ---------- */
+.scrollbar-styled::-webkit-scrollbar,
+.scrollbar-thin::-webkit-scrollbar,
+.scrollbar-wide::-webkit-scrollbar,
+.scrollbar-hover::-webkit-scrollbar {
+  width: var(--sb-width);
+  height: var(--sb-height);
 }
 
-.scrollbar-styled::-webkit-scrollbar-track {
-  margin: 4px 0;
-  background: transparent;
-  border-radius: 999px;
+.scrollbar-styled::-webkit-scrollbar-track,
+.scrollbar-thin::-webkit-scrollbar-track,
+.scrollbar-wide::-webkit-scrollbar-track,
+.scrollbar-hover::-webkit-scrollbar-track {
+  background: var(--sb-track);
+  border-radius: var(--sb-track-radius);
+  margin: var(--sb-track-margin);
 }
 
-.scrollbar-styled::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(167, 139, 250, 0.65), rgba(109, 40, 217, 0.55));
-  border: 2px solid rgba(9, 9, 11, 0.85);
-  border-radius: 999px;
+.scrollbar-styled::-webkit-scrollbar-thumb,
+.scrollbar-thin::-webkit-scrollbar-thumb,
+.scrollbar-wide::-webkit-scrollbar-thumb,
+.scrollbar-hover::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border-radius: var(--sb-thumb-radius);
+  border: var(--sb-thumb-border);
+  box-shadow: var(--sb-thumb-shadow);
+  transition: background var(--sb-transition-duration), opacity var(--sb-transition-duration);
 }
 
-.scrollbar-styled::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(196, 181, 253, 0.85), rgba(139, 92, 246, 0.75));
+.scrollbar-styled::-webkit-scrollbar-thumb:hover,
+.scrollbar-thin::-webkit-scrollbar-thumb:hover,
+.scrollbar-wide::-webkit-scrollbar-thumb:hover,
+.scrollbar-hover::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-thumb-hover);
 }
 
-.scrollbar-styled::-webkit-scrollbar-corner {
-  background: transparent;
+.scrollbar-styled::-webkit-scrollbar-thumb:active,
+.scrollbar-thin::-webkit-scrollbar-thumb:active,
+.scrollbar-wide::-webkit-scrollbar-thumb:active,
+.scrollbar-hover::-webkit-scrollbar-thumb:active {
+  background: var(--sb-thumb-active);
 }
+
+.scrollbar-styled::-webkit-scrollbar-corner,
+.scrollbar-thin::-webkit-scrollbar-corner,
+.scrollbar-wide::-webkit-scrollbar-corner,
+.scrollbar-hover::-webkit-scrollbar-corner {
+  background: var(--sb-corner);
+}
+
+/* ---------- Size Variants ---------- */
+.scrollbar-thin {
+  --sb-width: 5px;
+  --sb-height: 5px;
+  --sb-thumb-border: 1.5px solid rgba(9, 9, 11, 0.85);
+}
+
+.scrollbar-wide {
+  --sb-width: 10px;
+  --sb-height: 10px;
+  --sb-track-margin: 3px;
+  --sb-thumb-border: 2.5px solid rgba(9, 9, 11, 0.85);
+}
+
+/* ---------- Color Variants ---------- */
+.scrollbar-violet {
+  --sb-thumb: linear-gradient(180deg, rgba(167, 139, 250, 0.65), rgba(109, 40, 217, 0.55));
+  --sb-thumb-hover: linear-gradient(180deg, rgba(196, 181, 253, 0.85), rgba(139, 92, 246, 0.75));
+  --sb-thumb-active: linear-gradient(180deg, rgba(196, 181, 253, 1), rgba(139, 92, 246, 0.9));
+}
+
+.scrollbar-zinc {
+  --sb-thumb: linear-gradient(180deg, rgba(113, 113, 122, 0.5), rgba(82, 82, 91, 0.5));
+  --sb-thumb-hover: linear-gradient(180deg, rgba(161, 161, 170, 0.7), rgba(113, 113, 122, 0.7));
+  --sb-thumb-active: linear-gradient(180deg, rgba(212, 212, 216, 0.85), rgba(161, 161, 170, 0.85));
+}
+
+.scrollbar-emerald {
+  --sb-thumb: linear-gradient(180deg, rgba(52, 211, 153, 0.5), rgba(16, 185, 129, 0.5));
+  --sb-thumb-hover: linear-gradient(180deg, rgba(110, 231, 183, 0.7), rgba(52, 211, 153, 0.7));
+  --sb-thumb-active: linear-gradient(180deg, rgba(167, 243, 208, 0.85), rgba(110, 231, 183, 0.85));
+}
+
+.scrollbar-red {
+  --sb-thumb: linear-gradient(180deg, rgba(248, 113, 113, 0.5), rgba(239, 68, 68, 0.5));
+  --sb-thumb-hover: linear-gradient(180deg, rgba(252, 165, 165, 0.7), rgba(248, 113, 113, 0.7));
+  --sb-thumb-active: linear-gradient(180deg, rgba(254, 202, 202, 0.85), rgba(252, 165, 165, 0.85));
+}
+
+.scrollbar-amber {
+  --sb-thumb: linear-gradient(180deg, rgba(251, 191, 36, 0.5), rgba(245, 158, 11, 0.5));
+  --sb-thumb-hover: linear-gradient(180deg, rgba(252, 211, 77, 0.7), rgba(251, 191, 36, 0.7));
+  --sb-thumb-active: linear-gradient(180deg, rgba(253, 230, 138, 0.85), rgba(252, 211, 77, 0.85));
+}
+
+/* ---------- Track variants ---------- */
+.scrollbar-track-transparent {
+  --sb-track: transparent;
+}
+
+.scrollbar-track-zinc {
+  --sb-track: rgba(24, 24, 27, 0.85);
+}
+
+.scrollbar-track-muted {
+  --sb-track: rgba(39, 39, 42, 0.5);
+}
+
+/* ---------- Hide Scrollbar (keep scrollable) ---------- */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* ---------- Hover Reveal ---------- */
+.scrollbar-hover::-webkit-scrollbar-thumb {
+  opacity: 0;
+}
+.scrollbar-hover:hover::-webkit-scrollbar-thumb,
+.scrollbar-hover:focus-within::-webkit-scrollbar-thumb {
+  opacity: 1;
+}
+
+/* ---------- Auto-hide (idle fade) ---------- */
+.scrollbar-idle-fade::-webkit-scrollbar-thumb {
+  opacity: 0.5;
+  transition: background var(--sb-transition-duration, 0.15s),
+              opacity 0.35s ease;
+}
+.scrollbar-idle-fade.is-scrolling::-webkit-scrollbar-thumb,
+.scrollbar-idle-fade:hover::-webkit-scrollbar-thumb {
+  opacity: 1;
+}
+
+/* ---------- RTL support ---------- */
+[dir="rtl"] .scrollbar-styled::-webkit-scrollbar,
+[dir="rtl"] .scrollbar-thin::-webkit-scrollbar,
+[dir="rtl"] .scrollbar-wide::-webkit-scrollbar {
+  /* Thumb gravitates toward the right in LTR; no additional flip needed */
+}
+
+/* ---------- Firefox overrides per variant ---------- */
+.scrollbar-zinc { scrollbar-color: rgba(113, 113, 122, 0.55) rgba(24, 24, 27, 0.85); }
+.scrollbar-emerald { scrollbar-color: rgba(52, 211, 153, 0.55) rgba(24, 24, 27, 0.85); }
+.scrollbar-red { scrollbar-color: rgba(248, 113, 113, 0.55) rgba(24, 24, 27, 0.85); }
+.scrollbar-amber { scrollbar-color: rgba(251, 191, 36, 0.55) rgba(24, 24, 27, 0.85); }
+.scrollbar-track-transparent { scrollbar-color: rgba(139, 92, 246, 0.55) transparent; }

@@ -284,6 +284,11 @@ class AnalyticsView(APIView):
         rows = []
         for bt in backtests:
             m = bt.metrics or {}
+            # Downsample equity_series to max 60 points for sparkline rendering.
+            eq = m.get("equity_series") or []
+            if len(eq) > 60:
+                step = len(eq) / 60
+                eq = [eq[round(i * step)] for i in range(60)]
             rows.append(
                 {
                     "backtest_id": bt.id,
@@ -291,11 +296,17 @@ class AnalyticsView(APIView):
                     "strategy_name": bt.strategy.name,
                     "symbol": bt.symbol,
                     "timeframe": bt.timeframe,
+                    "network": bt.network or "mainnet",
                     "net_pnl": m.get("net_pnl"),
                     "sharpe_ratio": m.get("sharpe_ratio"),
                     "profit_factor": m.get("profit_factor"),
                     "max_drawdown": m.get("max_drawdown"),
                     "num_trades": m.get("num_trades"),
+                    "win_rate": m.get("win_rate"),
+                    "expectancy": m.get("expectancy"),
+                    "initial_balance": m.get("initial_balance"),
+                    "final_equity": m.get("final_equity"),
+                    "equity_series": eq,
                     "created_at": bt.created_at,
                 }
             )

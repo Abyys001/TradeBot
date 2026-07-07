@@ -34,7 +34,7 @@ const { t } = useI18n()
     </div>
     <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2">
       <div class="text-xs text-zinc-500">{{ t('backtest.maxDrawdown') }}</div>
-      <div class="text-lg font-semibold text-red-400">{{ metrics.max_drawdown?.toFixed(2) ?? '—' }}</div>
+      <div class="text-lg font-semibold text-red-400">{{ metrics.max_drawdown != null ? metrics.max_drawdown.toFixed(2) + '%' : '—' }}</div>
     </div>
     <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2">
       <div class="text-xs text-zinc-500">{{ t('backtest.numTrades') }}</div>

@@ -3,11 +3,7 @@
 Broker / result backend / schedule are configured from Django settings
 (CELERY_* keys). Tasks are autodiscovered from each installed app's tasks.py.
 """
-import os
-
 from celery import Celery
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 
 app = Celery("tradebot")
 

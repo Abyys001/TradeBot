@@ -62,7 +62,7 @@ const isLoading = computed(
           <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
             <div class="text-xs text-zinc-500">{{ t('backtest.maxDrawdown') }}</div>
             <div class="text-2xl font-bold text-red-400">
-              {{ metrics.max_drawdown?.toFixed(2) ?? '—' }}
+              {{ metrics.max_drawdown != null ? metrics.max_drawdown.toFixed(2) + '%' : '—' }}
             </div>
           </div>
           <div class="rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
@@ -80,7 +80,7 @@ const isLoading = computed(
           <div class="border-b border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs font-medium text-zinc-400">
             {{ t('backtest.tradesTitle', { count: trades.length }) }}
           </div>
-          <div class="max-h-48 overflow-x-auto overflow-y-auto">
+          <div class="scrollbar-styled max-h-48 overflow-x-auto overflow-y-auto">
             <table class="w-full text-xs">
               <thead class="sticky top-0 bg-zinc-900/95 text-zinc-500 uppercase">
                 <tr>

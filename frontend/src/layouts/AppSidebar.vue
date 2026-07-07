@@ -15,6 +15,7 @@ const navItems = [
   { name: 'analytics', path: '/analytics', label: 'nav.analytics', icon: 'analytics' },
   { name: 'orders', path: '/orders', label: 'nav.orders', icon: 'orders' },
   { name: 'settings', path: '/settings', label: 'nav.settings', icon: 'settings' },
+  { name: 'telegram-settings', path: '/settings/telegram', label: 'nav.telegram', icon: 'telegram' },
 ]
 
 const asideClass = computed(() =>
@@ -37,7 +38,7 @@ function isActive(path: string) {
   >
     <button
       type="button"
-      class="mx-2 mb-3 flex items-center justify-center rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+      class="mx-2 mb-3 flex items-center justify-start rounded-lg px-3 py-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
       :title="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
       :aria-label="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
       @click="layout.toggleNav()"
@@ -80,6 +81,10 @@ function isActive(path: string) {
         <svg v-else-if="item.icon === 'orders'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
           <rect x="9" y="3" width="6" height="4" rx="1" />
+        </svg>
+        <svg v-else-if="item.icon === 'telegram'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" d="M21 3L2 11l7 3 3 7 9-18z" />
+          <path stroke-linecap="round" d="M12 14l4-4" />
         </svg>
         <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3" />

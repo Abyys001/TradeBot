@@ -15,6 +15,26 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// On CSRF failure (Django rotates the token on login), refresh and retry once.
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config
+    if (
+      error.response?.status === 403 &&
+      typeof error.response?.data?.detail === 'string' &&
+      error.response.data.detail.includes('CSRF') &&
+      !config._csrfRetried
+    ) {
+      config._csrfRetried = true
+      await fetchCsrf()
+      if (csrfToken) config.headers['X-CSRFToken'] = csrfToken
+      return api(config)
+    }
+    return Promise.reject(error)
+  },
+)
+
 export async function fetchCsrf(): Promise<string> {
   const { data } = await api.get<{ csrfToken: string }>('/auth/csrf/')
   csrfToken = data.csrfToken
@@ -186,11 +206,15 @@ export interface BacktestTrade {
   exit_price: string | null
   size: string
   pnl: string
+  gross_pnl: string
+  commission: string
   entry_bar: number
   exit_bar: number | null
   stop_px?: string | null
   limit_px?: string | null
   exit_reason?: string
+  entry_time: string | null
+  exit_time: string | null
 }
 
 export interface BacktestMetrics {
@@ -219,6 +243,7 @@ export interface Backtest {
   symbol: string
   timeframe: string
   network?: string
+  initial_balance?: number
   range_start: string | null
   range_end: string | null
   metrics: BacktestMetrics

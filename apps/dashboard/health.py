@@ -1,9 +1,12 @@
 """System health probes for the dashboard."""
 from __future__ import annotations
 
+import logging
 import time
 
 from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
 
 MARKET_FEED_HEARTBEAT_KEY = "health:market_feed"
 MARKET_FEED_STALE_SECONDS = 15
@@ -35,7 +38,7 @@ def get_celery_status() -> dict:
         if replies:
             return {"status": "ok", "workers": len(replies)}
     except Exception:  # noqa: BLE001
-        pass
+        logger.exception("celery ping failed, using fallback")
 
     try:
         from config.celery import ping

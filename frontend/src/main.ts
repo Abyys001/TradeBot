@@ -14,6 +14,8 @@ app.use(router)
 app.use(i18n)
 
 const auth = useAuthStore()
-auth.init().finally(() => {
+auth.init().catch(() => {
+  console.warn('CSRF fetch failed — mutations may not work')
+}).finally(() => {
   app.mount('#app')
 })

@@ -35,7 +35,7 @@ async function restore(version: number) {
       </button>
     </div>
     <div v-if="!pro.versions.length" class="text-[10px] text-zinc-600">{{ t('versions.empty') }}</div>
-    <ul v-else class="space-y-1 max-h-24 overflow-y-auto">
+    <ul v-else class="scrollbar-styled scrollbar-thin space-y-1 max-h-24 overflow-y-auto">
       <li
         v-for="v in pro.versions"
         :key="v.id"

@@ -19,4 +19,9 @@ urlpatterns = [
         views.TelegramConfigViewSet.as_view({"post": "test"}),
         name="telegram-config-test",
     ),
+    path(
+        "telegram/config/status/",
+        views.TelegramConfigViewSet.as_view({"get": "status"}),
+        name="telegram-config-status",
+    ),
 ] + router.urls

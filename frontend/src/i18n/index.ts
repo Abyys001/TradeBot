@@ -16,4 +16,8 @@ export function setLocale(locale: 'en' | 'fa') {
   document.documentElement.lang = locale
 }
 
-setLocale((localStorage.getItem('locale') as 'en' | 'fa') || 'en')
+const savedLocale = localStorage.getItem('locale') as 'en' | 'fa' | null
+if (savedLocale) {
+  document.documentElement.dir = savedLocale === 'fa' ? 'rtl' : 'ltr'
+  document.documentElement.lang = savedLocale
+}

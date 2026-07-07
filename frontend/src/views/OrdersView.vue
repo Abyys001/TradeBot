@@ -39,7 +39,7 @@ function formatTime(iso: string) {
 </script>
 
 <template>
-  <div class="p-3 space-y-4 max-w-5xl sm:p-4">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 space-y-4 max-w-5xl sm:p-4">
     <div class="flex items-center justify-between">
       <h1 class="text-lg font-semibold text-zinc-100">{{ t('orders.title') }}</h1>
       <button

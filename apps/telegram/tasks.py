@@ -21,7 +21,14 @@ def dispatch_telegram_alert(
     leverage: str = "",
     qty: str = "",
     pnl: str = "",
+    exit_reason: str = "",
+    position_side: str = "",
 ) -> None:
+    from django.conf import settings
+
+    if not getattr(settings, "TELEGRAM_ALERT_ENABLED", True):
+        return
+
     from .models import AlertWhitelist, TelegramConfig
 
     try:
@@ -48,6 +55,8 @@ def dispatch_telegram_alert(
         qty=qty,
         pnl=pnl,
         time_str=time_str,
+        exit_reason=exit_reason,
+        position_side=position_side,
     )
 
     success_count = 0

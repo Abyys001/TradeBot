@@ -6,6 +6,7 @@ from .crypto import decrypt, encrypt
 
 class Exchange(models.TextChoices):
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
+    TABDEAL = "tabdeal", "Tabdeal"
 
 
 class Network(models.TextChoices):
@@ -34,9 +35,19 @@ class ExchangeCredential(models.Model):
     label = models.CharField(max_length=64, help_text="Human-friendly name.")
     wallet_address = models.CharField(
         max_length=42,
-        help_text="Master wallet address (read-only monitoring; not stored encrypted).",
+        blank=True,
+        default="",
+        help_text="Master wallet address (read-only monitoring; not stored encrypted). Hyperliquid only.",
     )
-    agent_private_key_enc = models.BinaryField()
+    agent_private_key_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Hyperliquid agent private key. Empty for other exchanges."
+    )
+    api_key_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Encrypted REST API key (e.g. Tabdeal). Empty for Hyperliquid."
+    )
+    api_secret_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Encrypted REST API secret (e.g. Tabdeal). Empty for Hyperliquid."
+    )
     agent_address = models.CharField(
         max_length=42,
         blank=True,
@@ -82,3 +93,16 @@ class ExchangeCredential(models.Model):
         if not key.startswith("0x"):
             key = "0x" + key
         return key
+
+    def set_api_credentials(self, api_key: str, api_secret: str) -> None:
+        """Encrypt and store a REST API key/secret pair. Does not save()."""
+        self.api_key_enc = encrypt(api_key.strip())
+        self.api_secret_enc = encrypt(api_secret.strip())
+
+    def get_api_key(self) -> str:
+        """Decrypt API key into memory. Never log or serialize the result."""
+        return decrypt(bytes(self.api_key_enc))
+
+    def get_api_secret(self) -> str:
+        """Decrypt API secret into memory. Never log or serialize the result."""
+        return decrypt(bytes(self.api_secret_enc))

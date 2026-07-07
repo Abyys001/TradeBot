@@ -6,10 +6,13 @@ request cycle; progress is pushed to the strategy credential's Channels group
 """
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 import pandas as pd
 from celery import shared_task
+
+logger = logging.getLogger(__name__)
 
 from apps.dashboard.publish import publish_dashboard
 from apps.exchange.ws_manager import publish_update
@@ -79,9 +82,17 @@ def validate_source_task(strategy_id: int):
 
 def _persist_backtest_result(bt, result):
     """Store metrics + trades for a completed backtest and notify listeners."""
+    from datetime import datetime, timezone
+
     bt.metrics = result.metrics
     bt.status = Backtest.Status.DONE
     bt.save(update_fields=["metrics", "status"])
+
+    def _ts_to_dt(ts_ms):
+        if ts_ms:
+            return datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+        return None
+
     BacktestTrade.objects.bulk_create(
         [
             BacktestTrade(
@@ -91,11 +102,15 @@ def _persist_backtest_result(bt, result):
                 exit_price=Decimal(str(t["exit_price"])) if t["exit_price"] is not None else None,
                 size=Decimal(str(t["size"])),
                 pnl=Decimal(str(t["pnl"])),
+                gross_pnl=Decimal(str(t.get("gross_pnl", 0))),
+                commission=Decimal(str(t.get("commission", 0))),
                 entry_bar=t["entry_bar"],
                 exit_bar=t["exit_bar"],
                 stop_px=Decimal(str(t["stop_px"])) if t.get("stop_px") is not None else None,
                 limit_px=Decimal(str(t["limit_px"])) if t.get("limit_px") is not None else None,
                 exit_reason=t.get("exit_reason", ""),
+                entry_time=_ts_to_dt(t.get("entry_time")),
+                exit_time=_ts_to_dt(t.get("exit_time")),
             )
             for t in result.trades
         ]
@@ -144,8 +159,9 @@ def run_backtest_task(
     return {"ok": True, "metrics": result.metrics}
 
 
-@shared_task(name="transpiler.run_backtest_stored")
+@shared_task(bind=True, name="transpiler.run_backtest_stored")
 def run_backtest_stored_task(
+    self,
     backtest_id: int,
     coin: str,
     interval: str,
@@ -155,26 +171,47 @@ def run_backtest_stored_task(
     network: str = "mainnet",
     commission: float | None = None,
     slippage: float | None = None,
+    initial_balance: float = 10_000.0,
 ):
-    """Run a backtest over locally stored candle history (no exchange calls)."""
+    """Run a backtest over stored candle history, auto-downloading if needed."""
     from datetime import datetime, timezone
 
     from apps.exchange.candle_store import load_candles, load_funding
+    from apps.exchange.history_download import ensure_data_available
 
     bt = Backtest.objects.select_related("strategy").get(pk=backtest_id)
     strategy = bt.strategy
     bt.status = Backtest.Status.RUNNING
-    bt.save(update_fields=["status"])
+    bt.initial_balance = initial_balance
+    bt.save(update_fields=["status", "initial_balance"])
     _notify(strategy, {"source": "backtest", "backtest_id": bt.id, "status": "running"})
 
     try:
+        def _progress(step, pct):
+            try:
+                self.update_state(state="PROGRESS", meta={"step": step, "pct": pct})
+            except Exception:  # noqa: BLE001 — best-effort, fails gracefully in tests
+                pass
+
+        # Auto-download missing data before loading
+        if start is not None and end is not None:
+            _progress("ensuring_data", 5)
+            fetch_result = ensure_data_available(coin, interval, start, end, network=network)
+            if fetch_result.get("status") == "failed":
+                raise ValueError(
+                    f"Data unavailable for {coin}/{interval}: {fetch_result.get('error')}"
+                )
+
+        _progress("loading_data", 20)
         df = load_candles(coin, interval, start, end, network=network)
         if df.empty:
-            raise ValueError(f"no stored candles for {coin}/{interval}")
+            raise ValueError(f"no candles for {coin}/{interval} in the requested range")
         funding_df = load_funding(coin, start, end, network=network)
         bt.range_start = datetime.fromtimestamp(int(df["ts"].min()) / 1000, tz=timezone.utc)
         bt.range_end = datetime.fromtimestamp(int(df["ts"].max()) / 1000, tz=timezone.utc)
         bt.save(update_fields=["range_start", "range_end"])
+
+        _progress("running_backtest", 40)
         live_config = strategy.live_config or {}
         result = run_backtest(
             strategy.source,
@@ -182,11 +219,14 @@ def run_backtest_stored_task(
             commission=commission,
             slippage=slippage,
             leverage=live_config.get("leverage"),
+            initial_balance=initial_balance,
             funding_df=funding_df if not funding_df.empty else None,
             live_config=live_config,
             chart_interval=interval,
             symbol=coin,
         )
+
+        _progress("saving", 90)
         _persist_backtest_result(bt, result)
     except Exception as exc:  # noqa: BLE001
         bt.status = Backtest.Status.FAILED
@@ -221,7 +261,7 @@ def _recover_positions_if_any(strategy: Strategy) -> dict[str, object] | None:
                 except (TypeError, ValueError):
                     return None
     except Exception:  # noqa: BLE001
-        pass
+        logger.exception("position recovery failed")
     return None
 
 

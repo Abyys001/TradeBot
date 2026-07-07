@@ -51,7 +51,7 @@ class MarketFeed:
                 try:
                     info.disconnect_websocket()
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.exception("error disconnecting websocket during shutdown")
 
     def _connection_monitor(self) -> None:
         while not self._stop.is_set():
@@ -66,7 +66,7 @@ class MarketFeed:
                     try:
                         info.disconnect_websocket()
                     except Exception:  # noqa: BLE001
-                        pass
+                        logger.exception("error disconnecting websocket during reconnect")
                 self._info_by_network.clear()
                 self._subscribed.clear()
             self._last_msg_ts = time.time()
@@ -91,7 +91,7 @@ class MarketFeed:
                 try:
                     info.ws_manager.ws.send('{"method":"ping"}')
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.exception("ping failed")
 
     def _poll_registry(self) -> None:
         while not self._stop.is_set():

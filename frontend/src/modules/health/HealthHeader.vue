@@ -31,7 +31,7 @@ async function onKillConfirm() {
   await api.post('/me/kill-switch/', { enabled: false, close_positions: true })
   showKill.value = false
   await health.fetchHealth()
-  if (auth.user) auth.user.is_trading_enabled = false
+  auth.setTradingEnabled(false)
 }
 </script>
 
