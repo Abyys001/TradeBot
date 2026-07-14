@@ -2,10 +2,9 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.exchange.hl_client import verify_credential
-
 from .models import ExchangeCredential
 from .serializers import ExchangeCredentialSerializer
+from .verification import verify_credential
 
 
 class ExchangeCredentialViewSet(viewsets.ModelViewSet):
@@ -22,7 +21,7 @@ class ExchangeCredentialViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def verify(self, request, pk=None):
-        """Validate agent key and master wallet against Hyperliquid."""
+        """Validate the credential against its exchange (Hyperliquid or Tabdeal)."""
         cred = self.get_object()
         ok, detail = verify_credential(cred)
         code = status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST

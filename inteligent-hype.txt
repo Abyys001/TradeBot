@@ -1,0 +1,57 @@
+//@version=5
+strategy("OCC 1H - Signum Edition", overlay=true, initial_capital=30, default_qty_type=strategy.percent_of_equity, default_qty_value=90)
+
+// === SIGNUM INPUTS ===
+signum_bot_id = input.string("PTl6LD6u", "Signum Bot ID")
+order_size_val = input.string("80%", "Order Size (as string)") // Using 80% to leave room for fees
+
+// === STRATEGY INPUTS ===
+multiplier   = input.int(3, "Multiplier (Trend Speed)", minval=1)
+basisType    = input.string("SMMA", "MA Type", options=["SMA", "EMA", "DEMA", "TEMA", "WMA", "VWMA", "SMMA", "HullMA", "LSMA", "ALMA"])
+basisLen     = input.int(8, "MA Period", minval=1)
+
+// === MA FUNCTION ===
+getMA(type, src, length) =>
+    float res = na
+    if type == "SMA"
+        res := ta.sma(src, length)
+    else if type == "EMA"
+        res := ta.ema(src, length)
+    else if type == "DEMA"
+        e = ta.ema(src, length)
+        res := 2 * e - ta.ema(e, length)
+    else if type == "WMA"
+        res := ta.wma(src, length)
+    else if type == "VWMA"
+        res := ta.vwma(src, length)
+    else if type == "SMMA"
+        float smma = na
+        smma := na(smma[1]) ? ta.sma(src, length) : (smma[1] * (length - 1) + src) / length
+        res := smma
+    else if type == "HullMA"
+        res := ta.wma(2 * ta.wma(src, length / 2) - ta.wma(src, length), math.round(math.sqrt(length)))
+    res
+
+// === CALCULATIONS ===
+ma_c = getMA(basisType, close, basisLen)
+ma_o = getMA(basisType, open, basisLen)
+
+// Construct Resolution String & Fetch (Non-Repainting)
+res_str = str.tostring(timeframe.multiplier * multiplier)
+c_alt = request.security(syminfo.tickerid, res_str, ma_c[1], lookahead=barmerge.lookahead_off)
+o_alt = request.security(syminfo.tickerid, res_str, ma_o[1], lookahead=barmerge.lookahead_off)
+
+// === SIGNUM JSON PAYLOAD ENGINE ===
+// This builds exactly what Signum wants using dynamic placeholders
+signum_json = '{"action": "{{strategy.order.action}}", "ticker": "{{ticker}}", "order_size": "' + order_size_val + '", "position_size": "{{strategy.position_size}}", "schema": "2", "timestamp": "{{time}}", "bot_id": "' + signum_bot_id + '"}'
+
+// === SIGNALS ===
+if ta.crossover(c_alt, o_alt)
+    strategy.entry("long", strategy.long, alert_message=signum_json)
+
+if ta.crossunder(c_alt, o_alt)
+    strategy.entry("short", strategy.short, alert_message=signum_json)
+
+// === PLOTS ===
+plot(c_alt, color=color.green, linewidth=2, title="Long Trend")
+plot(o_alt, color=color.red, linewidth=2, title="Short Trend")

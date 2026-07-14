@@ -222,9 +222,10 @@ LIVE_SESSION_KEY_PREFIX = env("LIVE_SESSION_KEY_PREFIX", default="live:session")
 # --- Telegram ---
 TELEGRAM_ALERT_ENABLED = env.bool("TELEGRAM_ALERT_ENABLED", default=False)
 
-# --- Tabdeal (copy-trading exchange; UNVERIFIED endpoint scaffold, see apps/exchange/tabdeal_*.py) ---
-TABDEAL_API_BASE_URL = env("TABDEAL_API_BASE_URL", default="https://api.tabdeal.org")
+# --- Tabdeal (copy-trading exchange; FAPI futures client in apps/exchange/tabdeal_futures.py) ---
+TABDEAL_API_BASE_URL = env("TABDEAL_API_BASE_URL", default="https://api1.tabdeal.org")
 TABDEAL_RECV_WINDOW_MS = env.int("TABDEAL_RECV_WINDOW_MS", default=5000)
+TABDEAL_API_TIMEOUT = env.int("TABDEAL_API_TIMEOUT", default=30)
 
 # --- Hyperliquid ---
 HL_NETWORK = env("HL_NETWORK", default="testnet")

@@ -3,13 +3,16 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLayoutStore } from '../stores/layout'
+import { useAuthStore } from '../stores/auth'
 
 const { t } = useI18n()
 const route = useRoute()
 const layout = useLayoutStore()
+const auth = useAuthStore()
 
-const navItems = [
+const allNavItems = [
   { name: 'overview', path: '/', label: 'nav.overview', icon: 'overview' },
+  { name: 'investors', path: '/investors', label: 'nav.investors', icon: 'investors', adminOnly: true },
   { name: 'strategies', path: '/strategies', label: 'nav.strategies', icon: 'strategies' },
   { name: 'data', path: '/data', label: 'nav.data', icon: 'data' },
   { name: 'analytics', path: '/analytics', label: 'nav.analytics', icon: 'analytics' },
@@ -17,6 +20,10 @@ const navItems = [
   { name: 'settings', path: '/settings', label: 'nav.settings', icon: 'settings' },
   { name: 'telegram-settings', path: '/settings/telegram', label: 'nav.telegram', icon: 'telegram' },
 ]
+
+const navItems = computed(() =>
+  allNavItems.filter((item) => !item.adminOnly || auth.user?.role === 'admin'),
+)
 
 const asideClass = computed(() =>
   layout.navCollapsed
@@ -67,6 +74,10 @@ function isActive(path: string) {
         <svg v-if="item.icon === 'overview'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
           <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+        <svg v-else-if="item.icon === 'investors'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="9" cy="8" r="3" />
+          <path stroke-linecap="round" d="M3 20c0-3 2.5-5 6-5s6 2 6 5M17 5a3 3 0 010 6M18 20c0-2-.7-3.5-2-4.5" />
         </svg>
         <svg v-else-if="item.icon === 'strategies'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" d="M4 19V5M4 19h16M8 19V9M12 19V13M16 19V7" />

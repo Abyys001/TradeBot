@@ -14,6 +14,7 @@ from ..engine import compile
 from ..runtime import interpreter
 from ..runtime.context import ExecutionContext
 from ..runtime.order_router import LiveBroker, WarmupBroker
+from ..runtime.signal_capture_broker import SignalCaptureBroker
 from .session_store import delete_session, load_session, restore_scalars, save_session
 from .sliding_window import SlidingWindow
 
@@ -120,11 +121,15 @@ class LiveIncrementalRunner:
         window = SlidingWindow.from_rows(window_max_size(strategy), session["window"])
         window.append_closed(candle)
         program = compile(strategy.source)
-        broker = LiveBroker(
-            credential=strategy.credential,
-            strategy=strategy,
-            symbol=strategy.symbol,
-        )
+        copy_mode = bool((strategy.live_config or {}).get("copy_trading"))
+        if copy_mode:
+            broker = SignalCaptureBroker()
+        else:
+            broker = LiveBroker(
+                credential=strategy.credential,
+                strategy=strategy,
+                symbol=strategy.symbol,
+            )
         ctx = ExecutionContext(
             window.to_dataframe(),
             broker,
@@ -143,6 +148,10 @@ class LiveIncrementalRunner:
             event="strategy.evaluated",
             payload={"name": strategy.name, "action": action},
         )
+        if copy_mode and isinstance(broker, SignalCaptureBroker) and broker.has_actions():
+            from apps.copytrading.tasks import fan_out_signal_task
+
+            fan_out_signal_task.delay(strategy.pk, broker.actions)
         save_session(strategy.pk, window=window, ctx=ctx, source=strategy.source)
         state.last_bar_ts = ts
         state.live_error = ""

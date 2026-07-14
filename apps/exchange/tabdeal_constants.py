@@ -1,17 +1,20 @@
 """Tabdeal network URL and config.
 
-NOTE: Tabdeal's exact REST API base URL, endpoint paths, and response shapes
-are UNVERIFIED against real documentation — this module and its siblings
-(tabdeal_signing.py, tabdeal_errors.py, tabdeal_client.py) are a Binance-style
-scaffold to be corrected once real docs or sandbox access are available.
+Verified against Tabdeal_API_Reference.md: REST base host is
+``https://api1.tabdeal.org``. Futures endpoints live under the ``fapi``
+namespace and are structurally Binance-Futures compatible. Read (GET) paths are
+generally ``r/``-prefixed; write paths (POST/DELETE) omit it — always use the
+exact path per endpoint.
 """
 from __future__ import annotations
 
 from django.conf import settings
 
+DEFAULT_BASE_URL = "https://api1.tabdeal.org"
+
 
 def base_url() -> str:
-    return getattr(settings, "TABDEAL_API_BASE_URL", "https://api.tabdeal.org")
+    return getattr(settings, "TABDEAL_API_BASE_URL", DEFAULT_BASE_URL)
 
 
 def recv_window_ms() -> int:

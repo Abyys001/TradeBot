@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import CopyOrder, CopySignal, CopySubscription, CopyTrade, EquitySnapshot
+from .models import (
+    CopyOrder,
+    CopySignal,
+    CopySubscription,
+    CopyTrade,
+    EquitySnapshot,
+    FeeLedgerEntry,
+    PlatformFeeConfig,
+)
 
 
 @admin.register(CopySignal)
@@ -32,3 +40,14 @@ class CopyTradeAdmin(admin.ModelAdmin):
 @admin.register(EquitySnapshot)
 class EquitySnapshotAdmin(admin.ModelAdmin):
     list_display = ("subscription", "balance", "equity", "captured_at")
+
+
+@admin.register(PlatformFeeConfig)
+class PlatformFeeConfigAdmin(admin.ModelAdmin):
+    list_display = ("owner", "share_pct", "destination_exchange", "destination_account", "updated_at")
+
+
+@admin.register(FeeLedgerEntry)
+class FeeLedgerEntryAdmin(admin.ModelAdmin):
+    list_display = ("subscription", "trade", "amount", "share_pct", "status", "accrued_at", "settled_at")
+    list_filter = ("status",)

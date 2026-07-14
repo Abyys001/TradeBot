@@ -3,10 +3,21 @@ from django.db import models
 
 
 class CopySignal(models.Model):
-    """A single inbound webhook source (one TradingView alert), broadcast to N investors."""
+    """A signal source broadcast to N investors.
+
+    Bound to an admin ``Strategy`` (the internal Pine engine is the source). The
+    optional ``secret_token`` also allows an inbound-webhook trigger later.
+    """
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="owned_signals"
+    )
+    strategy = models.OneToOneField(
+        "strategies.Strategy",
+        on_delete=models.CASCADE,
+        related_name="copy_signal",
+        null=True,
+        blank=True,
     )
     name = models.CharField(max_length=64)
     secret_token = models.CharField(max_length=64, unique=True, db_index=True)
@@ -30,6 +41,12 @@ class CopySubscription(models.Model):
         max_digits=5, decimal_places=2, null=True, blank=True
     )
     risk_factor = models.DecimalField(max_digits=4, decimal_places=2, default=1)
+    high_water_mark = models.DecimalField(
+        max_digits=24,
+        decimal_places=8,
+        default=0,
+        help_text="Cumulative realized profit peak; performance fee is charged only above this.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -116,3 +133,50 @@ class EquitySnapshot(models.Model):
 
     def __str__(self):
         return f"{self.subscription} @ {self.captured_at}"
+
+
+class PlatformFeeConfig(models.Model):
+    """Admin-configured destination + rate for collected performance fees.
+
+    "20% of the profit should come to the account I enter in my panel."
+    Collection is ledger/accrual (trade-only keys can't move funds on-chain).
+    """
+
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="fee_config"
+    )
+    share_pct = models.DecimalField(max_digits=5, decimal_places=2, default=20)
+    destination_exchange = models.CharField(max_length=16, default="tabdeal")
+    destination_account = models.CharField(
+        max_length=128, blank=True, default="", help_text="Wallet/account the platform's share is owed to."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"FeeConfig({self.owner} @ {self.share_pct}%)"
+
+
+class FeeLedgerEntry(models.Model):
+    """One accrual of the platform's performance-fee share for a closed trade."""
+
+    class Status(models.TextChoices):
+        ACCRUED = "accrued", "Accrued"
+        SETTLED = "settled", "Settled"
+
+    subscription = models.ForeignKey(
+        CopySubscription, on_delete=models.CASCADE, related_name="fee_entries"
+    )
+    trade = models.ForeignKey(
+        CopyTrade, on_delete=models.CASCADE, related_name="fee_entries", null=True, blank=True
+    )
+    amount = models.DecimalField(max_digits=24, decimal_places=8)
+    share_pct = models.DecimalField(max_digits=5, decimal_places=2, default=20)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACCRUED)
+    accrued_at = models.DateTimeField(auto_now_add=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["subscription", "status"])]
+
+    def __str__(self):
+        return f"Fee {self.amount} [{self.status}]"

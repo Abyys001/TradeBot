@@ -7,8 +7,13 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.middleware.csrf import get_token
 from django.views.decorators.http import require_GET, require_POST
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
-from .serializers import UserSerializer
+from .models import User
+from .permissions import IsAdminRole
+from .serializers import InvestorCreateSerializer, InvestorSerializer, UserSerializer
 
 
 @require_GET
@@ -75,3 +80,54 @@ def change_password_view(request):
     user.save(update_fields=["password", "must_change_password"])
     update_session_auth_hash(request, user)
     return JsonResponse(UserSerializer(user).data)
+
+
+class InvestorViewSet(viewsets.ModelViewSet):
+    """Admin-only management of investor accounts.
+
+    Create an investor (username + temp password, forced first-login change),
+    list them, reset a password, or toggle their trading kill-switch / active
+    state. Hard deletes are disabled — deactivate instead of destroy.
+    """
+
+    permission_classes = [IsAdminRole]
+    queryset = User.objects.filter(role=User.Role.INVESTOR).order_by("-created_at")
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return InvestorCreateSerializer
+        return InvestorSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(InvestorSerializer(user).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="reset-password")
+    def reset_password(self, request, pk=None):
+        user = self.get_object()
+        password = request.data.get("password", "")
+        try:
+            validate_password(password, user=user)
+        except ValidationError as e:
+            return Response({"detail": e.messages}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(password)
+        user.must_change_password = True
+        user.save(update_fields=["password", "must_change_password"])
+        return Response(InvestorSerializer(user).data)
+
+    @action(detail=True, methods=["post"], url_path="set-trading")
+    def set_trading(self, request, pk=None):
+        user = self.get_object()
+        user.is_trading_enabled = bool(request.data.get("enabled", False))
+        user.save(update_fields=["is_trading_enabled"])
+        return Response(InvestorSerializer(user).data)
+
+    @action(detail=True, methods=["post"], url_path="set-active")
+    def set_active(self, request, pk=None):
+        user = self.get_object()
+        user.is_active = bool(request.data.get("active", True))
+        user.save(update_fields=["is_active"])
+        return Response(InvestorSerializer(user).data)

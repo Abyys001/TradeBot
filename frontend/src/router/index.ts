@@ -55,6 +55,12 @@ const router = createRouter({
           name: 'orders',
           component: () => import('../views/OrdersView.vue'),
         },
+        {
+          path: 'investors',
+          name: 'investors',
+          component: () => import('../views/admin/InvestorsView.vue'),
+          meta: { requiresAdmin: true },
+        },
       ],
     },
   ],
@@ -70,6 +76,7 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.meta.guest && auth.user) return { name: 'overview' }
+  if (to.meta.requiresAdmin && auth.user?.role !== 'admin') return { name: 'overview' }
   return true
 })
 

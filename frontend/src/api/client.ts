@@ -46,6 +46,96 @@ export interface User {
   username: string
   email?: string
   is_trading_enabled: boolean
+  role: 'admin' | 'investor'
+  must_change_password: boolean
+}
+
+export interface Investor {
+  id: number
+  username: string
+  email?: string
+  role: 'admin' | 'investor'
+  is_trading_enabled: boolean
+  is_active: boolean
+  must_change_password: boolean
+  date_joined: string
+  last_login: string | null
+  created_at: string
+}
+
+export interface InvestorCreatePayload {
+  username: string
+  password: string
+  email?: string
+  is_trading_enabled?: boolean
+}
+
+export interface CopySummary {
+  subscriptions: number
+  realized_pnl: string
+  net_pnl: string
+  fees_total: string
+  fees_owed: string
+  open_trades: number
+  closed_trades: number
+}
+
+export interface CopyTradeRow {
+  id: number
+  pair: string
+  side: string
+  entry_price: string | null
+  exit_price: string | null
+  status: string
+  gross_pnl: string
+  platform_share_amount: string
+  opened_at: string
+  closed_at: string | null
+}
+
+export interface CopyEquityPoint {
+  balance: string
+  equity: string
+  captured_at: string
+}
+
+export interface FeeConfig {
+  share_pct: string
+  destination_exchange: string
+  destination_account: string
+  updated_at?: string
+}
+
+export interface AdminCopyRow {
+  subscription_id: number
+  investor: string
+  signal: string
+  is_active: boolean
+  trading_enabled: boolean
+  high_water_mark: string
+  realized_pnl: string
+  fees_accrued: string
+  open_trades: number
+}
+
+export interface AdminCopyOverview {
+  investors: AdminCopyRow[]
+  totals: {
+    investor_count: number
+    realized_pnl: string
+    fees_accrued: string
+    fees_owed: string
+  }
+}
+
+export interface FeeLedgerRow {
+  id: number
+  investor: string
+  amount: string
+  share_pct: string
+  status: string
+  accrued_at: string
+  settled_at: string | null
 }
 
 export interface HealthPayload {

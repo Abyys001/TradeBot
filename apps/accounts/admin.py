@@ -6,8 +6,8 @@ from .models import User
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
-    list_display = ("username", "email", "is_trading_enabled", "is_staff", "created_at")
-    list_filter = UserAdmin.list_filter + ("is_trading_enabled",)
+    list_display = ("username", "email", "role", "is_trading_enabled", "is_staff", "created_at")
+    list_filter = UserAdmin.list_filter + ("role", "is_trading_enabled")
     fieldsets = UserAdmin.fieldsets + (
-        ("Trading", {"fields": ("is_trading_enabled",)}),
+        ("Trading", {"fields": ("role", "is_trading_enabled", "must_change_password")}),
     )

@@ -48,8 +48,14 @@ class StartStrategyView(APIView):
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         live_config = strategy.live_config or {}
+        copy_mode = bool(live_config.get("copy_trading"))
         leverage = live_config.get("leverage")
-        if leverage and strategy.credential:
+        if copy_mode:
+            # Fan-out mode: auto-subscribe all active investors' Tabdeal accounts.
+            from apps.copytrading.subscriptions import sync_subscriptions
+
+            sync_subscriptions(strategy)
+        elif leverage and strategy.credential:
             from apps.exchange.hl_client import update_leverage
 
             update_leverage(strategy.credential, strategy.symbol, int(leverage))
