@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from apps.credentials.models import ExchangeCredential
 from apps.exchange.candles import BAR_MAP, CandleFetchError, fetch_candles
-from apps.execution.models import ExecutionLog, OrderRecord
+from apps.execution.models import OrderRecord
 from apps.strategies.models import Strategy
 from apps.transpiler.models import BacktestTrade
 
@@ -88,6 +88,39 @@ class HealthView(APIView):
 
     def get(self, request):
         return Response(build_health_payload(user=request.user))
+
+
+class HealthPingView(APIView):
+    """Unauthenticated health endpoint for Docker/container healthchecks."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from django.db import connection
+        from django.core.cache import cache
+
+        checks = {"status": "ok"}
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            checks["database"] = "ok"
+        except Exception:
+            checks["database"] = "error"
+            checks["status"] = "degraded"
+
+        try:
+            cache.set("_health_ping", "1", 5)
+            if cache.get("_health_ping") == "1":
+                checks["redis"] = "ok"
+            else:
+                checks["redis"] = "error"
+                checks["status"] = "degraded"
+        except Exception:
+            checks["redis"] = "error"
+            checks["status"] = "degraded"
+
+        status_code = 200 if checks["status"] == "ok" else 503
+        return Response(checks, status=status_code)
 
 
 class OverviewView(APIView):

@@ -5,6 +5,8 @@ via django-environ. See .env.example for the required variables.
 """
 from pathlib import Path
 
+import os
+
 import environ
 
 # BASE_DIR = repo root (two levels up from this file: config/settings/base.py)
@@ -15,8 +17,9 @@ env = environ.Env(
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
 )
 
-# Read .env if present (dev convenience; prod injects real env vars).
-environ.Env.read_env(BASE_DIR / ".env")
+# Read .env only in dev — prod injects real env vars and .env must not override them.
+if os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"):
+    env.read_env(BASE_DIR / ".env")
 
 # --- Core ---
 SECRET_KEY = env("SECRET_KEY")
@@ -69,6 +72,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.accounts.middleware.ForcePasswordChangeMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -155,6 +159,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "execution.retry_stale_orders",
         "schedule": 30.0,
     },
+    "copytrading-reconcile-orders": {
+        "task": "copytrading.reconcile_copy_orders",
+        "schedule": 60.0,
+    },
 }
 
 # Coins polled for forward open-interest history collection (no HL OI history API).
@@ -190,7 +198,20 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/minute",
+        "user": "120/minute",
+        "login": "10/minute",
+    },
 }
+
+# --- Cookie security ---
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_HTTPONLY = True
 
 # --- i18n / tz ---
 LANGUAGE_CODE = "en-us"

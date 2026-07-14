@@ -61,6 +61,10 @@ class PaperAccountView(APIView):
             value = Decimal(str(balance))
         except (InvalidOperation, TypeError):
             return Response({"error": "invalid balance"}, status=400)
+        if value <= 0:
+            return Response({"error": "balance must be positive"}, status=400)
+        if value > Decimal("1000000000"):
+            return Response({"error": "balance exceeds maximum (1 billion)"}, status=400)
         account.balance = value
         account.equity = value
         account.save(update_fields=["balance", "equity", "updated_at"])

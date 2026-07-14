@@ -16,12 +16,26 @@ except Exception:
   sleep 1
 done
 
+echo "Waiting for Redis..."
+until python -c "
+import os, sys
+try:
+    import redis
+    url = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+    r = redis.from_url(url, socket_connect_timeout=3)
+    r.ping()
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; do
+  sleep 1
+done
+
 if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
   echo "Running migrations..."
   python manage.py migrate --noinput
 
   # Dev-only: bootstrap first login when the DB has no users yet.
-  if [ "${DEBUG:-False}" = "True" ] || [ "${DEBUG:-false}" = "true" ]; then
+  if [ "${CREATE_DEV_SUPERUSER:-False}" = "True" ] || [ "${DEBUG:-False}" = "True" ] || [ "${DEBUG:-false}" = "true" ]; then
     python -c "
 import os
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', os.environ.get('DJANGO_SETTINGS_MODULE', 'config.settings.dev'))

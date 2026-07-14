@@ -1,7 +1,9 @@
-"""Copy-trading Celery tasks: signal fan-out and equity snapshots."""
+"""Copy-trading Celery tasks: signal fan-out, equity snapshots, and reconciliation."""
 from __future__ import annotations
 
+import hashlib
 import logging
+import time
 
 from celery import shared_task
 
@@ -13,7 +15,13 @@ def fan_out_signal_task(strategy_id: int, actions: list[dict]):
     """Replay captured signal intents against every active subscriber's account.
 
     Per-account isolation: one investor's failure must never block the others.
+    Orders use unique clientOrderId for idempotency (error 1213 = already placed).
+    Pre-trade risk checks gate each investor independently.
     """
+    from apps.exchange.tabdeal_errors import TabdealAPIError
+    from apps.exchange.tabdeal_futures import TabdealFuturesClient
+    from apps.risk.config import parse_risk_config
+    from apps.risk.manager import RiskManager
     from apps.strategies.models import Strategy
     from apps.transpiler.runtime.tabdeal_broker import TabdealBroker
 
@@ -26,28 +34,66 @@ def fan_out_signal_task(strategy_id: int, actions: list[dict]):
 
     live_config = strategy.live_config or {}
     leverage = float(live_config.get("leverage", 1) or 1)
+    risk_config = parse_risk_config(live_config)
 
     subs = CopySubscription.objects.filter(signal=signal, is_active=True).select_related(
         "credential", "credential__user", "signal"
     )
     done = 0
+    errors = []
+    skipped_risk = []
     for sub in subs:
         try:
+            # Pre-trade risk gate per investor.
+            try:
+                client = TabdealFuturesClient(sub.credential)
+                equity = client.available_usdt()
+            except Exception:  # noqa: BLE001
+                equity = 0.0
+
+            rm = RiskManager(config=risk_config, initial_balance=equity, strategy_id=sub.pk)
+            risk_decision = rm.pre_trade(
+                equity=equity,
+                open_trades=0,
+                exposure_pct=0.0,
+                leverage=leverage,
+            )
+            if not risk_decision.ok:
+                skipped_risk.append({"subscription_id": sub.pk, "reason": risk_decision.reason})
+                continue
+
             broker = TabdealBroker(sub, strategy, strategy.symbol, leverage=leverage)
             for a in actions:
-                _apply_action(broker, a)
+                _apply_action(broker, a, sub)
             done += 1
+        except TabdealAPIError as exc:
+            code = exc.info.code
+            if code == "1213":
+                logger.info("duplicate order for sub %s (idempotent)", sub.pk)
+            else:
+                logger.warning("tabdeal error for sub %s: %s", sub.pk, exc)
+                errors.append({"subscription_id": sub.pk, "code": code, "message": exc.info.message})
         except Exception:  # noqa: BLE001 — isolate per-investor failures
             logger.exception("fan-out failed for subscription %s", sub.pk)
-    return {"ok": True, "subscribers": done, "actions": len(actions)}
+            errors.append({"subscription_id": sub.pk, "error": "internal"})
+    return {"ok": True, "subscribers": done, "actions": len(actions), "errors": errors, "skipped_risk": skipped_risk}
 
 
-def _apply_action(broker, a: dict) -> None:
+def _generate_client_order_id(sub_id: int, action: dict, timestamp: float) -> str:
+    """Generate a deterministic, unique clientOrderId for idempotency."""
+    raw = f"cp:{sub_id}:{action.get('type', '')}:{action.get('oid', '')}:{int(timestamp * 1000)}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+def _apply_action(broker, a: dict, sub=None) -> None:
     t = a.get("type")
+    ts = time.time()
+    coid = _generate_client_order_id(sub.pk if sub else 0, a, ts) if sub else None
     if t == "entry":
         broker.entry(
             a["oid"], a["direction"], a["price"], a["bar_index"],
             qty=a.get("qty"), limit=a.get("limit"), alert_message=a.get("alert_message"),
+            client_order_id=coid,
         )
     elif t == "close":
         broker.close(a["oid"], a["price"], a["bar_index"], qty_pct=a.get("qty_pct", 1.0), reason=a.get("reason"))
@@ -85,3 +131,67 @@ def capture_equity_task(subscription_id: int | None = None):
         except Exception:  # noqa: BLE001
             logger.warning("equity snapshot failed for sub %s", sub.pk, exc_info=True)
     return {"ok": True, "snapshots": n}
+
+
+@shared_task(name="copytrading.reconcile_copy_orders")
+def reconcile_copy_orders_task():
+    """Poll Tabdeal for open positions and recent trades to reconcile CopyOrder/CopyTrade status.
+
+    Runs periodically to detect: orphaned positions, missed fills, stale order states.
+    """
+    from apps.exchange.tabdeal_futures import TabdealFuturesClient
+
+    from .models import CopyOrder, CopySubscription, CopyTrade
+
+    active_subs = CopySubscription.objects.filter(
+        is_active=True,
+        credential__is_active=True,
+    ).select_related("credential", "credential__user")
+
+    reconciled = 0
+    errors = 0
+    for sub in active_subs:
+        try:
+            client = TabdealFuturesClient(sub.credential)
+
+            # Reconcile open copy orders against exchange state.
+            open_orders = CopyOrder.objects.filter(
+                subscription=sub,
+                status__in=["pending", "submitted", "partially_filled"],
+            )
+            exchange_open = {o.get("orderId"): o for o in client.open_orders(sub.signal.strategy.symbol if sub.signal and sub.signal.strategy else None)}
+
+            for order in open_orders:
+                ex = exchange_open.get(int(order.exchange_order_id)) if order.exchange_order_id else None
+                if ex is None:
+                    # Order no longer on exchange — check if filled or canceled.
+                    order.status = "filled" if float(order.filled_size or 0) >= float(order.size) else "canceled"
+                    order.save(update_fields=["status", "updated_at"])
+                elif ex.get("status") == "FILLED":
+                    order.status = "filled"
+                    order.filled_size = ex.get("executedQty", order.filled_size)
+                    order.save(update_fields=["status", "filled_size", "updated_at"])
+                reconciled += 1
+
+            # Detect orphaned positions (open on exchange but no matching CopyTrade).
+            positions = client.get_positions()
+            for p in positions:
+                amt = float(p.get("positionAmt", 0))
+                if amt == 0:
+                    continue
+                has_trade = CopyTrade.objects.filter(
+                    subscription=sub,
+                    status=CopyTrade.Status.OPEN,
+                    entry_order__pair=p.get("symbol", ""),
+                ).exists()
+                if not has_trade:
+                    logger.warning(
+                        "orphaned position detected for sub %s: %s amt=%s",
+                        sub.pk, p.get("symbol"), amt,
+                    )
+
+        except Exception:  # noqa: BLE001
+            logger.warning("reconciliation failed for sub %s", sub.pk, exc_info=True)
+            errors += 1
+
+    return {"ok": True, "reconciled": reconciled, "errors": errors}

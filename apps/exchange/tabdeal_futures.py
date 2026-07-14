@@ -13,16 +13,21 @@ endpoint. Futures must be activated once per key via set-leverage (error 1207).
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 from django.conf import settings
 from django.utils import timezone
 
-from .tabdeal_constants import base_url, recv_window_ms
+from .tabdeal_constants import base_url
 from .tabdeal_errors import TabdealAPIError, parse_response
 from .tabdeal_signing import build_signed_query
 
 logger = logging.getLogger(__name__)
+
+# Rate-limit retry config.
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0  # seconds
 
 
 class TabdealFuturesClient:
@@ -34,6 +39,8 @@ class TabdealFuturesClient:
         self._api_secret = credential.get_api_secret()
         self._base_url = base_url()
         self._timeout = getattr(settings, "TABDEAL_API_TIMEOUT", getattr(settings, "HL_API_TIMEOUT", 30))
+        self._exchange_info_cache: dict = {}
+        self._exchange_info_cache_ts: float = 0.0
 
     # ----- low-level request helpers -----
 
@@ -47,11 +54,23 @@ class TabdealFuturesClient:
         return self._parse(resp)
 
     def _signed(self, method: str, path: str, params: dict | None = None) -> dict:
-        """Signed [TRADE] request; signed params go in the query string."""
-        query = build_signed_query(self._api_secret, params or {})
-        url = f"{self._base_url}{path}?{query}"
-        resp = requests.request(method, url, headers=self._headers(), timeout=self._timeout)
-        return self._parse(resp)
+        """Signed [TRADE] request with exponential backoff on rate-limit (error 1216)."""
+        last_exc = None
+        for attempt in range(_MAX_RETRIES + 1):
+            query = build_signed_query(self._api_secret, params or {})
+            url = f"{self._base_url}{path}?{query}"
+            resp = requests.request(method, url, headers=self._headers(), timeout=self._timeout)
+            try:
+                return self._parse(resp)
+            except TabdealAPIError as exc:
+                if exc.info.code == "1216" and attempt < _MAX_RETRIES:
+                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning("rate-limited (1216), retrying in %.1fs (attempt %d)", delay, attempt + 1)
+                    time.sleep(delay)
+                    last_exc = exc
+                    continue
+                raise
+        raise last_exc  # type: ignore[misc]
 
     @staticmethod
     def _parse(resp: "requests.Response") -> dict:
@@ -73,8 +92,22 @@ class TabdealFuturesClient:
         return int(self._public("/r/fapi/v1/time").get("serverTime", 0))
 
     def exchange_info(self, symbol: str | None = None) -> dict:
+        # Cache for 1 hour to avoid hitting rate limits.
+        now = time.time()
+        if self._exchange_info_cache and (now - self._exchange_info_cache_ts) < 3600:
+            if symbol:
+                symbols = self._exchange_info_cache.get("symbols") or self._exchange_info_cache.get("data") or []
+                for s in symbols:
+                    if s.get("symbol") == symbol:
+                        return {"symbols": [s]}
+                return {"symbols": []}
+            return self._exchange_info_cache
         params = {"symbol": symbol} if symbol else None
-        return self._public("/r/fapi/v1/exchangeInfo", params)
+        data = self._public("/r/fapi/v1/exchangeInfo", params)
+        if not symbol:
+            self._exchange_info_cache = data
+            self._exchange_info_cache_ts = now
+        return data
 
     def symbol_precision(self, symbol: str) -> tuple[int, int]:
         """Return (pricePrecision, quantityPrecision) for a futures symbol."""

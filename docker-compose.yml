@@ -11,8 +11,8 @@ x-app-common: &app-common
   extra_hosts: &app-extra-hosts
     - "host.docker.internal:host-gateway"
   environment: &app-env
-    DATABASE_URL: postgres://tradebot:tradebot@host.docker.internal:5432/tradebot?connect_timeout=5
-    REDIS_URL: redis://host.docker.internal:6379/0
+    DATABASE_URL: postgres://${POSTGRES_USER:-tradebot}:${POSTGRES_PASSWORD:-tradebot}@host.docker.internal:5432/${POSTGRES_DB:-tradebot}?connect_timeout=5
+    REDIS_URL: redis://:${REDIS_PASSWORD:-}@host.docker.internal:6379/0
     RELOAD: ${RELOAD:-1}
     RUN_MIGRATIONS: "0"
     ALLOWED_HOSTS: localhost,127.0.0.1,web
@@ -31,30 +31,37 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: tradebot
-      POSTGRES_PASSWORD: tradebot
-      POSTGRES_DB: tradebot
+      POSTGRES_USER: ${POSTGRES_USER:-tradebot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradebot}
+      POSTGRES_DB: ${POSTGRES_DB:-tradebot}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tradebot"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tradebot}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
 
   redis:
     image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     ports:
       - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
 
   web:
     <<: *app-common
@@ -74,6 +81,15 @@ services:
         else
           daphne -b 0.0.0.0 -p 8000 config.asgi:application
         fi
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/').read()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   celery:
     <<: *app-common
@@ -86,6 +102,9 @@ services:
         else
           celery -A config worker --loglevel=info
         fi
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
 
   celery-beat:
     <<: *app-common
@@ -98,6 +117,9 @@ services:
         else
           celery -A config beat --loglevel=info
         fi
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
 
   market-feed:
     <<: *app-common
@@ -110,6 +132,9 @@ services:
         else
           python manage.py run_market_feed
         fi
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
 
   user-feed:
     <<: *app-common
@@ -122,6 +147,9 @@ services:
         else
           python manage.py run_user_feed
         fi
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
 
   candle-consumer:
     <<: *app-common
@@ -134,6 +162,9 @@ services:
         else
           python manage.py consume_hl_candles
         fi
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
 
   frontend:
     build:
@@ -145,6 +176,9 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       - web
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
 
 volumes:
   pgdata:

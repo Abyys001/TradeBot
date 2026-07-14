@@ -1,7 +1,7 @@
 """Copy-trading REST API: investor summaries + admin fee config/overview."""
 from __future__ import annotations
 
-from django.db.models import Count, Sum
+from django.db.models import Sum
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView

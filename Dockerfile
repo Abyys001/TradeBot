@@ -5,6 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DEFAULT_TIMEOUT=300
 
+RUN groupadd -r app && useradd -r -g app -d /app -s /sbin/nologin app
+
 WORKDIR /app
 
 RUN printf 'Acquire::Retries "10";\nAcquire::http::Timeout "180";\nAcquire::https::Timeout "180";\n' > /etc/apt/apt.conf.d/99retries \
@@ -20,11 +22,15 @@ RUN pip install --upgrade pip \
         || (echo "pip install retry 2/2" && rm -rf /root/.cache/pip && sleep 10 \
             && pip install --retries 10 --timeout 300 -r requirements.txt))
 
+RUN chown -R app:app /app
+
 COPY entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
-COPY . .
+USER app
+
+COPY --chown=app:app . .
 
 EXPOSE 8000
 
