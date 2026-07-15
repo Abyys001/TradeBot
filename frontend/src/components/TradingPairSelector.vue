@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useHistoryStore } from '../stores/history'
+import { useBreakpoints } from '../composables/useBreakpoints'
 import {
   POPULAR_COINS,
   buildPairOptions,
@@ -32,6 +33,13 @@ const model = defineModel<string | string[]>({ required: true })
 
 const { t } = useI18n()
 const history = useHistoryStore()
+const { isPhone } = useBreakpoints()
+
+// Conservative fixed estimate (popular-coins header + a few list rows) used
+// to decide whether to flip the dropdown upward — avoids a layout-thrashing
+// double-measure via nextTick just to get the real height.
+const ESTIMATED_PANEL_HEIGHT = 340
+const MIN_PANEL_WIDTH = 280
 
 const rootEl = ref<HTMLElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
@@ -99,10 +107,30 @@ async function positionDropdown() {
   const el = rootEl.value
   if (!el) return
   const rect = el.getBoundingClientRect()
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  // Clamp to a comfortable minimum width (narrow triggers, e.g. inside the
+  // backtest sidebar, would otherwise cramp the popular-coin pills) while
+  // never exceeding the viewport.
+  const width = Math.min(Math.max(rect.width, MIN_PANEL_WIDTH), viewportWidth - 16)
+  let left = rect.left
+  if (left + width > viewportWidth - 8) left = viewportWidth - width - 8
+  left = Math.max(8, left)
+
+  // Flip upward when there isn't enough room below but there is above
+  // (e.g. trigger near the bottom of a scrolled mobile form).
+  const spaceBelow = viewportHeight - rect.bottom
+  const spaceAbove = rect.top
+  const openUpward = spaceBelow < ESTIMATED_PANEL_HEIGHT && spaceAbove > spaceBelow
+  const top = openUpward
+    ? Math.max(8, rect.top - ESTIMATED_PANEL_HEIGHT - 4)
+    : rect.bottom + 4
+
   dropdownStyle.value = {
-    top: `${rect.bottom + 4}px`,
-    left: `${rect.left}px`,
-    width: `${rect.width}px`,
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `${width}px`,
   }
 }
 
@@ -300,8 +328,11 @@ onUnmounted(() => {
               v-for="coin in POPULAR_COINS"
               :key="coin"
               type="button"
-              class="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors"
-              :class="selectedPairs.includes(coinToPair(coin)) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'"
+              class="inline-flex items-center gap-1 rounded px-2 text-xs transition-colors"
+              :class="[
+                isPhone ? 'py-1.5' : 'py-0.5',
+                selectedPairs.includes(coinToPair(coin)) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700',
+              ]"
               @mousedown.prevent="selectPair(coinToPair(coin))"
             >
               <span v-if="hasStoredData(coinToPair(coin))" class="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -317,8 +348,11 @@ onUnmounted(() => {
           <li v-for="(pair, idx) in filteredPairs" :key="pair">
             <button
               type="button"
-              class="flex w-full items-center justify-between px-3 py-2 text-start text-sm transition-colors"
-              :class="idx === highlightIndex ? 'bg-emerald-950/50 text-emerald-100' : 'text-zinc-300 hover:bg-zinc-900'"
+              class="flex w-full items-center justify-between px-3 text-start text-sm transition-colors"
+              :class="[
+                isPhone ? 'py-2.5' : 'py-2',
+                idx === highlightIndex ? 'bg-emerald-950/50 text-emerald-100' : 'text-zinc-300 hover:bg-zinc-900',
+              ]"
               @mousedown.prevent="selectPair(pair)"
             >
               <span class="flex items-center gap-2">

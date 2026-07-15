@@ -45,3 +45,30 @@ def sync_subscriptions(strategy) -> dict:
         created += int(was_created)
     total = CopySubscription.objects.filter(signal=signal, is_active=True).count()
     return {"signal_id": signal.pk, "new": created, "active_total": total}
+
+
+def ensure_owner_subscription(strategy) -> CopySubscription | None:
+    """Attach the strategy owner's own active Tabdeal credential to their signal.
+
+    sync_subscriptions() intentionally excludes admin-role users via its
+    User.Role.INVESTOR filter -- that filter must stay untouched (relied on
+    elsewhere). This is a separate, role-independent path so the strategy
+    owner (e.g. an admin running their own bot script) also receives real
+    fills on their own Tabdeal account, exactly like an auto-followed
+    investor.
+    """
+    from apps.credentials.models import Exchange
+
+    signal = ensure_signal(strategy)
+    cred = strategy.credential
+    if cred is None or cred.exchange != Exchange.TABDEAL or not cred.is_active:
+        return None
+    if cred.user_id != strategy.user_id:
+        return None
+    sub, created = CopySubscription.objects.get_or_create(
+        signal=signal, credential=cred, defaults={"is_active": True}
+    )
+    if not created and not sub.is_active:
+        sub.is_active = True
+        sub.save(update_fields=["is_active"])
+    return sub

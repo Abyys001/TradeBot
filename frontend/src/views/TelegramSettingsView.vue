@@ -147,7 +147,7 @@ async function test() {
 </script>
 
 <template>
-  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-6 space-y-6 max-w-2xl">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 max-w-2xl">
     <h1 class="text-lg font-semibold text-zinc-200">{{ t('telegram.title') }}</h1>
 
     <section class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">

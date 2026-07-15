@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAdminStore } from '../../stores/admin'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 import type { Investor } from '../../api/client'
 
 const { t } = useI18n()
@@ -61,11 +62,13 @@ async function resetPassword(inv: Investor) {
   }
 }
 
+const isEmpty = computed(() => !admin.loading && admin.investors.length === 0)
+
 onMounted(() => admin.fetchAll())
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl p-6">
+  <div class="mx-auto max-w-5xl p-3 sm:p-6">
     <h1 class="mb-1 text-xl font-semibold text-zinc-100">{{ t('investors.title') }}</h1>
     <p class="mb-6 text-sm text-zinc-500">{{ t('investors.subtitle') }}</p>
 
@@ -111,19 +114,20 @@ onMounted(() => admin.fetchAll())
     </div>
 
     <!-- Investor list -->
-    <div class="overflow-x-auto rounded-xl border border-zinc-800">
-      <table class="w-full text-left text-sm">
-        <thead class="bg-zinc-900/70 text-xs uppercase text-zinc-500">
-          <tr>
-            <th class="px-4 py-3">{{ t('investors.username') }}</th>
-            <th class="px-4 py-3">{{ t('investors.email') }}</th>
-            <th class="px-4 py-3">{{ t('investors.status') }}</th>
-            <th class="px-4 py-3">{{ t('investors.trading') }}</th>
-            <th class="px-4 py-3">{{ t('investors.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-zinc-800">
-          <tr v-for="inv in admin.investors" :key="inv.id" class="text-zinc-300">
+    <div class="rounded-xl border border-zinc-800 overflow-hidden">
+      <ResponsiveTable :empty="isEmpty">
+        <template #empty>
+          <span class="block px-4 py-8 text-center">{{ t('investors.empty') }}</span>
+        </template>
+        <template #head>
+          <th class="px-4 py-3 text-start">{{ t('investors.username') }}</th>
+          <th class="px-4 py-3 text-start">{{ t('investors.email') }}</th>
+          <th class="px-4 py-3 text-start">{{ t('investors.status') }}</th>
+          <th class="px-4 py-3 text-start">{{ t('investors.trading') }}</th>
+          <th class="px-4 py-3 text-start">{{ t('investors.actions') }}</th>
+        </template>
+        <template #row>
+          <tr v-for="inv in admin.investors" :key="inv.id" class="text-zinc-300 divide-y divide-zinc-800 border-t border-zinc-800">
             <td class="px-4 py-3">
               <span class="font-medium text-zinc-100">{{ inv.username }}</span>
               <span v-if="inv.must_change_password"
@@ -160,11 +164,45 @@ onMounted(() => admin.fetchAll())
               </div>
             </td>
           </tr>
-          <tr v-if="!admin.loading && admin.investors.length === 0">
-            <td colspan="5" class="px-4 py-8 text-center text-zinc-600">{{ t('investors.empty') }}</td>
-          </tr>
-        </tbody>
-      </table>
+        </template>
+        <template #card>
+          <div v-for="inv in admin.investors" :key="inv.id" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <span class="font-medium text-zinc-100">{{ inv.username }}</span>
+                <span v-if="inv.must_change_password"
+                  class="ms-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">
+                  {{ t('investors.pendingChange') }}
+                </span>
+                <div class="text-xs text-zinc-500">{{ inv.email || '—' }}</div>
+              </div>
+              <span class="shrink-0 text-xs" :class="inv.is_active ? 'text-emerald-400' : 'text-zinc-500'">
+                {{ inv.is_active ? t('investors.active') : t('investors.disabled') }}
+              </span>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-2">
+              <button type="button" @click="toggleTrading(inv)"
+                :class="inv.is_trading_enabled
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : 'bg-zinc-800 text-zinc-500'"
+                class="rounded-full px-2.5 py-1 text-xs">
+                {{ inv.is_trading_enabled ? t('investors.on') : t('investors.off') }}
+              </button>
+              <div class="flex gap-2">
+                <button type="button" @click="resetPassword(inv)"
+                  class="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
+                  {{ t('investors.resetPassword') }}
+                </button>
+                <button type="button" @click="toggleActive(inv)"
+                  class="rounded-md border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
+                  :class="inv.is_active ? 'text-red-400' : 'text-emerald-400'">
+                  {{ inv.is_active ? t('investors.disable') : t('investors.enable') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </ResponsiveTable>
     </div>
   </div>
 </template>

@@ -145,6 +145,30 @@ class AdminCopyOverviewView(APIView):
         )
 
 
+class AdminStrategyPnlView(APIView):
+    """Admin: combined realized PnL per owned strategy (for the bot-cards page)."""
+
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from apps.strategies.models import Strategy
+
+        strategy_ids = Strategy.objects.filter(user=request.user).values_list("id", flat=True)
+        rows = (
+            CopyTrade.objects.filter(
+                subscription__signal__strategy_id__in=strategy_ids,
+                status=CopyTrade.Status.CLOSED,
+            )
+            .values("subscription__signal__strategy_id")
+            .annotate(realized_pnl=Sum("gross_pnl"))
+        )
+        pnl = {
+            str(r["subscription__signal__strategy_id"]): str(r["realized_pnl"] or 0)
+            for r in rows
+        }
+        return Response({"pnl": pnl})
+
+
 class AdminFeeLedgerView(APIView):
     """Admin list of fee ledger entries; POST marks entries settled."""
 

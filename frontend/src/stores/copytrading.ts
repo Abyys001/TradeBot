@@ -19,6 +19,7 @@ export const useCopyTradingStore = defineStore('copytrading', () => {
   const overview = ref<AdminCopyOverview | null>(null)
   const feeConfig = ref<FeeConfig | null>(null)
   const ledger = ref<FeeLedgerRow[]>([])
+  const strategyPnl = ref<Record<string, string>>({})
   const loading = ref(false)
 
   async function fetchMy() {
@@ -64,5 +65,24 @@ export const useCopyTradingStore = defineStore('copytrading', () => {
     await fetchAdmin()
   }
 
-  return { summary, trades, equity, overview, feeConfig, ledger, loading, fetchMy, fetchAdmin, saveFeeConfig, settle }
+  async function fetchStrategyPnl() {
+    const { data } = await api.get<{ pnl: Record<string, string> }>('/copytrading/admin/strategy-pnl/')
+    strategyPnl.value = data.pnl
+  }
+
+  return {
+    summary,
+    trades,
+    equity,
+    overview,
+    feeConfig,
+    ledger,
+    strategyPnl,
+    loading,
+    fetchMy,
+    fetchAdmin,
+    saveFeeConfig,
+    settle,
+    fetchStrategyPnl,
+  }
 })

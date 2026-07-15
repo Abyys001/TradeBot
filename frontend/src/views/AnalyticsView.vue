@@ -8,6 +8,7 @@ import { useOptimizerStore } from '../stores/optimizer'
 import { useStrategyStore } from '../stores/strategy'
 import EquityCurve from '../modules/backtest/EquityCurve.vue'
 import BacktestHistoryCards from '../modules/backtest/BacktestHistoryCards.vue'
+import ResponsiveTable from '../components/ResponsiveTable.vue'
 
 type SortKey = 'net_pnl' | 'sharpe_ratio' | 'created_at'
 
@@ -241,30 +242,42 @@ async function runPortfolio() {
         <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-900/50 text-xs font-medium text-zinc-400">
           {{ t('analytics.byAsset') }}
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="text-xs text-zinc-500 uppercase bg-zinc-900/30">
-              <tr>
-                <th class="px-3 py-2 text-start">{{ t('data.coin') }}</th>
-                <th class="px-3 py-2 text-end">PnL</th>
-                <th class="px-3 py-2 text-end">{{ t('backtest.winRate') }}</th>
-                <th class="px-3 py-2 text-end">{{ t('backtest.numTrades') }}</th>
-                <th class="px-3 py-2 text-end">{{ t('analytics.funding') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="a in byAsset" :key="a.symbol" class="border-t border-zinc-800/50">
-                <td class="px-3 py-2 text-zinc-300">{{ a.symbol }}</td>
-                <td class="px-3 py-2 text-end" :class="a.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'">
-                  {{ a.net_pnl.toFixed(2) }}
-                </td>
-                <td class="px-3 py-2 text-end text-zinc-400">{{ (a.win_rate * 100).toFixed(1) }}%</td>
-                <td class="px-3 py-2 text-end text-zinc-400">{{ a.num_trades }}</td>
-                <td class="px-3 py-2 text-end text-zinc-500">{{ a.funding_paid.toFixed(2) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <ResponsiveTable>
+          <template #head>
+            <th class="px-3 py-2 text-start">{{ t('data.coin') }}</th>
+            <th class="px-3 py-2 text-end">PnL</th>
+            <th class="px-3 py-2 text-end">{{ t('backtest.winRate') }}</th>
+            <th class="px-3 py-2 text-end">{{ t('backtest.numTrades') }}</th>
+            <th class="px-3 py-2 text-end">{{ t('analytics.funding') }}</th>
+          </template>
+          <template #row>
+            <tr v-for="a in byAsset" :key="a.symbol" class="border-t border-zinc-800/50">
+              <td class="px-3 py-2 text-zinc-300">{{ a.symbol }}</td>
+              <td class="px-3 py-2 text-end" :class="a.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'">
+                {{ a.net_pnl.toFixed(2) }}
+              </td>
+              <td class="px-3 py-2 text-end text-zinc-400">{{ (a.win_rate * 100).toFixed(1) }}%</td>
+              <td class="px-3 py-2 text-end text-zinc-400">{{ a.num_trades }}</td>
+              <td class="px-3 py-2 text-end text-zinc-500">{{ a.funding_paid.toFixed(2) }}</td>
+            </tr>
+          </template>
+          <template #card>
+            <div v-for="a in byAsset" :key="a.symbol" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-zinc-200">{{ a.symbol }}</span>
+                <span :class="a.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ a.net_pnl.toFixed(2) }}</span>
+              </div>
+              <div class="mt-1.5 grid grid-cols-2 gap-y-1 text-xs">
+                <span class="text-zinc-500">{{ t('backtest.winRate') }}</span>
+                <span class="text-end text-zinc-400">{{ (a.win_rate * 100).toFixed(1) }}%</span>
+                <span class="text-zinc-500">{{ t('backtest.numTrades') }}</span>
+                <span class="text-end text-zinc-400">{{ a.num_trades }}</span>
+                <span class="text-zinc-500">{{ t('analytics.funding') }}</span>
+                <span class="text-end text-zinc-500">{{ a.funding_paid.toFixed(2) }}</span>
+              </div>
+            </div>
+          </template>
+        </ResponsiveTable>
       </div>
     </template>
   </div>

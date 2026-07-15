@@ -9,12 +9,14 @@ import { useHealthStore } from '../stores/health'
 import { useStrategyStore } from '../stores/strategy'
 import { useTerminalStore } from '../stores/terminal'
 import { useToast } from '../composables/useToast'
+import { useLayoutStore } from '../stores/layout'
 
 const health = useHealthStore()
 const strategy = useStrategyStore()
 const terminal = useTerminalStore()
 const ws = useDashboardWebSocket()
 const { toasts, dismiss } = useToast()
+const layout = useLayoutStore()
 
 const { pause, resume } = useIntervalFn(() => health.fetchHealth(), 10000)
 
@@ -28,7 +30,7 @@ onUnmounted(pause)
 </script>
 
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-zinc-950">
+  <div class="flex h-dvh flex-col overflow-hidden bg-zinc-950">
     <HealthHeader />
     <div class="flex flex-1 min-h-0">
       <AppSidebar />
@@ -38,6 +40,12 @@ onUnmounted(pause)
         </RouterView>
       </main>
     </div>
+
+    <div
+      v-if="layout.mobileNavOpen"
+      class="fixed inset-0 z-30 bg-black/50 lg:hidden"
+      @click="layout.setMobileNavOpen(false)"
+    />
 
     <div class="pointer-events-none fixed top-4 end-4 z-50 flex max-w-sm flex-col gap-2">
       <TransitionGroup

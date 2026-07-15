@@ -240,8 +240,11 @@ def run_backtest_stored_task(
 
 def _recover_positions_if_any(strategy: Strategy) -> dict[str, object] | None:
     """Query HL for open positions and return recovered position/PnL or None."""
+    from apps.credentials.models import Exchange
     from apps.exchange.hl_client import build_info
 
+    if strategy.credential is None or strategy.credential.exchange != Exchange.HYPERLIQUID:
+        return None
     if strategy.credential.network == "spot":
         return None
     try:

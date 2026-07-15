@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { api } from '../../api/client'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 
 const props = defineProps<{ strategyId: number; active?: boolean }>()
 const { t } = useI18n()
@@ -60,19 +61,21 @@ defineExpose({ refresh })
         {{ t('positions.refresh') }}
       </button>
     </div>
-    <div v-if="loading && !positions.length" class="px-3 py-4 text-xs text-zinc-500">{{ t('overview.loading') }}</div>
-    <div v-else-if="!positions.length" class="px-3 py-4 text-xs text-zinc-500">{{ t('positions.empty') }}</div>
-    <div v-else class="overflow-x-auto"><table class="w-full text-xs">
-      <thead class="text-zinc-500">
-        <tr>
-          <th class="px-3 py-1 text-start">{{ t('data.coin') }}</th>
-          <th class="px-3 py-1 text-end">{{ t('positions.size') }}</th>
-          <th class="px-3 py-1 text-end">{{ t('positions.liq') }}</th>
-          <th class="px-3 py-1 text-end">PnL</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="p in positions" :key="p.coin" class="border-t border-zinc-800/50">
+    <ResponsiveTable :loading="loading && !positions.length" :empty="!loading && !positions.length">
+      <template #loading>
+        <span class="block px-3 py-4 text-xs">{{ t('overview.loading') }}</span>
+      </template>
+      <template #empty>
+        <span class="block px-3 py-4 text-xs">{{ t('positions.empty') }}</span>
+      </template>
+      <template #head>
+        <th class="px-3 py-1 text-start">{{ t('data.coin') }}</th>
+        <th class="px-3 py-1 text-end">{{ t('positions.size') }}</th>
+        <th class="px-3 py-1 text-end">{{ t('positions.liq') }}</th>
+        <th class="px-3 py-1 text-end">PnL</th>
+      </template>
+      <template #row>
+        <tr v-for="p in positions" :key="p.coin" class="border-t border-zinc-800/50 text-xs">
           <td class="px-3 py-1.5 text-zinc-300">{{ p.coin }}</td>
           <td class="px-3 py-1.5 text-end text-zinc-400">{{ p.size }}</td>
           <td class="px-3 py-1.5 text-end text-zinc-500">{{ p.liquidation_px ?? '—' }}</td>
@@ -80,7 +83,19 @@ defineExpose({ refresh })
             {{ p.unrealized_pnl }}
           </td>
         </tr>
-      </tbody>
-    </table></div>
+      </template>
+      <template #card>
+        <div v-for="p in positions" :key="p.coin" class="rounded-lg border border-zinc-800/70 p-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-zinc-300">{{ p.coin }}</span>
+            <span :class="Number(p.unrealized_pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ p.unrealized_pnl }}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-zinc-500">
+            <span>{{ t('positions.size') }}: {{ p.size }}</span>
+            <span>{{ t('positions.liq') }}: {{ p.liquidation_px ?? '—' }}</span>
+          </div>
+        </div>
+      </template>
+    </ResponsiveTable>
   </div>
 </template>

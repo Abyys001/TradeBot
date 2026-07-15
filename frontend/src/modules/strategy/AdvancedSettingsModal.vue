@@ -112,7 +112,7 @@ async function onSave() {
         >
           {{ showAdvancedRisk ? '▼' : '▶' }} {{ t('strategy.advancedRisk') }}
         </button>
-        <div v-if="showAdvancedRisk" class="mt-2 grid grid-cols-2 gap-2">
+        <div v-if="showAdvancedRisk" class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div v-for="field in ADVANCED_RISK_FIELDS" :key="field">
             <label class="text-[10px] text-zinc-600">{{ field }}</label>
             <input

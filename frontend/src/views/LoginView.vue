@@ -25,7 +25,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="relative min-h-screen flex items-center justify-center bg-zinc-950 px-4 overflow-hidden">
+  <div class="relative min-h-dvh flex items-center justify-center bg-zinc-950 px-4 overflow-hidden">
     <!-- Animated background orbs -->
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
       <div class="orb orb-1" />

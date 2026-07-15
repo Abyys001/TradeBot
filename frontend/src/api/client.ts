@@ -180,6 +180,7 @@ export interface Strategy {
 export interface LiveConfig {
   symbols?: string[]
   timeframes?: string[]
+  copy_trading?: boolean
   risk?: {
     leverage?: number
     position_size_pct?: number
@@ -241,8 +242,10 @@ export interface Credential {
 export interface CredentialCreatePayload {
   label: string
   exchange?: string
-  wallet_address: string
-  agent_private_key: string
+  wallet_address?: string
+  agent_private_key?: string
+  api_key?: string
+  api_secret?: string
   network?: string
 }
 

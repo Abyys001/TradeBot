@@ -3,6 +3,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.models import User
 from apps.transpiler.tasks import start_live_strategy_task, stop_live_strategy_task
 
 from .models import Strategy
@@ -47,14 +48,29 @@ class StartStrategyView(APIView):
         if errors:
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Only one bot script may be live at a time for the admin: starting a
+        # new one synchronously stops any other currently-active strategy of
+        # theirs first, so its status flips to non-active before this request
+        # returns -- avoiding a window where two signals could fan out real
+        # Tabdeal orders to the same account at once. Scoped to admin role so
+        # the shared per-investor /strategies page is unaffected.
+        if strategy.user.role == User.Role.ADMIN:
+            others = Strategy.objects.filter(
+                user=strategy.user, status=Strategy.Status.ACTIVE
+            ).exclude(pk=strategy.pk)
+            for other in others:
+                stop_live_strategy_task(other.pk)
+
         live_config = strategy.live_config or {}
         copy_mode = bool(live_config.get("copy_trading"))
         leverage = live_config.get("leverage")
         if copy_mode:
-            # Fan-out mode: auto-subscribe all active investors' Tabdeal accounts.
-            from apps.copytrading.subscriptions import sync_subscriptions
+            # Fan-out mode: auto-subscribe all active investors' Tabdeal accounts,
+            # plus the strategy owner's own active Tabdeal credential if any.
+            from apps.copytrading.subscriptions import ensure_owner_subscription, sync_subscriptions
 
             sync_subscriptions(strategy)
+            ensure_owner_subscription(strategy)
         elif leverage and strategy.credential:
             from apps.exchange.hl_client import update_leverage
 

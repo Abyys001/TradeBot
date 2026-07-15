@@ -233,7 +233,7 @@ onMounted(() => {
   <div class="relative h-full w-full flex flex-col">
     <div
       v-if="selected && (mode === 'live' || mode === 'paper') && (symbols.length > 1 || timeframes.length > 1)"
-      class="absolute top-2 start-2 z-10 flex gap-2"
+      class="absolute top-2 start-2 z-10 flex max-w-[calc(100%-4rem)] flex-wrap gap-2"
     >
       <select
         v-if="symbols.length > 1"
@@ -253,7 +253,7 @@ onMounted(() => {
 
     <div
       v-if="selected && mode === 'backtest' && activeBacktest"
-      class="absolute top-2 start-2 z-10 rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-300"
+      class="absolute top-2 start-2 z-10 max-w-[calc(100%-4rem)] rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-300"
     >
       {{ activeBacktest.symbol }} / {{ activeBacktest.timeframe }}
       <span

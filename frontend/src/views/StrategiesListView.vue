@@ -7,6 +7,7 @@ import { useToast } from '../composables/useToast'
 import CreateStrategyModal from '../modules/strategy/CreateStrategyModal.vue'
 import ResearchGuide from '../modules/strategy/ResearchGuide.vue'
 import StrategiesEmptyState from '../components/StrategiesEmptyState.vue'
+import ResponsiveTable from '../components/ResponsiveTable.vue'
 import type { Strategy } from '../api/client'
 
 const { t } = useI18n()
@@ -22,6 +23,8 @@ const uploadSource = ref('')
 
 const badgeBase = 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium'
 const iconBtnBase = 'rounded-md p-1.5 text-zinc-600 transition-colors hover:bg-zinc-800'
+// Slightly larger tap target for the same icon buttons in the mobile card layout.
+const cardIconBtnBase = 'rounded-md p-2 text-zinc-600 transition-colors hover:bg-zinc-800'
 
 onMounted(() => {
   void store.fetchAll()
@@ -128,8 +131,8 @@ function onCreated(id: number) {
 </script>
 
 <template>
-  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-6">
-    <div class="flex items-center justify-between mb-6">
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 sm:p-6">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
       <h1 class="text-lg font-semibold text-zinc-200">{{ t('strategies.title') }}</h1>
       <div class="flex gap-2">
         <input ref="uploadInput" type="file" accept=".pine,.txt,.pinescript" class="hidden" @change="onFileSelected" />
@@ -169,17 +172,15 @@ function onCreated(id: number) {
     />
 
     <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
-      <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead class="bg-zinc-900/80 text-xs text-zinc-500 uppercase">
-          <tr>
-            <th class="text-start px-4 py-3">{{ t('strategy.name') }}</th>
-            <th class="text-start px-4 py-3">{{ t('strategy.symbols') }}</th>
-            <th class="text-start px-4 py-3">{{ t('strategies.statusColumn') }}</th>
-            <th class="text-start px-4 py-3">{{ t('strategies.pineColumn') }}</th>
-            <th class="text-end px-4 py-3">{{ t('strategies.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
+      <ResponsiveTable>
+        <template #head>
+          <th class="text-start px-4 py-3">{{ t('strategy.name') }}</th>
+          <th class="text-start px-4 py-3">{{ t('strategy.symbols') }}</th>
+          <th class="text-start px-4 py-3">{{ t('strategies.statusColumn') }}</th>
+          <th class="text-start px-4 py-3">{{ t('strategies.pineColumn') }}</th>
+          <th class="text-end px-4 py-3">{{ t('strategies.actions') }}</th>
+        </template>
+        <template #row>
           <tr
             v-for="s in list"
             :key="s.id"
@@ -258,8 +259,80 @@ function onCreated(id: number) {
               </div>
             </td>
           </tr>
-        </tbody>
-      </table></div>
+        </template>
+        <template #card>
+          <div v-for="s in list" :key="s.id" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <div class="flex items-center justify-between gap-2">
+              <button type="button" class="truncate font-medium text-zinc-200 hover:text-emerald-400" @click="openDetail(s.id)">
+                {{ s.name }}
+              </button>
+              <span class="shrink-0 text-xs text-zinc-500">{{ s.symbol }}</span>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              <span :class="[badgeBase, statusClass(s.status)]">{{ statusLabel(s.status) }}</span>
+              <span :class="[badgeBase, pineClass(s.validation_status)]">{{ pineLabel(s.validation_status) }}</span>
+            </div>
+            <div class="mt-2 flex items-center justify-end gap-0.5 border-t border-zinc-800 pt-2">
+              <button
+                type="button"
+                :class="[cardIconBtnBase, 'hover:text-zinc-200']"
+                :aria-label="t('strategies.edit')"
+                @click="openDetail(s.id)"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                :class="[cardIconBtnBase, 'hover:text-violet-400']"
+                :aria-label="t('strategy.validate')"
+                @click="onValidate(s)"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <path d="m9 11 3 3L22 4" />
+                </svg>
+              </button>
+              <button
+                v-if="s.status === 'active'"
+                type="button"
+                :class="[cardIconBtnBase, 'hover:text-amber-400']"
+                :aria-label="t('strategy.stop')"
+                @click="onStop(s)"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="6" y="6" width="12" height="12" rx="1" />
+                </svg>
+              </button>
+              <button
+                v-else-if="s.credential"
+                type="button"
+                :class="[cardIconBtnBase, 'hover:text-emerald-400']"
+                :aria-label="t('strategy.start')"
+                @click="onStart(s)"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="6 3 20 12 6 21 6 3" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                :class="[cardIconBtnBase, 'hover:text-red-400']"
+                :aria-label="t('strategies.delete')"
+                @click="deleteTarget = s"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </template>
+      </ResponsiveTable>
     </div>
 
     <CreateStrategyModal

@@ -6,6 +6,7 @@ import AppModal from '../../components/AppModal.vue'
 import MetricsCards from './MetricsCards.vue'
 import EquityCurve from './EquityCurve.vue'
 import BacktestResultsSkeleton from '../../components/BacktestResultsSkeleton.vue'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 
 const props = defineProps<{ backtest: Backtest }>()
 const emit = defineEmits<{ close: []; viewChart: [] }>()
@@ -80,19 +81,17 @@ const isLoading = computed(
           <div class="border-b border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs font-medium text-zinc-400">
             {{ t('backtest.tradesTitle', { count: trades.length }) }}
           </div>
-          <div class="scrollbar-styled max-h-48 overflow-x-auto overflow-y-auto">
-            <table class="w-full text-xs">
-              <thead class="sticky top-0 bg-zinc-900/95 text-zinc-500 uppercase">
-                <tr>
-                  <th class="px-3 py-2 text-start">{{ t('backtest.side') }}</th>
-                  <th class="px-3 py-2 text-end">{{ t('backtest.entry') }}</th>
-                  <th class="px-3 py-2 text-end">{{ t('backtest.exit') }}</th>
-                  <th class="px-3 py-2 text-end">{{ t('backtest.pnl') }}</th>
-                  <th class="px-3 py-2 text-end">{{ t('backtest.exitReason') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(tr, i) in trades" :key="i" class="border-t border-zinc-800/50">
+          <div class="scrollbar-styled max-h-48 overflow-y-auto">
+            <ResponsiveTable sticky-head>
+              <template #head>
+                <th class="px-3 py-2 text-start">{{ t('backtest.side') }}</th>
+                <th class="px-3 py-2 text-end">{{ t('backtest.entry') }}</th>
+                <th class="px-3 py-2 text-end">{{ t('backtest.exit') }}</th>
+                <th class="px-3 py-2 text-end">{{ t('backtest.pnl') }}</th>
+                <th class="px-3 py-2 text-end">{{ t('backtest.exitReason') }}</th>
+              </template>
+              <template #row>
+                <tr v-for="(tr, i) in trades" :key="i" class="border-t border-zinc-800/50 text-xs">
                   <td class="px-3 py-1.5 text-zinc-300">{{ tr.side }}</td>
                   <td class="px-3 py-1.5 text-end text-zinc-400">{{ tr.entry_price }}</td>
                   <td class="px-3 py-1.5 text-end text-zinc-400">{{ tr.exit_price ?? '—' }}</td>
@@ -104,8 +103,30 @@ const isLoading = computed(
                   </td>
                   <td class="px-3 py-1.5 text-end text-zinc-500">{{ tr.exit_reason || '—' }}</td>
                 </tr>
-              </tbody>
-            </table>
+              </template>
+              <template #card>
+                <div v-for="(tr, i) in trades" :key="i" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span class="font-medium text-zinc-200">{{ tr.side }}</span>
+                    <span :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ tr.pnl }}</span>
+                  </div>
+                  <div class="mt-1.5 grid grid-cols-3 gap-y-1">
+                    <div>
+                      <div class="text-[10px] text-zinc-600">{{ t('backtest.entry') }}</div>
+                      <div class="text-zinc-400">{{ tr.entry_price }}</div>
+                    </div>
+                    <div>
+                      <div class="text-[10px] text-zinc-600">{{ t('backtest.exit') }}</div>
+                      <div class="text-zinc-400">{{ tr.exit_price ?? '—' }}</div>
+                    </div>
+                    <div>
+                      <div class="text-[10px] text-zinc-600">{{ t('backtest.exitReason') }}</div>
+                      <div class="text-zinc-500">{{ tr.exit_reason || '—' }}</div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </ResponsiveTable>
           </div>
         </div>
 

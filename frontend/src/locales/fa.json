@@ -5,6 +5,7 @@
   "nav": {
     "overview": "داشبورد",
     "investors": "سرمایه‌گذاران",
+    "botScripts": "اسکریپت‌های ربات",
     "strategies": "استراتژی‌ها",
     "data": "داده تاریخی",
     "analytics": "تحلیل",
@@ -14,7 +15,9 @@
     "collapse": "جمع کردن منو",
     "expand": "باز کردن منو",
     "toggleExpand": "باز کردن منو",
-    "toggleCollapse": "جمع کردن منو"
+    "toggleCollapse": "جمع کردن منو",
+    "openMenu": "باز کردن منو",
+    "moreActions": "اقدامات بیشتر"
   },
   "modal": {
     "close": "بستن",
@@ -164,6 +167,8 @@
     "label": "نام",
     "walletAddress": "آدرس کیف پول Master",
     "agentKey": "کلید خصوصی Agent",
+    "apiKey": "کلید API",
+    "apiSecret": "رمز API",
     "active": "فعال",
     "inactive": "غیرفعال",
     "empty": "کلید ثبت نشده. Agent key هایپرلیکوید را اضافه کنید.",
@@ -179,6 +184,20 @@
   "chart": {
     "pnl": "سود/زیان باز",
     "noStrategy": "یک استراتژی انتخاب کنید"
+  },
+  "bots": {
+    "title": "اسکریپت‌های ربات",
+    "upload": "آپلود اسکریپت ربات",
+    "empty": "هنوز اسکریپتی آپلود نشده. یک Pine Script آپلود کنید.",
+    "pnl": "سود/زیان تاکنون",
+    "on": "فعال",
+    "off": "غیرفعال",
+    "starting": "در حال شروع...",
+    "stopping": "در حال توقف...",
+    "onlyOneActiveHint": "در هر لحظه فقط یک اسکریپت می‌تواند فعال باشد — روشن کردن این یکی، اسکریپت دیگر را متوقف می‌کند.",
+    "notValidated": "هنوز اعتبارسنجی نشده",
+    "validationFailed": "اعتبارسنجی Pine ناموفق بود",
+    "needsTabdealCredential": "قبل از آپلود اسکریپت، یک کلید API تبدیل در تنظیمات اضافه کنید"
   },
   "terminal": {
     "title": "ترمینال لاگ",

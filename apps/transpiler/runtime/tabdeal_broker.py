@@ -21,11 +21,13 @@ logger = logging.getLogger(__name__)
 def to_tabdeal_symbol(symbol: str) -> str:
     """Map a strategy symbol to a Tabdeal futures pair (``BASE_QUOTE``).
 
-    ``BTC`` -> ``BTC_USDT``; ``BTCUSDT`` -> ``BTC_USDT``; ``BTC_USDT`` -> unchanged.
+    ``BTC`` -> ``BTC_USDT``; ``BTCUSDT`` -> ``BTC_USDT``; ``BTC_USDT`` -> unchanged;
+    ``BTC-USDT`` (the platform's standard pair-selector format) -> ``BTC_USDT``.
     """
     s = (symbol or "").upper().strip()
     if "_" in s:
         return s
+    s = s.replace("-", "")
     if s.endswith("USDT"):
         return f"{s[:-4]}_USDT"
     if s.endswith("USD"):

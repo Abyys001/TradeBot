@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import StatCard from '../modules/overview/StatCard.vue'
+import ResponsiveTable from '../components/ResponsiveTable.vue'
 import { useOverviewStore } from '../stores/overview'
 
 const { t } = useI18n()
@@ -33,7 +34,7 @@ function goStrategy(id: number | null) {
     </div>
 
     <template v-else-if="overview.data">
-      <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         <StatCard
           :label="t('overview.totalBots')"
           :value="overview.data.strategies.total"
@@ -66,53 +67,82 @@ function goStrategy(id: number | null) {
           <h2 class="text-sm font-medium text-zinc-400 px-4 py-3 border-b border-zinc-800">
             {{ t('overview.recentOrders') }}
           </h2>
-          <div v-if="!overview.data.recent_orders.length" class="p-4 text-sm text-zinc-600">
-            {{ t('overview.noOrders') }}
-          </div>
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-xs">
-              <tbody>
-                <tr
-                  v-for="order in overview.data.recent_orders"
-                  :key="order.id"
-                  class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
-                  @click="goStrategy(order.strategy)"
-                >
-                  <td class="px-4 py-2 text-zinc-300">{{ order.symbol }}</td>
-                  <td class="px-4 py-2" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
+          <ResponsiveTable :empty="!overview.data.recent_orders.length">
+            <template #empty>
+              <span class="text-zinc-600">{{ t('overview.noOrders') }}</span>
+            </template>
+            <template #row>
+              <tr
+                v-for="order in overview.data.recent_orders"
+                :key="order.id"
+                class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                @click="goStrategy(order.strategy)"
+              >
+                <td class="px-4 py-2 text-zinc-300">{{ order.symbol }}</td>
+                <td class="px-4 py-2" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
+                  {{ order.side.toUpperCase() }}
+                </td>
+                <td class="px-4 py-2 text-zinc-500">{{ order.status }}</td>
+                <td class="px-4 py-2 text-zinc-600">{{ formatTime(order.created_at) }}</td>
+              </tr>
+            </template>
+            <template #card>
+              <div
+                v-for="order in overview.data.recent_orders"
+                :key="order.id"
+                class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 cursor-pointer"
+                @click="goStrategy(order.strategy)"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="text-sm text-zinc-200">{{ order.symbol }}</span>
+                  <span class="text-xs font-medium" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
                     {{ order.side.toUpperCase() }}
-                  </td>
-                  <td class="px-4 py-2 text-zinc-500">{{ order.status }}</td>
-                  <td class="px-4 py-2 text-zinc-600">{{ formatTime(order.created_at) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                  </span>
+                </div>
+                <div class="mt-1 flex items-center justify-between text-xs text-zinc-500">
+                  <span>{{ order.status }}</span>
+                  <span>{{ formatTime(order.created_at) }}</span>
+                </div>
+              </div>
+            </template>
+          </ResponsiveTable>
         </section>
 
         <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
           <h2 class="text-sm font-medium text-zinc-400 px-4 py-3 border-b border-zinc-800">
             {{ t('overview.recentLogs') }}
           </h2>
-          <div v-if="!overview.data.recent_logs.length" class="p-4 text-sm text-zinc-600">
-            {{ t('overview.noLogs') }}
-          </div>
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-xs">
-              <tbody>
-                <tr
-                  v-for="log in overview.data.recent_logs"
-                  :key="log.id"
-                  class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
-                  @click="goStrategy(log.strategy)"
-                >
-                  <td class="px-4 py-2 font-mono text-zinc-500">{{ log.level }}</td>
-                  <td class="px-4 py-2 text-zinc-300">{{ log.event }}</td>
-                  <td class="px-4 py-2 text-zinc-600">{{ formatTime(log.created_at) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <ResponsiveTable :empty="!overview.data.recent_logs.length">
+            <template #empty>
+              <span class="text-zinc-600">{{ t('overview.noLogs') }}</span>
+            </template>
+            <template #row>
+              <tr
+                v-for="log in overview.data.recent_logs"
+                :key="log.id"
+                class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                @click="goStrategy(log.strategy)"
+              >
+                <td class="px-4 py-2 font-mono text-zinc-500">{{ log.level }}</td>
+                <td class="px-4 py-2 text-zinc-300">{{ log.event }}</td>
+                <td class="px-4 py-2 text-zinc-600">{{ formatTime(log.created_at) }}</td>
+              </tr>
+            </template>
+            <template #card>
+              <div
+                v-for="log in overview.data.recent_logs"
+                :key="log.id"
+                class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 cursor-pointer"
+                @click="goStrategy(log.strategy)"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="font-mono text-xs text-zinc-500">{{ log.level }}</span>
+                  <span class="text-xs text-zinc-600">{{ formatTime(log.created_at) }}</span>
+                </div>
+                <div class="mt-1 text-sm text-zinc-300">{{ log.event }}</div>
+              </div>
+            </template>
+          </ResponsiveTable>
         </section>
       </div>
     </template>

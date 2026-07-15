@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useOrdersStore } from '../stores/orders'
 import { useStrategyStore } from '../stores/strategy'
+import ResponsiveTable from '../components/ResponsiveTable.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -61,21 +62,19 @@ function formatTime(iso: string) {
         <option v-for="s in strategies.strategies" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
     </label>
-    <div v-if="orders.loading" class="text-sm text-zinc-500">{{ t('overview.loading') }}</div>
-    <div v-else-if="!filtered.length" class="text-sm text-zinc-500">{{ t('orders.empty') }}</div>
-    <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
-      <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead class="text-xs text-zinc-500 uppercase bg-zinc-900/50">
-          <tr>
-            <th class="px-3 py-2 text-start">{{ t('strategies.name') }}</th>
-            <th class="px-3 py-2 text-start">{{ t('data.coin') }}</th>
-            <th class="px-3 py-2 text-start">{{ t('orders.side') }}</th>
-            <th class="px-3 py-2 text-start">{{ t('orders.status') }}</th>
-            <th class="px-3 py-2 text-end">{{ t('positions.size') }}</th>
-            <th class="px-3 py-2 text-end">{{ t('orders.time') }}</th>
-          </tr>
-        </thead>
-        <tbody>
+    <div class="rounded-xl border border-zinc-800 overflow-hidden">
+      <ResponsiveTable :loading="orders.loading" :empty="!filtered.length">
+        <template #loading>{{ t('overview.loading') }}</template>
+        <template #empty>{{ t('orders.empty') }}</template>
+        <template #head>
+          <th class="px-3 py-2 text-start">{{ t('strategies.name') }}</th>
+          <th class="px-3 py-2 text-start">{{ t('data.coin') }}</th>
+          <th class="px-3 py-2 text-start">{{ t('orders.side') }}</th>
+          <th class="px-3 py-2 text-start">{{ t('orders.status') }}</th>
+          <th class="px-3 py-2 text-end">{{ t('positions.size') }}</th>
+          <th class="px-3 py-2 text-end">{{ t('orders.time') }}</th>
+        </template>
+        <template #row>
           <tr
             v-for="o in filtered"
             :key="o.id"
@@ -89,8 +88,37 @@ function formatTime(iso: string) {
             <td class="px-3 py-2 text-end text-zinc-400">{{ o.size }}</td>
             <td class="px-3 py-2 text-end text-zinc-500 text-xs">{{ formatTime(o.created_at) }}</td>
           </tr>
-        </tbody>
-      </table></div>
+        </template>
+        <template #card>
+          <div
+            v-for="o in filtered"
+            :key="o.id"
+            class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-1.5 cursor-pointer"
+            @click="goStrategy(o.strategy)"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium text-zinc-200">{{ strategyName(o.strategy) }}</span>
+              <span class="text-xs text-zinc-500">{{ o.symbol }}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-500">{{ t('orders.side') }}</span>
+              <span class="text-zinc-300">{{ o.side }}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-500">{{ t('orders.status') }}</span>
+              <span class="text-zinc-300">{{ o.status }}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-500">{{ t('positions.size') }}</span>
+              <span class="text-zinc-300">{{ o.size }}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-zinc-500">{{ t('orders.time') }}</span>
+              <span class="text-zinc-400">{{ formatTime(o.created_at) }}</span>
+            </div>
+          </div>
+        </template>
+      </ResponsiveTable>
     </div>
   </div>
 </template>

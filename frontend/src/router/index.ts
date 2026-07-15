@@ -61,6 +61,12 @@ const router = createRouter({
           component: () => import('../views/admin/InvestorsView.vue'),
           meta: { requiresAdmin: true },
         },
+        {
+          path: 'admin/bots',
+          name: 'admin-bots',
+          component: () => import('../views/admin/BotScriptsView.vue'),
+          meta: { requiresAdmin: true },
+        },
       ],
     },
   ],

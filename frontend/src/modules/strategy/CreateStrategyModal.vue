@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../../stores/strategy'
 import { useCredentialsStore } from '../../stores/credentials'
 import { useToast } from '../../composables/useToast'
 import TradingPairSelector from '../../components/TradingPairSelector.vue'
 
-const props = defineProps<{ initialSource?: string }>()
+const props = defineProps<{ initialSource?: string; forceCopyTrading?: boolean }>()
 const emit = defineEmits<{ close: []; created: [id: number] }>()
 
 const { t } = useI18n()
@@ -23,6 +23,15 @@ const engineType = ref('pine')
 const saving = ref(false)
 const dragOver = ref(false)
 
+// Bot-cards flow (forceCopyTrading): live orders only ever route through the
+// copy-trading fan-out, which only ever pays out to Tabdeal credentials -- a
+// Hyperliquid credential here would fail on the first live bar.
+const availableCredentials = computed(() =>
+  props.forceCopyTrading
+    ? credentials.credentials.filter((c) => c.exchange === 'tabdeal')
+    : credentials.credentials,
+)
+
 const TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1H', '4H', '1D']
 
 function toggleTf(tf: string) {
@@ -36,7 +45,7 @@ function toggleTf(tf: string) {
 onMounted(async () => {
   if (!credentials.credentials.length) await credentials.fetchAll()
   if (!store.engines.length) await store.fetchEngines()
-  credentialId.value = credentials.credentials[0]?.id ?? null
+  credentialId.value = availableCredentials.value[0]?.id ?? null
 })
 
 function onFile(file: File) {
@@ -71,6 +80,7 @@ async function submit() {
         symbols: selectedSymbols.value.length ? selectedSymbols.value : ['BTC-USDT'],
         timeframes: selectedTimeframes.value.length ? selectedTimeframes.value : ['1h'],
         risk: { leverage: 1, position_size_pct: 5, global_stop_loss_pct: 10 },
+        ...(props.forceCopyTrading ? { copy_trading: true } : {}),
       },
     })
     emit('created', s.id)
@@ -104,12 +114,12 @@ async function submit() {
             <span class="text-zinc-600">({{ t('strategy.credentialOptional') }})</span>
           </label>
           <select v-model="credentialId" class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm">
-            <option :value="null">{{ t('strategy.noCredentialBacktestOnly') }}</option>
-            <option v-for="c in credentials.credentials" :key="c.id" :value="c.id">
+            <option v-if="!forceCopyTrading" :value="null">{{ t('strategy.noCredentialBacktestOnly') }}</option>
+            <option v-for="c in availableCredentials" :key="c.id" :value="c.id">
               {{ c.label }} ({{ c.network }})
             </option>
           </select>
-          <p v-if="!credentials.credentials.length" class="text-xs text-zinc-500 mt-1">
+          <p v-if="!availableCredentials.length" class="text-xs text-zinc-500 mt-1">
             {{ t('strategy.liveRequiresCredential') }}
           </p>
         </div>

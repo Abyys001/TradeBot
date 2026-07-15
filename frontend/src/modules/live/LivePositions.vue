@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { api } from '../../api/client'
 import { useExchangeWebSocket } from '../../composables/useExchangeWebSocket'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 
 const props = defineProps<{ credentialId: number }>()
 
@@ -103,46 +104,59 @@ function fmt(val: string | undefined, decimals = 2) {
       </div>
     </div>
 
-    <!-- Loading state -->
-    <div v-if="loading && !positions.length" class="px-4 py-6 text-xs text-zinc-500 text-center">
-      Loading positions…
-    </div>
-
-    <!-- Empty state -->
-    <div v-else-if="!positions.length" class="px-4 py-6 text-xs text-zinc-500 text-center">
-      No open positions
-    </div>
-
-    <!-- Positions table -->
-    <div v-else class="overflow-x-auto">
-      <table class="w-full text-xs">
-        <thead>
-          <tr class="text-zinc-500 border-b border-zinc-800">
-            <th class="px-3 py-2 text-start font-medium">Coin</th>
-            <th class="px-3 py-2 text-end font-medium">Size</th>
-            <th class="px-3 py-2 text-end font-medium">Entry Px</th>
-            <th class="px-3 py-2 text-end font-medium">Leverage</th>
-            <th class="px-3 py-2 text-end font-medium">uPnL</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="pos in positions"
-            :key="pos.coin"
-            class="border-t border-zinc-800/60 hover:bg-zinc-800/30 transition-colors"
-          >
-            <td class="px-3 py-2 text-zinc-200 font-medium">{{ pos.coin }}</td>
-            <td class="px-3 py-2 text-end" :class="Number(pos.szi) > 0 ? 'text-emerald-400' : 'text-red-400'">
-              {{ fmt(pos.szi, 4) }}
-            </td>
-            <td class="px-3 py-2 text-end text-zinc-400">${{ fmt(pos.entryPx) }}</td>
-            <td class="px-3 py-2 text-end text-zinc-400">{{ fmt(pos.leverage, 1) }}×</td>
-            <td class="px-3 py-2 text-end font-medium" :class="pnlClass(pos.unrealizedPnl)">
-              ${{ fmt(pos.unrealizedPnl) }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <ResponsiveTable :loading="loading && !positions.length" :empty="!loading && !positions.length">
+      <template #loading>
+        <span class="block px-4 py-6 text-center text-xs">Loading positions…</span>
+      </template>
+      <template #empty>
+        <span class="block px-4 py-6 text-center text-xs">No open positions</span>
+      </template>
+      <template #head>
+        <th class="px-3 py-2 text-start font-medium">Coin</th>
+        <th class="px-3 py-2 text-end font-medium">Size</th>
+        <th class="px-3 py-2 text-end font-medium">Entry Px</th>
+        <th class="px-3 py-2 text-end font-medium">Leverage</th>
+        <th class="px-3 py-2 text-end font-medium">uPnL</th>
+      </template>
+      <template #row>
+        <tr
+          v-for="pos in positions"
+          :key="pos.coin"
+          class="border-t border-zinc-800/60 text-xs hover:bg-zinc-800/30 transition-colors"
+        >
+          <td class="px-3 py-2 text-zinc-200 font-medium">{{ pos.coin }}</td>
+          <td class="px-3 py-2 text-end" :class="Number(pos.szi) > 0 ? 'text-emerald-400' : 'text-red-400'">
+            {{ fmt(pos.szi, 4) }}
+          </td>
+          <td class="px-3 py-2 text-end text-zinc-400">${{ fmt(pos.entryPx) }}</td>
+          <td class="px-3 py-2 text-end text-zinc-400">{{ fmt(pos.leverage, 1) }}×</td>
+          <td class="px-3 py-2 text-end font-medium" :class="pnlClass(pos.unrealizedPnl)">
+            ${{ fmt(pos.unrealizedPnl) }}
+          </td>
+        </tr>
+      </template>
+      <template #card>
+        <div v-for="pos in positions" :key="pos.coin" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-zinc-200">{{ pos.coin }}</span>
+            <span class="font-medium" :class="pnlClass(pos.unrealizedPnl)">${{ fmt(pos.unrealizedPnl) }}</span>
+          </div>
+          <div class="mt-1.5 grid grid-cols-3 gap-y-1 text-zinc-500">
+            <div>
+              <div class="text-[10px]">Size</div>
+              <div :class="Number(pos.szi) > 0 ? 'text-emerald-400' : 'text-red-400'">{{ fmt(pos.szi, 4) }}</div>
+            </div>
+            <div>
+              <div class="text-[10px]">Entry Px</div>
+              <div class="text-zinc-400">${{ fmt(pos.entryPx) }}</div>
+            </div>
+            <div>
+              <div class="text-[10px]">Leverage</div>
+              <div class="text-zinc-400">{{ fmt(pos.leverage, 1) }}×</div>
+            </div>
+          </div>
+        </div>
+      </template>
+    </ResponsiveTable>
   </div>
 </template>

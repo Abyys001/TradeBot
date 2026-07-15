@@ -5,6 +5,7 @@
   "nav": {
     "overview": "Overview",
     "investors": "Investors",
+    "botScripts": "Bot Scripts",
     "strategies": "Strategies",
     "data": "Historical Data",
     "analytics": "Analytics",
@@ -14,7 +15,9 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "toggleExpand": "Expand sidebar",
-    "toggleCollapse": "Collapse sidebar"
+    "toggleCollapse": "Collapse sidebar",
+    "openMenu": "Open menu",
+    "moreActions": "More actions"
   },
   "modal": {
     "close": "Close",
@@ -164,6 +167,8 @@
     "label": "Label",
     "walletAddress": "Master Wallet Address (0x...)",
     "agentKey": "Agent Private Key",
+    "apiKey": "API Key",
+    "apiSecret": "API Secret",
     "active": "Active",
     "inactive": "Inactive",
     "empty": "No credentials configured. Add your Hyperliquid agent key to start trading.",
@@ -179,6 +184,20 @@
   "chart": {
     "pnl": "Unrealized PnL",
     "noStrategy": "Select a strategy to view chart"
+  },
+  "bots": {
+    "title": "Bot Scripts",
+    "upload": "Upload Bot Script",
+    "empty": "No bot scripts yet. Upload a Pine Script to get started.",
+    "pnl": "P&L so far",
+    "on": "ON",
+    "off": "OFF",
+    "starting": "Starting...",
+    "stopping": "Stopping...",
+    "onlyOneActiveHint": "Only one bot script can be live at a time — turning this on stops any other running bot.",
+    "notValidated": "Not validated yet",
+    "validationFailed": "Pine validation failed",
+    "needsTabdealCredential": "Add a Tabdeal API key in Settings before uploading a bot script"
   },
   "terminal": {
     "title": "Audit Terminal",

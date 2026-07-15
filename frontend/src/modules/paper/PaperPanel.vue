@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePaperStore } from '../../stores/paper'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 
 const props = defineProps<{ strategyId: number }>()
 const { t } = useI18n()
@@ -83,22 +84,30 @@ onMounted(refresh)
     </div>
     <div v-if="trades.length" class="border-t border-zinc-800 pt-2">
       <div class="text-xs text-zinc-500 mb-1">{{ t('paper.trades') }}</div>
-      <div class="overflow-x-auto"><table class="w-full text-[10px]">
-        <thead class="text-zinc-600">
-          <tr>
-            <th class="text-start py-0.5">{{ t('paper.side') }}</th>
-            <th class="text-end py-0.5">PnL</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="tr in trades.slice(0, 10)" :key="tr.id" class="border-t border-zinc-800/50">
+      <ResponsiveTable>
+        <template #head>
+          <th class="text-start py-0.5 text-[10px]">{{ t('paper.side') }}</th>
+          <th class="text-end py-0.5 text-[10px]">PnL</th>
+        </template>
+        <template #row>
+          <tr v-for="tr in trades.slice(0, 10)" :key="tr.id" class="border-t border-zinc-800/50 text-[10px]">
             <td class="py-0.5 text-zinc-400">{{ tr.side }}</td>
             <td class="py-0.5 text-end" :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">
               {{ tr.pnl }}
             </td>
           </tr>
-        </tbody>
-      </table></div>
+        </template>
+        <template #card>
+          <div
+            v-for="tr in trades.slice(0, 10)"
+            :key="tr.id"
+            class="flex items-center justify-between rounded border border-zinc-800/70 px-2 py-1 text-[10px]"
+          >
+            <span class="text-zinc-400">{{ tr.side }}</span>
+            <span :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ tr.pnl }}</span>
+          </div>
+        </template>
+      </ResponsiveTable>
     </div>
   </div>
 </template>

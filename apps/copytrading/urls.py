@@ -11,4 +11,5 @@ urlpatterns = [
     path("copytrading/fee-config/", views.FeeConfigView.as_view(), name="copy-fee-config"),
     path("copytrading/admin/overview/", views.AdminCopyOverviewView.as_view(), name="copy-admin-overview"),
     path("copytrading/admin/ledger/", views.AdminFeeLedgerView.as_view(), name="copy-admin-ledger"),
+    path("copytrading/admin/strategy-pnl/", views.AdminStrategyPnlView.as_view(), name="copy-admin-strategy-pnl"),
 ]

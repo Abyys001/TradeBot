@@ -4,15 +4,25 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLayoutStore } from '../stores/layout'
 import { useAuthStore } from '../stores/auth'
+import { useResponsiveDrawer } from '../composables/useResponsiveDrawer'
+import { useBreakpoints } from '../composables/useBreakpoints'
 
 const { t } = useI18n()
 const route = useRoute()
 const layout = useLayoutStore()
 const auth = useAuthStore()
+const { isMobile } = useBreakpoints()
+
+useResponsiveDrawer({
+  isOpen: computed(() => layout.mobileNavOpen),
+  setOpen: layout.setMobileNavOpen,
+  closeOnRouteChange: true,
+})
 
 const allNavItems = [
   { name: 'overview', path: '/', label: 'nav.overview', icon: 'overview' },
   { name: 'investors', path: '/investors', label: 'nav.investors', icon: 'investors', adminOnly: true },
+  { name: 'admin-bots', path: '/admin/bots', label: 'nav.botScripts', icon: 'bots', adminOnly: true },
   { name: 'strategies', path: '/strategies', label: 'nav.strategies', icon: 'strategies' },
   { name: 'data', path: '/data', label: 'nav.data', icon: 'data' },
   { name: 'analytics', path: '/analytics', label: 'nav.analytics', icon: 'analytics' },
@@ -25,11 +35,19 @@ const navItems = computed(() =>
   allNavItems.filter((item) => !item.adminOnly || auth.user?.role === 'admin'),
 )
 
-const asideClass = computed(() =>
+// Mobile: fixed-width drawer (w-64, see template). Desktop (lg+): collapse
+// toggle still controls icon-only (w-16) vs full (w-60) width, applied via
+// the `lg:` prefix so it only takes effect once the drawer is in-flow.
+const asideWidthClass = computed(() =>
   layout.navCollapsed
-    ? 'w-16'
-    : 'w-60',
+    ? 'lg:w-16'
+    : 'lg:w-60',
 )
+
+// Icon-only collapse only makes sense as an in-flow desktop layout; the
+// mobile drawer always shows full labels regardless of the persisted
+// desktop navCollapsed preference.
+const showLabels = computed(() => isMobile.value || !layout.navCollapsed)
 
 function isActive(path: string) {
   if (path === '/') return route.path === '/'
@@ -39,24 +57,37 @@ function isActive(path: string) {
 
 <template>
   <aside
-    class="shrink-0 border-e border-zinc-800 bg-zinc-900/50 flex flex-col py-3 transition-[width] duration-200 overflow-hidden"
-    :class="asideClass"
+    class="border-e border-zinc-800 bg-zinc-900/50 flex flex-col py-3 overflow-hidden fixed inset-y-0 start-0 z-40 w-64 max-w-[80vw] shadow-2xl transition-transform duration-200 lg:relative lg:inset-auto lg:z-auto lg:max-w-none lg:shadow-none lg:translate-x-0 lg:rtl:translate-x-0 lg:transition-[width] lg:shrink-0"
+    :class="[asideWidthClass, layout.mobileNavOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full']"
     :style="{ '--nav-width': layout.navWidth }"
   >
-    <button
-      type="button"
-      class="mx-2 mb-3 flex items-center justify-start rounded-lg px-3 py-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-      :title="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
-      :aria-label="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
-      @click="layout.toggleNav()"
-    >
-      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path v-if="layout.navCollapsed" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16" />
-        <template v-else>
-          <path stroke-linecap="round" d="M4 6h16M4 12h10M4 18h16" />
-        </template>
-      </svg>
-    </button>
+    <div class="mx-2 mb-3 flex items-center gap-1">
+      <button
+        type="button"
+        class="hidden flex-1 items-center justify-start rounded-lg px-3 py-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 lg:flex"
+        :title="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
+        :aria-label="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
+        @click="layout.toggleNav()"
+      >
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path v-if="layout.navCollapsed" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16" />
+          <template v-else>
+            <path stroke-linecap="round" d="M4 6h16M4 12h10M4 18h16" />
+          </template>
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="flex flex-1 items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 lg:hidden"
+        :aria-label="t('nav.toggleCollapse')"
+        @click="layout.setMobileNavOpen(false)"
+      >
+        <span>{{ t('app.title') }}</span>
+        <svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
 
     <RouterLink
       v-for="item in navItems"
@@ -68,7 +99,7 @@ function isActive(path: string) {
           ? 'bg-zinc-800 text-zinc-100 font-medium'
           : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'
       "
-      :title="layout.navCollapsed ? t(item.label) : undefined"
+      :title="!showLabels ? t(item.label) : undefined"
     >
       <span class="flex h-5 w-5 shrink-0 items-center justify-center">
         <svg v-if="item.icon === 'overview'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -81,6 +112,9 @@ function isActive(path: string) {
         </svg>
         <svg v-else-if="item.icon === 'strategies'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" d="M4 19V5M4 19h16M8 19V9M12 19V13M16 19V7" />
+        </svg>
+        <svg v-else-if="item.icon === 'bots'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" />
         </svg>
         <svg v-else-if="item.icon === 'data'" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
@@ -102,7 +136,7 @@ function isActive(path: string) {
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
         </svg>
       </span>
-      <span v-if="!layout.navCollapsed" class="truncate">{{ t(item.label) }}</span>
+      <span v-if="showLabels" class="truncate">{{ t(item.label) }}</span>
     </RouterLink>
   </aside>
 </template>
