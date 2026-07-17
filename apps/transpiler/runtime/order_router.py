@@ -58,6 +58,9 @@ class LiveBroker:
         self._risk_manager = RiskManager(parse_risk_config(live_config))
         self._leverage = float(live_config.get("leverage", 1))
         self._open_orders: dict[str, dict] = {}
+        # Structured entry/close intents this bar, consumed by the live runner
+        # to fan out copy signals when the strategy is a published master.
+        self.copy_intents: list[dict] = []
 
     def _get_exchange(self):
         if self._exchange is None:
@@ -458,6 +461,15 @@ class LiveBroker:
             results.append(rec.pk)
         return results
 
+    def _notify_telegram(self, text: str, event: str) -> None:
+        """Best-effort Telegram notification; never blocks trading."""
+        try:
+            from apps.integrations.tasks import telegram_send_task
+
+            telegram_send_task.delay(self.strategy.user_id, text, event)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _is_spot(self) -> bool:
         from apps.strategies.models import Strategy
 
@@ -481,6 +493,19 @@ class LiveBroker:
             rec = self._place_perp(is_buy=is_buy, oid=oid, price=price, qty=qty)
         if rec is not None:
             self._open_orders[str(oid)] = {"side": target_side, "qty": qty}
+            self.copy_intents.append(
+                {
+                    "action": "entry",
+                    "direction": target_side,
+                    "coin": self._coin,
+                    "price": float(price) if price is not None else 0.0,
+                }
+            )
+            self._notify_telegram(
+                f"📈 {self.strategy.name}: ENTRY {target_side.upper()} "
+                f"{self._coin} @ {price}",
+                "trade",
+            )
             alert_message = kwargs.get("alert_message")
             if alert_message:
                 from apps.execution.models import ExecutionLog
@@ -557,8 +582,20 @@ class LiveBroker:
 
         resp = signed_action(self.credential, _call, weight=1)
         self.last_action = f"CLOSE {qty_pct * 100:.0f}% at {price}"
-        if qty_pct >= 1.0 and oid in self._open_orders:
-            del self._open_orders[oid]
+        if qty_pct >= 1.0:
+            self.copy_intents.append(
+                {
+                    "action": "close",
+                    "direction": "",
+                    "coin": self._coin,
+                    "price": float(price) if price is not None else 0.0,
+                }
+            )
+            self._notify_telegram(
+                f"📉 {self.strategy.name}: CLOSE {self._coin} @ {price}", "trade"
+            )
+            if oid in self._open_orders:
+                del self._open_orders[oid]
         return resp
 
     def exit(self, oid, price, bar_index, **kwargs):

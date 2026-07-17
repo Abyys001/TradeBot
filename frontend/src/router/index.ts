@@ -5,6 +5,12 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/welcome',
+      name: 'landing',
+      component: () => import('../views/LandingView.vue'),
+      meta: { guest: true },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
@@ -36,6 +42,11 @@ const router = createRouter({
           component: () => import('../views/LiveTradingView.vue'),
         },
         {
+          path: 'api-setup',
+          name: 'api-setup',
+          component: () => import('../views/ApiSetupView.vue'),
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
@@ -65,6 +76,26 @@ const router = createRouter({
           name: 'marketplace',
           component: () => import('../views/MarketplaceView.vue'),
         },
+        // Admin-only
+        {
+          path: 'admin',
+          name: 'admin',
+          component: () => import('../modules/admin/AdminDashboardView.vue'),
+          meta: { role: 'admin' },
+        },
+        // Investor-only
+        {
+          path: 'invest',
+          name: 'invest-marketplace',
+          component: () => import('../modules/investor/InvestorMarketplaceView.vue'),
+          meta: { role: 'investor' },
+        },
+        {
+          path: 'invest/portfolio',
+          name: 'invest-portfolio',
+          component: () => import('../modules/investor/InvestorPortfolioView.vue'),
+          meta: { role: 'investor' },
+        },
       ],
     },
   ],
@@ -76,10 +107,17 @@ router.beforeEach(async (to) => {
     try {
       await auth.fetchMe()
     } catch {
-      if (to.meta.requiresAuth) return { name: 'login' }
+      // Unauthenticated → send visitors to the marketing landing page.
+      if (to.meta.requiresAuth) return { name: 'landing' }
     }
   }
   if (to.meta.guest && auth.user) return { name: 'overview' }
+  // Role gating: block routes tagged with a role the user does not hold.
+  const requiredRole = to.meta.role as string | undefined
+  if (requiredRole && auth.user) {
+    if (requiredRole === 'admin' && !auth.isAdmin) return { name: 'overview' }
+    if (requiredRole === 'investor' && !auth.isInvestor) return { name: 'overview' }
+  }
   return true
 })
 

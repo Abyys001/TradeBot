@@ -26,6 +26,8 @@ export interface User {
   username: string
   email?: string
   is_trading_enabled: boolean
+  role?: 'admin' | 'investor'
+  is_admin?: boolean
 }
 
 export interface HealthPayload {
@@ -122,6 +124,7 @@ export interface Credential {
   label: string
   wallet_address: string
   agent_address?: string
+  api_key?: string
   network: string
   is_active: boolean
   last_verified_at: string | null
@@ -131,8 +134,12 @@ export interface Credential {
 export interface CredentialCreatePayload {
   label: string
   exchange?: string
-  wallet_address: string
-  agent_private_key: string
+  // Hyperliquid
+  wallet_address?: string
+  agent_private_key?: string
+  // Tabdeal (Binance-style)
+  api_key?: string
+  api_secret?: string
   network?: string
 }
 
@@ -272,4 +279,71 @@ export interface HistoryMarkets {
   coins: string[]
   intervals: string[]
   error?: string
+}
+
+// ---- Copy trading -----------------------------------------------------
+export interface MasterStrategy {
+  id: number
+  name: string
+  symbol: string
+  market_type: string
+  timeframe: string
+  status: string
+}
+
+export interface Subscription {
+  id: number
+  master_strategy: number
+  master_name?: string
+  master_symbol?: string
+  credential: number
+  sizing_mode: 'risk_pct' | 'fixed_notional'
+  risk_pct: string
+  fixed_notional: string
+  leverage: number
+  is_active: boolean
+  created_at?: string
+}
+
+export interface InvestorPosition {
+  id: number
+  subscription: number
+  coin: string
+  size: string
+  entry_price: string
+  opened_at: string
+}
+
+export interface FeeLedger {
+  id: number
+  subscription: number
+  investor?: string
+  realized_pnl: string
+  high_water_mark: string
+  fee_accrued: string
+  fee_rate: string
+  updated_at: string
+}
+
+export interface AdminInvestor {
+  id: number
+  username: string
+  email?: string
+  is_trading_enabled: boolean
+  subscriptions: number
+}
+
+export interface FeeConfig {
+  fee_rate: string
+  updated_at?: string
+}
+
+// ---- Telegram ---------------------------------------------------------
+export interface TelegramConfig {
+  enabled: boolean
+  chat_id: string
+  events: string[]
+  has_bot_token?: boolean
+  bot_token?: string
+  updated_at?: string
 }

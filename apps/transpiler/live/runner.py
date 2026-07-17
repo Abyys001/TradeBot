@@ -121,6 +121,19 @@ class LiveIncrementalRunner:
             payload={"name": strategy.name, "action": action},
         )
 
+        # Copy-trading: fan a published master's entries/closes out to investors.
+        for intent in getattr(broker, "copy_intents", []):
+            from apps.copytrading.tasks import record_and_fanout
+
+            record_and_fanout(
+                strategy,
+                action=intent["action"],
+                direction=intent["direction"],
+                coin=intent["coin"],
+                price=intent["price"],
+                ts=ts,
+            )
+
         save_session(strategy.pk, window=window, ctx=ctx, source=strategy.source)
 
         state.last_bar_ts = ts

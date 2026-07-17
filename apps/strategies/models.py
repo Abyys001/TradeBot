@@ -55,6 +55,16 @@ class Strategy(models.Model):
         blank=True,
         help_text="Operational config: symbols[], timeframes[], risk{}.",
     )
+    # Copy-trading: an admin marks a strategy as a master and publishes it so
+    # investors can subscribe; its live signals fan out to their accounts.
+    is_master = models.BooleanField(
+        default=False,
+        help_text="Admin master strategy whose signals fan out to investors.",
+    )
+    published = models.BooleanField(
+        default=False,
+        help_text="Visible in the investor marketplace for subscription.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

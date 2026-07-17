@@ -61,3 +61,70 @@ def test_send_signum_webhook(mock_post):
     result = send_signum_webhook(user, '{"action": "buy"}')
     assert result["ok"] is True
     mock_post.assert_called_once()
+
+
+# ---- Telegram ----------------------------------------------------------
+from apps.integrations.models import TelegramConfig  # noqa: E402
+from apps.integrations.telegram import send_telegram_message  # noqa: E402
+
+
+def _tg_user(name="tguser"):
+    return User.objects.create_user(username=name, password="pw")
+
+
+@pytest.mark.django_db
+def test_telegram_token_roundtrip_encrypted():
+    cfg = TelegramConfig(user=_tg_user(), chat_id="123")
+    cfg.set_bot_token("12345:ABCDEF")
+    cfg.save()
+    assert cfg.bot_token_enc  # stored non-empty
+    assert bytes(cfg.bot_token_enc) != b"12345:ABCDEF"  # not plaintext
+    assert cfg.get_bot_token() == "12345:ABCDEF"
+
+
+@pytest.mark.django_db
+def test_telegram_disabled_skips():
+    user = _tg_user()
+    TelegramConfig.objects.create(user=user, chat_id="1", enabled=False)
+    result = send_telegram_message(user, "hi", event="trade")
+    assert result["skipped"] is True
+    assert result["reason"] == "telegram_disabled"
+
+
+@pytest.mark.django_db
+def test_telegram_event_filter():
+    user = _tg_user()
+    cfg = TelegramConfig(user=user, chat_id="1", enabled=True, events=["error"])
+    cfg.set_bot_token("t")
+    cfg.save()
+    # 'trade' not subscribed → skipped
+    result = send_telegram_message(user, "hi", event="trade")
+    assert result["skipped"] is True
+    assert result["reason"] == "event_unsubscribed"
+
+
+@pytest.mark.django_db
+def test_telegram_send_posts_to_bot_api():
+    user = _tg_user()
+    cfg = TelegramConfig(user=user, chat_id="999", enabled=True)
+    cfg.set_bot_token("12345:TOKEN")
+    cfg.save()
+    with mock.patch("apps.integrations.telegram.requests.post") as post:
+        post.return_value = mock.Mock(ok=True, status_code=200, text="{}")
+        result = send_telegram_message(user, "hello", event="trade")
+    assert result["ok"] is True
+    url = post.call_args[0][0]
+    assert url.endswith("/bot12345:TOKEN/sendMessage")
+    assert post.call_args[1]["json"] == {"chat_id": "999", "text": "hello"}
+
+
+@pytest.mark.django_db
+def test_telegram_test_message_forces_send_when_disabled():
+    user = _tg_user()
+    cfg = TelegramConfig(user=user, chat_id="5", enabled=False)
+    cfg.set_bot_token("t")
+    cfg.save()
+    with mock.patch("apps.integrations.telegram.requests.post") as post:
+        post.return_value = mock.Mock(ok=True, status_code=200, text="{}")
+        result = send_telegram_message(user, "test", force=True)
+    assert result["ok"] is True  # force bypasses enabled check

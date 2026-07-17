@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import SignumConfig
+from .models import SignumConfig, TelegramConfig
 
 
 class SignumConfigSerializer(serializers.ModelSerializer):
@@ -52,5 +52,45 @@ class SignumConfigSerializer(serializers.ModelSerializer):
             instance.set_bot_id(bot_id)
         if webhook_url is not None:
             instance.set_webhook_url(webhook_url)
+        instance.save()
+        return instance
+
+
+class TelegramConfigSerializer(serializers.ModelSerializer):
+    bot_token = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    has_bot_token = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TelegramConfig
+        fields = (
+            "enabled",
+            "chat_id",
+            "events",
+            "has_bot_token",
+            "bot_token",
+            "updated_at",
+        )
+        read_only_fields = ("has_bot_token", "updated_at")
+
+    def get_has_bot_token(self, obj) -> bool:
+        return bool(obj.bot_token_enc)
+
+    def create(self, validated_data):
+        token = validated_data.pop("bot_token", "")
+        user = self.context["request"].user
+        cfg, _ = TelegramConfig.objects.get_or_create(user=user, defaults=validated_data)
+        for k, v in validated_data.items():
+            setattr(cfg, k, v)
+        if token:
+            cfg.set_bot_token(token)
+        cfg.save()
+        return cfg
+
+    def update(self, instance, validated_data):
+        token = validated_data.pop("bot_token", None)
+        for k, v in validated_data.items():
+            setattr(instance, k, v)
+        if token is not None:
+            instance.set_bot_token(token)
         instance.save()
         return instance

@@ -6,6 +6,7 @@ from .crypto import decrypt, encrypt
 
 class Exchange(models.TextChoices):
     HYPERLIQUID = "hyperliquid", "Hyperliquid"
+    TABDEAL = "tabdeal", "Tabdeal"
 
 
 class Network(models.TextChoices):
@@ -14,11 +15,12 @@ class Network(models.TextChoices):
 
 
 class ExchangeCredential(models.Model):
-    """Encrypted Hyperliquid agent credentials.
+    """Encrypted exchange trading credentials.
 
-    Stores only the Agent private key (never the master wallet key).
-    The master `wallet_address` is used for PnL monitoring and as
-    `account_address` when signing trades on behalf of the account.
+    Hyperliquid: stores only the Agent private key (never the master wallet
+    key); `wallet_address` is the master account for PnL monitoring and signing.
+    Tabdeal (Binance-style): stores an API key + HMAC secret (encrypted); the
+    Hyperliquid-specific fields are left blank.
     """
 
     user = models.ForeignKey(
@@ -32,11 +34,22 @@ class ExchangeCredential(models.Model):
         default=Exchange.HYPERLIQUID,
     )
     label = models.CharField(max_length=64, help_text="Human-friendly name.")
+    # --- Hyperliquid fields (blank for other exchanges) ---
     wallet_address = models.CharField(
         max_length=42,
-        help_text="Master wallet address (read-only monitoring; not stored encrypted).",
+        blank=True,
+        default="",
+        help_text="HL master wallet address (read-only monitoring; not encrypted).",
     )
-    agent_private_key_enc = models.BinaryField()
+    agent_private_key_enc = models.BinaryField(null=True, blank=True)
+    # --- Tabdeal / API-key fields (blank for Hyperliquid) ---
+    api_key = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Public API key (Tabdeal and other Binance-style exchanges).",
+    )
+    api_secret_enc = models.BinaryField(null=True, blank=True)
     agent_address = models.CharField(
         max_length=42,
         blank=True,
@@ -82,3 +95,11 @@ class ExchangeCredential(models.Model):
         if not key.startswith("0x"):
             key = "0x" + key
         return key
+
+    def set_api_secret(self, secret: str) -> None:
+        """Encrypt and store an HMAC API secret (Tabdeal). Does not save()."""
+        self.api_secret_enc = encrypt(secret.strip())
+
+    def get_api_secret(self) -> str:
+        """Decrypt API secret into memory. Never log or serialize the result."""
+        return decrypt(self.api_secret_enc)

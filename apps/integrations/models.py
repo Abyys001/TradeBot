@@ -42,3 +42,49 @@ class SignumConfig(models.Model):
 
     def __str__(self):
         return f"SignumConfig<{self.user_id}>"
+
+
+class TelegramConfig(models.Model):
+    """Per-user Telegram bot credentials (encrypted at rest).
+
+    Sends trade/fill/error notifications via the Telegram Bot API
+    (``sendMessage``). Complements Signum; both can be enabled independently.
+    """
+
+    class Event(models.TextChoices):
+        TRADE = "trade", "Trade signals"
+        FILL = "fill", "Order fills"
+        ERROR = "error", "Errors"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="telegram_config",
+    )
+    bot_token_enc = models.BinaryField(blank=True, default=b"")
+    chat_id = models.CharField(
+        max_length=64, blank=True, default="", help_text="Target chat/channel id."
+    )
+    events = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Subscribed event types (subset of Event choices).",
+    )
+    enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def set_bot_token(self, token: str) -> None:
+        self.bot_token_enc = encrypt(token.strip()) if token else b""
+
+    def get_bot_token(self) -> str:
+        if not self.bot_token_enc:
+            return ""
+        return decrypt(bytes(self.bot_token_enc))
+
+    def wants(self, event: str) -> bool:
+        """True if this event should be delivered (empty events = all)."""
+        return not self.events or event in self.events
+
+    def __str__(self):
+        return f"TelegramConfig<{self.user_id}>"

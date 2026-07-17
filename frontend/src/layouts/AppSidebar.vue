@@ -3,22 +3,40 @@ import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useLayoutStore } from '../stores/layout'
+import { useAuthStore } from '../stores/auth'
 
 const { t } = useI18n()
 const route = useRoute()
 const layout = useLayoutStore()
+const auth = useAuthStore()
 
-const navItems = [
+// `role` gates an item: undefined = everyone, 'admin'/'investor' = that role only.
+// Ordered by workflow: connect → build → trade → review → account.
+const allNavItems = [
   { name: 'overview', path: '/', label: 'nav.overview', icon: 'overview' },
-  { name: 'strategies', path: '/strategies', label: 'nav.strategies', icon: 'strategies' },
-  { name: 'live', path: '/live', label: 'nav.live', icon: 'live' },
-  { name: 'data', path: '/data', label: 'nav.data', icon: 'data' },
+  { name: 'api-setup', path: '/api-setup', label: 'nav.apiSetup', icon: 'settings' },
+  { name: 'strategies', path: '/strategies', label: 'nav.strategies', icon: 'strategies', role: 'admin' },
+  { name: 'admin', path: '/admin', label: 'nav.admin', icon: 'overview', role: 'admin' },
+  { name: 'invest-marketplace', path: '/invest', label: 'nav.invest', icon: 'marketplace', role: 'investor' },
+  { name: 'invest-portfolio', path: '/invest/portfolio', label: 'nav.portfolio', icon: 'analytics', role: 'investor' },
+  { name: 'live', path: '/live', label: 'nav.live', icon: 'live', role: 'admin' },
+  { name: 'data', path: '/data', label: 'nav.data', icon: 'data', role: 'admin' },
   { name: 'analytics', path: '/analytics', label: 'nav.analytics', icon: 'analytics' },
   { name: 'orders', path: '/orders', label: 'nav.orders', icon: 'orders' },
   { name: 'journal', path: '/journal', label: 'nav.journal', icon: 'journal' },
-  { name: 'marketplace', path: '/marketplace', label: 'nav.marketplace', icon: 'marketplace' },
+  { name: 'marketplace', path: '/marketplace', label: 'nav.marketplace', icon: 'marketplace', role: 'admin' },
   { name: 'settings', path: '/settings', label: 'nav.settings', icon: 'settings' },
-]
+] as const
+
+const navItems = computed(() =>
+  allNavItems.filter((item) => {
+    const role = (item as { role?: string }).role
+    if (!role) return true
+    if (role === 'admin') return auth.isAdmin
+    if (role === 'investor') return auth.isInvestor
+    return true
+  }),
+)
 
 const asideClass = computed(() =>
   layout.navCollapsed

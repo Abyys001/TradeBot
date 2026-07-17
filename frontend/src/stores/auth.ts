@@ -1,10 +1,13 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { api, fetchCsrf, type User } from '../api/client'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const loading = ref(false)
+
+  const isAdmin = computed(() => !!user.value && (user.value.role === 'admin' || user.value.is_admin === true))
+  const isInvestor = computed(() => !!user.value && user.value.role === 'investor')
 
   async function init() {
     await fetchCsrf()
@@ -33,5 +36,5 @@ export const useAuthStore = defineStore('auth', () => {
     return data
   }
 
-  return { user, loading, init, login, logout, fetchMe }
+  return { user, loading, isAdmin, isInvestor, init, login, logout, fetchMe }
 })

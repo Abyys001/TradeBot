@@ -186,3 +186,106 @@ def close_all_positions(cred) -> dict:
         results["ok"] = False
         results["error"] = type(exc).__name__
     return results
+
+
+class HyperliquidClient:
+    """``ExchangeClient`` adapter over the Hyperliquid module functions.
+
+    Wraps the stateless helpers above so copy-trading can route orders through
+    a uniform interface (see ``apps.exchange.base.ExchangeClient``). Order
+    placement uses agent-signed ``market_open`` via ``build_exchange``; other
+    actions delegate to the existing best-effort helpers.
+    """
+
+    def __init__(self, credential):
+        self.credential = credential
+
+    def verify(self) -> tuple[bool, str]:
+        return verify_credential(self.credential)
+
+    def place_order(
+        self,
+        coin: str,
+        is_buy: bool,
+        size: float,
+        *,
+        price: float | None = None,
+        reduce_only: bool = False,
+    ) -> dict:
+        from .hl_meta import resolve_trading_name
+        from .hl_rate_limit import signed_action
+
+        try:
+            exchange = build_exchange(self.credential)
+            name = resolve_trading_name(
+                normalize_coin(coin), market_type="perp", network=self.credential.network
+            )
+            if reduce_only:
+                # A reduce-only fill is a partial/full close; market_close handles sizing.
+                def _call():
+                    return exchange.market_close(coin=normalize_coin(coin), sz=float(size))
+            else:
+                def _call():
+                    return exchange.market_open(
+                        name=name, is_buy=is_buy, sz=float(size), px=price, slippage=0.01
+                    )
+
+            resp = signed_action(self.credential, _call, weight=1)
+            return {"ok": True, "coin": coin, "response": resp}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "place_order failed for cred %s coin %s: %s",
+                self.credential.pk,
+                coin,
+                type(exc).__name__,
+            )
+            return {"ok": False, "coin": coin, "error": type(exc).__name__}
+
+    def close_position(self, coin: str) -> dict:
+        return close_position(self.credential, coin)
+
+    def positions(self) -> list[dict]:
+        try:
+            info = build_info(self.credential.network)
+            state = info.user_state(self.credential.wallet_address) or {}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "positions failed for cred %s: %s", self.credential.pk, type(exc).__name__
+            )
+            return []
+        out = []
+        for item in state.get("assetPositions") or []:
+            pos = item.get("position") or {}
+            coin = pos.get("coin")
+            try:
+                size = float(pos.get("szi", "0"))
+            except (TypeError, ValueError):
+                continue
+            if not coin or size == 0:
+                continue
+            out.append(
+                {
+                    "coin": coin,
+                    "size": size,
+                    "entry": pos.get("entryPx"),
+                    "unrealized_pnl": pos.get("unrealizedPnl"),
+                }
+            )
+        return out
+
+    def set_leverage(self, coin: str, leverage: int, *, is_cross: bool = True) -> dict:
+        return update_leverage(self.credential, coin, leverage, is_cross=is_cross)
+
+    def cancel_all(self) -> dict:
+        return cancel_all_orders(self.credential)
+
+    def balance(self) -> float:
+        try:
+            info = build_info(self.credential.network)
+            state = info.user_state(self.credential.wallet_address) or {}
+            return float(state.get("marginSummary", {}).get("accountValue", 0) or 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "balance failed for cred %s: %s", self.credential.pk, type(exc).__name__
+            )
+            return 0.0

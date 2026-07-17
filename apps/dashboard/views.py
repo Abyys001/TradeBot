@@ -63,6 +63,8 @@ class MeView(APIView):
                 "username": user.username,
                 "email": user.email,
                 "is_trading_enabled": user.is_trading_enabled,
+                "role": user.role,
+                "is_admin": user.is_admin_role,
             }
         )
 

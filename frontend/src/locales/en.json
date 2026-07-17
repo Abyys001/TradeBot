@@ -12,6 +12,10 @@
     "journal": "Journal",
     "marketplace": "Marketplace",
     "settings": "Settings",
+    "apiSetup": "API Setup",
+    "admin": "Admin",
+    "invest": "Marketplace",
+    "portfolio": "Portfolio",
     "toggleExpand": "Expand sidebar",
     "toggleCollapse": "Collapse sidebar"
   },

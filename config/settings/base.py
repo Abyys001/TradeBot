@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "apps.optimizer",
     "apps.pro",
     "apps.integrations",
+    "apps.copytrading",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
