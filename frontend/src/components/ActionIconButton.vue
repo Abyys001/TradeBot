@@ -11,10 +11,10 @@ const props = withDefaults(
 
 const buttonClass = computed(() => {
   const map = {
-    default: 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800',
-    danger: 'text-zinc-500 hover:text-red-400 hover:bg-red-950/40',
-    success: 'text-zinc-500 hover:text-emerald-400 hover:bg-emerald-950/40',
-    warning: 'text-zinc-500 hover:text-amber-400 hover:bg-amber-950/40',
+    default: 'text-fg-muted hover:text-fg hover:bg-surface-raised',
+    danger: 'text-fg-muted hover:text-negative hover:bg-danger-bg',
+    success: 'text-fg-muted hover:text-positive hover:bg-success-bg',
+    warning: 'text-fg-muted hover:text-warning hover:bg-warning-bg',
   }
   return map[props.variant]
 })

@@ -4,6 +4,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.utils import timezone
 
+from apps.credentials.models import Exchange
 from apps.dashboard.publish import publish_dashboard
 from apps.exchange.candles import fetch_candles
 from apps.exchange.subscriptions import register_strategy, unregister_strategy
@@ -124,6 +125,14 @@ class LiveIncrementalRunner:
         copy_mode = bool((strategy.live_config or {}).get("copy_trading"))
         if copy_mode:
             broker = SignalCaptureBroker()
+        elif strategy.credential and strategy.credential.exchange == Exchange.TABDEAL:
+            from ..runtime.tabdeal_live_broker import TabdealLiveBroker
+
+            broker = TabdealLiveBroker(
+                credential=strategy.credential,
+                strategy=strategy,
+                symbol=strategy.symbol,
+            )
         else:
             broker = LiveBroker(
                 credential=strategy.credential,

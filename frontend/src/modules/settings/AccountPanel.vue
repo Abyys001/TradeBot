@@ -25,23 +25,23 @@ async function toggleTrading() {
 </script>
 
 <template>
-  <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
-    <h2 class="text-sm font-semibold text-zinc-300 mb-4">{{ t('settings.account') }}</h2>
+  <section class="rounded-xl border border-border bg-surface-muted/40 p-6">
+    <h2 class="text-sm font-semibold text-fg mb-4">{{ t('settings.account') }}</h2>
     <dl class="space-y-3 text-sm">
       <div class="flex justify-between">
-        <dt class="text-zinc-500">{{ t('auth.username') }}</dt>
-        <dd class="text-zinc-200">{{ auth.user?.username }}</dd>
+        <dt class="text-fg-muted">{{ t('auth.username') }}</dt>
+        <dd class="text-fg">{{ auth.user?.username }}</dd>
       </div>
       <div class="flex justify-between items-center">
-        <dt class="text-zinc-500">{{ t('health.trading') }}</dt>
+        <dt class="text-fg-muted">{{ t('health.trading') }}</dt>
         <dd>
           <button
             type="button"
             class="rounded-lg px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50"
             :class="
               auth.user?.is_trading_enabled
-                ? 'bg-emerald-900/50 text-emerald-400'
-                : 'bg-zinc-800 text-zinc-500'
+                ? 'bg-success-bg text-positive'
+                : 'bg-surface-raised text-fg-muted'
             "
             :disabled="toggling"
             @click="toggleTrading"

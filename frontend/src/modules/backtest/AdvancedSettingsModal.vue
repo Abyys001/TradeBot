@@ -71,11 +71,11 @@ function apply() {
   <BaseModal size="lg" :title="t('backtest.advanced')" @close="emit('close')">
     <div class="space-y-5">
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.source') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.source') }}</label>
         <div class="mt-1 flex gap-2">
           <select
             v-model="loadFromId"
-            class="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+            class="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
           >
             <option value="">— {{ t('backtest.loadValidated') }} —</option>
             <option v-for="s in store.validatedStrategies" :key="s.id" :value="s.id">
@@ -84,7 +84,7 @@ function apply() {
           </select>
           <button
             type="button"
-            class="rounded-lg bg-zinc-800 px-3 text-xs text-zinc-300 hover:bg-zinc-700"
+            class="rounded-lg bg-surface-raised px-3 text-xs text-fg hover:bg-border"
             :disabled="!loadFromId"
             @click="onLoadSource"
           >
@@ -94,17 +94,17 @@ function apply() {
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('backtest.warmupBars') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('backtest.warmupBars') }}</label>
         <input
           v-model.number="warmup"
           type="number"
           min="0"
-          class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+          class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
         />
       </div>
 
-      <div class="space-y-4 rounded-lg border border-zinc-800 bg-zinc-950/50 p-4">
-        <h3 class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+      <div class="space-y-4 rounded-lg border border-border bg-surface/50 p-4">
+        <h3 class="text-xs font-medium uppercase tracking-wide text-fg-muted">
           {{ t('backtest.riskLimits') }}
         </h3>
         <RangeField v-model="risk.leverage" :label="t('strategy.leverage')" :min="1" :max="50" />
@@ -130,14 +130,14 @@ function apply() {
       <div class="flex justify-end gap-2">
         <button
           type="button"
-          class="rounded-lg px-4 py-2 text-sm text-zinc-400"
+          class="rounded-lg px-4 py-2 text-sm text-fg-muted"
           @click="emit('close')"
         >
           {{ t('health.cancel') }}
         </button>
         <button
           type="button"
-          class="rounded-lg bg-zinc-700 px-4 py-2 text-sm text-white hover:bg-zinc-600"
+          class="rounded-lg bg-border px-4 py-2 text-sm text-white hover:opacity-80"
           @click="apply"
         >
           {{ t('strategy.save') }}

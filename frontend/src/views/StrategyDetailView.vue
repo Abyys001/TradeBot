@@ -189,35 +189,35 @@ function onViewResults(id: number) {
 
 <template>
   <div class="flex h-full min-h-0 flex-col">
-    <div v-if="!store.selected" class="flex flex-1 items-center justify-center text-zinc-500">
+    <div v-if="!store.selected" class="flex flex-1 items-center justify-center text-fg-muted">
       {{ t('overview.loading') }}
     </div>
     <template v-else>
       <div class="relative flex min-h-0 flex-1 overflow-hidden">
         <main class="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
-          <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/30 px-3 py-2">
+          <div class="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
             <button
               type="button"
-              class="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              class="rounded-lg border border-border px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-surface-raised hover:text-fg"
               @click="router.push({ name: 'strategies' })"
             >
               ΓåÉ {{ t('backtest.backToStrategies') }}
             </button>
             <div class="min-w-0">
-              <h1 class="text-sm font-semibold text-violet-200">{{ t('backtest.engineTitle') }}</h1>
-              <p class="truncate text-xs text-zinc-500">{{ store.selected.name }}</p>
+              <h1 class="text-sm font-semibold text-accent">{{ t('backtest.engineTitle') }}</h1>
+              <p class="truncate text-xs text-fg-muted">{{ store.selected.name }}</p>
             </div>
             <div class="ms-auto flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                class="hidden rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 sm:inline-block"
+                class="hidden rounded-lg border border-border px-3 py-1 text-xs text-fg transition-colors hover:bg-surface-raised sm:inline-block"
                 @click="showPineModal = true"
               >
                 {{ t('backtest.editPineScript') }}
               </button>
               <button
                 type="button"
-                class="hidden rounded-lg border border-zinc-700 px-3 py-1 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 sm:inline-block"
+                class="hidden rounded-lg border border-border px-3 py-1 text-xs text-fg transition-colors hover:bg-surface-raised sm:inline-block"
                 @click="showAdvancedModal = true"
               >
                 {{ t('backtest.advancedSettings') }}
@@ -225,7 +225,7 @@ function onViewResults(id: number) {
               <button
                 type="button"
                 class="rounded-lg border px-3 py-1 text-xs transition-colors"
-                :class="layout.optimizerPanelOpen ? 'border-amber-700 bg-amber-950 text-amber-200' : 'border-zinc-700 text-zinc-500 hover:text-zinc-300'"
+                :class="layout.optimizerPanelOpen ? 'border-warning bg-warning-bg text-warning' : 'border-border text-fg-muted hover:text-fg'"
                 @click="toggleOptimizerPanel()"
               >
                 {{ t('backtest.optimize') }}
@@ -233,7 +233,7 @@ function onViewResults(id: number) {
               <div class="relative sm:hidden">
                 <button
                   type="button"
-                  class="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                  class="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-fg-muted hover:bg-surface-raised hover:text-fg"
                   :aria-label="t('nav.moreActions')"
                   @click="showToolbarMenu = !showToolbarMenu"
                 >
@@ -244,18 +244,18 @@ function onViewResults(id: number) {
                 <div v-if="showToolbarMenu" class="fixed inset-0 z-10" @click="showToolbarMenu = false" />
                 <div
                   v-if="showToolbarMenu"
-                  class="absolute end-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+                  class="absolute end-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
                 >
                   <button
                     type="button"
-                    class="block w-full px-3 py-2 text-start text-xs text-zinc-300 hover:bg-zinc-800"
+                    class="block w-full px-3 py-2 text-start text-xs text-fg hover:bg-surface-raised"
                     @click="showPineModal = true; showToolbarMenu = false"
                   >
                     {{ t('backtest.editPineScript') }}
                   </button>
                   <button
                     type="button"
-                    class="block w-full px-3 py-2 text-start text-xs text-zinc-300 hover:bg-zinc-800"
+                    class="block w-full px-3 py-2 text-start text-xs text-fg hover:bg-surface-raised"
                     @click="showAdvancedModal = true; showToolbarMenu = false"
                   >
                     {{ t('backtest.advancedSettings') }}
@@ -274,14 +274,14 @@ function onViewResults(id: number) {
             />
             <div
               v-if="isBacktestRunning"
-              class="absolute inset-0 z-10 bg-zinc-950/60 backdrop-blur-[1px]"
+              class="absolute inset-0 z-10 bg-surface/60 backdrop-blur-[1px]"
             >
               <ChartSkeleton />
             </div>
             <button
               v-if="showViewResultsBtn && activeBacktestId"
               type="button"
-              class="absolute end-2 top-2 z-20 rounded-lg bg-violet-700 px-2.5 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-violet-600 sm:end-4 sm:top-4 sm:px-4 sm:py-2 sm:text-sm"
+              class="absolute end-2 top-2 z-20 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-fg shadow-lg hover:opacity-90 sm:end-4 sm:top-4 sm:px-4 sm:py-2 sm:text-sm"
               @click="openResults(activeBacktestId!)"
             >
               {{ t('backtest.viewResults') }}
@@ -291,15 +291,15 @@ function onViewResults(id: number) {
 
         <aside
           v-show="layout.backtestPanelOpen"
-          class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex min-h-0 flex-col overflow-x-hidden overflow-y-auto border-s border-zinc-800 bg-zinc-950 fixed inset-y-0 end-0 z-40 w-80 max-w-[85vw] shadow-2xl lg:relative lg:inset-auto lg:z-auto lg:w-[400px] lg:max-w-none lg:shadow-none"
+          class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex min-h-0 flex-col overflow-x-hidden overflow-y-auto border-s border-border bg-surface fixed inset-y-0 end-0 z-40 w-80 max-w-[85vw] shadow-2xl lg:relative lg:inset-auto lg:z-auto lg:w-[400px] lg:max-w-none lg:shadow-none"
         >
-          <div class="sticky top-0 z-10 shrink-0 border-b border-zinc-800 bg-zinc-950/95 px-4 py-2 backdrop-blur-sm">
+          <div class="sticky top-0 z-10 shrink-0 border-b border-border bg-surface/95 px-4 py-2 backdrop-blur-sm">
             <div class="flex items-center justify-between mb-2">
               <div class="flex gap-1">
                 <button
                   type="button"
                   class="rounded px-2 py-0.5 text-xs font-medium transition-colors"
-                  :class="sidebarTab === 'backtest' ? 'bg-violet-700 text-white' : 'text-zinc-400 hover:text-zinc-200'"
+                  :class="sidebarTab === 'backtest' ? 'bg-accent text-accent-fg' : 'text-fg-muted hover:text-fg'"
                   @click="sidebarTab = 'backtest'"
                 >
                   {{ t('live.tabBacktest') }}
@@ -307,13 +307,13 @@ function onViewResults(id: number) {
                 <button
                   type="button"
                   class="rounded px-2 py-0.5 text-xs font-medium transition-colors"
-                  :class="sidebarTab === 'live' ? 'bg-violet-700 text-white' : 'text-zinc-400 hover:text-zinc-200'"
+                  :class="sidebarTab === 'live' ? 'bg-accent text-accent-fg' : 'text-fg-muted hover:text-fg'"
                   @click="sidebarTab = 'live'"
                 >
                   {{ t('live.tabLive') }}
                 </button>
               </div>
-              <button type="button" class="rounded px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 lg:hidden" @click="layout.setBacktestPanelOpen(false)">✘</button>
+              <button type="button" class="rounded px-1.5 py-0.5 text-fg-muted hover:bg-surface-raised hover:text-fg lg:hidden" @click="layout.setBacktestPanelOpen(false)">✘</button>
             </div>
           </div>
           <BacktestPanel
@@ -341,7 +341,7 @@ function onViewResults(id: number) {
       <button
         v-if="!layout.backtestPanelOpen"
         type="button"
-        class="fixed bottom-4 end-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-violet-700 text-white shadow-lg hover:bg-violet-600 lg:hidden"
+        class="fixed bottom-4 end-4 z-20 flex h-12 w-12 items-center justify-center rounded-full bg-accent text-accent-fg shadow-lg hover:opacity-90 lg:hidden"
         @click="layout.setBacktestPanelOpen(true)"
       >
         ⚙
@@ -355,13 +355,13 @@ function onViewResults(id: number) {
 
       <div
         v-show="layout.optimizerPanelOpen"
-        class="fixed inset-y-0 end-0 z-40 flex w-80 max-w-[90vw] flex-col border-s border-zinc-700 bg-zinc-950 shadow-2xl lg:absolute"
+        class="fixed inset-y-0 end-0 z-40 flex w-80 max-w-[90vw] flex-col border-s border-border bg-surface shadow-2xl lg:absolute"
       >
-        <div class="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-2">
-          <span class="text-sm font-medium text-amber-200">{{ t('backtest.optimize') }}</span>
+        <div class="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+          <span class="text-sm font-medium text-warning">{{ t('backtest.optimize') }}</span>
           <button
             type="button"
-            class="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+            class="rounded px-2 py-0.5 text-fg-muted hover:bg-surface-raised hover:text-fg"
             @click="layout.setOptimizerPanelOpen(false)"
           >
             Γ£ò

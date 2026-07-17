@@ -146,14 +146,14 @@ async function onPineSave() {
 }
 
 function validationBadgeClass(status: string) {
-  if (status === 'ok') return 'bg-emerald-900/50 text-emerald-400'
-  if (status === 'error') return 'bg-red-900/50 text-red-400'
-  return 'bg-zinc-800 text-zinc-400'
+  if (status === 'ok') return 'bg-success-bg text-positive'
+  if (status === 'error') return 'bg-danger-bg text-negative'
+  return 'bg-surface-raised text-fg-muted'
 }
 </script>
 
 <template>
-  <aside class="flex h-full w-80 shrink-0 flex-col border-s border-zinc-800 bg-zinc-900/30">
+  <aside class="flex h-full w-80 shrink-0 flex-col border-s border-border bg-surface-muted/30">
   <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-4">
     <div v-if="!selected && store.loading" class="space-y-3">
       <SkeletonBlock class="h-6 w-32" />
@@ -164,7 +164,7 @@ function validationBadgeClass(status: string) {
 
     <div v-else-if="selected" class="space-y-4">
       <div class="flex items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold text-zinc-200">{{ t('strategy.title') }}</h2>
+        <h2 class="text-sm font-semibold text-fg">{{ t('strategy.title') }}</h2>
         <span
           class="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase"
           :class="validationBadgeClass(selected.validation_status)"
@@ -174,23 +174,23 @@ function validationBadgeClass(status: string) {
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.name') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.name') }}</label>
         <input
           v-model="form.name"
-          class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+          class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
         />
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.symbols') }}</label>
         <TradingPairSelector v-model="form.symbol" class="mt-1" />
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.timeframes') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.timeframes') }}</label>
         <select
           v-model="form.timeframe"
-          class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+          class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
         >
           <option v-for="tf in TIMEFRAMES" :key="tf" :value="tf">{{ tf }}</option>
         </select>
@@ -198,19 +198,19 @@ function validationBadgeClass(status: string) {
 
       <button
         type="button"
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-left text-sm text-zinc-300 hover:border-violet-600 hover:bg-zinc-900"
+        class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-left text-sm text-fg hover:border-accent hover:bg-surface-muted"
         @click="showPineModal = true"
       >
-        <span class="text-violet-400">⟨/⟩</span>
+        <span class="text-accent">⟨/⟩</span>
         {{ t('backtest.editPine') }}
-        <span class="mt-0.5 block truncate text-[10px] text-zinc-600">
+        <span class="mt-0.5 block truncate text-[10px] text-fg-muted">
           {{ form.source ? `${form.source.length} chars` : t('backtest.noSource') }}
         </span>
       </button>
 
       <button
         type="button"
-        class="flex w-full items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+        class="flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-fg-muted hover:bg-surface-raised hover:text-fg"
         @click="showAdvancedModal = true"
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -222,18 +222,18 @@ function validationBadgeClass(status: string) {
 
       <button
         type="button"
-        class="w-full rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+        class="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
         :disabled="backtestStore.running || saving"
         @click="runBacktest"
       >
         {{ backtestStore.running ? t('backtest.running') : t('backtest.run') }}
       </button>
-      <p class="text-center text-[10px] text-zinc-600">{{ t('backtest.hotkeyHint') }}</p>
+      <p class="text-center text-[10px] text-fg-muted">{{ t('backtest.hotkeyHint') }}</p>
 
       <div class="flex gap-2">
         <button
           type="button"
-          class="flex-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700"
+          class="flex-1 rounded-lg bg-surface-raised px-3 py-1.5 text-xs hover:bg-border"
           :disabled="saving"
           @click="save"
         >
@@ -241,7 +241,7 @@ function validationBadgeClass(status: string) {
         </button>
         <button
           type="button"
-          class="flex-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700"
+          class="flex-1 rounded-lg bg-surface-raised px-3 py-1.5 text-xs hover:bg-border"
           @click="validate"
         >
           {{ t('strategy.validate') }}
@@ -249,7 +249,7 @@ function validationBadgeClass(status: string) {
       </div>
     </div>
 
-    <div v-else class="p-4 text-sm text-zinc-500">{{ t('overview.loading') }}</div>
+    <div v-else class="p-4 text-sm text-fg-muted">{{ t('overview.loading') }}</div>
   </div>
 
   <PineEditorModal

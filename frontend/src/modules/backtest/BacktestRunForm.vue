@@ -119,7 +119,7 @@ const runBlockedReason = computed(() => {
 const canRun = computed(() => !running.value && !anyActive.value && !runBlockedReason.value)
 
 const selectClass =
-  'mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-600/40'
+  'mt-1 block w-full rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40'
 
 function syncSelectionFromUi() {
   if (runAllPairs.value) {
@@ -362,18 +362,18 @@ defineExpose({ runBacktests, canRun })
 <template>
   <div class="space-y-2.5">
     <div>
-      <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('strategy.symbols') }}</label>
 
       <div v-if="runAllPairs" class="mt-1.5 flex flex-wrap gap-1.5">
         <span
           v-for="pair in strategyPairLabels"
           :key="pair"
-          class="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
+          class="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-1 text-xs text-fg"
           dir="ltr"
         >
           <span
             class="h-1.5 w-1.5 rounded-full"
-            :class="storedCoinsForInterval.has(pairToCoin(pair)) ? 'bg-emerald-400' : 'bg-zinc-600'"
+            :class="storedCoinsForInterval.has(pairToCoin(pair)) ? 'bg-positive' : 'bg-border'"
           />
           {{ pair }}
         </span>
@@ -390,13 +390,13 @@ defineExpose({ runBacktests, canRun })
       <div
         v-if="!runAllPairs"
         class="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-xs"
-        :class="selectedCoinHasData ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-300' : 'border-amber-900/40 bg-amber-950/20 text-amber-200'"
+        :class="selectedCoinHasData ? 'border-positive/40 bg-success-bg text-positive' : 'border-warning/40 bg-warning-bg text-warning'"
       >
         <span>{{ selectedCoinHasData ? t('backtest.dataReady') : t('backtest.dataMissing') }}</span>
         <button
           v-if="!selectedCoinHasData"
           type="button"
-          class="shrink-0 rounded-md bg-violet-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+          class="shrink-0 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
           :disabled="downloading || !!activeDownload"
           @click="downloadMissingData"
         >
@@ -404,11 +404,11 @@ defineExpose({ runBacktests, canRun })
         </button>
       </div>
 
-      <p v-if="activeDownload" class="mt-1 text-[10px] text-violet-300">
+      <p v-if="activeDownload" class="mt-1 text-[10px] text-accent">
         {{ t('backtest.downloadInProgress') }}
       </p>
     </div>
-    <label class="text-xs text-zinc-500 block">
+    <label class="text-xs text-fg-muted block">
       {{ t('strategy.timeframes') }}
       <select
         v-model="selectedInterval"
@@ -419,16 +419,16 @@ defineExpose({ runBacktests, canRun })
       </select>
     </label>
 
-    <label class="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+    <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
       <input
         v-model="runAllPairs"
         type="checkbox"
-        class="rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-600/40"
+        class="rounded border-border bg-surface-muted text-accent focus:ring-accent/40"
       />
       {{ t('backtest.runAllPairs') }}
     </label>
 
-    <label class="text-xs text-zinc-500 block">
+    <label class="text-xs text-fg-muted block">
       {{ t('backtest.network') }}
       <select v-model="selectedNetwork" :class="selectClass">
         <option value="mainnet">mainnet</option>
@@ -437,17 +437,17 @@ defineExpose({ runBacktests, canRun })
     </label>
 
     <div class="grid grid-cols-2 gap-2.5">
-      <label class="text-xs text-zinc-500 min-w-0">
+      <label class="text-xs text-fg-muted min-w-0">
         {{ t('backtest.startDate') }}
         <input v-model="startDate" type="date" :class="selectClass" />
       </label>
-      <label class="text-xs text-zinc-500 min-w-0">
+      <label class="text-xs text-fg-muted min-w-0">
         {{ t('backtest.endDate') }}
         <input v-model="endDate" type="date" :class="selectClass" />
       </label>
     </div>
 
-    <label class="text-xs text-zinc-500 block">
+    <label class="text-xs text-fg-muted block">
       {{ t('backtest.initialCapital') }}
       <div class="relative mt-1">
         <input
@@ -457,14 +457,14 @@ defineExpose({ runBacktests, canRun })
           step="100"
           :class="selectClass"
         />
-        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[10px] text-zinc-500">
+        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[10px] text-fg-muted">
           USDT · fee 0.05%
         </span>
       </div>
     </label>
 
     <div v-if="batchProgress" class="space-y-1">
-      <div class="flex justify-between text-xs text-zinc-500">
+      <div class="flex justify-between text-xs text-fg-muted">
         <span>{{ t('backtest.batchProgress') }}</span>
         <span>{{ batchProgress.finished }}/{{ batchProgress.total }}</span>
       </div>
@@ -474,18 +474,18 @@ defineExpose({ runBacktests, canRun })
     <div class="flex gap-2">
       <button
         type="button"
-        class="relative flex-1 rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+        class="relative flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         :disabled="!canRun"
         :title="runBlockedReason ?? (hasCoverageWarnings ? t('backtest.coverageClamped') : undefined)"
         @click="runBacktests"
       >
-        <span v-if="runBlockedReason" class="absolute -top-1 -end-1 h-2 w-2 rounded-full bg-amber-500" />
+        <span v-if="runBlockedReason" class="absolute -top-1 -end-1 h-2 w-2 rounded-full bg-warning" />
         {{ running || anyActive ? t('backtest.running') : t('backtest.run') }}
       </button>
       <div class="relative">
         <button
           type="button"
-          class="rounded-lg border border-zinc-700 px-2 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          class="rounded-lg border border-border px-2 py-2 text-sm text-fg hover:bg-surface-raised disabled:opacity-50"
           :disabled="!canRun"
           :title="t('backtest.quickRun')"
           @click="showQuickMenu = !showQuickMenu"
@@ -494,11 +494,11 @@ defineExpose({ runBacktests, canRun })
         </button>
         <div
           v-if="showQuickMenu"
-          class="absolute end-0 top-full z-10 mt-1 w-48 rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-lg"
+          class="absolute end-0 top-full z-10 mt-1 w-48 rounded-lg border border-border bg-surface-muted py-1 shadow-lg"
         >
           <button
             type="button"
-            class="block w-full px-3 py-2 text-start text-xs text-zinc-300 hover:bg-zinc-800"
+            class="block w-full px-3 py-2 text-start text-xs text-fg hover:bg-surface-raised"
             @click="runQuickBacktest"
           >
             {{ t('backtest.quickRun') }}
@@ -509,24 +509,24 @@ defineExpose({ runBacktests, canRun })
 
     <p
       v-if="runBlockedReason && missingList.length"
-      class="text-xs text-amber-300"
+      class="text-xs text-warning"
     >
       {{ runBlockedReason }}
       <button
         type="button"
-        class="ms-1 underline hover:text-amber-100 disabled:opacity-50"
+        class="ms-1 underline hover:opacity-80 disabled:opacity-50"
         :disabled="downloading || !!activeDownload"
         @click="downloadMissingData"
       >
         {{ t('backtest.downloadMissing') }}
       </button>
-      <span class="text-zinc-500">·</span>
+      <span class="text-fg-muted">·</span>
       <RouterLink to="/data" class="underline ms-1">{{ t('nav.data') }}</RouterLink>
-    </p>    <p v-else-if="hasCoverageWarnings" class="text-xs text-amber-400/80">
+    </p>    <p v-else-if="hasCoverageWarnings" class="text-xs text-warning/80">
       {{ t('backtest.coverageClamped') }}
     </p>
 
-    <p class="text-center text-[10px] text-zinc-600">
+    <p class="text-center text-[10px] text-fg-muted">
       {{ isMac ? t('backtest.hotkeyHintMac') : t('backtest.hotkeyHintWin') }}
     </p>
   </div>

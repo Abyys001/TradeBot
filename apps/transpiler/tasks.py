@@ -239,14 +239,19 @@ def run_backtest_stored_task(
 
 
 def _recover_positions_if_any(strategy: Strategy) -> dict[str, object] | None:
-    """Query HL for open positions and return recovered position/PnL or None."""
+    """Query the strategy's exchange for an open position and return recovered position/PnL, or None."""
     from apps.credentials.models import Exchange
-    from apps.exchange.hl_client import build_info
 
-    if strategy.credential is None or strategy.credential.exchange != Exchange.HYPERLIQUID:
+    if strategy.credential is None:
+        return None
+    if strategy.credential.exchange == Exchange.TABDEAL:
+        return _recover_tabdeal_position(strategy)
+    if strategy.credential.exchange != Exchange.HYPERLIQUID:
         return None
     if strategy.credential.network == "spot":
         return None
+    from apps.exchange.hl_client import build_info
+
     try:
         info = build_info(strategy.credential.network)
         state_data = info.user_state(strategy.credential.wallet_address) or {}
@@ -266,6 +271,28 @@ def _recover_positions_if_any(strategy: Strategy) -> dict[str, object] | None:
     except Exception:  # noqa: BLE001
         logger.exception("position recovery failed")
     return None
+
+
+def _recover_tabdeal_position(strategy: Strategy) -> dict[str, object] | None:
+    """Query Tabdeal for the strategy's own open position and return recovered position/PnL, or None."""
+    from apps.exchange.tabdeal_futures import TabdealFuturesClient
+    from apps.transpiler.runtime.tabdeal_broker import to_tabdeal_symbol
+
+    try:
+        client = TabdealFuturesClient(strategy.credential)
+        pos = client.get_position(to_tabdeal_symbol(strategy.symbol))
+        if pos is None:
+            return None
+        return {
+            "position": float(pos.get("positionAmt", 0)),
+            "entry_px": float(pos.get("entryPrice", 0)),
+            "pnl": float(pos.get("unRealizedProfit", pos.get("unrealizedProfit", 0))),
+        }
+    except (TypeError, ValueError):
+        return None
+    except Exception:  # noqa: BLE001
+        logger.exception("tabdeal position recovery failed")
+        return None
 
 
 @shared_task(name="transpiler.start_live_strategy")

@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { setLocale } from '../../i18n'
 import { api } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import { useHealthStore } from '../../stores/health'
 import { useLayoutStore } from '../../stores/layout'
 import KillSwitchModal from './KillSwitchModal.vue'
+import ThemeToggle from '../../components/ThemeToggle.vue'
+import LanguageToggle from '../../components/LanguageToggle.vue'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const auth = useAuthStore()
 const health = useHealthStore()
 const layout = useLayoutStore()
@@ -16,28 +17,23 @@ const showKill = ref(false)
 const showMenu = ref(false)
 
 function statusColor(status: string) {
-  if (status === 'connected' || status === 'ok') return 'bg-emerald-500'
-  if (status === 'stale') return 'bg-amber-500'
-  return 'bg-red-500'
+  if (status === 'connected' || status === 'ok') return 'bg-positive'
+  if (status === 'stale') return 'bg-warning'
+  return 'bg-negative'
 }
 
 // Aggregate dot for the compact phone view: worst of the two feed statuses.
 const worstStatusColor = computed(() => {
   const hl = health.health?.hl_market_feed?.status ?? 'disconnected'
   const celery = health.health?.celery?.status ?? 'error'
-  if (statusColor(hl) === 'bg-red-500' || statusColor(celery) === 'bg-red-500') return 'bg-red-500'
-  if (statusColor(hl) === 'bg-amber-500' || statusColor(celery) === 'bg-amber-500') return 'bg-amber-500'
-  return 'bg-emerald-500'
+  if (statusColor(hl) === 'bg-negative' || statusColor(celery) === 'bg-negative') return 'bg-negative'
+  if (statusColor(hl) === 'bg-warning' || statusColor(celery) === 'bg-warning') return 'bg-warning'
+  return 'bg-positive'
 })
 
 const worstStatusTitle = computed(
   () => `${t('health.hl')}: ${health.health?.hl_market_feed?.status ?? 'disconnected'} · ${t('health.celery')}: ${health.health?.celery?.status ?? 'error'}`,
 )
-
-function toggleLocale() {
-  setLocale(locale.value === 'en' ? 'fa' : 'en')
-  showMenu.value = false
-}
 
 async function logout() {
   await auth.logout()
@@ -53,10 +49,10 @@ async function onKillConfirm() {
 </script>
 
 <template>
-  <header class="relative flex items-center gap-x-2 border-b border-zinc-800 bg-zinc-900/80 px-2 py-1.5 backdrop-blur sm:gap-x-4 sm:px-4 sm:py-2">
+  <header class="relative flex items-center gap-x-2 border-b border-border bg-surface-muted/80 px-2 py-1.5 backdrop-blur sm:gap-x-4 sm:px-4 sm:py-2">
     <button
       type="button"
-      class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 lg:hidden"
+      class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-surface-raised hover:text-fg lg:hidden"
       :aria-label="t('nav.openMenu')"
       @click="layout.toggleMobileNavOpen()"
     >
@@ -65,14 +61,14 @@ async function onKillConfirm() {
       </svg>
     </button>
 
-    <h1 class="truncate text-sm font-semibold text-zinc-300 me-auto max-w-[7rem] sm:max-w-none">{{ t('app.title') }}</h1>
+    <h1 class="truncate text-sm font-semibold text-fg me-auto max-w-[7rem] sm:max-w-none">{{ t('app.title') }}</h1>
 
-    <div class="hidden items-center gap-2 text-xs text-zinc-400 sm:flex" :title="health.health?.hl_market_feed?.status">
+    <div class="hidden items-center gap-2 text-xs text-fg-muted sm:flex" :title="health.health?.hl_market_feed?.status">
       <span class="h-2 w-2 rounded-full" :class="statusColor(health.health?.hl_market_feed?.status ?? 'disconnected')" />
       {{ t('health.hl') }}
     </div>
 
-    <div class="hidden items-center gap-2 text-xs text-zinc-400 sm:flex">
+    <div class="hidden items-center gap-2 text-xs text-fg-muted sm:flex">
       <span class="h-2 w-2 rounded-full" :class="statusColor(health.health?.celery?.status ?? 'error')" />
       {{ t('health.celery') }}
     </div>
@@ -81,18 +77,13 @@ async function onKillConfirm() {
 
     <div
       class="hidden rounded px-2 py-0.5 text-xs font-medium sm:block"
-      :class="auth.user?.is_trading_enabled ? 'bg-emerald-900/50 text-emerald-400' : 'bg-zinc-800 text-zinc-500'"
+      :class="auth.user?.is_trading_enabled ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted'"
     >
       {{ t('health.trading') }}: {{ auth.user?.is_trading_enabled ? t('health.on') : t('health.off') }}
     </div>
 
-    <button
-      type="button"
-      class="hidden rounded px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-700 sm:block"
-      @click="toggleLocale"
-    >
-      {{ locale === 'en' ? 'FA' : 'EN' }}
-    </button>
+    <ThemeToggle />
+    <LanguageToggle />
 
     <button
       type="button"
@@ -102,14 +93,14 @@ async function onKillConfirm() {
       {{ t('health.killSwitch') }}
     </button>
 
-    <button type="button" class="hidden text-xs text-zinc-500 hover:text-zinc-300 sm:block" @click="logout">
+    <button type="button" class="hidden text-xs text-fg-muted hover:text-fg sm:block" @click="logout">
       {{ t('auth.logout') }}
     </button>
 
     <div class="relative sm:hidden">
       <button
         type="button"
-        class="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+        class="flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted hover:bg-surface-raised hover:text-fg"
         :aria-label="t('nav.moreActions')"
         @click="showMenu = !showMenu"
       >
@@ -120,25 +111,20 @@ async function onKillConfirm() {
       <div v-if="showMenu" class="fixed inset-0 z-10" @click="showMenu = false" />
       <div
         v-if="showMenu"
-        class="absolute end-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl"
+        class="absolute end-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
       >
         <div
           class="flex items-center justify-between px-3 py-1.5 text-xs"
-          :class="auth.user?.is_trading_enabled ? 'text-emerald-400' : 'text-zinc-500'"
+          :class="auth.user?.is_trading_enabled ? 'text-positive' : 'text-fg-muted'"
         >
           <span>{{ t('health.trading') }}</span>
           <span>{{ auth.user?.is_trading_enabled ? t('health.on') : t('health.off') }}</span>
         </div>
+        <ThemeToggle variant="menu-item" />
+        <LanguageToggle variant="menu-item" @change="showMenu = false" />
         <button
           type="button"
-          class="block w-full px-3 py-2 text-start text-xs text-zinc-300 hover:bg-zinc-800"
-          @click="toggleLocale"
-        >
-          {{ locale === 'en' ? 'فارسی' : 'English' }}
-        </button>
-        <button
-          type="button"
-          class="block w-full px-3 py-2 text-start text-xs text-zinc-300 hover:bg-zinc-800"
+          class="block w-full px-3 py-2 text-start text-xs text-fg hover:bg-surface-muted"
           @click="() => { showMenu = false; logout() }"
         >
           {{ t('auth.logout') }}

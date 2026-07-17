@@ -42,23 +42,23 @@ onMounted(refresh)
 </script>
 
 <template>
-  <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 space-y-3">
-    <div class="text-xs font-medium text-zinc-400">{{ t('paper.title') }}</div>
+  <div class="rounded-lg border border-border bg-surface-muted/40 p-3 space-y-3">
+    <div class="text-xs font-medium text-fg-muted">{{ t('paper.title') }}</div>
     <div class="grid grid-cols-2 gap-2 text-sm">
       <div>
-        <div class="text-zinc-500 text-xs">{{ t('paper.balance') }}</div>
-        <div class="text-zinc-200">{{ balance }}</div>
+        <div class="text-fg-muted text-xs">{{ t('paper.balance') }}</div>
+        <div class="text-fg">{{ balance }}</div>
       </div>
       <div>
-        <div class="text-zinc-500 text-xs">{{ t('paper.equity') }}</div>
-        <div class="text-zinc-200">{{ equity }}</div>
+        <div class="text-fg-muted text-xs">{{ t('paper.equity') }}</div>
+        <div class="text-fg">{{ equity }}</div>
       </div>
     </div>
     <div class="flex gap-2">
       <button
         v-if="!active"
         type="button"
-        class="flex-1 rounded-lg bg-violet-700 hover:bg-violet-600 text-xs py-1.5 disabled:opacity-50"
+        class="flex-1 rounded-lg bg-accent hover:opacity-90 text-xs py-1.5 disabled:opacity-50"
         :disabled="loading"
         @click="start"
       >
@@ -67,7 +67,7 @@ onMounted(refresh)
       <button
         v-else
         type="button"
-        class="flex-1 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-xs py-1.5 disabled:opacity-50"
+        class="flex-1 rounded-lg bg-border hover:opacity-80 text-xs py-1.5 disabled:opacity-50"
         :disabled="loading"
         @click="stop"
       >
@@ -75,24 +75,24 @@ onMounted(refresh)
       </button>
       <button
         type="button"
-        class="rounded-lg border border-zinc-700 px-2 text-xs text-zinc-400 hover:text-zinc-200"
+        class="rounded-lg border border-border px-2 text-xs text-fg-muted hover:text-fg"
         :disabled="loading"
         @click="refresh"
       >
         ↻
       </button>
     </div>
-    <div v-if="trades.length" class="border-t border-zinc-800 pt-2">
-      <div class="text-xs text-zinc-500 mb-1">{{ t('paper.trades') }}</div>
+    <div v-if="trades.length" class="border-t border-border pt-2">
+      <div class="text-xs text-fg-muted mb-1">{{ t('paper.trades') }}</div>
       <ResponsiveTable>
         <template #head>
           <th class="text-start py-0.5 text-[10px]">{{ t('paper.side') }}</th>
           <th class="text-end py-0.5 text-[10px]">PnL</th>
         </template>
         <template #row>
-          <tr v-for="tr in trades.slice(0, 10)" :key="tr.id" class="border-t border-zinc-800/50 text-[10px]">
-            <td class="py-0.5 text-zinc-400">{{ tr.side }}</td>
-            <td class="py-0.5 text-end" :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">
+          <tr v-for="tr in trades.slice(0, 10)" :key="tr.id" class="border-t border-border/50 text-[10px]">
+            <td class="py-0.5 text-fg-muted">{{ tr.side }}</td>
+            <td class="py-0.5 text-end" :class="Number(tr.pnl) >= 0 ? 'text-positive' : 'text-negative'">
               {{ tr.pnl }}
             </td>
           </tr>
@@ -101,10 +101,10 @@ onMounted(refresh)
           <div
             v-for="tr in trades.slice(0, 10)"
             :key="tr.id"
-            class="flex items-center justify-between rounded border border-zinc-800/70 px-2 py-1 text-[10px]"
+            class="flex items-center justify-between rounded border border-border/70 px-2 py-1 text-[10px]"
           >
-            <span class="text-zinc-400">{{ tr.side }}</span>
-            <span :class="Number(tr.pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ tr.pnl }}</span>
+            <span class="text-fg-muted">{{ tr.side }}</span>
+            <span :class="Number(tr.pnl) >= 0 ? 'text-positive' : 'text-negative'">{{ tr.pnl }}</span>
           </div>
         </template>
       </ResponsiveTable>

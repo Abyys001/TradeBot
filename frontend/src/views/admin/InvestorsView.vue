@@ -69,52 +69,52 @@ onMounted(() => admin.fetchAll())
 
 <template>
   <div class="mx-auto max-w-5xl p-3 sm:p-6">
-    <h1 class="mb-1 text-xl font-semibold text-zinc-100">{{ t('investors.title') }}</h1>
-    <p class="mb-6 text-sm text-zinc-500">{{ t('investors.subtitle') }}</p>
+    <h1 class="mb-1 text-xl font-semibold text-fg">{{ t('investors.title') }}</h1>
+    <p class="mb-6 text-sm text-fg-muted">{{ t('investors.subtitle') }}</p>
 
     <!-- Create form -->
-    <div class="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-      <h2 class="mb-4 text-sm font-medium text-zinc-300">{{ t('investors.createTitle') }}</h2>
+    <div class="mb-8 rounded-xl border border-border bg-surface-raised p-5">
+      <h2 class="mb-4 text-sm font-medium text-fg">{{ t('investors.createTitle') }}</h2>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label class="flex flex-col gap-1">
-          <span class="text-xs text-zinc-500">{{ t('investors.username') }}</span>
+          <span class="text-xs text-fg-muted">{{ t('investors.username') }}</span>
           <input v-model="form.username" type="text" autocomplete="off"
-            class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-violet-500" />
+            class="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none focus:border-accent" />
         </label>
         <label class="flex flex-col gap-1">
-          <span class="text-xs text-zinc-500">{{ t('investors.email') }}</span>
+          <span class="text-xs text-fg-muted">{{ t('investors.email') }}</span>
           <input v-model="form.email" type="email" autocomplete="off"
-            class="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-violet-500" />
+            class="rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg outline-none focus:border-accent" />
         </label>
         <label class="flex flex-col gap-1 sm:col-span-2">
-          <span class="text-xs text-zinc-500">{{ t('investors.tempPassword') }}</span>
+          <span class="text-xs text-fg-muted">{{ t('investors.tempPassword') }}</span>
           <div class="flex gap-2">
             <input v-model="form.password" type="text" autocomplete="off"
-              class="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-violet-500" />
+              class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-fg outline-none focus:border-accent" />
             <button type="button" @click="genPassword"
-              class="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800">
+              class="rounded-lg border border-border px-3 py-2 text-sm text-fg hover:bg-surface-raised">
               {{ t('investors.generate') }}
             </button>
           </div>
-          <span class="text-xs text-zinc-600">{{ t('investors.mustChangeHint') }}</span>
+          <span class="text-xs text-fg-muted">{{ t('investors.mustChangeHint') }}</span>
         </label>
         <label class="flex items-center gap-2 sm:col-span-2">
-          <input v-model="form.is_trading_enabled" type="checkbox" class="accent-violet-500" />
-          <span class="text-sm text-zinc-400">{{ t('investors.enableTrading') }}</span>
+          <input v-model="form.is_trading_enabled" type="checkbox" class="accent-[var(--tb-accent)]" />
+          <span class="text-sm text-fg-muted">{{ t('investors.enableTrading') }}</span>
         </label>
       </div>
       <div class="mt-4 flex items-center gap-3">
         <button type="button" :disabled="creating" @click="submit"
-          class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50">
+          class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-fg hover:opacity-90 disabled:opacity-50">
           {{ creating ? t('investors.creating') : t('investors.createBtn') }}
         </button>
-        <span v-if="error" class="text-sm text-red-400">{{ error }}</span>
-        <span v-else-if="notice" class="text-sm text-emerald-400">{{ notice }}</span>
+        <span v-if="error" class="text-sm text-negative">{{ error }}</span>
+        <span v-else-if="notice" class="text-sm text-positive">{{ notice }}</span>
       </div>
     </div>
 
     <!-- Investor list -->
-    <div class="rounded-xl border border-zinc-800 overflow-hidden">
+    <div class="rounded-xl border border-border overflow-hidden">
       <ResponsiveTable :empty="isEmpty">
         <template #empty>
           <span class="block px-4 py-8 text-center">{{ t('investors.empty') }}</span>
@@ -127,25 +127,25 @@ onMounted(() => admin.fetchAll())
           <th class="px-4 py-3 text-start">{{ t('investors.actions') }}</th>
         </template>
         <template #row>
-          <tr v-for="inv in admin.investors" :key="inv.id" class="text-zinc-300 divide-y divide-zinc-800 border-t border-zinc-800">
+          <tr v-for="inv in admin.investors" :key="inv.id" class="text-fg divide-y divide-border border-t border-border">
             <td class="px-4 py-3">
-              <span class="font-medium text-zinc-100">{{ inv.username }}</span>
+              <span class="font-medium text-fg">{{ inv.username }}</span>
               <span v-if="inv.must_change_password"
-                class="ms-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">
+                class="ms-2 rounded bg-warning-bg px-1.5 py-0.5 text-[10px] text-warning">
                 {{ t('investors.pendingChange') }}
               </span>
             </td>
-            <td class="px-4 py-3 text-zinc-500">{{ inv.email || '—' }}</td>
+            <td class="px-4 py-3 text-fg-muted">{{ inv.email || '—' }}</td>
             <td class="px-4 py-3">
-              <span :class="inv.is_active ? 'text-emerald-400' : 'text-zinc-500'">
+              <span :class="inv.is_active ? 'text-positive' : 'text-fg-muted'">
                 {{ inv.is_active ? t('investors.active') : t('investors.disabled') }}
               </span>
             </td>
             <td class="px-4 py-3">
               <button type="button" @click="toggleTrading(inv)"
                 :class="inv.is_trading_enabled
-                  ? 'bg-emerald-500/15 text-emerald-400'
-                  : 'bg-zinc-800 text-zinc-500'"
+                  ? 'bg-success-bg text-positive'
+                  : 'bg-surface-raised text-fg-muted'"
                 class="rounded-full px-2.5 py-1 text-xs">
                 {{ inv.is_trading_enabled ? t('investors.on') : t('investors.off') }}
               </button>
@@ -153,12 +153,12 @@ onMounted(() => admin.fetchAll())
             <td class="px-4 py-3">
               <div class="flex gap-2">
                 <button type="button" @click="resetPassword(inv)"
-                  class="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
+                  class="rounded-md border border-border px-2 py-1 text-xs text-fg hover:bg-surface-raised">
                   {{ t('investors.resetPassword') }}
                 </button>
                 <button type="button" @click="toggleActive(inv)"
-                  class="rounded-md border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
-                  :class="inv.is_active ? 'text-red-400' : 'text-emerald-400'">
+                  class="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-raised"
+                  :class="inv.is_active ? 'text-negative' : 'text-positive'">
                   {{ inv.is_active ? t('investors.disable') : t('investors.enable') }}
                 </button>
               </div>
@@ -166,36 +166,36 @@ onMounted(() => admin.fetchAll())
           </tr>
         </template>
         <template #card>
-          <div v-for="inv in admin.investors" :key="inv.id" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+          <div v-for="inv in admin.investors" :key="inv.id" class="rounded-lg border border-border bg-surface-raised p-3">
             <div class="flex items-center justify-between gap-2">
               <div class="min-w-0">
-                <span class="font-medium text-zinc-100">{{ inv.username }}</span>
+                <span class="font-medium text-fg">{{ inv.username }}</span>
                 <span v-if="inv.must_change_password"
-                  class="ms-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">
+                  class="ms-1 rounded bg-warning-bg px-1.5 py-0.5 text-[10px] text-warning">
                   {{ t('investors.pendingChange') }}
                 </span>
-                <div class="text-xs text-zinc-500">{{ inv.email || '—' }}</div>
+                <div class="text-xs text-fg-muted">{{ inv.email || '—' }}</div>
               </div>
-              <span class="shrink-0 text-xs" :class="inv.is_active ? 'text-emerald-400' : 'text-zinc-500'">
+              <span class="shrink-0 text-xs" :class="inv.is_active ? 'text-positive' : 'text-fg-muted'">
                 {{ inv.is_active ? t('investors.active') : t('investors.disabled') }}
               </span>
             </div>
-            <div class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-800 pt-2">
+            <div class="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
               <button type="button" @click="toggleTrading(inv)"
                 :class="inv.is_trading_enabled
-                  ? 'bg-emerald-500/15 text-emerald-400'
-                  : 'bg-zinc-800 text-zinc-500'"
+                  ? 'bg-success-bg text-positive'
+                  : 'bg-surface-raised text-fg-muted'"
                 class="rounded-full px-2.5 py-1 text-xs">
                 {{ inv.is_trading_enabled ? t('investors.on') : t('investors.off') }}
               </button>
               <div class="flex gap-2">
                 <button type="button" @click="resetPassword(inv)"
-                  class="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800">
+                  class="rounded-md border border-border px-2 py-1 text-xs text-fg hover:bg-surface-raised">
                   {{ t('investors.resetPassword') }}
                 </button>
                 <button type="button" @click="toggleActive(inv)"
-                  class="rounded-md border border-zinc-700 px-2 py-1 text-xs hover:bg-zinc-800"
-                  :class="inv.is_active ? 'text-red-400' : 'text-emerald-400'">
+                  class="rounded-md border border-border px-2 py-1 text-xs hover:bg-surface-raised"
+                  :class="inv.is_active ? 'text-negative' : 'text-positive'">
                   {{ inv.is_active ? t('investors.disable') : t('investors.enable') }}
                 </button>
               </div>

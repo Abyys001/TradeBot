@@ -61,6 +61,7 @@ LOCAL_APPS = [
     "apps.integrations",
     "apps.telegram",
     "apps.copytrading",
+    "apps.public",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -206,6 +207,8 @@ REST_FRAMEWORK = {
         "anon": "60/minute",
         "user": "120/minute",
         "login": "10/minute",
+        "public_performance": "30/minute",
+        "lead_submit": "5/minute",
     },
 }
 

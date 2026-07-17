@@ -57,14 +57,14 @@ function isActive(path: string) {
 
 <template>
   <aside
-    class="border-e border-zinc-800 bg-zinc-900/50 flex flex-col py-3 overflow-hidden fixed inset-y-0 start-0 z-40 w-64 max-w-[80vw] shadow-2xl transition-transform duration-200 lg:relative lg:inset-auto lg:z-auto lg:max-w-none lg:shadow-none lg:translate-x-0 lg:rtl:translate-x-0 lg:transition-[width] lg:shrink-0"
+    class="border-e border-border bg-surface-muted/50 flex flex-col py-3 overflow-hidden fixed inset-y-0 start-0 z-40 w-64 max-w-[80vw] shadow-2xl transition-transform duration-200 lg:relative lg:inset-auto lg:z-auto lg:max-w-none lg:shadow-none lg:translate-x-0 lg:rtl:translate-x-0 lg:transition-[width] lg:shrink-0"
     :class="[asideWidthClass, layout.mobileNavOpen ? 'translate-x-0' : '-translate-x-full rtl:translate-x-full']"
     :style="{ '--nav-width': layout.navWidth }"
   >
     <div class="mx-2 mb-3 flex items-center gap-1">
       <button
         type="button"
-        class="hidden flex-1 items-center justify-start rounded-lg px-3 py-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 lg:flex"
+        class="hidden flex-1 items-center justify-start rounded-lg px-3 py-2 text-fg-muted transition-colors hover:bg-surface-raised hover:text-fg lg:flex"
         :title="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
         :aria-label="layout.navCollapsed ? t('nav.toggleExpand') : t('nav.toggleCollapse')"
         @click="layout.toggleNav()"
@@ -78,7 +78,7 @@ function isActive(path: string) {
       </button>
       <button
         type="button"
-        class="flex flex-1 items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 lg:hidden"
+        class="flex flex-1 items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-fg lg:hidden"
         :aria-label="t('nav.toggleCollapse')"
         @click="layout.setMobileNavOpen(false)"
       >
@@ -96,8 +96,8 @@ function isActive(path: string) {
       class="mx-2 mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
       :class="
         isActive(item.path)
-          ? 'bg-zinc-800 text-zinc-100 font-medium'
-          : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'
+          ? 'bg-surface-raised text-fg font-medium'
+          : 'text-fg-muted hover:bg-surface-raised/50 hover:text-fg'
       "
       :title="!showLabels ? t(item.label) : undefined"
     >

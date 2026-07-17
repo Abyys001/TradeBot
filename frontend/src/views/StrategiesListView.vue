@@ -22,9 +22,9 @@ const uploadInput = ref<HTMLInputElement | null>(null)
 const uploadSource = ref('')
 
 const badgeBase = 'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium'
-const iconBtnBase = 'rounded-md p-1.5 text-zinc-600 transition-colors hover:bg-zinc-800'
+const iconBtnBase = 'rounded-md p-1.5 text-fg-muted transition-colors hover:bg-surface-raised'
 // Slightly larger tap target for the same icon buttons in the mobile card layout.
-const cardIconBtnBase = 'rounded-md p-2 text-zinc-600 transition-colors hover:bg-zinc-800'
+const cardIconBtnBase = 'rounded-md p-2 text-fg-muted transition-colors hover:bg-surface-raised'
 
 onMounted(() => {
   void store.fetchAll()
@@ -49,10 +49,10 @@ function strategyQuery(): Record<string, string> {
 }
 
 function statusClass(status: string) {
-  if (status === 'active') return 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
-  if (status === 'paused') return 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
-  if (status === 'stopped') return 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30'
-  return 'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/40'
+  if (status === 'active') return 'bg-success-bg text-positive ring-1 ring-positive/40'
+  if (status === 'paused') return 'bg-warning-bg text-warning ring-1 ring-warning/30'
+  if (status === 'stopped') return 'bg-danger-bg text-negative ring-1 ring-negative/30'
+  return 'bg-surface-raised/50 text-fg-muted ring-1 ring-border'
 }
 
 function statusLabel(status: string) {
@@ -63,9 +63,9 @@ function statusLabel(status: string) {
 }
 
 function pineClass(v: string) {
-  if (v === 'ok') return 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
-  if (v === 'error') return 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30'
-  return 'bg-zinc-700/50 text-zinc-400 ring-1 ring-zinc-600/40'
+  if (v === 'ok') return 'bg-success-bg text-positive ring-1 ring-positive/40'
+  if (v === 'error') return 'bg-danger-bg text-negative ring-1 ring-negative/30'
+  return 'bg-surface-raised/50 text-fg-muted ring-1 ring-border'
 }
 
 function pineLabel(v: string) {
@@ -133,19 +133,19 @@ function onCreated(id: number) {
 <template>
   <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 sm:p-6">
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-      <h1 class="text-lg font-semibold text-zinc-200">{{ t('strategies.title') }}</h1>
+      <h1 class="text-lg font-semibold text-fg">{{ t('strategies.title') }}</h1>
       <div class="flex gap-2">
         <input ref="uploadInput" type="file" accept=".pine,.txt,.pinescript" class="hidden" @change="onFileSelected" />
         <button
           type="button"
-          class="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+          class="rounded-lg border border-border px-3 py-1.5 text-xs text-fg hover:bg-surface-raised"
           @click="onUploadClick"
         >
           {{ t('strategies.uploadPine') }}
         </button>
         <button
           type="button"
-          class="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs text-white hover:bg-emerald-600"
+          class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500"
           @click="showCreate = true"
         >
           {{ t('strategies.new') }}
@@ -155,7 +155,7 @@ function onCreated(id: number) {
 
     <div
       v-if="dataPrefill"
-      class="mb-4 rounded-lg border border-violet-900/50 bg-violet-950/30 px-3 py-2 text-sm text-violet-300"
+      class="mb-4 rounded-lg border border-info/40 bg-info-bg px-3 py-2 text-sm text-info"
     >
       {{ t('data.prefillHint', dataPrefill) }}
     </div>
@@ -171,7 +171,7 @@ function onCreated(id: number) {
       @create="showCreate = true"
     />
 
-    <div v-else class="rounded-xl border border-zinc-800 overflow-hidden">
+    <div v-else class="rounded-xl border border-border overflow-hidden">
       <ResponsiveTable>
         <template #head>
           <th class="text-start px-4 py-3">{{ t('strategy.name') }}</th>
@@ -184,14 +184,14 @@ function onCreated(id: number) {
           <tr
             v-for="s in list"
             :key="s.id"
-            class="cursor-default border-t border-zinc-800/50 transition-colors duration-150 hover:bg-zinc-800/40"
+            class="cursor-default border-t border-border/50 transition-colors duration-150 hover:bg-surface-raised/40"
           >
             <td class="px-4 py-3">
-              <button type="button" class="text-zinc-200 hover:text-emerald-400 font-medium" @click="openDetail(s.id)">
+              <button type="button" class="text-fg hover:text-positive font-medium" @click="openDetail(s.id)">
                 {{ s.name }}
               </button>
             </td>
-            <td class="px-4 py-3 text-zinc-400">{{ s.symbol }}</td>
+            <td class="px-4 py-3 text-fg-muted">{{ s.symbol }}</td>
             <td class="px-4 py-3">
               <span :class="[badgeBase, statusClass(s.status)]">{{ statusLabel(s.status) }}</span>
             </td>
@@ -202,7 +202,7 @@ function onCreated(id: number) {
               <div class="flex items-center justify-end gap-0.5">
                 <button
                   type="button"
-                  :class="[iconBtnBase, 'hover:text-zinc-200']"
+                  :class="[iconBtnBase, 'hover:text-fg']"
                   :title="t('strategies.edit')"
                   @click="openDetail(s.id)"
                 >
@@ -213,7 +213,7 @@ function onCreated(id: number) {
                 </button>
                 <button
                   type="button"
-                  :class="[iconBtnBase, 'hover:text-violet-400']"
+                  :class="[iconBtnBase, 'hover:text-accent']"
                   :title="t('strategy.validate')"
                   @click="onValidate(s)"
                 >
@@ -225,7 +225,7 @@ function onCreated(id: number) {
                 <button
                   v-if="s.status === 'active'"
                   type="button"
-                  :class="[iconBtnBase, 'hover:text-amber-400']"
+                  :class="[iconBtnBase, 'hover:text-warning']"
                   :title="t('strategy.stop')"
                   @click="onStop(s)"
                 >
@@ -236,7 +236,7 @@ function onCreated(id: number) {
                 <button
                   v-else-if="s.credential"
                   type="button"
-                  :class="[iconBtnBase, 'hover:text-emerald-400']"
+                  :class="[iconBtnBase, 'hover:text-positive']"
                   :title="t('strategy.start')"
                   @click="onStart(s)"
                 >
@@ -246,7 +246,7 @@ function onCreated(id: number) {
                 </button>
                 <button
                   type="button"
-                  :class="[iconBtnBase, 'hover:text-red-400']"
+                  :class="[iconBtnBase, 'hover:text-negative']"
                   :title="t('strategies.delete')"
                   @click="deleteTarget = s"
                 >
@@ -261,21 +261,21 @@ function onCreated(id: number) {
           </tr>
         </template>
         <template #card>
-          <div v-for="s in list" :key="s.id" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+          <div v-for="s in list" :key="s.id" class="rounded-lg border border-border bg-surface-raised p-3">
             <div class="flex items-center justify-between gap-2">
-              <button type="button" class="truncate font-medium text-zinc-200 hover:text-emerald-400" @click="openDetail(s.id)">
+              <button type="button" class="truncate font-medium text-fg hover:text-positive" @click="openDetail(s.id)">
                 {{ s.name }}
               </button>
-              <span class="shrink-0 text-xs text-zinc-500">{{ s.symbol }}</span>
+              <span class="shrink-0 text-xs text-fg-muted">{{ s.symbol }}</span>
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-1.5">
               <span :class="[badgeBase, statusClass(s.status)]">{{ statusLabel(s.status) }}</span>
               <span :class="[badgeBase, pineClass(s.validation_status)]">{{ pineLabel(s.validation_status) }}</span>
             </div>
-            <div class="mt-2 flex items-center justify-end gap-0.5 border-t border-zinc-800 pt-2">
+            <div class="mt-2 flex items-center justify-end gap-0.5 border-t border-border pt-2">
               <button
                 type="button"
-                :class="[cardIconBtnBase, 'hover:text-zinc-200']"
+                :class="[cardIconBtnBase, 'hover:text-fg']"
                 :aria-label="t('strategies.edit')"
                 @click="openDetail(s.id)"
               >
@@ -286,7 +286,7 @@ function onCreated(id: number) {
               </button>
               <button
                 type="button"
-                :class="[cardIconBtnBase, 'hover:text-violet-400']"
+                :class="[cardIconBtnBase, 'hover:text-accent']"
                 :aria-label="t('strategy.validate')"
                 @click="onValidate(s)"
               >
@@ -298,7 +298,7 @@ function onCreated(id: number) {
               <button
                 v-if="s.status === 'active'"
                 type="button"
-                :class="[cardIconBtnBase, 'hover:text-amber-400']"
+                :class="[cardIconBtnBase, 'hover:text-warning']"
                 :aria-label="t('strategy.stop')"
                 @click="onStop(s)"
               >
@@ -309,7 +309,7 @@ function onCreated(id: number) {
               <button
                 v-else-if="s.credential"
                 type="button"
-                :class="[cardIconBtnBase, 'hover:text-emerald-400']"
+                :class="[cardIconBtnBase, 'hover:text-positive']"
                 :aria-label="t('strategy.start')"
                 @click="onStart(s)"
               >
@@ -319,7 +319,7 @@ function onCreated(id: number) {
               </button>
               <button
                 type="button"
-                :class="[cardIconBtnBase, 'hover:text-red-400']"
+                :class="[cardIconBtnBase, 'hover:text-negative']"
                 :aria-label="t('strategies.delete')"
                 @click="deleteTarget = s"
               >
@@ -343,11 +343,11 @@ function onCreated(id: number) {
     />
 
     <div v-if="deleteTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div class="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-6">
-        <h3 class="text-zinc-200 font-medium mb-2">{{ t('strategies.deleteConfirm') }}</h3>
-        <p class="text-sm text-zinc-500 mb-4">{{ deleteTarget.name }}</p>
+      <div class="w-full max-w-sm rounded-xl border border-border bg-surface p-6">
+        <h3 class="text-fg font-medium mb-2">{{ t('strategies.deleteConfirm') }}</h3>
+        <p class="text-sm text-fg-muted mb-4">{{ deleteTarget.name }}</p>
         <div class="flex justify-end gap-2">
-          <button type="button" class="px-4 py-2 text-sm text-zinc-400" @click="deleteTarget = null">
+          <button type="button" class="px-4 py-2 text-sm text-fg-muted" @click="deleteTarget = null">
             {{ t('health.cancel') }}
           </button>
           <button type="button" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg" @click="confirmDelete">

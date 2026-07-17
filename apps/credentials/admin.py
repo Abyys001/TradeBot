@@ -8,4 +8,4 @@ class ExchangeCredentialAdmin(admin.ModelAdmin):
     list_display = ("user", "exchange", "label", "network", "is_active", "last_verified_at")
     list_filter = ("exchange", "network", "is_active")
     search_fields = ("label", "wallet_address", "agent_address")
-    exclude = ("agent_private_key_enc",)
+    exclude = ("agent_private_key_enc", "api_key_enc", "api_secret_enc")

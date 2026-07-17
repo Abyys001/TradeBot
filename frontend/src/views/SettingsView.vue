@@ -10,7 +10,7 @@ const { t } = useI18n()
 
 <template>
   <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 sm:p-6 space-y-6 max-w-2xl">
-    <h1 class="text-lg font-semibold text-zinc-200">{{ t('settings.title') }}</h1>
+    <h1 class="text-lg font-semibold text-fg">{{ t('settings.title') }}</h1>
     <AccountPanel />
     <CredentialsPanel />
     <SignumSettingsPanel />

@@ -23,8 +23,8 @@ onMounted(() => copy.fetchMy())
 
 <template>
   <div class="mx-auto max-w-5xl p-6">
-    <h1 class="mb-1 text-xl font-semibold text-zinc-100">{{ t('copy.title') }}</h1>
-    <p class="mb-6 text-sm text-zinc-500">{{ t('copy.subtitle') }}</p>
+    <h1 class="mb-1 text-xl font-semibold text-fg">{{ t('copy.title') }}</h1>
+    <p class="mb-6 text-sm text-fg-muted">{{ t('copy.subtitle') }}</p>
 
     <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
       <StatCard :label="t('copy.netPnl')" :value="'$' + fmt(copy.summary?.net_pnl)" :accent="netAccent" :sub="t('copy.afterFees')" />
@@ -34,13 +34,13 @@ onMounted(() => copy.fetchMy())
     </div>
 
     <div class="mb-6">
-      <div class="mb-2 text-sm font-medium text-zinc-300">{{ t('copy.equityCurve') }}</div>
+      <div class="mb-2 text-sm font-medium text-fg">{{ t('copy.equityCurve') }}</div>
       <EquityCurve :series="equitySeries" :height="160" />
     </div>
 
-    <div class="overflow-x-auto rounded-xl border border-zinc-800">
+    <div class="overflow-x-auto rounded-xl border border-border">
       <table class="w-full text-left text-sm">
-        <thead class="bg-zinc-900/70 text-xs uppercase text-zinc-500">
+        <thead class="bg-surface-raised text-xs uppercase text-fg-muted">
           <tr>
             <th class="px-4 py-3">{{ t('copy.pair') }}</th>
             <th class="px-4 py-3">{{ t('copy.side') }}</th>
@@ -51,24 +51,24 @@ onMounted(() => copy.fetchMy())
             <th class="px-4 py-3">{{ t('copy.status') }}</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-zinc-800">
-          <tr v-for="tr in copy.trades" :key="tr.id" class="text-zinc-300">
-            <td class="px-4 py-2 font-medium text-zinc-100">{{ tr.pair }}</td>
+        <tbody class="divide-y divide-border">
+          <tr v-for="tr in copy.trades" :key="tr.id" class="text-fg">
+            <td class="px-4 py-2 font-medium text-fg">{{ tr.pair }}</td>
             <td class="px-4 py-2">
-              <span :class="tr.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">{{ tr.side?.toUpperCase() }}</span>
+              <span :class="tr.side === 'buy' ? 'text-positive' : 'text-negative'">{{ tr.side?.toUpperCase() }}</span>
             </td>
             <td class="px-4 py-2 tabular-nums">{{ fmt(tr.entry_price ?? undefined, 4) }}</td>
             <td class="px-4 py-2 tabular-nums">{{ tr.exit_price ? fmt(tr.exit_price, 4) : '—' }}</td>
-            <td class="px-4 py-2 tabular-nums" :class="Number(tr.gross_pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">
+            <td class="px-4 py-2 tabular-nums" :class="Number(tr.gross_pnl) >= 0 ? 'text-positive' : 'text-negative'">
               {{ fmt(tr.gross_pnl) }}
             </td>
-            <td class="px-4 py-2 tabular-nums text-amber-400">{{ fmt(tr.platform_share_amount) }}</td>
+            <td class="px-4 py-2 tabular-nums text-warning">{{ fmt(tr.platform_share_amount) }}</td>
             <td class="px-4 py-2">
-              <span :class="tr.status === 'open' ? 'text-sky-400' : 'text-zinc-500'">{{ tr.status }}</span>
+              <span :class="tr.status === 'open' ? 'text-info' : 'text-fg-muted'">{{ tr.status }}</span>
             </td>
           </tr>
           <tr v-if="!copy.loading && copy.trades.length === 0">
-            <td colspan="7" class="px-4 py-8 text-center text-zinc-600">{{ t('copy.noTrades') }}</td>
+            <td colspan="7" class="px-4 py-8 text-center text-fg-muted">{{ t('copy.noTrades') }}</td>
           </tr>
         </tbody>
       </table>

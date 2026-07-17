@@ -1,4 +1,4 @@
-# TradeBot — single compose file for dev (hot reload) and prod (RELOAD=0).
+# Algo Trader — single compose file for dev (hot reload) and prod (RELOAD=0).
 #
 # Dev (default):  docker compose up --build
 # Prod:           RELOAD=0 docker compose up -d --build
@@ -24,13 +24,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-tradebot}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradebot}
-      POSTGRES_DB: ${POSTGRES_DB:-tradebot}
+      POSTGRES_USER: ${POSTGRES_USER:-algotrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-algotrader}
+      POSTGRES_DB: ${POSTGRES_DB:-algotrader}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tradebot}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-algotrader}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -54,7 +54,7 @@ services:
 
   web:
     <<: *app-common
-    container_name: tradebot-web
+    container_name: algotrader-web
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -158,7 +158,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: tradebot-frontend
+    container_name: algotrader-frontend
     ports:
       - "127.0.0.1:8080:80"
     depends_on:
@@ -166,8 +166,18 @@ services:
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.5
+    # Also joins lumia's nginx to be reachable as "algotrader-frontend"
+    # by the shared reverse proxy (bot.lumiabeauty.ir upstream in prod.conf).
+    networks:
+      - default
+      - lumia_net
 
 volumes:
   pgdata:
   redisdata:
   marketdata:
+
+networks:
+  lumia_net:
+    external: true
+    name: lumia_lumia_net

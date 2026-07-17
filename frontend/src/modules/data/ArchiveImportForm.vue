@@ -75,34 +75,34 @@ async function submitArchive() {
 </script>
 
 <template>
-  <div class="rounded-xl border border-zinc-800 p-4 space-y-4">
+  <div class="rounded-xl border border-border p-4 space-y-4">
     <div>
-      <h3 class="text-sm font-medium text-zinc-200">Import Archive</h3>
-      <p class="text-xs text-zinc-500 mt-0.5">Import a local Parquet or CSV file directly into the data store.</p>
+      <h3 class="text-sm font-medium text-fg">Import Archive</h3>
+      <p class="text-xs text-fg-muted mt-0.5">Import a local Parquet or CSV file directly into the data store.</p>
     </div>
 
     <div class="space-y-3">
-      <label class="text-xs text-zinc-500">
+      <label class="text-xs text-fg-muted">
         File Path
         <input
           v-model="filePath"
           type="text"
           placeholder="/data/archives/BTC-1h-full.parquet"
-          class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 font-mono"
+          class="mt-1 w-full rounded-lg border border-border bg-surface-muted px-3 py-1.5 text-sm text-fg font-mono"
         />
       </label>
 
       <div class="grid grid-cols-2 gap-2.5">
-        <label class="text-xs text-zinc-500">
+        <label class="text-xs text-fg-muted">
           Format
-          <select v-model="archiveFormat" class="mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200">
+          <select v-model="archiveFormat" class="mt-1 block w-full rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg">
             <option value="parquet">Parquet (.parquet)</option>
             <option value="csv_gz">CSV Gzip (.csv.gz)</option>
           </select>
         </label>
-        <label class="text-xs text-zinc-500">
+        <label class="text-xs text-fg-muted">
           Network
-          <select v-model="network" class="mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200">
+          <select v-model="network" class="mt-1 block w-full rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg">
             <option value="mainnet">mainnet</option>
             <option value="testnet">testnet</option>
           </select>
@@ -110,25 +110,25 @@ async function submitArchive() {
       </div>
 
       <div class="grid grid-cols-2 gap-2.5">
-        <label class="text-xs text-zinc-500">
+        <label class="text-xs text-fg-muted">
           Market (optional)
           <div class="relative mt-1">
             <input
               v-model="archiveCoin"
               type="text"
               placeholder="BTC"
-              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200"
+              class="w-full rounded-lg border border-border bg-surface-muted px-3 py-1.5 text-sm text-fg"
               @input="archiveCoin = sanitizeMarket(($event.target as HTMLInputElement).value)"
             />
             <div
               v-if="archiveCoin && availableCoins.length"
-              class="scrollbar-styled scrollbar-thin absolute left-0 right-0 top-full z-10 mt-1 max-h-32 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900"
+              class="scrollbar-styled scrollbar-thin absolute left-0 right-0 top-full z-10 mt-1 max-h-32 overflow-y-auto rounded-lg border border-border bg-surface-muted"
             >
               <button
                 v-for="c in availableCoins.filter((c) => c.startsWith(archiveCoin.toUpperCase())).slice(0, 10)"
                 :key="c"
                 type="button"
-                class="block w-full px-3 py-1 text-start text-xs text-zinc-300 hover:bg-zinc-800"
+                class="block w-full px-3 py-1 text-start text-xs text-fg hover:bg-surface-raised"
                 @click="archiveCoin = c"
               >
                 {{ c }}
@@ -136,22 +136,22 @@ async function submitArchive() {
             </div>
           </div>
         </label>
-        <label class="text-xs text-zinc-500">
+        <label class="text-xs text-fg-muted">
           Interval
-          <select v-model="archiveInterval" class="mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200">
+          <select v-model="archiveInterval" class="mt-1 block w-full rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg">
             <option v-for="iv in availableIntervals" :key="iv" :value="iv">{{ iv }}</option>
           </select>
         </label>
       </div>
 
-      <p class="text-[10px] text-zinc-500 leading-relaxed">
-        Filename convention: <code class="text-zinc-300">BTC-1h-full.parquet</code>.
+      <p class="text-[10px] text-fg-muted leading-relaxed">
+        Filename convention: <code class="text-fg">BTC-1h-full.parquet</code>.
         Market and interval are auto-detected from the filename when omitted.
       </p>
 
       <button
         type="button"
-        class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50 w-full"
+        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 w-full"
         :disabled="submitting || celeryOffline || !filePath.trim()"
         :title="celeryOffline ? t('data.celeryOffline') : undefined"
         @click="submitArchive"

@@ -4,6 +4,7 @@ import App from './App.vue'
 import router from './router'
 import { i18n } from './i18n'
 import { useAuthStore } from './stores/auth'
+import './theme'
 import './style.css'
 
 const app = createApp(App)

@@ -93,32 +93,32 @@ async function test() {
 </script>
 
 <template>
-  <section class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
-    <h2 class="text-sm font-medium text-zinc-200">{{ t('telegram.title') }}</h2>
-    <p class="text-xs text-zinc-500">{{ t('telegram.subtitle') }}</p>
+  <section class="rounded-lg border border-border bg-surface-muted/40 p-4 space-y-4">
+    <h2 class="text-sm font-medium text-fg">{{ t('telegram.title') }}</h2>
+    <p class="text-xs text-fg-muted">{{ t('telegram.subtitle') }}</p>
 
-    <div v-if="loading" class="text-sm text-zinc-500">…</div>
+    <div v-if="loading" class="text-sm text-fg-muted">…</div>
 
     <template v-else>
-      <label class="flex items-center gap-2 text-sm text-zinc-300">
-        <input v-model="config.enabled" type="checkbox" class="rounded border-zinc-600" />
+      <label class="flex items-center gap-2 text-sm text-fg">
+        <input v-model="config.enabled" type="checkbox" class="rounded border-border" />
         {{ t('telegram.enabled') }}
       </label>
 
-      <label class="block text-xs text-zinc-500">
+      <label class="block text-xs text-fg-muted">
         {{ t('telegram.botToken') }}
         <input
           v-model="config.bot_token"
           type="password"
           autocomplete="off"
           :placeholder="t('telegram.botTokenHint')"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200"
+          class="mt-1 w-full rounded border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg"
         />
       </label>
 
       <button
         type="button"
-        class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         :disabled="saving"
         @click="saveConfig"
       >
@@ -127,28 +127,28 @@ async function test() {
 
       <button
         type="button"
-        class="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 ms-2"
+        class="rounded-lg border border-border px-4 py-2 text-sm text-fg hover:bg-surface-raised disabled:opacity-50 ms-2"
         :disabled="testing || !config.enabled"
         @click="test"
       >
         {{ t('telegram.test') }}
       </button>
 
-      <div class="border-t border-zinc-800 pt-4">
-        <h3 class="text-xs font-medium text-zinc-400 mb-2">{{ t('telegram.whitelistTitle') }}</h3>
+      <div class="border-t border-border pt-4">
+        <h3 class="text-xs font-medium text-fg-muted mb-2">{{ t('telegram.whitelistTitle') }}</h3>
 
-        <div v-if="!whitelist.length" class="text-xs text-zinc-600 mb-3">
+        <div v-if="!whitelist.length" class="text-xs text-fg-muted mb-3">
           {{ t('telegram.whitelistEmpty') }}
         </div>
 
         <div v-for="entry in whitelist" :key="entry.id" class="flex items-center gap-2 mb-2">
-          <span class="text-xs text-zinc-300 flex-1">
+          <span class="text-xs text-fg flex-1">
             <template v-if="entry.label">{{ entry.label }} — </template>
-            <code class="text-zinc-500">{{ entry.chat_id }}</code>
+            <code class="text-fg-muted">{{ entry.chat_id }}</code>
           </span>
           <button
             type="button"
-            class="text-xs text-red-400 hover:text-red-300"
+            class="text-xs text-negative hover:text-negative"
             @click="removeChat(entry.id)"
           >
             {{ t('telegram.removeChat') }}
@@ -156,26 +156,26 @@ async function test() {
         </div>
 
         <div class="flex flex-wrap items-end gap-2 mt-3">
-          <label class="block text-xs text-zinc-500 flex-1 min-w-[120px]">
+          <label class="block text-xs text-fg-muted flex-1 min-w-[120px]">
             Chat ID
             <input
               v-model="newChatId"
               type="text"
               :placeholder="t('telegram.chatIdHint')"
-              class="mt-0.5 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-200"
+              class="mt-0.5 w-full rounded border border-border bg-surface-muted px-2 py-1 text-sm text-fg"
             />
           </label>
-          <label class="block text-xs text-zinc-500 flex-1 min-w-[100px]">
+          <label class="block text-xs text-fg-muted flex-1 min-w-[100px]">
             {{ t('telegram.chatIdLabel') }}
             <input
               v-model="newLabel"
               type="text"
-              class="mt-0.5 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-200"
+              class="mt-0.5 w-full rounded border border-border bg-surface-muted px-2 py-1 text-sm text-fg"
             />
           </label>
           <button
             type="button"
-            class="rounded bg-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-600"
+            class="rounded bg-border px-3 py-1.5 text-xs text-fg hover:opacity-80"
             :disabled="!newChatId"
             @click="addChat"
           >

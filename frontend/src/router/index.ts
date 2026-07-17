@@ -5,6 +5,12 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/welcome',
+      name: 'landing',
+      component: () => import('../views/LandingView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
@@ -74,11 +80,11 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  if (!auth.user && !to.meta.guest) {
+  if (!auth.user && !to.meta.guest && !to.meta.public) {
     try {
       await auth.fetchMe()
     } catch {
-      if (to.meta.requiresAuth) return { name: 'login' }
+      if (to.meta.requiresAuth) return { name: 'landing' }
     }
   }
   if (to.meta.guest && auth.user) return { name: 'overview' }

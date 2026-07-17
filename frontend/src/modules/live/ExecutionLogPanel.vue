@@ -21,10 +21,10 @@ const total = ref(0)
 const levels = ['all', 'debug', 'info', 'warning', 'error']
 
 const levelBadge: Record<string, string> = {
-  debug: 'bg-zinc-800 text-zinc-400',
+  debug: 'bg-surface-raised text-fg-muted',
   info: 'bg-blue-900/40 text-blue-400',
-  warning: 'bg-amber-900/40 text-amber-400',
-  error: 'bg-red-900/40 text-red-400',
+  warning: 'bg-warning-bg text-warning',
+  error: 'bg-danger-bg/40 text-negative',
 }
 
 async function fetchLogs() {
@@ -99,10 +99,10 @@ function payloadSummary(payload: Record<string, unknown>): string {
 </script>
 
 <template>
-  <div class="rounded-xl border border-zinc-800 overflow-hidden flex flex-col">
+  <div class="rounded-xl border border-border overflow-hidden flex flex-col">
     <!-- Header & filters -->
-    <div class="px-4 py-2.5 border-b border-zinc-800 flex flex-wrap items-center gap-2">
-      <span class="text-xs font-semibold text-zinc-300 tracking-wide uppercase mr-auto">Execution Log</span>
+    <div class="px-4 py-2.5 border-b border-border flex flex-wrap items-center gap-2">
+      <span class="text-xs font-semibold text-fg tracking-wide uppercase mr-auto">Execution Log</span>
 
       <!-- Level filter -->
       <div class="flex gap-1">
@@ -111,7 +111,7 @@ function payloadSummary(payload: Record<string, unknown>): string {
           :key="lvl"
           type="button"
           class="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
-          :class="levelFilter === lvl ? 'bg-violet-700 text-white' : 'text-zinc-500 hover:text-zinc-300'"
+          :class="levelFilter === lvl ? 'bg-accent text-white' : 'text-fg-muted hover:text-fg'"
           @click="levelFilter = lvl; applyFilters()"
         >
           {{ lvl }}
@@ -123,13 +123,13 @@ function payloadSummary(payload: Record<string, unknown>): string {
         v-model="eventFilter"
         type="text"
         placeholder="filter by event…"
-        class="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] text-zinc-300 w-32"
+        class="rounded border border-border bg-surface-muted px-2 py-0.5 text-[10px] text-fg w-32"
         @keydown.enter="applyFilters"
       />
 
       <button
         type="button"
-        class="text-[10px] text-zinc-500 hover:text-zinc-300"
+        class="text-[10px] text-fg-muted hover:text-fg"
         @click="fetchLogs"
       >
         Refresh
@@ -138,10 +138,10 @@ function payloadSummary(payload: Record<string, unknown>): string {
 
     <!-- Log rows -->
     <div class="overflow-y-auto flex-1" style="max-height: 420px">
-      <div v-if="loading && !logs.length" class="px-4 py-6 text-xs text-zinc-500 text-center">
+      <div v-if="loading && !logs.length" class="px-4 py-6 text-xs text-fg-muted text-center">
         Loading…
       </div>
-      <div v-else-if="!logs.length" class="px-4 py-6 text-xs text-zinc-500 text-center">
+      <div v-else-if="!logs.length" class="px-4 py-6 text-xs text-fg-muted text-center">
         No log entries
       </div>
       <table v-else class="w-full text-xs">
@@ -149,40 +149,40 @@ function payloadSummary(payload: Record<string, unknown>): string {
           <tr
             v-for="log in logs"
             :key="log.id"
-            class="border-b border-zinc-800/50 hover:bg-zinc-800/20 transition-colors"
+            class="border-b border-border/50 hover:bg-surface-raised/20 transition-colors"
           >
-            <td class="px-3 py-1.5 text-zinc-600 whitespace-nowrap w-20">{{ fmtTime(log.created_at) }}</td>
+            <td class="px-3 py-1.5 text-fg-muted whitespace-nowrap w-20">{{ fmtTime(log.created_at) }}</td>
             <td class="px-2 py-1.5 w-16">
               <span
                 class="inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase"
-                :class="levelBadge[log.level] ?? 'bg-zinc-800 text-zinc-400'"
+                :class="levelBadge[log.level] ?? 'bg-surface-raised text-fg-muted'"
               >
                 {{ log.level }}
               </span>
             </td>
-            <td class="px-2 py-1.5 text-zinc-300 font-mono w-44 truncate max-w-[11rem]">{{ log.event }}</td>
-            <td class="px-2 py-1.5 text-zinc-500 font-mono truncate max-w-xs">{{ payloadSummary(log.payload) }}</td>
+            <td class="px-2 py-1.5 text-fg font-mono w-44 truncate max-w-[11rem]">{{ log.event }}</td>
+            <td class="px-2 py-1.5 text-fg-muted font-mono truncate max-w-xs">{{ payloadSummary(log.payload) }}</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <!-- Pagination -->
-    <div class="px-4 py-2 border-t border-zinc-800 flex items-center justify-between">
-      <span class="text-[10px] text-zinc-600">{{ total }} entries</span>
+    <div class="px-4 py-2 border-t border-border flex items-center justify-between">
+      <span class="text-[10px] text-fg-muted">{{ total }} entries</span>
       <div class="flex items-center gap-2">
         <button
           type="button"
-          class="text-[10px] text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+          class="text-[10px] text-fg-muted hover:text-fg disabled:opacity-30"
           :disabled="page <= 1"
           @click="prevPage"
         >
           ← Prev
         </button>
-        <span class="text-[10px] text-zinc-500">{{ page }} / {{ totalPages }}</span>
+        <span class="text-[10px] text-fg-muted">{{ page }} / {{ totalPages }}</span>
         <button
           type="button"
-          class="text-[10px] text-zinc-500 hover:text-zinc-300 disabled:opacity-30"
+          class="text-[10px] text-fg-muted hover:text-fg disabled:opacity-30"
           :disabled="page >= totalPages"
           @click="nextPage"
         >

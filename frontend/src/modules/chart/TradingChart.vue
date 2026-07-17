@@ -238,14 +238,14 @@ onMounted(() => {
       <select
         v-if="symbols.length > 1"
         v-model="selectedSymbol"
-        class="rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-200"
+        class="rounded border border-border bg-surface-muted/90 px-2 py-1 text-xs text-fg"
       >
         <option v-for="sym in symbols" :key="sym" :value="sym">{{ sym }}</option>
       </select>
       <select
         v-if="timeframes.length > 1"
         v-model="selectedTimeframe"
-        class="rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-200"
+        class="rounded border border-border bg-surface-muted/90 px-2 py-1 text-xs text-fg"
       >
         <option v-for="tf in timeframes" :key="tf" :value="tf">{{ tf }}</option>
       </select>
@@ -253,25 +253,25 @@ onMounted(() => {
 
     <div
       v-if="selected && mode === 'backtest' && activeBacktest"
-      class="absolute top-2 start-2 z-10 max-w-[calc(100%-4rem)] rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs text-zinc-300"
+      class="absolute top-2 start-2 z-10 max-w-[calc(100%-4rem)] rounded border border-border bg-surface-muted/90 px-2 py-1 text-xs text-fg"
     >
       {{ activeBacktest.symbol }} / {{ activeBacktest.timeframe }}
       <span
         v-if="activeBacktest.status === 'running' || activeBacktest.status === 'pending'"
-        class="ms-2 text-amber-400"
+        class="ms-2 text-warning"
       >
         {{ activeBacktest.status }}…
       </span>
       <span
         v-else-if="activeBacktest.metrics?.net_pnl != null"
         class="ms-2"
-        :class="activeBacktest.metrics.net_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'"
+        :class="activeBacktest.metrics.net_pnl >= 0 ? 'text-positive' : 'text-negative'"
       >
         PnL: {{ activeBacktest.metrics.net_pnl.toFixed(2) }}
       </span>
     </div>
 
-    <div v-if="!selected && !strategyStore.loading" class="flex h-full items-center justify-center text-zinc-500 text-sm">
+    <div v-if="!selected && !strategyStore.loading" class="flex h-full items-center justify-center text-fg-muted text-sm">
       {{ t('chart.noStrategy') }}
     </div>
     <div v-show="selected || strategyStore.loading" ref="container" class="flex-1 w-full min-h-0" />

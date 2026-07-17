@@ -170,6 +170,16 @@ class TabdealFuturesClient:
                     continue
         return None
 
+    def get_open_position_id(self, symbol: str) -> int | None:
+        """Return the internal position id for the open position on ``symbol``, or None.
+
+        Needed for set_position_sl_tp's positionId param — distinct from the
+        positionRisk endpoint's data, which has no id field.
+        """
+        data = self._signed("GET", "/r/fapi/v1/position", {"symbol": symbol, "isActive": 1})
+        rows = data if isinstance(data, list) else data.get("positions", [])
+        return rows[0].get("id") if rows else None
+
     # ----- leverage -----
 
     def get_leverage(self, symbol: str) -> int:

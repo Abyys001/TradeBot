@@ -1,13 +1,72 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-surface: var(--tb-surface);
+  --color-surface-muted: var(--tb-surface-muted);
+  --color-surface-raised: var(--tb-surface-raised);
+  --color-border: var(--tb-border);
+  --color-fg: var(--tb-fg);
+  --color-fg-muted: var(--tb-fg-muted);
+  --color-accent: var(--tb-accent);
+  --color-accent-fg: var(--tb-accent-fg);
+  --color-positive: var(--tb-positive);
+  --color-negative: var(--tb-negative);
+  --color-danger-bg: var(--tb-danger-bg);
+  --color-success-bg: var(--tb-success-bg);
+  --color-warning: var(--tb-warning);
+  --color-warning-bg: var(--tb-warning-bg);
+  --color-info: var(--tb-info);
+  --color-info-bg: var(--tb-info-bg);
+}
+
+:root {
+  --tb-surface: #ffffff;
+  --tb-surface-muted: #f4f4f5;
+  --tb-surface-raised: #ffffff;
+  --tb-border: #e4e4e7;
+  --tb-fg: #18181b;
+  --tb-fg-muted: #52525b;
+  --tb-accent: #7c3aed;
+  --tb-accent-fg: #ffffff;
+  --tb-positive: #059669;
+  --tb-negative: #dc2626;
+  --tb-danger-bg: #fef2f2;
+  --tb-success-bg: #ecfdf5;
+  --tb-warning: #d97706;
+  --tb-warning-bg: #fffbeb;
+  --tb-info: #0284c7;
+  --tb-info-bg: #f0f9ff;
+}
+
+[data-theme="dark"] {
+  --tb-surface: #09090b;
+  --tb-surface-muted: #18181b;
+  --tb-surface-raised: #27272a;
+  --tb-border: #3f3f46;
+  --tb-fg: #f4f4f5;
+  --tb-fg-muted: #a1a1aa;
+  --tb-accent: #8b5cf6;
+  --tb-accent-fg: #ffffff;
+  --tb-positive: #34d399;
+  --tb-negative: #f87171;
+  --tb-danger-bg: #450a0a;
+  --tb-success-bg: #052e1f;
+  --tb-warning: #fbbf24;
+  --tb-warning-bg: #451a03;
+  --tb-info: #38bdf8;
+  --tb-info-bg: #082f49;
 }
 
 body {
   font-family: var(--font-sans);
   margin: 0;
+  background-color: var(--tb-surface);
+  color: var(--tb-fg);
 }
 
 .font-mono {
@@ -28,7 +87,7 @@ body {
 }
 
 .animate-shimmer {
-  background: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%);
+  background: linear-gradient(90deg, var(--tb-surface-raised) 25%, var(--tb-border) 50%, var(--tb-surface-raised) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
@@ -47,17 +106,24 @@ body {
 :root {
   --sb-width: 7px;
   --sb-height: 7px;
-  --sb-track: rgba(24, 24, 27, 0.85);
+  --sb-track: rgba(228, 228, 231, 0.85);
   --sb-track-radius: 999px;
   --sb-track-margin: 4px;
   --sb-thumb: linear-gradient(180deg, rgba(167, 139, 250, 0.65), rgba(109, 40, 217, 0.55));
   --sb-thumb-hover: linear-gradient(180deg, rgba(196, 181, 253, 0.85), rgba(139, 92, 246, 0.75));
   --sb-thumb-active: linear-gradient(180deg, rgba(196, 181, 253, 1), rgba(139, 92, 246, 0.9));
   --sb-thumb-radius: 999px;
-  --sb-thumb-border: 2px solid rgba(9, 9, 11, 0.85);
+  --sb-thumb-border: 2px solid rgba(255, 255, 255, 0.85);
   --sb-thumb-shadow: none;
   --sb-corner: transparent;
   --sb-transition-duration: 0.15s;
+  --sb-track-solid: rgba(228, 228, 231, 0.85);
+}
+
+[data-theme="dark"] {
+  --sb-track: rgba(24, 24, 27, 0.85);
+  --sb-thumb-border: 2px solid rgba(9, 9, 11, 0.85);
+  --sb-track-solid: rgba(24, 24, 27, 0.85);
 }
 
 /* ---------- Base (applied to any .scrollbar-* class) ---------- */
@@ -66,7 +132,7 @@ body {
 .scrollbar-wide,
 .scrollbar-hover {
   scrollbar-width: thin;
-  scrollbar-color: rgba(139, 92, 246, 0.55) rgba(24, 24, 27, 0.85);
+  scrollbar-color: rgba(139, 92, 246, 0.55) var(--sb-track-solid);
 }
 
 /* ---------- Webkit pseudo-elements ---------- */
@@ -215,8 +281,8 @@ body {
 }
 
 /* ---------- Firefox overrides per variant ---------- */
-.scrollbar-zinc { scrollbar-color: rgba(113, 113, 122, 0.55) rgba(24, 24, 27, 0.85); }
-.scrollbar-emerald { scrollbar-color: rgba(52, 211, 153, 0.55) rgba(24, 24, 27, 0.85); }
-.scrollbar-red { scrollbar-color: rgba(248, 113, 113, 0.55) rgba(24, 24, 27, 0.85); }
-.scrollbar-amber { scrollbar-color: rgba(251, 191, 36, 0.55) rgba(24, 24, 27, 0.85); }
+.scrollbar-zinc { scrollbar-color: rgba(113, 113, 122, 0.55) var(--sb-track-solid); }
+.scrollbar-emerald { scrollbar-color: rgba(52, 211, 153, 0.55) var(--sb-track-solid); }
+.scrollbar-red { scrollbar-color: rgba(248, 113, 113, 0.55) var(--sb-track-solid); }
+.scrollbar-amber { scrollbar-color: rgba(251, 191, 36, 0.55) var(--sb-track-solid); }
 .scrollbar-track-transparent { scrollbar-color: rgba(139, 92, 246, 0.55) transparent; }

@@ -1,6 +1,115 @@
 {
   "app": {
-    "title": "TradeBot Command Center"
+    "title": "Algo Trader"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "switchToLight": "Switch to light theme",
+    "switchToDark": "Switch to dark theme"
+  },
+  "landing": {
+    "nav": {
+      "features": "Features",
+      "performance": "Performance",
+      "howItWorks": "How It Works",
+      "security": "Security",
+      "login": "Login",
+      "requestAccess": "Request Access"
+    },
+    "hero": {
+      "badge": "Built on Hyperliquid",
+      "title": "Algorithmic trading, built on real infrastructure.",
+      "subtitle": "Write real Pine Script v5 strategies, backtest them with realistic fills, and run them live on Hyperliquid — behind automatic risk gates, from a platform that never touches your withdrawal key.",
+      "ctaLogin": "Login",
+      "ctaRequestAccess": "Request Access"
+    },
+    "performance": {
+      "title": "Real results, not promises",
+      "subtitle": "Aggregated, sanitized numbers pulled live from our own trading ledger.",
+      "netPnl": "Net realized PnL",
+      "winRate": "Win rate",
+      "totalTrades": "Closed trades",
+      "activeStrategies": "Active strategies",
+      "asOf": "As of {date}",
+      "loading": "Loading live performance…",
+      "empty": "No trading history yet — check back soon.",
+      "error": "Couldn't load live performance right now.",
+      "disclaimer": "Past performance is not indicative of future results."
+    },
+    "features": {
+      "title": "Everything a real trading desk needs",
+      "subtitle": "No placeholders — every feature below is running in production.",
+      "pine": {
+        "title": "Pine Script v5 strategy builder",
+        "desc": "Write or upload real Pine Script v5 — compiled by our own Lark-based transpiler, not a parameter template."
+      },
+      "backtest": {
+        "title": "Realistic backtesting engine",
+        "desc": "Fees, slippage, funding, leverage, liquidation, and intrabar stop-loss/take-profit — simulated bar by bar."
+      },
+      "paper": {
+        "title": "Paper trading",
+        "desc": "Run any strategy against live market data with a virtual balance before risking real capital."
+      },
+      "live": {
+        "title": "Live execution on Hyperliquid",
+        "desc": "EIP-712 signed orders routed directly to Hyperliquid, with a global kill switch on every account."
+      },
+      "risk": {
+        "title": "Automatic risk gates",
+        "desc": "Daily loss limits, max drawdown, exposure caps, and leverage limits enforced on every trade."
+      },
+      "optimizer": {
+        "title": "Strategy optimizer",
+        "desc": "Grid search, walk-forward validation, and Monte Carlo simulation to stress-test your edge before you trust it."
+      },
+      "copyTrading": {
+        "title": "Copy trading",
+        "desc": "Subscribe to a proven signal and mirror its trades on your own exchange account automatically."
+      },
+      "telegram": {
+        "title": "Telegram alerts",
+        "desc": "Real-time trade fills, errors, and system health delivered straight to your phone."
+      },
+      "security": {
+        "title": "Encrypted credential vault",
+        "desc": "AES-256-GCM encrypted, trade-only keys. Your withdrawal key is never stored — anywhere."
+      }
+    },
+    "howItWorks": {
+      "title": "How it works",
+      "subtitle": "From request to running live, in five steps.",
+      "step1": { "title": "Request access", "desc": "Tell us about yourself — our team sets up a secure investor account for you." },
+      "step2": { "title": "Connect your exchange", "desc": "Link a trade-only Hyperliquid agent key. We never ask for your withdrawal key." },
+      "step3": { "title": "Choose or build a strategy", "desc": "Subscribe to a proven signal, or write your own Pine Script v5 strategy." },
+      "step4": { "title": "Backtest & paper trade", "desc": "Validate performance against historical and live data with zero risk." },
+      "step5": { "title": "Go live under risk gates", "desc": "Deploy for real, protected by automatic daily-loss, drawdown, and exposure limits." }
+    },
+    "security": {
+      "title": "Security first, always",
+      "subtitle": "The same protections we'd want if it were our own money.",
+      "point1": { "title": "Non-custodial by design", "desc": "Trade-only agent keys only — your withdrawal key never touches our servers." },
+      "point2": { "title": "AES-256-GCM encryption", "desc": "Every credential is encrypted at rest with authenticated encryption." },
+      "point3": { "title": "Automatic risk gates", "desc": "Daily loss limits, drawdown caps, and exposure limits enforced in real time, on every account." },
+      "point4": { "title": "Emergency kill switch", "desc": "Halt all trading and close positions instantly, with one click." }
+    },
+    "requestAccess": {
+      "title": "Request access",
+      "subtitle": "Tell us a bit about yourself and our team will reach out.",
+      "name": "Name",
+      "email": "Email",
+      "contact": "Telegram or phone (optional)",
+      "message": "What are you looking to trade? (optional)",
+      "submit": "Request Access",
+      "submitting": "Sending…",
+      "success": "Thanks — we'll be in touch soon.",
+      "error": "Something went wrong. Please try again."
+    },
+    "footer": {
+      "tagline": "A full algorithmic trading framework on Hyperliquid — from data to live execution.",
+      "rights": "© {year} Algo Trader. All rights reserved.",
+      "disclaimer": "Trading involves risk. Past performance is not indicative of future results."
+    }
   },
   "nav": {
     "overview": "Overview",
@@ -17,7 +126,8 @@
     "toggleExpand": "Expand sidebar",
     "toggleCollapse": "Collapse sidebar",
     "openMenu": "Open menu",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "backToHome": "Back to home"
   },
   "modal": {
     "close": "Close",
@@ -158,7 +268,7 @@
     "saveFailed": "Failed to save Signum settings"
   },
   "credentials": {
-    "title": "Hyperliquid Agent Credentials",
+    "title": "Exchange Credentials",
     "add": "Add Credential",
     "edit": "Edit",
     "delete": "Delete",
@@ -171,7 +281,7 @@
     "apiSecret": "API Secret",
     "active": "Active",
     "inactive": "Inactive",
-    "empty": "No credentials configured. Add your Hyperliquid agent key to start trading.",
+    "empty": "No credentials configured. Add a Hyperliquid or Tabdeal credential to start trading.",
     "created": "Credential created",
     "updated": "Credential updated",
     "deleted": "Credential deleted",

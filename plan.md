@@ -1,4 +1,4 @@
-# TradeBot — Master Roadmap to a Professional Product
+# Algo Trader — Master Roadmap
 
 **What this is:** the single end-to-end path from where your codebase stands today to a
 platform you can safely run with real investors and real money on Tabdeal.

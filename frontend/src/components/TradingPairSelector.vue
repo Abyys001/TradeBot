@@ -270,18 +270,18 @@ onUnmounted(() => {
         v-for="pair in selectedPairs"
         :key="pair"
         type="button"
-        class="inline-flex items-center gap-1 rounded-md border border-emerald-700/50 bg-emerald-950/60 px-2 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-900/70"
+        class="inline-flex items-center gap-1 rounded-md border border-positive/50 bg-success-bg px-2 py-1 text-xs font-medium text-positive hover:opacity-90"
         :disabled="disabled"
         @click="removePair(pair)"
       >
         <span dir="ltr">{{ pair }}</span>
-        <span class="leading-none text-emerald-400/90" aria-hidden="true">×</span>
+        <span class="leading-none text-positive/90" aria-hidden="true">×</span>
       </button>
     </div>
 
     <div
       class="flex items-stretch overflow-hidden rounded-lg border transition-colors"
-      :class="open ? 'border-emerald-600 ring-1 ring-emerald-600/40' : 'border-zinc-600'"
+      :class="open ? 'border-positive ring-1 ring-positive/40' : 'border-border'"
     >
       <input
         ref="inputEl"
@@ -290,7 +290,7 @@ onUnmounted(() => {
         dir="ltr"
         autocomplete="off"
         spellcheck="false"
-        class="min-w-0 flex-1 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 disabled:opacity-50"
+        class="min-w-0 flex-1 bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-muted disabled:opacity-50"
         :placeholder="inputPlaceholder"
         :disabled="disabled"
         @focus="openDropdown"
@@ -299,11 +299,11 @@ onUnmounted(() => {
       />
       <button
         type="button"
-        class="flex shrink-0 items-center gap-1 border-s border-zinc-700 bg-zinc-900 px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+        class="flex shrink-0 items-center gap-1 border-s border-border bg-surface-muted px-3 text-xs text-fg-muted hover:bg-surface-raised hover:text-fg"
         :disabled="disabled"
         @click="open ? closeDropdown() : openDropdown()"
       >
-        <span v-if="multiple && selectedPairs.length" class="rounded bg-emerald-900/80 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+        <span v-if="multiple && selectedPairs.length" class="rounded bg-success-bg px-1.5 py-0.5 text-[10px] font-semibold text-positive">
           {{ selectedPairs.length }}
         </span>
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform" :class="{ 'rotate-180': open }" viewBox="0 0 20 20" fill="currentColor">
@@ -312,17 +312,17 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <p v-if="marketsHint" class="mt-1 text-[10px] text-zinc-500">{{ marketsHint }}</p>
+    <p v-if="marketsHint" class="mt-1 text-[10px] text-fg-muted">{{ marketsHint }}</p>
 
     <Teleport to="body">
       <div
         v-if="open"
         id="trading-pair-dropdown-panel"
-        class="fixed z-[9999] overflow-hidden rounded-lg border border-zinc-600 bg-zinc-950 shadow-2xl shadow-black/50"
+        class="fixed z-[9999] overflow-hidden rounded-lg border border-border bg-surface shadow-2xl shadow-black/50"
         :style="dropdownStyle"
       >
-        <div class="border-b border-zinc-800 bg-zinc-900/80 px-3 py-2">
-          <p class="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{{ t('strategy.popularPairs') }}</p>
+        <div class="border-b border-border bg-surface-muted/80 px-3 py-2">
+          <p class="text-[10px] font-semibold uppercase tracking-wide text-fg-muted">{{ t('strategy.popularPairs') }}</p>
           <div class="mt-1.5 flex flex-wrap gap-1">
             <button
               v-for="coin in POPULAR_COINS"
@@ -331,18 +331,18 @@ onUnmounted(() => {
               class="inline-flex items-center gap-1 rounded px-2 text-xs transition-colors"
               :class="[
                 isPhone ? 'py-1.5' : 'py-0.5',
-                selectedPairs.includes(coinToPair(coin)) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700',
+                selectedPairs.includes(coinToPair(coin)) ? 'bg-success-bg text-positive' : 'bg-surface-muted text-fg hover:bg-surface-raised',
               ]"
               @mousedown.prevent="selectPair(coinToPair(coin))"
             >
-              <span v-if="hasStoredData(coinToPair(coin))" class="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span v-if="hasStoredData(coinToPair(coin))" class="h-1.5 w-1.5 rounded-full bg-positive" />
               {{ coinToPair(coin) }}
             </button>
           </div>
         </div>
 
         <ul class="scrollbar-styled scrollbar-thin max-h-56 overflow-y-auto py-1">
-          <li v-if="!filteredPairs.length" class="px-3 py-3 text-xs text-zinc-500">
+          <li v-if="!filteredPairs.length" class="px-3 py-3 text-xs text-fg-muted">
             {{ t('strategy.noPairsFound') }}
           </li>
           <li v-for="(pair, idx) in filteredPairs" :key="pair">
@@ -351,7 +351,7 @@ onUnmounted(() => {
               class="flex w-full items-center justify-between px-3 text-start text-sm transition-colors"
               :class="[
                 isPhone ? 'py-2.5' : 'py-2',
-                idx === highlightIndex ? 'bg-emerald-950/50 text-emerald-100' : 'text-zinc-300 hover:bg-zinc-900',
+                idx === highlightIndex ? 'bg-success-bg/50 text-positive' : 'text-fg hover:bg-surface-muted',
               ]"
               @mousedown.prevent="selectPair(pair)"
             >
@@ -359,15 +359,15 @@ onUnmounted(() => {
                 <span
                   v-if="markedCoins?.size"
                   class="h-1.5 w-1.5 shrink-0 rounded-full"
-                  :class="hasStoredData(pair) ? 'bg-emerald-400' : 'bg-zinc-600'"
+                  :class="hasStoredData(pair) ? 'bg-positive' : 'bg-fg-muted/50'"
                   :title="hasStoredData(pair) ? t('backtest.dataReady') : t('backtest.dataMissing')"
                 />
                 <span dir="ltr" class="font-medium">{{ pair }}</span>
               </span>
-              <span v-if="selectedPairs.includes(pair)" class="text-[10px] uppercase text-emerald-400">
+              <span v-if="selectedPairs.includes(pair)" class="text-[10px] uppercase text-positive">
                 {{ t('strategy.pairSelected') }}
               </span>
-              <span v-else-if="hasStoredData(pair)" class="text-[10px] text-emerald-500/80">
+              <span v-else-if="hasStoredData(pair)" class="text-[10px] text-positive/80">
                 {{ t('backtest.dataReady') }}
               </span>
             </button>

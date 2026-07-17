@@ -64,9 +64,9 @@ async function deleteDataset(d: HistoryDataset) {
 </script>
 
 <template>
-  <div class="rounded-xl border border-zinc-800 overflow-hidden">
-    <div class="px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
-      <h3 class="text-sm font-medium text-zinc-200">{{ t('data.storedTitle') }}</h3>
+  <div class="rounded-xl border border-border overflow-hidden">
+    <div class="px-4 py-3 border-b border-border bg-surface-muted/50">
+      <h3 class="text-sm font-medium text-fg">{{ t('data.storedTitle') }}</h3>
     </div>
     <ResponsiveTable :loading="!!loading" :empty="!sorted.length">
       <template #loading>
@@ -89,22 +89,22 @@ async function deleteDataset(d: HistoryDataset) {
         <tr
           v-for="d in sorted"
           :key="rowKey(d)"
-          class="border-b border-zinc-800/50 hover:bg-zinc-900/30 cursor-pointer"
+          class="border-b border-border/50 hover:bg-surface-muted/30 cursor-pointer"
           @click="detailDataset = d"
         >
-          <td class="px-4 py-2 text-zinc-500 text-xs">{{ d.network || 'mainnet' }}</td>
-          <td class="px-4 py-2 text-zinc-200 font-medium">{{ d.coin }}</td>
-          <td class="px-4 py-2 text-zinc-400">{{ d.interval }}</td>
+          <td class="px-4 py-2 text-fg-muted text-xs">{{ d.network || 'mainnet' }}</td>
+          <td class="px-4 py-2 text-fg font-medium">{{ d.coin }}</td>
+          <td class="px-4 py-2 text-fg-muted">{{ d.interval }}</td>
           <td class="px-4 py-2">
             <span
               v-if="d.kind === 'ohlcv' || !d.kind"
               class="text-xs rounded px-1.5 py-0.5"
               :class="
                 d.healthy === false
-                  ? 'bg-amber-900/50 text-amber-300'
+                  ? 'bg-warning-bg text-warning'
                   : d.healthy === true
-                    ? 'bg-emerald-900/40 text-emerald-300'
-                    : 'text-zinc-600'
+                    ? 'bg-success-bg/40 text-positive'
+                    : 'text-fg-muted'
               "
             >
               {{
@@ -115,11 +115,11 @@ async function deleteDataset(d: HistoryDataset) {
                     : '—'
               }}
             </span>
-            <span v-else class="text-zinc-600 text-xs">—</span>
+            <span v-else class="text-fg-muted text-xs">—</span>
           </td>
-          <td class="px-4 py-2 text-zinc-400">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</td>
-          <td class="px-4 py-2 text-end text-zinc-300">{{ d.bars.toLocaleString() }}</td>
-          <td class="px-4 py-2 text-end text-zinc-500">{{ fmtSize(d.size_bytes) }}</td>
+          <td class="px-4 py-2 text-fg-muted">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</td>
+          <td class="px-4 py-2 text-end text-fg">{{ d.bars.toLocaleString() }}</td>
+          <td class="px-4 py-2 text-end text-fg-muted">{{ fmtSize(d.size_bytes) }}</td>
           <td class="px-4 py-2 text-end space-x-2">
             <RouterLink
               v-if="d.kind === 'ohlcv' || !d.kind"
@@ -131,13 +131,13 @@ async function deleteDataset(d: HistoryDataset) {
                   dataNetwork: d.network || 'mainnet',
                 },
               }"
-              class="text-xs text-violet-400 hover:underline"
+              class="text-xs text-accent hover:underline"
             >
               {{ t('data.useInBacktest') }}
             </RouterLink>
             <button
               type="button"
-              class="text-xs text-red-400 hover:underline disabled:opacity-50"
+              class="text-xs text-negative hover:underline disabled:opacity-50"
               :disabled="deletingKey === rowKey(d)"
               @click.stop="deleteDataset(d)"
             >
@@ -150,24 +150,24 @@ async function deleteDataset(d: HistoryDataset) {
         <div
           v-for="d in sorted"
           :key="rowKey(d)"
-          class="grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 cursor-pointer"
+          class="grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg border border-border bg-surface-muted/40 p-3 cursor-pointer"
           @click="detailDataset = d"
         >
           <div class="col-span-2 flex items-center justify-between">
-            <span class="font-medium text-zinc-200">{{ d.coin }}</span>
-            <span class="text-xs text-zinc-500">{{ d.network || 'mainnet' }} · {{ d.interval }}</span>
+            <span class="font-medium text-fg">{{ d.coin }}</span>
+            <span class="text-xs text-fg-muted">{{ d.network || 'mainnet' }} · {{ d.interval }}</span>
           </div>
           <div>
-            <div class="text-[10px] uppercase text-zinc-600">{{ t('data.quality') }}</div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.quality') }}</div>
             <span
               v-if="d.kind === 'ohlcv' || !d.kind"
               class="text-xs rounded px-1.5 py-0.5"
               :class="
                 d.healthy === false
-                  ? 'bg-amber-900/50 text-amber-300'
+                  ? 'bg-warning-bg text-warning'
                   : d.healthy === true
-                    ? 'bg-emerald-900/40 text-emerald-300'
-                    : 'text-zinc-600'
+                    ? 'bg-success-bg/40 text-positive'
+                    : 'text-fg-muted'
               "
             >
               {{
@@ -178,21 +178,21 @@ async function deleteDataset(d: HistoryDataset) {
                     : '—'
               }}
             </span>
-            <span v-else class="text-zinc-600 text-xs">—</span>
+            <span v-else class="text-fg-muted text-xs">—</span>
           </div>
           <div>
-            <div class="text-[10px] uppercase text-zinc-600">{{ t('data.bars') }}</div>
-            <div class="text-sm text-zinc-300">{{ d.bars.toLocaleString() }}</div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.bars') }}</div>
+            <div class="text-sm text-fg">{{ d.bars.toLocaleString() }}</div>
           </div>
           <div>
-            <div class="text-[10px] uppercase text-zinc-600">{{ t('data.size') }}</div>
-            <div class="text-sm text-zinc-500">{{ fmtSize(d.size_bytes) }}</div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.size') }}</div>
+            <div class="text-sm text-fg-muted">{{ fmtSize(d.size_bytes) }}</div>
           </div>
           <div class="col-span-2">
-            <div class="text-[10px] uppercase text-zinc-600">{{ t('data.range') }}</div>
-            <div class="text-xs text-zinc-400">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.range') }}</div>
+            <div class="text-xs text-fg-muted">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</div>
           </div>
-          <div class="col-span-2 flex items-center justify-end gap-3 border-t border-zinc-800 pt-2">
+          <div class="col-span-2 flex items-center justify-end gap-3 border-t border-border pt-2">
             <RouterLink
               v-if="d.kind === 'ohlcv' || !d.kind"
               :to="{
@@ -203,14 +203,14 @@ async function deleteDataset(d: HistoryDataset) {
                   dataNetwork: d.network || 'mainnet',
                 },
               }"
-              class="text-xs text-violet-400 hover:underline"
+              class="text-xs text-accent hover:underline"
               @click.stop
             >
               {{ t('data.useInBacktest') }}
             </RouterLink>
             <button
               type="button"
-              class="text-xs text-red-400 hover:underline disabled:opacity-50"
+              class="text-xs text-negative hover:underline disabled:opacity-50"
               :disabled="deletingKey === rowKey(d)"
               @click.stop="deleteDataset(d)"
             >

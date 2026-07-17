@@ -51,7 +51,7 @@ class TelegramConfigViewSet(viewsets.GenericViewSet):
                 {"error": "No whitelisted chats"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        text = "<b>✅ Test Notification</b>\nYour TradeBot Telegram integration is working correctly."
+        text = "<b>✅ Test Notification</b>\nYour Algo Trader Telegram integration is working correctly."
         sent = 0
         for entry in whitelist:
             if send_message(config.bot_token, entry.chat_id, text):

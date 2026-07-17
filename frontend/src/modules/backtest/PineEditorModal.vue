@@ -67,27 +67,27 @@ function saveAndClose() {
 <template>
   <BaseModal size="fullscreen" :title="t('backtest.editPine')" @close="emit('close')">
     <div
-      class="mb-3 rounded-lg border border-dashed px-3 py-2 text-center text-xs text-zinc-500"
-      :class="dragOver ? 'border-violet-500 bg-violet-950/20' : 'border-zinc-700'"
+      class="mb-3 rounded-lg border border-dashed px-3 py-2 text-center text-xs text-fg-muted"
+      :class="dragOver ? 'border-accent bg-accent/10' : 'border-border'"
       @dragover.prevent="dragOver = true"
       @dragleave="dragOver = false"
       @drop.prevent="onDrop"
     >
       {{ t('strategies.dropPine') }}
     </div>
-    <div ref="editorEl" class="h-[calc(88vh-12rem)] min-h-[320px] rounded-lg border border-zinc-800 overflow-hidden" />
+    <div ref="editorEl" class="h-[calc(88vh-12rem)] min-h-[320px] rounded-lg border border-border overflow-hidden" />
     <template #footer>
       <div class="flex justify-end gap-2">
         <button
           type="button"
-          class="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+          class="rounded-lg px-4 py-2 text-sm text-fg-muted hover:text-fg"
           @click="emit('close')"
         >
           {{ t('health.cancel') }}
         </button>
         <button
           type="button"
-          class="rounded-lg bg-violet-700 px-4 py-2 text-sm text-white hover:bg-violet-600"
+          class="rounded-lg bg-accent px-4 py-2 text-sm text-white hover:opacity-90"
           @click="saveAndClose"
         >
           {{ t('backtest.savePine') }}

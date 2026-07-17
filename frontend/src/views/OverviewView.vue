@@ -27,9 +27,9 @@ function goStrategy(id: number | null) {
 
 <template>
   <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-6 space-y-6">
-    <h1 class="text-lg font-semibold text-zinc-200">{{ t('overview.title') }}</h1>
+    <h1 class="text-lg font-semibold text-fg">{{ t('overview.title') }}</h1>
 
-    <div v-if="overview.loading && !overview.data" class="text-zinc-500 text-sm">
+    <div v-if="overview.loading && !overview.data" class="text-fg-muted text-sm">
       {{ t('overview.loading') }}
     </div>
 
@@ -63,43 +63,43 @@ function goStrategy(id: number | null) {
       </div>
 
       <div class="grid md:grid-cols-2 gap-6">
-        <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-          <h2 class="text-sm font-medium text-zinc-400 px-4 py-3 border-b border-zinc-800">
+        <section class="rounded-xl border border-border bg-surface-raised overflow-hidden">
+          <h2 class="text-sm font-medium text-fg-muted px-4 py-3 border-b border-border">
             {{ t('overview.recentOrders') }}
           </h2>
           <ResponsiveTable :empty="!overview.data.recent_orders.length">
             <template #empty>
-              <span class="text-zinc-600">{{ t('overview.noOrders') }}</span>
+              <span class="text-fg-muted">{{ t('overview.noOrders') }}</span>
             </template>
             <template #row>
               <tr
                 v-for="order in overview.data.recent_orders"
                 :key="order.id"
-                class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                class="border-b border-border/50 hover:bg-surface-raised/30 cursor-pointer"
                 @click="goStrategy(order.strategy)"
               >
-                <td class="px-4 py-2 text-zinc-300">{{ order.symbol }}</td>
-                <td class="px-4 py-2" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
+                <td class="px-4 py-2 text-fg">{{ order.symbol }}</td>
+                <td class="px-4 py-2" :class="order.side === 'buy' ? 'text-positive' : 'text-negative'">
                   {{ order.side.toUpperCase() }}
                 </td>
-                <td class="px-4 py-2 text-zinc-500">{{ order.status }}</td>
-                <td class="px-4 py-2 text-zinc-600">{{ formatTime(order.created_at) }}</td>
+                <td class="px-4 py-2 text-fg-muted">{{ order.status }}</td>
+                <td class="px-4 py-2 text-fg-muted">{{ formatTime(order.created_at) }}</td>
               </tr>
             </template>
             <template #card>
               <div
                 v-for="order in overview.data.recent_orders"
                 :key="order.id"
-                class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 cursor-pointer"
+                class="rounded-lg border border-border bg-surface-raised p-3 cursor-pointer"
                 @click="goStrategy(order.strategy)"
               >
                 <div class="flex items-center justify-between">
-                  <span class="text-sm text-zinc-200">{{ order.symbol }}</span>
-                  <span class="text-xs font-medium" :class="order.side === 'buy' ? 'text-emerald-400' : 'text-red-400'">
+                  <span class="text-sm text-fg">{{ order.symbol }}</span>
+                  <span class="text-xs font-medium" :class="order.side === 'buy' ? 'text-positive' : 'text-negative'">
                     {{ order.side.toUpperCase() }}
                   </span>
                 </div>
-                <div class="mt-1 flex items-center justify-between text-xs text-zinc-500">
+                <div class="mt-1 flex items-center justify-between text-xs text-fg-muted">
                   <span>{{ order.status }}</span>
                   <span>{{ formatTime(order.created_at) }}</span>
                 </div>
@@ -108,38 +108,38 @@ function goStrategy(id: number | null) {
           </ResponsiveTable>
         </section>
 
-        <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
-          <h2 class="text-sm font-medium text-zinc-400 px-4 py-3 border-b border-zinc-800">
+        <section class="rounded-xl border border-border bg-surface-raised overflow-hidden">
+          <h2 class="text-sm font-medium text-fg-muted px-4 py-3 border-b border-border">
             {{ t('overview.recentLogs') }}
           </h2>
           <ResponsiveTable :empty="!overview.data.recent_logs.length">
             <template #empty>
-              <span class="text-zinc-600">{{ t('overview.noLogs') }}</span>
+              <span class="text-fg-muted">{{ t('overview.noLogs') }}</span>
             </template>
             <template #row>
               <tr
                 v-for="log in overview.data.recent_logs"
                 :key="log.id"
-                class="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                class="border-b border-border/50 hover:bg-surface-raised/30 cursor-pointer"
                 @click="goStrategy(log.strategy)"
               >
-                <td class="px-4 py-2 font-mono text-zinc-500">{{ log.level }}</td>
-                <td class="px-4 py-2 text-zinc-300">{{ log.event }}</td>
-                <td class="px-4 py-2 text-zinc-600">{{ formatTime(log.created_at) }}</td>
+                <td class="px-4 py-2 font-mono text-fg-muted">{{ log.level }}</td>
+                <td class="px-4 py-2 text-fg">{{ log.event }}</td>
+                <td class="px-4 py-2 text-fg-muted">{{ formatTime(log.created_at) }}</td>
               </tr>
             </template>
             <template #card>
               <div
                 v-for="log in overview.data.recent_logs"
                 :key="log.id"
-                class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 cursor-pointer"
+                class="rounded-lg border border-border bg-surface-raised p-3 cursor-pointer"
                 @click="goStrategy(log.strategy)"
               >
                 <div class="flex items-center justify-between">
-                  <span class="font-mono text-xs text-zinc-500">{{ log.level }}</span>
-                  <span class="text-xs text-zinc-600">{{ formatTime(log.created_at) }}</span>
+                  <span class="font-mono text-xs text-fg-muted">{{ log.level }}</span>
+                  <span class="text-xs text-fg-muted">{{ formatTime(log.created_at) }}</span>
                 </div>
-                <div class="mt-1 text-sm text-zinc-300">{{ log.event }}</div>
+                <div class="mt-1 text-sm text-fg">{{ log.event }}</div>
               </div>
             </template>
           </ResponsiveTable>

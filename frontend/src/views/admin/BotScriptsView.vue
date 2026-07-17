@@ -61,10 +61,10 @@ async function onToggle(id: number, isActive: boolean) {
 <template>
   <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 sm:p-6">
     <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-      <h1 class="text-lg font-semibold text-zinc-200">{{ t('bots.title') }}</h1>
+      <h1 class="text-lg font-semibold text-fg">{{ t('bots.title') }}</h1>
       <button
         type="button"
-        class="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs text-white hover:bg-emerald-600 disabled:opacity-40"
+        class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-40"
         :disabled="!hasTabdealCredential"
         :title="!hasTabdealCredential ? t('bots.needsTabdealCredential') : ''"
         @click="showCreate = true"
@@ -72,13 +72,13 @@ async function onToggle(id: number, isActive: boolean) {
         {{ t('bots.upload') }}
       </button>
     </div>
-    <p class="text-xs text-zinc-500 mb-6">{{ t('bots.onlyOneActiveHint') }}</p>
+    <p class="text-xs text-fg-muted mb-6">{{ t('bots.onlyOneActiveHint') }}</p>
 
-    <div v-if="!hasTabdealCredential" class="mb-6 rounded-lg border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-300">
+    <div v-if="!hasTabdealCredential" class="mb-6 rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning">
       {{ t('bots.needsTabdealCredential') }}
     </div>
 
-    <div v-if="!botScripts.length" class="flex min-h-[40vh] flex-col items-center justify-center text-sm text-zinc-600">
+    <div v-if="!botScripts.length" class="flex min-h-[40vh] flex-col items-center justify-center text-sm text-fg-muted">
       {{ t('bots.empty') }}
     </div>
 

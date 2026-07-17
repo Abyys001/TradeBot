@@ -16,16 +16,16 @@ withDefaults(
 
 <template>
   <div>
-    <div v-if="loading" class="p-3 text-sm text-zinc-500">
+    <div v-if="loading" class="p-3 text-sm text-fg-muted">
       <slot name="loading" />
     </div>
-    <div v-else-if="empty" class="p-3 text-sm text-zinc-500">
+    <div v-else-if="empty" class="p-3 text-sm text-fg-muted">
       <slot name="empty" />
     </div>
     <template v-else>
       <div class="hidden overflow-x-auto md:block">
         <table class="w-full text-sm">
-          <thead class="bg-zinc-900/50 text-xs uppercase text-zinc-500" :class="{ 'sticky top-0 z-10': stickyHead }">
+          <thead class="bg-surface-muted/50 text-xs uppercase text-fg-muted" :class="{ 'sticky top-0 z-10': stickyHead }">
             <tr>
               <slot name="head" />
             </tr>

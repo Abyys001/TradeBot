@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
-import { useRouter } from 'vue-router'
+import { useRouter, RouterLink } from 'vue-router'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -25,7 +25,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="relative min-h-dvh flex items-center justify-center bg-zinc-950 px-4 overflow-hidden">
+  <div class="relative min-h-dvh flex items-center justify-center bg-surface px-4 overflow-hidden">
     <!-- Animated background orbs -->
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
       <div class="orb orb-1" />
@@ -35,47 +35,57 @@ async function submit() {
 
     <!-- Animated grid overlay -->
     <div class="pointer-events-none absolute inset-0 opacity-[0.03]"
-      style="background-image: linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px); background-size: 60px 60px;"
+      style="background-image: linear-gradient(color-mix(in srgb, var(--tb-fg) 60%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--tb-fg) 60%, transparent) 1px, transparent 1px); background-size: 60px 60px;"
     />
 
+    <RouterLink
+      :to="{ name: 'landing' }"
+      class="absolute start-4 top-4 z-10 flex items-center gap-1 text-sm text-fg-muted hover:text-fg transition-colors"
+    >
+      <svg class="h-4 w-4 rtl-flip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+      </svg>
+      {{ t('nav.backToHome') }}
+    </RouterLink>
+
     <form
-      class="login-card relative w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-900/80 p-8 shadow-xl backdrop-blur-sm"
+      class="login-card relative w-full max-w-sm rounded-xl border border-border bg-surface-raised/80 p-8 shadow-xl backdrop-blur-sm"
       @submit.prevent="submit"
     >
       <!-- Logo / icon -->
       <div class="flex justify-center mb-6">
-        <div class="logo-icon relative flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg shadow-emerald-500/20">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="h-6 w-6 text-white">
+        <div class="logo-icon relative flex h-12 w-12 items-center justify-center rounded-xl bg-accent shadow-lg shadow-accent/20">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="h-6 w-6 text-accent-fg">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
           </svg>
         </div>
       </div>
 
-      <h1 class="text-center text-lg font-semibold text-zinc-100 mb-8">{{ t('app.title') }}</h1>
+      <h1 class="text-center text-lg font-semibold text-fg mb-8">{{ t('app.title') }}</h1>
 
       <div class="space-y-4">
         <div class="input-group">
-          <label class="block text-sm text-zinc-400 mb-1">{{ t('auth.username') }}</label>
+          <label class="block text-sm text-fg-muted mb-1">{{ t('auth.username') }}</label>
           <input
             v-model="username"
             type="text"
             autocomplete="username"
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-2 text-zinc-100 transition-all duration-200 focus:border-emerald-500/70 focus:bg-zinc-950 focus:shadow-[0_0_12px_-2px_rgba(16,185,129,.2)] focus:outline-none"
+            class="w-full rounded-lg border border-border bg-surface/60 px-3 py-2 text-fg transition-all duration-200 focus:border-accent/70 focus:bg-surface focus:shadow-[0_0_12px_-2px_rgba(139,92,246,.3)] focus:outline-none"
           />
         </div>
 
         <div class="input-group">
-          <label class="block text-sm text-zinc-400 mb-1">{{ t('auth.password') }}</label>
+          <label class="block text-sm text-fg-muted mb-1">{{ t('auth.password') }}</label>
           <div class="relative">
             <input
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               autocomplete="current-password"
-              class="w-full rounded-lg border border-zinc-700 bg-zinc-950/60 px-3 py-2 pe-10 text-zinc-100 transition-all duration-200 focus:border-emerald-500/70 focus:bg-zinc-950 focus:shadow-[0_0_12px_-2px_rgba(16,185,129,.2)] focus:outline-none"
+              class="w-full rounded-lg border border-border bg-surface/60 px-3 py-2 pe-10 text-fg transition-all duration-200 focus:border-accent/70 focus:bg-surface focus:shadow-[0_0_12px_-2px_rgba(139,92,246,.3)] focus:outline-none"
             />
             <button
               type="button"
-              class="absolute inset-y-0 end-0 flex items-center px-3 text-zinc-400 hover:text-zinc-200 transition-colors"
+              class="absolute inset-y-0 end-0 flex items-center px-3 text-fg-muted hover:text-fg transition-colors"
               :aria-label="showPassword ? t('auth.hidePassword') : t('auth.showPassword')"
               @click="showPassword = !showPassword"
             >
@@ -109,21 +119,21 @@ async function submit() {
         </div>
       </div>
 
-      <p v-if="error" class="error-msg text-red-400 text-sm mt-4">{{ error }}</p>
+      <p v-if="error" class="error-msg text-negative text-sm mt-4">{{ error }}</p>
 
       <button
         type="submit"
-        class="btn-submit relative mt-6 w-full overflow-hidden rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-500 py-2.5 font-medium text-white shadow-lg shadow-emerald-600/20 transition-all duration-200 hover:from-emerald-500 hover:to-emerald-400 hover:shadow-emerald-500/30 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
+        class="btn-submit relative mt-6 w-full overflow-hidden rounded-lg bg-accent py-2.5 font-medium text-accent-fg shadow-lg shadow-accent/20 transition-all duration-200 hover:opacity-90 hover:shadow-accent/30 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
         :disabled="auth.loading"
       >
         <span :class="auth.loading ? 'opacity-0' : ''">{{ t('auth.signIn') }}</span>
-        <svg v-if="auth.loading" class="spinner absolute inset-0 m-auto h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <svg v-if="auth.loading" class="spinner absolute inset-0 m-auto h-5 w-5 text-accent-fg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4Z" />
         </svg>
       </button>
 
-      <p class="mt-6 text-center text-xs text-zinc-600">TradeBot v1.0</p>
+      <p class="mt-6 text-center text-xs text-fg-muted">Algo Trader v1.0</p>
     </form>
   </div>
 </template>
@@ -192,7 +202,7 @@ async function submit() {
 .orb-1 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, #10b981, transparent 70%);
+  background: radial-gradient(circle, #8b5cf6, transparent 70%);
   top: -100px;
   right: -100px;
   animation-delay: 0s;

@@ -161,48 +161,48 @@ function loadSourceFrom(id: number) {
 
 <template>
   <div v-if="selected" class="p-4 space-y-4">
-    <h2 class="text-sm font-semibold text-zinc-300">{{ t('strategy.title') }}</h2>
+    <h2 class="text-sm font-semibold text-fg">{{ t('strategy.title') }}</h2>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('strategy.name') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('strategy.name') }}</label>
       <input
         v-model="form.name"
-        class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+        class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
       />
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('strategy.engine') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('strategy.engine') }}</label>
       <select
         v-model="engineType"
-        class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+        class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
       >
         <option v-for="e in store.engines" :key="e" :value="e">{{ e }}</option>
       </select>
-      <p v-if="engineType === 'ai'" class="text-xs text-zinc-500 mt-1">{{ t('strategy.aiHint') }}</p>
+      <p v-if="engineType === 'ai'" class="text-xs text-fg-muted mt-1">{{ t('strategy.aiHint') }}</p>
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">
+      <label class="text-xs text-fg-muted">
         {{ t('credentials.label') }}
-        <span class="text-zinc-600">({{ t('strategy.credentialOptional') }})</span>
+        <span class="text-fg-muted">({{ t('strategy.credentialOptional') }})</span>
       </label>
       <select
         v-model="form.credential"
-        class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm"
+        class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
       >
         <option :value="null">{{ t('strategy.noCredentialBacktestOnly') }}</option>
         <option v-for="c in credentials.credentials" :key="c.id" :value="c.id">
           {{ c.label }}
         </option>
       </select>
-      <p v-if="!hasCredential" class="text-xs text-zinc-500 mt-1">{{ t('strategy.liveRequiresCredential') }}</p>
+      <p v-if="!hasCredential" class="text-xs text-fg-muted mt-1">{{ t('strategy.liveRequiresCredential') }}</p>
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('strategy.source') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('strategy.source') }}</label>
       <select
-        class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm mb-1"
+        class="mt-1 w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm mb-1"
         @change="loadSourceFrom(Number(($event.target as HTMLSelectElement).value))"
       >
         <option value="">— load from validated —</option>
@@ -211,8 +211,8 @@ function loadSourceFrom(id: number) {
         </option>
       </select>
       <div
-        class="rounded-lg border border-dashed px-2 py-2 text-center text-[10px] text-zinc-600 mb-1"
-        :class="dragOver ? 'border-emerald-500' : 'border-zinc-700'"
+        class="rounded-lg border border-dashed px-2 py-2 text-center text-[10px] text-fg-muted mb-1"
+        :class="dragOver ? 'border-positive' : 'border-border'"
         @dragover.prevent="dragOver = true"
         @dragleave="dragOver = false"
         @drop.prevent="onDrop"
@@ -222,19 +222,19 @@ function loadSourceFrom(id: number) {
       <textarea
         v-model="form.source"
         rows="8"
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs font-mono"
+        class="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-xs font-mono"
       />
       <div class="mt-1 flex items-center gap-2">
         <span
           v-if="selected.validation_status === 'error'"
-          class="text-xs text-red-400"
+          class="text-xs text-negative"
         >✗ {{ selected.validation_error || t('strategy.validatedFail') }}</span>
       </div>
-      <p v-if="validationMsg" class="mt-1 font-mono text-xs text-red-400">{{ validationMsg }}</p>
+      <p v-if="validationMsg" class="mt-1 font-mono text-xs text-negative">{{ validationMsg }}</p>
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('strategy.symbols') }}</label>
       <TradingPairSelector
         v-model="form.live_config.symbols!"
         multiple
@@ -243,15 +243,15 @@ function loadSourceFrom(id: number) {
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('strategy.timeframes') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('strategy.timeframes') }}</label>
       <div class="flex flex-wrap gap-1 mt-1 mb-1">
         <span
           v-for="tf in form.live_config.timeframes"
           :key="tf"
-          class="inline-flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 text-xs"
+          class="inline-flex items-center gap-1 rounded bg-surface-raised px-2 py-0.5 text-xs"
         >
           {{ tf }}
-          <button type="button" class="text-zinc-500 hover:text-red-400" @click="removeTf(tf)">×</button>
+          <button type="button" class="text-fg-muted hover:text-negative" @click="removeTf(tf)">×</button>
         </span>
       </div>
       <div class="flex flex-wrap gap-1">
@@ -259,7 +259,7 @@ function loadSourceFrom(id: number) {
           v-for="tf in TIMEFRAMES"
           :key="tf"
           type="button"
-          class="rounded border border-zinc-700 px-2 py-0.5 text-xs hover:bg-zinc-800"
+          class="rounded border border-border px-2 py-0.5 text-xs hover:bg-surface-raised"
           @click="addTf(tf)"
         >
           {{ tf }}
@@ -269,32 +269,32 @@ function loadSourceFrom(id: number) {
 
     <div class="grid grid-cols-3 gap-2">
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.leverage') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.leverage') }}</label>
         <input
           v-model.number="form.live_config.risk!.leverage"
           type="number"
           min="1"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+          class="mt-1 w-full rounded border border-border bg-surface px-2 py-1 text-xs"
         />
       </div>
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.positionSize') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.positionSize') }}</label>
         <input
           v-model.number="form.live_config.risk!.position_size_pct"
           type="number"
           min="0"
           step="0.1"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+          class="mt-1 w-full rounded border border-border bg-surface px-2 py-1 text-xs"
         />
       </div>
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.globalSl') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.globalSl') }}</label>
         <input
           v-model.number="form.live_config.risk!.global_stop_loss_pct"
           type="number"
           min="0"
           step="0.1"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+          class="mt-1 w-full rounded border border-border bg-surface px-2 py-1 text-xs"
         />
       </div>
     </div>
@@ -302,18 +302,18 @@ function loadSourceFrom(id: number) {
     <div>
       <button
         type="button"
-        class="text-xs text-zinc-500 hover:text-zinc-300"
+        class="text-xs text-fg-muted hover:text-fg"
         @click="showAdvancedRisk = !showAdvancedRisk"
       >
         {{ showAdvancedRisk ? '▼' : '▶' }} {{ t('strategy.advancedRisk') }}
       </button>
       <div v-if="showAdvancedRisk" class="grid grid-cols-2 gap-2 mt-2">
         <div v-for="field in ['risk_per_trade_pct', 'max_daily_loss_pct', 'max_drawdown_pct', 'max_open_trades', 'max_exposure_pct', 'max_leverage']" :key="field">
-          <label class="text-[10px] text-zinc-600">{{ field }}</label>
+          <label class="text-[10px] text-fg-muted">{{ field }}</label>
           <input
             v-model.number="(form.live_config.risk as Record<string, number>)[field]"
             type="number"
-            class="mt-0.5 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+            class="mt-0.5 w-full rounded border border-border bg-surface px-2 py-1 text-xs"
           />
         </div>
       </div>
@@ -322,20 +322,20 @@ function loadSourceFrom(id: number) {
     <div class="flex flex-wrap gap-2">
       <button
         type="button"
-        class="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700"
+        class="rounded-lg bg-surface-raised px-3 py-1.5 text-xs hover:bg-border"
         :disabled="saving"
         @click="save"
       >
         {{ t('strategy.save') }}
       </button>
-      <button type="button" class="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs hover:bg-zinc-700" @click="validate">
+      <button type="button" class="rounded-lg bg-surface-raised px-3 py-1.5 text-xs hover:bg-border" @click="validate">
         {{ t('strategy.validate') }}
       </button>
       <template v-if="hasCredential">
-        <button type="button" class="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs hover:bg-emerald-600" @click="start">
+        <button type="button" class="rounded-lg bg-positive px-3 py-1.5 text-xs hover:opacity-90" @click="start">
           {{ t('strategy.start') }}
         </button>
-        <button type="button" class="rounded-lg bg-amber-800 px-3 py-1.5 text-xs hover:bg-amber-700" @click="stop">
+        <button type="button" class="rounded-lg bg-warning px-3 py-1.5 text-xs text-white hover:opacity-90" @click="stop">
           {{ t('strategy.stop') }}
         </button>
       </template>

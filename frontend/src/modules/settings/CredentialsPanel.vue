@@ -138,19 +138,19 @@ function shortAddr(addr: string) {
 </script>
 
 <template>
-  <section class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+  <section class="rounded-xl border border-border bg-surface-muted/40 p-6">
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold text-zinc-300">{{ t('credentials.title') }}</h2>
+      <h2 class="text-sm font-semibold text-fg">{{ t('credentials.title') }}</h2>
       <button
         type="button"
-        class="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs text-white hover:bg-emerald-600"
+        class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500"
         @click="startCreate"
       >
         {{ t('credentials.add') }}
       </button>
     </div>
 
-    <div v-if="!store.credentials.length && !showForm" class="text-sm text-zinc-600 py-4">
+    <div v-if="!store.credentials.length && !showForm" class="text-sm text-fg-muted py-4">
       {{ t('credentials.empty') }}
     </div>
 
@@ -158,50 +158,50 @@ function shortAddr(addr: string) {
       <div
         v-for="c in store.credentials"
         :key="c.id"
-        class="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-3"
+        class="flex items-center justify-between rounded-lg border border-border px-4 py-3"
       >
         <div>
-          <div class="text-sm text-zinc-200 font-medium">
+          <div class="text-sm text-fg font-medium">
             {{ c.label }}
-            <span class="text-[10px] text-zinc-500 uppercase ms-1">({{ c.exchange }})</span>
+            <span class="text-[10px] text-fg-muted uppercase ms-1">({{ c.exchange }})</span>
           </div>
-          <div class="text-xs text-zinc-500 mt-0.5 font-mono">
+          <div class="text-xs text-fg-muted mt-0.5 font-mono">
             <template v-if="c.exchange === 'tabdeal'">{{ c.network }}</template>
             <template v-else>{{ shortAddr(c.wallet_address) }} · {{ c.network }}</template>
             ·
-            <span :class="c.is_active ? 'text-emerald-400' : 'text-zinc-600'">
+            <span :class="c.is_active ? 'text-positive' : 'text-fg-muted'">
               {{ c.is_active ? t('credentials.active') : t('credentials.inactive') }}
             </span>
           </div>
-          <div class="text-[10px] text-zinc-600 mt-0.5">{{ formatTime(c.last_verified_at) }}</div>
+          <div class="text-[10px] text-fg-muted mt-0.5">{{ formatTime(c.last_verified_at) }}</div>
         </div>
         <div class="flex gap-2 text-xs">
           <button
             type="button"
-            class="text-zinc-400 hover:text-zinc-200"
+            class="text-fg-muted hover:text-fg"
             :disabled="verifying === c.id"
             @click="verify(c.id)"
           >
             {{ t('credentials.verify') }}
           </button>
-          <button type="button" class="text-zinc-400 hover:text-zinc-200" @click="startEdit(c.id)">
+          <button type="button" class="text-fg-muted hover:text-fg" @click="startEdit(c.id)">
             {{ t('credentials.edit') }}
           </button>
-          <button type="button" class="text-red-400 hover:text-red-300" @click="deleteId = c.id">
+          <button type="button" class="text-negative hover:text-negative" @click="deleteId = c.id">
             {{ t('credentials.delete') }}
           </button>
         </div>
       </div>
     </div>
 
-    <form v-if="showForm" class="space-y-3 border-t border-zinc-800 pt-4" @submit.prevent="submit">
-      <h3 class="text-xs text-zinc-500 uppercase">
+    <form v-if="showForm" class="space-y-3 border-t border-border pt-4" @submit.prevent="submit">
+      <h3 class="text-xs text-fg-muted uppercase">
         {{ editingId ? t('credentials.edit') : t('credentials.add') }}
       </h3>
       <select
         v-model="form.exchange"
         :disabled="!!editingId"
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm disabled:opacity-50"
+        class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm disabled:opacity-50"
       >
         <option value="hyperliquid">Hyperliquid</option>
         <option value="tabdeal">Tabdeal</option>
@@ -210,7 +210,7 @@ function shortAddr(addr: string) {
         v-model="form.label"
         :placeholder="t('credentials.label')"
         required
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+        class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
       />
 
       <template v-if="form.exchange === 'tabdeal'">
@@ -219,14 +219,14 @@ function shortAddr(addr: string) {
           type="password"
           :placeholder="t('credentials.apiKey')"
           :required="!editingId"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono"
+          class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm font-mono"
         />
         <input
           v-model="form.api_secret"
           type="password"
           :placeholder="t('credentials.apiSecret')"
           :required="!editingId"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono"
+          class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm font-mono"
         />
       </template>
       <template v-else>
@@ -234,11 +234,11 @@ function shortAddr(addr: string) {
           v-model="form.wallet_address"
           :placeholder="t('credentials.walletAddress')"
           required
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono"
+          class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm font-mono"
         />
         <select
           v-model="form.network"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+          class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
         >
           <option value="testnet">Testnet</option>
           <option value="mainnet">Mainnet</option>
@@ -248,25 +248,25 @@ function shortAddr(addr: string) {
           type="password"
           :placeholder="t('credentials.agentKey')"
           :required="!editingId"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono"
+          class="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm font-mono"
         />
       </template>
-      <p v-if="editingId" class="text-xs text-zinc-600">{{ t('credentials.secretsOptional') }}</p>
+      <p v-if="editingId" class="text-xs text-fg-muted">{{ t('credentials.secretsOptional') }}</p>
       <div class="flex gap-2">
-        <button type="button" class="px-4 py-2 text-sm text-zinc-400" @click="resetForm">
+        <button type="button" class="px-4 py-2 text-sm text-fg-muted" @click="resetForm">
           {{ t('health.cancel') }}
         </button>
-        <button type="submit" class="px-4 py-2 text-sm bg-emerald-700 text-white rounded-lg">
+        <button type="submit" class="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg">
           {{ t('credentials.save') }}
         </button>
       </div>
     </form>
 
     <div v-if="deleteId" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div class="w-full max-w-sm rounded-xl border border-zinc-700 bg-zinc-900 p-6">
-        <p class="text-zinc-200 mb-4">{{ t('credentials.deleteConfirm') }}</p>
+      <div class="w-full max-w-sm rounded-xl border border-border bg-surface-muted p-6">
+        <p class="text-fg mb-4">{{ t('credentials.deleteConfirm') }}</p>
         <div class="flex justify-end gap-2">
-          <button type="button" class="px-4 py-2 text-sm text-zinc-400" @click="deleteId = null">
+          <button type="button" class="px-4 py-2 text-sm text-fg-muted" @click="deleteId = null">
             {{ t('health.cancel') }}
           </button>
           <button type="button" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg" @click="confirmDelete">

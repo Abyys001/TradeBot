@@ -6,7 +6,7 @@ defineProps<{
 
 <template>
   <div
-    class="animate-pulse rounded-lg bg-zinc-800/80"
+    class="animate-pulse rounded-lg bg-surface-raised/80"
     :class="$props.class"
   />
 </template>

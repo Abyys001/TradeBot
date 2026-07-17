@@ -13,8 +13,8 @@ defineProps<{
 <template>
   <div>
     <div class="mb-1 flex items-center justify-between">
-      <label class="text-xs text-zinc-500">{{ label }}</label>
-      <span v-if="unit" class="text-xs text-zinc-400">{{ model }}{{ unit }}</span>
+      <label class="text-xs text-fg-muted">{{ label }}</label>
+      <span v-if="unit" class="text-xs text-fg-muted">{{ model }}{{ unit }}</span>
     </div>
     <div class="flex items-center gap-2">
       <input
@@ -23,7 +23,7 @@ defineProps<{
         :min="min"
         :max="max"
         :step="step ?? 1"
-        class="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-zinc-800 accent-violet-500"
+        class="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-surface-muted accent-violet-500"
       />
       <input
         v-model.number="model"
@@ -31,7 +31,7 @@ defineProps<{
         :min="min"
         :max="max"
         :step="step ?? 1"
-        class="w-16 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
+        class="w-16 rounded border border-border bg-surface px-2 py-1 text-xs text-fg"
       />
     </div>
   </div>

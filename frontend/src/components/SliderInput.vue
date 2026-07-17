@@ -86,8 +86,8 @@ watch(
 <template>
   <div class="space-y-1.5">
     <div v-if="label" class="flex items-center justify-between">
-      <label class="text-xs text-zinc-500">{{ label }}</label>
-      <span v-if="suffix" class="text-[10px] text-zinc-600">{{ suffix }}</span>
+      <label class="text-xs text-fg-muted">{{ label }}</label>
+      <span v-if="suffix" class="text-[10px] text-fg-muted">{{ suffix }}</span>
     </div>
     <div class="flex items-center gap-3">
       <input
@@ -102,7 +102,7 @@ watch(
       />
       <input
         type="number"
-        class="w-20 shrink-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-end text-sm text-zinc-200 focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-600/40"
+        class="w-20 shrink-0 rounded-lg border border-border bg-surface px-2 py-1.5 text-end text-sm text-fg focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-600/40"
         :min="min"
         :max="max"
         :step="step"

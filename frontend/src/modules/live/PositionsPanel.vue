@@ -49,12 +49,12 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <div class="rounded-lg border border-zinc-800 overflow-hidden">
-    <div class="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
-      <span class="text-xs font-medium text-zinc-400">{{ t('positions.title') }}</span>
+  <div class="rounded-lg border border-border overflow-hidden">
+    <div class="px-3 py-2 border-b border-border flex items-center justify-between">
+      <span class="text-xs font-medium text-fg-muted">{{ t('positions.title') }}</span>
       <button
         type="button"
-        class="text-[10px] text-zinc-500 hover:text-zinc-300"
+        class="text-[10px] text-fg-muted hover:text-fg"
         :disabled="loading"
         @click="refresh"
       >
@@ -75,22 +75,22 @@ defineExpose({ refresh })
         <th class="px-3 py-1 text-end">PnL</th>
       </template>
       <template #row>
-        <tr v-for="p in positions" :key="p.coin" class="border-t border-zinc-800/50 text-xs">
-          <td class="px-3 py-1.5 text-zinc-300">{{ p.coin }}</td>
-          <td class="px-3 py-1.5 text-end text-zinc-400">{{ p.size }}</td>
-          <td class="px-3 py-1.5 text-end text-zinc-500">{{ p.liquidation_px ?? '—' }}</td>
-          <td class="px-3 py-1.5 text-end" :class="Number(p.unrealized_pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">
+        <tr v-for="p in positions" :key="p.coin" class="border-t border-border/50 text-xs">
+          <td class="px-3 py-1.5 text-fg">{{ p.coin }}</td>
+          <td class="px-3 py-1.5 text-end text-fg-muted">{{ p.size }}</td>
+          <td class="px-3 py-1.5 text-end text-fg-muted">{{ p.liquidation_px ?? '—' }}</td>
+          <td class="px-3 py-1.5 text-end" :class="Number(p.unrealized_pnl) >= 0 ? 'text-positive' : 'text-negative'">
             {{ p.unrealized_pnl }}
           </td>
         </tr>
       </template>
       <template #card>
-        <div v-for="p in positions" :key="p.coin" class="rounded-lg border border-zinc-800/70 p-2 text-xs">
+        <div v-for="p in positions" :key="p.coin" class="rounded-lg border border-border/70 p-2 text-xs">
           <div class="flex items-center justify-between">
-            <span class="font-medium text-zinc-300">{{ p.coin }}</span>
-            <span :class="Number(p.unrealized_pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ p.unrealized_pnl }}</span>
+            <span class="font-medium text-fg">{{ p.coin }}</span>
+            <span :class="Number(p.unrealized_pnl) >= 0 ? 'text-positive' : 'text-negative'">{{ p.unrealized_pnl }}</span>
           </div>
-          <div class="mt-1 flex items-center justify-between text-zinc-500">
+          <div class="mt-1 flex items-center justify-between text-fg-muted">
             <span>{{ t('positions.size') }}: {{ p.size }}</span>
             <span>{{ t('positions.liq') }}: {{ p.liquidation_px ?? '—' }}</span>
           </div>

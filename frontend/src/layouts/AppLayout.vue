@@ -30,7 +30,7 @@ onUnmounted(pause)
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col overflow-hidden bg-zinc-950">
+  <div class="flex h-dvh flex-col overflow-hidden bg-surface">
     <HealthHeader />
     <div class="flex flex-1 min-h-0">
       <AppSidebar />
@@ -61,9 +61,9 @@ onUnmounted(pause)
           :key="toast.id"
           class="pointer-events-auto cursor-pointer rounded-lg border px-4 py-2 text-sm shadow-lg"
           :class="{
-            'border-emerald-800 bg-emerald-950 text-emerald-300': toast.type === 'success',
-            'border-red-800 bg-red-950 text-red-300': toast.type === 'error',
-            'border-zinc-700 bg-zinc-900 text-zinc-300': toast.type === 'info',
+            'border-positive/40 bg-success-bg text-positive': toast.type === 'success',
+            'border-negative/40 bg-danger-bg text-negative': toast.type === 'error',
+            'border-border bg-surface-raised text-fg': toast.type === 'info',
           }"
           @click="dismiss(toast.id)"
         >

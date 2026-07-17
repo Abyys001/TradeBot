@@ -58,7 +58,7 @@ onEvent((payload) => {
 })
 
 function pnlClass(val: string) {
-  return Number(val) >= 0 ? 'text-emerald-400' : 'text-red-400'
+  return Number(val) >= 0 ? 'text-positive' : 'text-negative'
 }
 
 function fmt(val: string | undefined, decimals = 2) {
@@ -68,17 +68,17 @@ function fmt(val: string | undefined, decimals = 2) {
 </script>
 
 <template>
-  <div class="rounded-xl border border-zinc-800 overflow-hidden">
+  <div class="rounded-xl border border-border overflow-hidden">
     <!-- Header -->
-    <div class="px-4 py-2.5 border-b border-zinc-800 flex items-center justify-between">
-      <span class="text-xs font-semibold text-zinc-300 tracking-wide uppercase">Live Positions</span>
+    <div class="px-4 py-2.5 border-b border-border flex items-center justify-between">
+      <span class="text-xs font-semibold text-fg tracking-wide uppercase">Live Positions</span>
       <div class="flex items-center gap-3">
-        <span v-if="lastUpdated" class="text-[10px] text-zinc-600">
+        <span v-if="lastUpdated" class="text-[10px] text-fg-muted">
           {{ lastUpdated.toLocaleTimeString() }}
         </span>
         <button
           type="button"
-          class="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          class="text-[10px] text-fg-muted hover:text-fg transition-colors"
           @click="hydrate"
         >
           Refresh
@@ -87,18 +87,18 @@ function fmt(val: string | undefined, decimals = 2) {
     </div>
 
     <!-- Margin summary -->
-    <div v-if="margin" class="grid grid-cols-3 gap-px border-b border-zinc-800 bg-zinc-800">
-      <div class="bg-zinc-900 px-3 py-2">
-        <p class="text-[10px] text-zinc-500 mb-0.5">Account Value</p>
-        <p class="text-xs font-medium text-zinc-200">${{ fmt(margin.accountValue) }}</p>
+    <div v-if="margin" class="grid grid-cols-3 gap-px border-b border-border bg-surface-raised">
+      <div class="bg-surface-muted px-3 py-2">
+        <p class="text-[10px] text-fg-muted mb-0.5">Account Value</p>
+        <p class="text-xs font-medium text-fg">${{ fmt(margin.accountValue) }}</p>
       </div>
-      <div class="bg-zinc-900 px-3 py-2">
-        <p class="text-[10px] text-zinc-500 mb-0.5">Margin Used</p>
-        <p class="text-xs font-medium text-zinc-200">${{ fmt(margin.totalMarginUsed) }}</p>
+      <div class="bg-surface-muted px-3 py-2">
+        <p class="text-[10px] text-fg-muted mb-0.5">Margin Used</p>
+        <p class="text-xs font-medium text-fg">${{ fmt(margin.totalMarginUsed) }}</p>
       </div>
-      <div class="bg-zinc-900 px-3 py-2">
-        <p class="text-[10px] text-zinc-500 mb-0.5">Free</p>
-        <p class="text-xs font-medium text-emerald-400">
+      <div class="bg-surface-muted px-3 py-2">
+        <p class="text-[10px] text-fg-muted mb-0.5">Free</p>
+        <p class="text-xs font-medium text-positive">
           ${{ fmt((Number(margin.accountValue) - Number(margin.totalMarginUsed)).toFixed(2)) }}
         </p>
       </div>
@@ -122,37 +122,37 @@ function fmt(val: string | undefined, decimals = 2) {
         <tr
           v-for="pos in positions"
           :key="pos.coin"
-          class="border-t border-zinc-800/60 text-xs hover:bg-zinc-800/30 transition-colors"
+          class="border-t border-border/60 text-xs hover:bg-surface-raised/30 transition-colors"
         >
-          <td class="px-3 py-2 text-zinc-200 font-medium">{{ pos.coin }}</td>
-          <td class="px-3 py-2 text-end" :class="Number(pos.szi) > 0 ? 'text-emerald-400' : 'text-red-400'">
+          <td class="px-3 py-2 text-fg font-medium">{{ pos.coin }}</td>
+          <td class="px-3 py-2 text-end" :class="Number(pos.szi) > 0 ? 'text-positive' : 'text-negative'">
             {{ fmt(pos.szi, 4) }}
           </td>
-          <td class="px-3 py-2 text-end text-zinc-400">${{ fmt(pos.entryPx) }}</td>
-          <td class="px-3 py-2 text-end text-zinc-400">{{ fmt(pos.leverage, 1) }}×</td>
+          <td class="px-3 py-2 text-end text-fg-muted">${{ fmt(pos.entryPx) }}</td>
+          <td class="px-3 py-2 text-end text-fg-muted">{{ fmt(pos.leverage, 1) }}×</td>
           <td class="px-3 py-2 text-end font-medium" :class="pnlClass(pos.unrealizedPnl)">
             ${{ fmt(pos.unrealizedPnl) }}
           </td>
         </tr>
       </template>
       <template #card>
-        <div v-for="pos in positions" :key="pos.coin" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs">
+        <div v-for="pos in positions" :key="pos.coin" class="rounded-lg border border-border bg-surface-muted/40 p-3 text-xs">
           <div class="flex items-center justify-between">
-            <span class="font-medium text-zinc-200">{{ pos.coin }}</span>
+            <span class="font-medium text-fg">{{ pos.coin }}</span>
             <span class="font-medium" :class="pnlClass(pos.unrealizedPnl)">${{ fmt(pos.unrealizedPnl) }}</span>
           </div>
-          <div class="mt-1.5 grid grid-cols-3 gap-y-1 text-zinc-500">
+          <div class="mt-1.5 grid grid-cols-3 gap-y-1 text-fg-muted">
             <div>
               <div class="text-[10px]">Size</div>
-              <div :class="Number(pos.szi) > 0 ? 'text-emerald-400' : 'text-red-400'">{{ fmt(pos.szi, 4) }}</div>
+              <div :class="Number(pos.szi) > 0 ? 'text-positive' : 'text-negative'">{{ fmt(pos.szi, 4) }}</div>
             </div>
             <div>
               <div class="text-[10px]">Entry Px</div>
-              <div class="text-zinc-400">${{ fmt(pos.entryPx) }}</div>
+              <div class="text-fg-muted">${{ fmt(pos.entryPx) }}</div>
             </div>
             <div>
               <div class="text-[10px]">Leverage</div>
-              <div class="text-zinc-400">{{ fmt(pos.leverage, 1) }}×</div>
+              <div class="text-fg-muted">{{ fmt(pos.leverage, 1) }}×</div>
             </div>
           </div>
         </div>
