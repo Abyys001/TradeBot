@@ -93,6 +93,11 @@ class Command(BaseCommand):
             range_end=datetime.fromtimestamp(int(df["ts"].max()) / 1000, tz=timezone.utc),
             metrics=result.metrics,
         )
+        def _ts_to_dt(ts_ms):
+            if ts_ms:
+                return datetime.fromtimestamp(int(ts_ms) / 1000, tz=timezone.utc)
+            return None
+
         BacktestTrade.objects.bulk_create(
             [
                 BacktestTrade(
@@ -104,6 +109,8 @@ class Command(BaseCommand):
                     pnl=Decimal(str(t["pnl"])),
                     entry_bar=t["entry_bar"],
                     exit_bar=t["exit_bar"],
+                    entry_time=_ts_to_dt(t.get("entry_time")),
+                    exit_time=_ts_to_dt(t.get("exit_time")),
                 )
                 for t in result.trades
             ]

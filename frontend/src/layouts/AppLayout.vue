@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useIntervalFn } from '@vueuse/core'
@@ -9,12 +9,14 @@ import { useHealthStore } from '../stores/health'
 import { useStrategyStore } from '../stores/strategy'
 import { useTerminalStore } from '../stores/terminal'
 import { useToast } from '../composables/useToast'
+import { useLayoutStore } from '../stores/layout'
 
 const health = useHealthStore()
 const strategy = useStrategyStore()
 const terminal = useTerminalStore()
 const ws = useDashboardWebSocket()
 const { toasts, dismiss } = useToast()
+const layout = useLayoutStore()
 
 const { pause, resume } = useIntervalFn(() => health.fetchHealth(), 10000)
 
@@ -28,7 +30,7 @@ onUnmounted(pause)
 </script>
 
 <template>
-  <div class="flex h-screen flex-col overflow-hidden bg-zinc-950">
+  <div class="flex h-dvh flex-col overflow-hidden bg-surface">
     <HealthHeader />
     <div class="flex flex-1 min-h-0">
       <AppSidebar />
@@ -38,6 +40,12 @@ onUnmounted(pause)
         </RouterView>
       </main>
     </div>
+
+    <div
+      v-if="layout.mobileNavOpen"
+      class="fixed inset-0 z-30 bg-black/50 lg:hidden"
+      @click="layout.setMobileNavOpen(false)"
+    />
 
     <div class="pointer-events-none fixed top-4 end-4 z-50 flex max-w-sm flex-col gap-2">
       <TransitionGroup
@@ -53,9 +61,9 @@ onUnmounted(pause)
           :key="toast.id"
           class="pointer-events-auto cursor-pointer rounded-lg border px-4 py-2 text-sm shadow-lg"
           :class="{
-            'border-emerald-800 bg-emerald-950 text-emerald-300': toast.type === 'success',
-            'border-red-800 bg-red-950 text-red-300': toast.type === 'error',
-            'border-zinc-700 bg-zinc-900 text-zinc-300': toast.type === 'info',
+            'border-positive/40 bg-success-bg text-positive': toast.type === 'success',
+            'border-negative/40 bg-danger-bg text-negative': toast.type === 'error',
+            'border-border bg-surface-raised text-fg': toast.type === 'info',
           }"
           @click="dismiss(toast.id)"
         >

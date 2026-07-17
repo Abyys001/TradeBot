@@ -7,17 +7,17 @@ const { t } = useI18n()
 
 <template>
   <div v-if="result" class="grid grid-cols-3 gap-2 text-xs">
-    <div class="rounded border border-zinc-800 p-2">
-      <div class="text-zinc-500">{{ t('optimizer.median') }}</div>
-      <div class="text-zinc-200">{{ result.median_final?.toFixed(2) }}</div>
+    <div class="rounded border border-border p-2">
+      <div class="text-fg-muted">{{ t('optimizer.median') }}</div>
+      <div class="text-fg">{{ result.median_final?.toFixed(2) }}</div>
     </div>
-    <div class="rounded border border-zinc-800 p-2">
-      <div class="text-zinc-500">P5</div>
-      <div class="text-red-400">{{ result.p5_final?.toFixed(2) }}</div>
+    <div class="rounded border border-border p-2">
+      <div class="text-fg-muted">P5</div>
+      <div class="text-negative">{{ result.p5_final?.toFixed(2) }}</div>
     </div>
-    <div class="rounded border border-zinc-800 p-2">
-      <div class="text-zinc-500">P95</div>
-      <div class="text-emerald-400">{{ result.p95_final?.toFixed(2) }}</div>
+    <div class="rounded border border-border p-2">
+      <div class="text-fg-muted">P95</div>
+      <div class="text-positive">{{ result.p95_final?.toFixed(2) }}</div>
     </div>
   </div>
 </template>

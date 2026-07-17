@@ -41,7 +41,7 @@ def _load_meta(network: str) -> dict:
 
     from hyperliquid.info import Info
 
-    info = Info(network_url(network), skip_ws=True, timeout=5)
+    info = Info(network_url(network), skip_ws=True, timeout=getattr(settings, "HL_API_TIMEOUT", 30))
     meta = info.meta()
     spot_meta = info.spot_meta()
     payload = {"perp": meta, "spot": spot_meta, "name_to_coin": info.name_to_coin}
@@ -128,7 +128,7 @@ def aggressive_spot_price(
     """Fetch mid price and apply slippage for IOC spot market semantics."""
     from hyperliquid.info import Info
 
-    info = Info(network_url(network), skip_ws=True, timeout=5)
+    info = Info(network_url(network), skip_ws=True, timeout=getattr(settings, "HL_API_TIMEOUT", 30))
     name = resolve_trading_name(coin, market_type="spot", network=network)
     mids = info.all_mids() or {}
     mid_key = info.name_to_coin.get(name, name)

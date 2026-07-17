@@ -1,6 +1,6 @@
-# Trading Framework Roadmap — Hyperliquid
+# Algo Trader — Trading Framework Roadmap — Hyperliquid
 
-Living document for the TradeBot algorithmic trading framework.
+Living document for the Algo Trader algorithmic trading framework.
 
 **Build order:** Data → Backtest → Strategy → Risk → Paper → Live → Dashboard → Optimizer → AI
 

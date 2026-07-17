@@ -20,11 +20,8 @@ class PaperBroker(SimBroker):
 
     def entry(self, oid, direction, price, bar_index, qty=None, **kwargs):
         super().entry(oid, direction, price, bar_index, qty, **kwargs)
-        alert_message = kwargs.get("alert_message")
-        if alert_message:
-            from apps.integrations.tasks import signum_send_webhook_task
-
-            signum_send_webhook_task.delay(self.account.user_id, alert_message)
+        # Paper trades do NOT trigger external webhooks (Signum).
+        # Only live trades should send alerts.
 
     def sync_account(self, mark_price: float) -> None:
         eq = self.equity(mark_price)

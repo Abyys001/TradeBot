@@ -15,6 +15,26 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// On CSRF failure (Django rotates the token on login), refresh and retry once.
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config
+    if (
+      error.response?.status === 403 &&
+      typeof error.response?.data?.detail === 'string' &&
+      error.response.data.detail.includes('CSRF') &&
+      !config._csrfRetried
+    ) {
+      config._csrfRetried = true
+      await fetchCsrf()
+      if (csrfToken) config.headers['X-CSRFToken'] = csrfToken
+      return api(config)
+    }
+    return Promise.reject(error)
+  },
+)
+
 export async function fetchCsrf(): Promise<string> {
   const { data } = await api.get<{ csrfToken: string }>('/auth/csrf/')
   csrfToken = data.csrfToken
@@ -26,8 +46,57 @@ export interface User {
   username: string
   email?: string
   is_trading_enabled: boolean
-  role?: 'admin' | 'investor'
-  is_admin?: boolean
+  role: 'admin' | 'investor'
+  must_change_password: boolean
+}
+
+export interface Investor {
+  id: number
+  username: string
+  email?: string
+  role: 'admin' | 'investor'
+  is_trading_enabled: boolean
+  is_active: boolean
+  must_change_password: boolean
+  date_joined: string
+  last_login: string | null
+  created_at: string
+}
+
+export interface InvestorCreatePayload {
+  username: string
+  password: string
+  email?: string
+  is_trading_enabled?: boolean
+}
+
+export interface CopySummary {
+  subscriptions: number
+  realized_pnl: string
+  net_pnl: string
+  fees_total: string
+  fees_owed: string
+  open_trades: number
+  closed_trades: number
+}
+
+export interface CopyTradeRow {
+  id: number
+  pair: string
+  side: string
+  entry_price: string | null
+  exit_price: string | null
+  status: string
+  gross_pnl: string
+  platform_share_amount: string
+  opened_at: string
+  closed_at: string | null
+}
+
+export interface CopyEquityPoint {
+  balance: string
+  equity: string
+  captured_at: string
 }
 
 export interface HealthPayload {
@@ -72,6 +141,7 @@ export interface Strategy {
 export interface LiveConfig {
   symbols?: string[]
   timeframes?: string[]
+  copy_trading?: boolean
   risk?: {
     leverage?: number
     position_size_pct?: number
@@ -124,7 +194,6 @@ export interface Credential {
   label: string
   wallet_address: string
   agent_address?: string
-  api_key?: string
   network: string
   is_active: boolean
   last_verified_at: string | null
@@ -193,11 +262,15 @@ export interface BacktestTrade {
   exit_price: string | null
   size: string
   pnl: string
+  gross_pnl: string
+  commission: string
   entry_bar: number
   exit_bar: number | null
   stop_px?: string | null
   limit_px?: string | null
   exit_reason?: string
+  entry_time: string | null
+  exit_time: string | null
 }
 
 export interface BacktestMetrics {
@@ -226,6 +299,7 @@ export interface Backtest {
   symbol: string
   timeframe: string
   network?: string
+  initial_balance?: number
   range_start: string | null
   range_end: string | null
   metrics: BacktestMetrics
@@ -281,7 +355,46 @@ export interface HistoryMarkets {
   error?: string
 }
 
-// ---- Copy trading -----------------------------------------------------
+export interface FeeConfig {
+  share_pct: string
+  destination_exchange: string
+  destination_account: string
+  updated_at?: string
+}
+
+export interface AdminCopyRow {
+  subscription_id: number
+  investor: string
+  signal: string
+  is_active: boolean
+  trading_enabled: boolean
+  high_water_mark: string
+  realized_pnl: string
+  fees_accrued: string
+  open_trades: number
+}
+
+export interface AdminCopyOverview {
+  investors: AdminCopyRow[]
+  totals: {
+    investor_count: number
+    realized_pnl: string
+    fees_accrued: string
+    fees_owed: string
+  }
+}
+
+export interface FeeLedgerRow {
+  id: number
+  investor: string
+  amount: string
+  share_pct: string
+  status: string
+  accrued_at: string
+  settled_at: string | null
+}
+
+// ---- Copy trading (legacy investor model) --------------------------------
 export interface MasterStrategy {
   id: number
   name: string
@@ -333,17 +446,18 @@ export interface AdminInvestor {
   subscriptions: number
 }
 
-export interface FeeConfig {
-  fee_rate: string
-  updated_at?: string
-}
-
 // ---- Telegram ---------------------------------------------------------
 export interface TelegramConfig {
+  bot_token: string
   enabled: boolean
-  chat_id: string
-  events: string[]
-  has_bot_token?: boolean
-  bot_token?: string
-  updated_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AlertWhitelistEntry {
+  id: number
+  chat_id: number
+  label: string
+  enabled: boolean
+  created_at: string
 }

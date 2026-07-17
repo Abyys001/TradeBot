@@ -19,6 +19,9 @@ export const useAuthStore = defineStore('auth', () => {
       await fetchCsrf()
       const { data } = await api.post<User>('/auth/login/', { username, password })
       user.value = data
+      // Django calls rotate_token() on login, invalidating the CSRF token we sent.
+      // Re-fetch so csrfToken matches the rotated cookie before any subsequent POST.
+      await fetchCsrf()
       return data
     } finally {
       loading.value = false
@@ -31,10 +34,19 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchMe() {
-    const { data } = await api.get<User>('/me/')
-    user.value = data
-    return data
+    try {
+      const { data } = await api.get<User>('/me/')
+      user.value = data
+      return data
+    } catch (e) {
+      user.value = null
+      throw e
+    }
   }
 
-  return { user, loading, isAdmin, isInvestor, init, login, logout, fetchMe }
+  function setTradingEnabled(enabled: boolean) {
+    if (user.value) user.value.is_trading_enabled = enabled
+  }
+
+  return { user, loading, isAdmin, isInvestor, init, login, logout, fetchMe, setTradingEnabled }
 })

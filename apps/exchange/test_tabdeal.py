@@ -1,123 +1,155 @@
-"""Tests for the Tabdeal futures client (no live network)."""
-from unittest import mock
+"""Tests for the Tabdeal Futures (FAPI) client — no real network calls."""
+from unittest.mock import MagicMock, patch
 
 import pytest
-from django.contrib.auth import get_user_model
 
-from apps.credentials.models import Exchange, ExchangeCredential, Network
-
-from .base import ExchangeClient, get_client
-from .tabdeal_client import TabdealClient
+from .tabdeal_errors import TabdealAPIError, parse_response
+from .tabdeal_signing import build_signed_query, sign_query
 
 
-def _make_cred(secret="sekret"):
-    User = get_user_model()
-    user = User.objects.create_user(username="tab", password="pw")
-    cred = ExchangeCredential(
-        user=user,
-        exchange=Exchange.TABDEAL,
-        label="tab",
-        api_key="APIKEY123",
-        network=Network.MAINNET,
-    )
-    cred.set_api_secret(secret)
-    cred.save()
-    return cred
+# ----- signing -----
+
+def test_sign_query_is_deterministic():
+    assert sign_query("secret", "a=1&b=2") == sign_query("secret", "a=1&b=2")
 
 
-def _resp(status_code=200, json_body=None):
-    m = mock.Mock()
-    m.status_code = status_code
-    m.json.return_value = json_body if json_body is not None else {}
-    m.text = str(json_body)
-    return m
+def test_sign_query_changes_with_secret():
+    assert sign_query("secret1", "a=1") != sign_query("secret2", "a=1")
 
 
-def test_client_conforms_to_protocol(db):
-    cred = _make_cred()
-    client = get_client(cred)
-    assert isinstance(client, TabdealClient)
-    assert isinstance(client, ExchangeClient)
+def test_build_signed_query_includes_signature_and_timestamp():
+    query = build_signed_query("secret", {"symbol": "BTCUSDT"})
+    assert "symbol=BTCUSDT" in query
+    assert "timestamp=" in query
+    assert "&signature=" in query
 
 
-def test_symbol_mapping():
-    assert TabdealClient._symbol("BTC") == "BTCUSDT"
-    assert TabdealClient._symbol("ethusdt") == "ETHUSDT"
+def test_build_signed_query_recv_window_optional():
+    assert "recvWindow" not in build_signed_query("s", {"a": 1})
+    assert "recvWindow=5000" in build_signed_query("s", {"a": 1}, recv_window_ms=5000)
 
 
-@pytest.mark.django_db
-def test_verify_success_marks_active():
-    cred = _make_cred()
-    client = TabdealClient(cred)
-    with mock.patch.object(client._session, "request", return_value=_resp(200, {"assets": []})):
-        ok, detail = client.verify()
+def test_build_signed_query_drops_none_params():
+    assert "price" not in build_signed_query("s", {"symbol": "BTCUSDT", "price": None})
+
+
+# ----- error parsing -----
+
+def test_parse_response_ok_on_no_code():
+    ok, err = parse_response({"positions": []})
+    assert ok is True and err is None
+
+
+def test_parse_response_ok_on_list_like_dict():
+    ok, err = parse_response({"canTrade": True})
     assert ok is True
-    cred.refresh_from_db()
-    assert cred.is_active is True
-    assert cred.last_verified_at is not None
 
 
-@pytest.mark.django_db
-def test_verify_missing_secret_fails_fast():
-    cred = _make_cred()
-    cred.api_secret_enc = None
-    cred.save(update_fields=["api_secret_enc"])
-    ok, detail = TabdealClient(cred).verify()
-    assert ok is False
-    assert "missing" in detail
+def test_parse_response_known_error_code():
+    ok, err = parse_response({"code": 1218, "msg": "Insufficient balance/credit"})
+    assert ok is False and err.code == "1218"
+    assert "nsufficient" in err.message
 
 
-@pytest.mark.django_db
-def test_verify_auth_error_marks_inactive():
-    cred = _make_cred()
-    client = TabdealClient(cred)
-    with mock.patch.object(
-        client._session, "request", return_value=_resp(401, {"code": -2015, "msg": "bad key"})
-    ):
-        ok, detail = client.verify()
-    assert ok is False
-    cred.refresh_from_db()
-    assert cred.is_active is False
+def test_parse_response_futures_not_active():
+    ok, err = parse_response({"code": 1207, "msg": "Futures not active"})
+    assert ok is False and err.code == "1207"
 
 
-@pytest.mark.django_db
-def test_place_order_market_signs_and_posts():
-    cred = _make_cred()
-    client = TabdealClient(cred)
-    with mock.patch.object(client._session, "request", return_value=_resp(200, {"orderId": 1})) as req:
-        out = client.place_order("BTC", is_buy=True, size=0.5)
-    assert out["ok"] is True
-    _, kwargs = req.call_args
-    params = kwargs["params"]
-    assert params["symbol"] == "BTCUSDT"
-    assert params["side"] == "BUY"
-    assert params["type"] == "MARKET"
-    assert "signature" in params and "timestamp" in params
-    assert kwargs["headers"]["X-MBX-APIKEY"] == "APIKEY123"
+def test_parse_response_unknown_error_code():
+    ok, err = parse_response({"code": 9999, "msg": "some new error"})
+    assert ok is False and err.code == "9999" and err.message == "some new error"
 
 
-@pytest.mark.django_db
-def test_rate_limit_retries_then_raises():
-    cred = _make_cred()
-    client = TabdealClient(cred)
-    with mock.patch("time.sleep"), mock.patch.object(
-        client._session, "request", return_value=_resp(200, {"code": 1216, "msg": "rate"})
-    ) as req:
-        out = client.place_order("ETH", is_buy=False, size=1)
-    assert out["ok"] is False
-    assert req.call_count == 3  # exhausted retries
+# ----- futures client -----
+
+def _client():
+    from .tabdeal_futures import TabdealFuturesClient
+
+    cred = MagicMock()
+    cred.get_api_key.return_value = "test-key"
+    cred.get_api_secret.return_value = "test-secret"
+    return TabdealFuturesClient(cred)
 
 
-@pytest.mark.django_db
-def test_positions_filters_zero_size():
-    cred = _make_cred()
-    client = TabdealClient(cred)
-    rows = [
-        {"symbol": "BTCUSDT", "positionAmt": "0.3", "entryPrice": "50000", "unRealizedProfit": "10"},
-        {"symbol": "ETHUSDT", "positionAmt": "0", "entryPrice": "0", "unRealizedProfit": "0"},
-    ]
-    with mock.patch.object(client._session, "request", return_value=_resp(200, rows)):
-        pos = client.positions()
-    assert len(pos) == 1
-    assert pos[0]["coin"] == "BTCUSDT"
-    assert pos[0]["size"] == 0.3
+def _resp(payload):
+    r = MagicMock()
+    r.json.return_value = payload
+    return r
+
+
+def test_place_market_order_hits_fapi_order_with_params():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp({"orderId": 123, "status": "FILLED"})
+        out = client.place_market_order(symbol="BTC_USDT", side="buy", quantity=0.01)
+    assert out["orderId"] == 123
+    url = mock_req.call_args.args[1]
+    assert url.startswith(client._base_url + "/fapi/v1/order?")
+    assert mock_req.call_args.args[0] == "POST"
+    assert "type=MARKET" in url and "side=BUY" in url and "symbol=BTC_USDT" in url
+    assert mock_req.call_args.kwargs["headers"] == {"X-MBX-APIKEY": "test-key"}
+
+
+def test_api_error_raised_on_error_envelope():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp({"code": 1218, "msg": "Insufficient balance/credit"})
+        with pytest.raises(TabdealAPIError) as exc:
+            client.place_market_order(symbol="BTC_USDT", side="buy", quantity=99.0)
+    assert exc.value.info.code == "1218"
+
+
+def test_available_usdt_reads_futures_balance():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp([
+            {"asset": "BTC", "availableBalance": "0.5"},
+            {"asset": "USDT", "availableBalance": "250.75", "walletBalance": "300"},
+        ])
+        assert client.available_usdt() == 250.75
+
+
+def test_get_position_filters_zero_amount():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp([
+            {"symbol": "BTC_USDT", "positionAmt": "0"},
+        ])
+        assert client.get_position("BTC_USDT") is None
+        mock_req.return_value = _resp([
+            {"symbol": "BTC_USDT", "positionAmt": "0.3", "entryPrice": "50000"},
+        ])
+        pos = client.get_position("BTC_USDT")
+    assert pos and float(pos["positionAmt"]) == 0.3
+
+
+def test_close_position_uses_delete():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp({"msg": "success"})
+        client.close_position("BTC_USDT")
+    assert mock_req.call_args.args[0] == "DELETE"
+    assert mock_req.call_args.args[1].startswith(client._base_url + "/fapi/v1/position?")
+
+
+def test_set_position_sl_tp_requires_a_level():
+    client = _client()
+    with pytest.raises(ValueError):
+        client.set_position_sl_tp(position_id=1)
+
+
+def test_verify_credentials_ok():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp({"canTrade": True, "assets": []})
+        ok, detail = client.verify_credentials()
+    assert ok is True
+
+
+def test_verify_credentials_futures_not_active():
+    client = _client()
+    with patch("apps.exchange.tabdeal_futures.requests.request") as mock_req:
+        mock_req.return_value = _resp({"code": 1207, "msg": "Futures not active"})
+        ok, detail = client.verify_credentials()
+    assert ok is False and "1207" in detail

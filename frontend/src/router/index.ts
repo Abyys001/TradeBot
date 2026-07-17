@@ -8,7 +8,7 @@ const router = createRouter({
       path: '/welcome',
       name: 'landing',
       component: () => import('../views/LandingView.vue'),
-      meta: { guest: true },
+      meta: { public: true },
     },
     {
       path: '/login',
@@ -52,6 +52,11 @@ const router = createRouter({
           component: () => import('../views/SettingsView.vue'),
         },
         {
+          path: 'settings/telegram',
+          name: 'telegram-settings',
+          component: () => import('../views/TelegramSettingsView.vue'),
+        },
+        {
           path: 'data',
           name: 'data',
           component: () => import('../views/DataView.vue'),
@@ -83,6 +88,18 @@ const router = createRouter({
           component: () => import('../modules/admin/AdminDashboardView.vue'),
           meta: { role: 'admin' },
         },
+        {
+          path: 'investors',
+          name: 'investors',
+          component: () => import('../views/admin/InvestorsView.vue'),
+          meta: { requiresAdmin: true },
+        },
+        {
+          path: 'admin/bots',
+          name: 'admin-bots',
+          component: () => import('../views/admin/BotScriptsView.vue'),
+          meta: { requiresAdmin: true },
+        },
         // Investor-only
         {
           path: 'invest',
@@ -103,15 +120,15 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  if (!auth.user && !to.meta.guest) {
+  if (!auth.user && !to.meta.guest && !to.meta.public) {
     try {
       await auth.fetchMe()
     } catch {
-      // Unauthenticated → send visitors to the marketing landing page.
       if (to.meta.requiresAuth) return { name: 'landing' }
     }
   }
   if (to.meta.guest && auth.user) return { name: 'overview' }
+  if (to.meta.requiresAdmin && auth.user?.role !== 'admin') return { name: 'overview' }
   // Role gating: block routes tagged with a role the user does not hold.
   const requiredRole = to.meta.role as string | undefined
   if (requiredRole && auth.user) {

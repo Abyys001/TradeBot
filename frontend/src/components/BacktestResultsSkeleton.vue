@@ -21,7 +21,7 @@ withDefaults(
       <div
         v-for="i in 4"
         :key="i"
-        class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3"
+        class="rounded-xl border border-border bg-surface-muted/40 p-3"
         :class="compact ? 'px-2 py-2' : 'px-4 py-3'"
       >
         <Skeleton class="mb-2 h-3 w-16" />
@@ -34,7 +34,7 @@ withDefaults(
       <Skeleton :class="compact ? 'h-16' : 'h-[200px]'" />
     </div>
 
-    <div v-if="showTable && !compact" class="overflow-hidden rounded-lg border border-zinc-800">
+    <div v-if="showTable && !compact" class="overflow-hidden rounded-lg border border-border">
       <Skeleton class="h-8 rounded-none" />
       <div class="space-y-2 p-3">
         <Skeleton v-for="i in 4" :key="i" class="h-4 w-full" />

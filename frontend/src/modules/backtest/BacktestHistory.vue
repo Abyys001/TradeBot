@@ -18,10 +18,10 @@ const sorted = computed(() =>
 )
 
 function statusClass(status: string) {
-  if (status === 'done') return 'text-emerald-400'
-  if (status === 'failed') return 'text-red-400'
-  if (status === 'running') return 'text-amber-400'
-  return 'text-zinc-500'
+  if (status === 'done') return 'text-positive'
+  if (status === 'failed') return 'text-negative'
+  if (status === 'running') return 'text-warning'
+  return 'text-fg-muted'
 }
 
 function isActive(status: string) {
@@ -30,32 +30,32 @@ function isActive(status: string) {
 </script>
 
 <template>
-  <div class="rounded-lg border border-zinc-800 overflow-hidden">
-    <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-900/50 text-xs font-medium text-zinc-400">
+  <div class="rounded-lg border border-border overflow-hidden">
+    <div class="px-3 py-2 border-b border-border bg-surface-muted/50 text-xs font-medium text-fg-muted">
       {{ t('backtest.history') }}
     </div>
-    <div v-if="!sorted.length" class="px-3 py-4 text-xs text-zinc-500 text-center">
+    <div v-if="!sorted.length" class="px-3 py-4 text-xs text-fg-muted text-center">
       {{ t('backtest.noRuns') }}
     </div>
     <button
       v-for="bt in sorted"
       :key="bt.id"
       type="button"
-      class="w-full px-3 py-2 text-start text-xs border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors"
-      :class="activeId === bt.id ? 'bg-zinc-800' : ''"
+      class="w-full px-3 py-2 text-start text-xs border-b border-border/50 hover:bg-surface-raised/50 transition-colors"
+      :class="activeId === bt.id ? 'bg-surface-raised' : ''"
       @click="emit('select', bt.id)"
     >
       <div class="flex justify-between items-center">
-        <span class="text-zinc-300">{{ bt.symbol }} / {{ bt.timeframe }}</span>
+        <span class="text-fg">{{ bt.symbol }} / {{ bt.timeframe }}</span>
         <span :class="[statusClass(bt.status), { 'animate-pulse': bt.status === 'running' }]">
           {{ bt.status }}
         </span>
       </div>
       <ProgressBar v-if="isActive(bt.status)" indeterminate color="amber" class="mt-1.5" />
-      <div v-if="bt.status === 'done'" class="text-zinc-500 mt-0.5">
+      <div v-if="bt.status === 'done'" class="text-fg-muted mt-0.5">
         PnL: {{ bt.metrics?.net_pnl?.toFixed(2) ?? '—' }} · {{ bt.metrics?.num_trades ?? 0 }} trades
       </div>
-      <div v-else-if="bt.status === 'failed' && bt.error" class="text-red-400/80 mt-0.5 truncate">
+      <div v-else-if="bt.status === 'failed' && bt.error" class="text-negative/80 mt-0.5 truncate">
         {{ bt.error }}
       </div>
     </button>

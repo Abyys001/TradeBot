@@ -17,7 +17,7 @@ const FALLBACK_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '
 const DATA_TYPES = ['ohlcv', 'funding', 'open_interest'] as const
 
 const network = ref('mainnet')
-const startDate = ref('2023-01-01')
+const startDate = ref('2020-01-01')
 const endDate = ref('')
 const coinSearch = ref('')
 const selectedCoins = ref<string[]>(['BTC'])
@@ -124,81 +124,89 @@ async function submit() {
 </script>
 
 <template>
-  <div class="rounded-xl border border-zinc-800 p-4 space-y-4">
-    <h3 class="text-sm font-medium text-zinc-200">{{ t('data.downloadTitle') }}</h3>
+  <div class="rounded-xl border border-border p-4 space-y-4">
+    <h3 class="text-sm font-medium text-fg">{{ t('data.downloadTitle') }}</h3>
 
     <div
       v-if="marketsError"
-      class="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-300"
+      class="rounded-lg border border-negative/40 bg-danger-bg px-3 py-2 text-xs text-negative"
     >
       {{ t('data.marketsError') }}: {{ marketsError }}
     </div>
 
     <div class="flex gap-3 flex-wrap">
-      <label class="text-xs text-zinc-500">
+      <label class="text-xs text-fg-muted">
         {{ t('data.network') }}
-        <select v-model="network" class="mt-1 block rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200">
+        <select v-model="network" class="mt-1 block rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg">
           <option value="mainnet">mainnet</option>
           <option value="testnet">testnet</option>
         </select>
       </label>
-      <label class="text-xs text-zinc-500">
+      <label class="text-xs text-fg-muted">
         {{ t('data.startDate') }}
-        <input v-model="startDate" type="date" class="mt-1 block rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200" />
+        <div class="mt-1 flex items-center gap-1.5">
+          <input v-model="startDate" type="date" class="block rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg" />
+          <button
+            type="button"
+            class="shrink-0 rounded px-2 py-1.5 text-xs bg-surface-raised text-fg-muted hover:bg-border hover:text-fg"
+            title="Set to earliest possible (2020-01-01) — HL will return from its launch date"
+            @click="startDate = '2020-01-01'"
+          >Max</button>
+        </div>
       </label>
-      <label class="text-xs text-zinc-500">
+      <label class="text-xs text-fg-muted">
         {{ t('data.endDate') }}
-        <input v-model="endDate" type="date" class="mt-1 block rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200" />
+        <input v-model="endDate" type="date" class="mt-1 block rounded-lg border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg" />
       </label>
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('data.coins') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('data.coins') }}</label>
       <input
         v-model="coinSearch"
         type="text"
         :placeholder="t('data.searchCoins')"
-        class="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200"
+        class="mt-1 w-full rounded-lg border border-border bg-surface-muted px-3 py-1.5 text-sm text-fg"
       />
-      <div class="mt-2 flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+      <div class="scrollbar-styled scrollbar-thin mt-2 flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
         <button
           v-for="coin in availableCoins"
           :key="coin"
           type="button"
           class="rounded px-2 py-0.5 text-xs transition-colors"
-          :class="selectedCoins.includes(coin) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'"
+          :class="selectedCoins.includes(coin) ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted hover:bg-border'"
           @click="toggleCoin(coin)"
         >
           {{ coin }}
         </button>
       </div>
       <div v-if="selectedCoins.length" class="mt-2">
-        <p class="text-[10px] text-zinc-500 mb-1">{{ t('data.selectedCoins') }}</p>
+        <p class="text-[10px] text-fg-muted mb-1">{{ t('data.selectedCoins') }}</p>
         <div class="flex flex-wrap gap-1.5">
           <button
             v-for="c in selectedCoins"
             :key="c"
             type="button"
-            class="inline-flex items-center gap-1 rounded bg-emerald-900/70 px-2 py-0.5 text-xs text-emerald-300 hover:bg-emerald-800/80"
+            class="inline-flex items-center gap-1 rounded bg-success-bg/70 px-2 py-0.5 text-xs text-positive hover:opacity-90"
             :title="t('data.removeCoin', { coin: c })"
             @click="removeCoin(c)"
           >
             <span>{{ c }}</span>
-            <span class="text-emerald-400/90 leading-none" aria-hidden="true">×</span>
+            <span class="text-positive/90 leading-none" aria-hidden="true">×</span>
           </button>
         </div>
       </div>
     </div>
 
     <div>
-      <label class="text-xs text-zinc-500">{{ t('data.dataTypes') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('data.dataTypes') }}</label>
       <div class="mt-2 flex flex-wrap gap-1.5">
         <button
           v-for="dt in DATA_TYPES"
           :key="dt"
           type="button"
           class="rounded px-2 py-0.5 text-xs transition-colors"
-          :class="selectedDataTypes.includes(dt) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'"
+          :class="selectedDataTypes.includes(dt) ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted hover:bg-border'"
           @click="toggleDataType(dt)"
         >
           {{ dataTypeLabel(dt) }}
@@ -206,7 +214,7 @@ async function submit() {
         <button
           type="button"
           disabled
-          class="rounded px-2 py-0.5 text-xs bg-zinc-900 text-zinc-600 cursor-not-allowed"
+          class="rounded px-2 py-0.5 text-xs bg-surface-muted text-fg-muted cursor-not-allowed"
           :title="t('data.tradesUnavailable')"
         >
           {{ t('data.dataTypeTrades') }}
@@ -215,7 +223,7 @@ async function submit() {
     </div>
 
     <div :class="{ 'opacity-40 pointer-events-none': !ohlcvSelected }">
-      <label class="text-xs text-zinc-500">{{ t('data.intervals') }}</label>
+      <label class="text-xs text-fg-muted">{{ t('data.intervals') }}</label>
       <div class="mt-2 flex flex-wrap gap-1.5">
         <button
           v-for="iv in availableIntervals"
@@ -223,17 +231,17 @@ async function submit() {
           type="button"
           :disabled="!ohlcvSelected"
           class="rounded px-2 py-0.5 text-xs transition-colors"
-          :class="selectedIntervals.includes(iv) ? 'bg-emerald-900 text-emerald-300' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'"
+          :class="selectedIntervals.includes(iv) ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted hover:bg-border'"
           @click="toggleInterval(iv)"
         >
           {{ iv }}
         </button>
       </div>
+      <p class="mt-1.5 text-xs text-fg-muted">{{ t('data.intervalRetentionHint') }}</p>
     </div>
-
     <button
       type="button"
-      class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+      class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
       :disabled="submitting || celeryOffline"
       :title="celeryOffline ? t('data.celeryOffline') : undefined"
       @click="submit"

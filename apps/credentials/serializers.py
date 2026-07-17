@@ -14,9 +14,8 @@ class ExchangeCredentialSerializer(serializers.ModelSerializer):
     agent_private_key = serializers.CharField(
         write_only=True, required=False, trim_whitespace=False
     )
-    api_secret = serializers.CharField(
-        write_only=True, required=False, trim_whitespace=False
-    )
+    api_key = serializers.CharField(write_only=True, required=False, trim_whitespace=False)
+    api_secret = serializers.CharField(write_only=True, required=False, trim_whitespace=False)
 
     class Meta:
         model = ExchangeCredential
@@ -63,31 +62,34 @@ class ExchangeCredentialSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         agent_key = validated_data.pop("agent_private_key", None)
+        api_key = validated_data.pop("api_key", None)
         api_secret = validated_data.pop("api_secret", None)
         exchange = validated_data.get("exchange", Exchange.HYPERLIQUID)
         self._validate_for_exchange(
             exchange,
             agent_key=agent_key,
-            api_key=validated_data.get("api_key"),
+            api_key=api_key,
             api_secret=api_secret,
             partial=False,
         )
         cred = ExchangeCredential(user=self.context["request"].user, **validated_data)
-        if agent_key:
-            cred.set_agent_key(agent_key)
-        if api_secret:
-            cred.set_api_secret(api_secret)
+        if exchange == Exchange.TABDEAL:
+            cred.set_api_credentials(api_key, api_secret)
+        else:
+            if agent_key:
+                cred.set_agent_key(agent_key)
         cred.save()
         return cred
 
     def update(self, instance, validated_data):
         agent_key = validated_data.pop("agent_private_key", None)
+        api_key = validated_data.pop("api_key", None)
         api_secret = validated_data.pop("api_secret", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if agent_key:
             instance.set_agent_key(agent_key)
-        if api_secret:
-            instance.set_api_secret(api_secret)
+        if api_key and api_secret:
+            instance.set_api_credentials(api_key, api_secret)
         instance.save()
         return instance

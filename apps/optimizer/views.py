@@ -47,8 +47,13 @@ class OptimizeWalkForwardView(APIView):
         interval = request.data.get("interval", "1h")
         network = request.data.get("network", "mainnet")
         param_grid = request.data.get("param_grid") or {}
-        train_bars = int(request.data.get("train_bars", 500))
-        test_bars = int(request.data.get("test_bars", 100))
+        try:
+            train_bars = int(request.data.get("train_bars", 500))
+            test_bars = int(request.data.get("test_bars", 100))
+        except (TypeError, ValueError):
+            return Response({"error": "train_bars and test_bars must be integers"}, status=400)
+        if train_bars < 1 or test_bars < 1:
+            return Response({"error": "train_bars and test_bars must be positive"}, status=400)
 
         strategy = Strategy.objects.filter(pk=strategy_id, user=request.user).first()
         if not strategy:
@@ -71,7 +76,12 @@ class OptimizeMonteCarloView(APIView):
 
     def post(self, request):
         backtest_id = request.data.get("backtest_id")
-        simulations = int(request.data.get("simulations", 500))
+        try:
+            simulations = int(request.data.get("simulations", 500))
+        except (TypeError, ValueError):
+            return Response({"error": "simulations must be an integer"}, status=400)
+        if simulations < 1:
+            return Response({"error": "simulations must be positive"}, status=400)
         from apps.transpiler.models import Backtest
 
         bt = Backtest.objects.filter(pk=backtest_id, strategy__user=request.user).first()

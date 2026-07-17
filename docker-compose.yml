@@ -1,4 +1,4 @@
-# TradeBot — single compose file for dev (hot reload) and prod (RELOAD=0).
+# Algo Trader — single compose file for dev (hot reload) and prod (RELOAD=0).
 #
 # Dev (default):  docker compose up --build
 # Prod:           RELOAD=0 docker compose up -d --build
@@ -9,12 +9,8 @@ x-app-common: &app-common
   build: .
   env_file: .env
   environment: &app-env
-    DATABASE_URL: postgres://tradebot:tradebot@postgres:5432/tradebot
-    REDIS_URL: redis://redis:6379/0
     RELOAD: ${RELOAD:-1}
-    ALLOWED_HOSTS: localhost,127.0.0.1,web
-    CORS_ALLOWED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
-    CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
+    RUN_MIGRATIONS: "0"
   volumes:
     - .:/app
     - marketdata:/app/data
@@ -28,109 +24,160 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: tradebot
-      POSTGRES_PASSWORD: tradebot
-      POSTGRES_DB: tradebot
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-algotrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-algotrader}
+      POSTGRES_DB: ${POSTGRES_DB:-algotrader}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tradebot"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-algotrader}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
 
   web:
     <<: *app-common
+    container_name: algotrader-web
     ports:
-      - "8000:8000"
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+      - "127.0.0.1:8000:8000"
+    environment:
+      <<: *app-env
+      RUN_MIGRATIONS: "1"
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "daphne -b 0.0.0.0 -p 8000 config.asgi:application" /app
         else
           daphne -b 0.0.0.0 -p 8000 config.asgi:application
         fi
-      '
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:8000/api/health/ping/', headers={'X-Forwarded-Proto':'https'})).read()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   celery:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "celery -A config worker --loglevel=info" /app
         else
           celery -A config worker --loglevel=info
         fi
-      '
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
 
   celery-beat:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "celery -A config beat --loglevel=info" /app
         else
           celery -A config beat --loglevel=info
         fi
-      '
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
 
   market-feed:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "python manage.py run_market_feed" /app
         else
           python manage.py run_market_feed
         fi
-      '
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
 
   user-feed:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "python manage.py run_user_feed" /app
         else
           python manage.py run_user_feed
         fi
-      '
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
 
   candle-consumer:
     <<: *app-common
-    command: >
-      sh -c '
-        if [ "$$RELOAD" = "1" ]; then
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
           watchfiles --filter python "python manage.py consume_hl_candles" /app
         else
           python manage.py consume_hl_candles
         fi
-      '
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: algotrader-frontend
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     depends_on:
       - web
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    # Also joins lumia's nginx to be reachable as "algotrader-frontend"
+    # by the shared reverse proxy (bot.lumiabeauty.ir upstream in prod.conf).
+    networks:
+      - default
+      - lumia_net
 
 volumes:
   pgdata:
   redisdata:
   marketdata:
+
+networks:
+  lumia_net:
+    external: true
+    name: lumia_lumia_net

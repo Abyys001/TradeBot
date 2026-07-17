@@ -68,59 +68,59 @@ async function save() {
 </script>
 
 <template>
-  <section class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
-    <h2 class="text-sm font-medium text-zinc-200">{{ t('signum.title') }}</h2>
-    <p class="text-xs text-zinc-500">{{ t('signum.subtitle') }}</p>
+  <section class="rounded-lg border border-border bg-surface-muted/40 p-4 space-y-4">
+    <h2 class="text-sm font-medium text-fg">{{ t('signum.title') }}</h2>
+    <p class="text-xs text-fg-muted">{{ t('signum.subtitle') }}</p>
 
-    <div v-if="loading" class="text-sm text-zinc-500">…</div>
+    <div v-if="loading" class="text-sm text-fg-muted">…</div>
 
     <template v-else>
-      <label class="flex items-center gap-2 text-sm text-zinc-300">
-        <input v-model="form.enabled" type="checkbox" class="rounded border-zinc-600" />
+      <label class="flex items-center gap-2 text-sm text-fg">
+        <input v-model="form.enabled" type="checkbox" class="rounded border-border" />
         {{ t('signum.enabled') }}
       </label>
 
-      <label class="flex items-center gap-2 text-sm text-zinc-300">
-        <input v-model="form.use_settings_bot_id" type="checkbox" class="rounded border-zinc-600" />
+      <label class="flex items-center gap-2 text-sm text-fg">
+        <input v-model="form.use_settings_bot_id" type="checkbox" class="rounded border-border" />
         {{ t('signum.useSettingsBotId') }}
       </label>
 
-      <label class="block text-xs text-zinc-500">
+      <label class="block text-xs text-fg-muted">
         {{ t('signum.orderSize') }}
         <input
           v-model="form.order_size_default"
           type="text"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200"
+          class="mt-1 w-full rounded border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg"
         />
       </label>
 
-      <label class="block text-xs text-zinc-500">
+      <label class="block text-xs text-fg-muted">
         {{ t('signum.botId') }}
-        <span v-if="hasBotId" class="text-emerald-400 ms-1">({{ t('signum.configured') }})</span>
+        <span v-if="hasBotId" class="text-positive ms-1">({{ t('signum.configured') }})</span>
         <input
           v-model="form.bot_id"
           type="password"
           autocomplete="off"
           :placeholder="t('signum.secretsOptional')"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200"
+          class="mt-1 w-full rounded border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg"
         />
       </label>
 
-      <label class="block text-xs text-zinc-500">
+      <label class="block text-xs text-fg-muted">
         {{ t('signum.webhookUrl') }}
-        <span v-if="hasWebhookUrl" class="text-emerald-400 ms-1">({{ t('signum.configured') }})</span>
+        <span v-if="hasWebhookUrl" class="text-positive ms-1">({{ t('signum.configured') }})</span>
         <input
           v-model="form.webhook_url"
           type="password"
           autocomplete="off"
           :placeholder="t('signum.secretsOptional')"
-          class="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200"
+          class="mt-1 w-full rounded border border-border bg-surface-muted px-2 py-1.5 text-sm text-fg"
         />
       </label>
 
       <button
         type="button"
-        class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+        class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         :disabled="saving"
         @click="save"
       >

@@ -58,8 +58,6 @@ class LiveBroker:
         self._risk_manager = RiskManager(parse_risk_config(live_config))
         self._leverage = float(live_config.get("leverage", 1))
         self._open_orders: dict[str, dict] = {}
-        # Structured entry/close intents this bar, consumed by the live runner
-        # to fan out copy signals when the strategy is a published master.
         self.copy_intents: list[dict] = []
 
     def _get_exchange(self):
@@ -74,25 +72,143 @@ class LiveBroker:
             self._exchange = build_exchange(self.credential)
         return self._exchange
 
+    def _live_equity_and_exposure(self) -> tuple[float, float]:
+        """Read live account state from the Redis cache (written by clearinghouseState WS).
+
+        Falls back to safe defaults if Redis is unavailable or the cache is empty,
+        so the risk gate degrades gracefully without blocking all orders.
+        """
+        try:
+            import redis
+            from django.conf import settings
+
+            r = redis.Redis.from_url(
+                getattr(settings, "REDIS_URL", "redis://localhost:6379/0"),
+                decode_responses=False,
+            )
+            cred_id = self.credential.pk
+            raw = r.hgetall(f"live:margin:{cred_id}")
+            if not raw:
+                return 10_000.0, 0.0
+
+            account_value = float(raw.get(b"accountValue", b"0") or b"0")
+            margin_used = float(raw.get(b"totalMarginUsed", b"0") or b"0")
+            exposure_pct = (margin_used / account_value * 100.0) if account_value > 0 else 0.0
+            return max(account_value, 0.0), exposure_pct
+        except Exception:  # noqa: BLE001
+            return 10_000.0, 0.0
+
+    def _current_position(self) -> dict | None:
+        """Return current position info for ``self._coin``.
+
+        Reads from the Redis clearinghouse cache first (fast, zero-overhead),
+        then falls back to ``Info.user_state()`` (REST call).
+
+        Returns ``None`` if no position is open, otherwise a dict with keys:
+          ``side`` ("long" | "short"), ``entry_px`` (float), ``size`` (float).
+        """
+        try:
+            import redis
+            from django.conf import settings
+
+            r = redis.Redis.from_url(
+                getattr(settings, "REDIS_URL", "redis://localhost:6379/0"),
+                decode_responses=False,
+            )
+            cred_id = self.credential.pk
+            raw = r.hgetall(f"live:pos:{cred_id}:{self._coin}")
+            if raw:
+                szi = float(raw.get(b"szi", b"0") or b"0")
+                if szi == 0.0:
+                    return None
+                return {
+                    "side": "long" if szi > 0 else "short",
+                    "entry_px": float(raw.get(b"entryPx", b"0") or b"0"),
+                    "size": abs(szi),
+                }
+        except Exception:  # noqa: BLE001
+            logger.debug("redis pos cache miss for %s", self._coin)
+
+        # Fallback: query Hyperliquid directly
+        try:
+            from apps.exchange.hl_client import build_info
+            from apps.exchange.hl_constants import normalize_coin
+
+            info = build_info(self.credential.network)
+            state = info.user_state(self.credential.wallet_address) or {}
+            for item in state.get("assetPositions") or []:
+                pos = (item or {}).get("position") or {}
+                if normalize_coin(pos.get("coin", "")) == self._coin:
+                    szi = float(pos.get("szi", 0))
+                    if szi == 0.0:
+                        return None
+                    return {
+                        "side": "long" if szi > 0 else "short",
+                        "entry_px": float(pos.get("entryPx", 0)),
+                        "size": abs(szi),
+                    }
+        except Exception:  # noqa: BLE001
+            logger.warning("live position lookup failed for %s", self._coin, exc_info=True)
+        return None
+
+    def _validate_tpsl_direction(
+        self,
+        *,
+        kind: str,
+        trigger_px: float,
+        position_side: str,
+        entry_px: float,
+    ) -> str | None:
+        """Validate trigger price direction against current position.
+
+        Returns ``None`` if valid, or an error message string explaining why
+        the trigger price is incorrectly positioned for the current position.
+
+        Rules:
+          Long position  → SL < entry_px, TP > entry_px
+          Short position → SL > entry_px, TP < entry_px
+        """
+        if kind == "sl":
+            if position_side == "long" and trigger_px >= entry_px:
+                return (
+                    f"Stop-loss trigger ({trigger_px}) must be below "
+                    f"entry price ({entry_px}) for a LONG position"
+                )
+            if position_side == "short" and trigger_px <= entry_px:
+                return (
+                    f"Stop-loss trigger ({trigger_px}) must be above "
+                    f"entry price ({entry_px}) for a SHORT position"
+                )
+        elif kind == "tp":
+            if position_side == "long" and trigger_px <= entry_px:
+                return (
+                    f"Take-profit trigger ({trigger_px}) must be above "
+                    f"entry price ({entry_px}) for a LONG position"
+                )
+            if position_side == "short" and trigger_px >= entry_px:
+                return (
+                    f"Take-profit trigger ({trigger_px}) must be below "
+                    f"entry price ({entry_px}) for a SHORT position"
+                )
+        return None
+
     def _risk_gate(self, *, oid: str, open_trades: int = 0) -> bool:
         from apps.execution.models import ExecutionLog
-        from apps.risk import gates
 
-        if self._risk_manager.halted:
-            ExecutionLog.objects.create(
-                strategy=self.strategy,
-                level="warning",
-                event="risk.blocked",
-                payload={"reason": self._risk_manager.halt_reason or "risk_halted", "oid": oid},
-            )
-            return False
-        decision = gates.check_max_open_trades(open_trades, self._risk_manager.config.max_open_trades)
+        equity, exposure_pct = self._live_equity_and_exposure()
+
+        decision = self._risk_manager.pre_trade(
+            equity=equity,
+            open_trades=open_trades,
+            exposure_pct=exposure_pct,
+            leverage=self._leverage,
+        )
         if not decision.ok:
             ExecutionLog.objects.create(
                 strategy=self.strategy,
                 level="warning",
                 event="risk.blocked",
-                payload={"reason": decision.reason, "oid": oid},
+                payload={"reason": decision.reason, "oid": oid, "equity": equity, "exposure_pct": exposure_pct},
             )
             return False
         return True
@@ -415,6 +531,13 @@ class LiveBroker:
         exchange = self._get_exchange()
         meta = get_asset_meta(self._name, market_type="perp", network=self.credential.network)
 
+        # Resolve current position for trigger direction validation
+        pos = self._current_position()
+
+        # Long position closes by SELL (is_buy=False); short closes by BUY (is_buy=True).
+        # Default False (assumes long) when position is not yet in the Redis cache.
+        is_buy_close = (pos["side"] == "short") if pos is not None else False
+
         results = []
         for kind, px, tpsl in (
             ("sl", stop_px, "sl"),
@@ -423,17 +546,48 @@ class LiveBroker:
             if px is None:
                 continue
             trig_px = round_price(float(px), meta)
+
+            # Validate trigger price direction against current position
+            if pos is not None:
+                err_msg = self._validate_tpsl_direction(
+                    kind=kind,
+                    trigger_px=trig_px,
+                    position_side=pos["side"],
+                    entry_px=pos["entry_px"],
+                )
+                if err_msg is not None:
+                    ExecutionLog.objects.create(
+                        strategy=self.strategy,
+                        level="warning",
+                        event="order.tpsl_direction_rejected",
+                        payload={
+                            "oid": oid,
+                            "kind": kind,
+                            "triggerPx": trig_px,
+                            "position_side": pos["side"],
+                            "entry_px": pos["entry_px"],
+                            "reason": err_msg,
+                        },
+                    )
+                    logger.warning("tpsl direction rejected %s/%s: %s", oid, kind, err_msg)
+                    continue
+
             cloid = pine_oid_to_cloid(f"{oid}:{kind}")
 
-            def _call():
+            def _call(
+                _is_buy: bool = is_buy_close,
+                _trig_px: float = float(trig_px),
+                _tpsl: str = tpsl,
+                _cloid=cloid,
+            ):
                 return exchange.order(
                     name=self._name,
-                    is_buy=False,  # reduce-only; HL enforces reduceOnly
+                    is_buy=_is_buy,
                     sz=0.0,
                     limit_px=0.0,
-                    order_type={"trigger": {"triggerPx": float(trig_px), "isMarket": True, "tpsl": tpsl}},
+                    order_type={"trigger": {"triggerPx": _trig_px, "isMarket": True, "tpsl": _tpsl}},
                     reduce_only=True,
-                    cloid=cloid,
+                    cloid=_cloid,
                 )
 
             resp = signed_action(self.credential, _call, weight=1)
@@ -460,15 +614,6 @@ class LiveBroker:
             )
             results.append(rec.pk)
         return results
-
-    def _notify_telegram(self, text: str, event: str) -> None:
-        """Best-effort Telegram notification; never blocks trading."""
-        try:
-            from apps.integrations.tasks import telegram_send_task
-
-            telegram_send_task.delay(self.strategy.user_id, text, event)
-        except Exception:  # noqa: BLE001
-            pass
 
     def _is_spot(self) -> bool:
         from apps.strategies.models import Strategy
@@ -501,11 +646,6 @@ class LiveBroker:
                     "price": float(price) if price is not None else 0.0,
                 }
             )
-            self._notify_telegram(
-                f"📈 {self.strategy.name}: ENTRY {target_side.upper()} "
-                f"{self._coin} @ {price}",
-                "trade",
-            )
             alert_message = kwargs.get("alert_message")
             if alert_message:
                 from apps.execution.models import ExecutionLog
@@ -518,11 +658,24 @@ class LiveBroker:
                     payload={"oid": oid, "preview": alert_message[:500]},
                 )
                 signum_send_webhook_task.delay(self.strategy.user_id, alert_message)
+            from apps.telegram.tasks import dispatch_telegram_alert
+
+            dispatch_telegram_alert.delay(
+                user_id=self.strategy.user_id,
+                strategy_name=self.strategy.name,
+                symbol=self.symbol,
+                action=f"{'LONG' if is_buy else 'SHORT'} Entry",
+                price=f"Entry Price: ${price}" if price else "",
+                leverage=f"Leverage: {self._leverage}x",
+                qty=str(qty),
+                position_side="LONG" if is_buy else "SHORT",
+            )
         return rec
 
     def close(self, oid, price, bar_index, **kwargs):
         from apps.execution.models import ExecutionLog
         from apps.exchange.hl_rate_limit import signed_action
+        from apps.telegram.tasks import dispatch_telegram_alert
 
         if not self._kill_switch_ok():
             ExecutionLog.objects.create(
@@ -535,6 +688,8 @@ class LiveBroker:
 
         qty_pct = float(kwargs.get("qty_pct", 1.0))
         qty_pct = max(0.0, min(1.0, qty_pct))
+        exit_reason = kwargs.get("reason", "manual")
+        side = self._open_orders.get(str(oid), {}).get("side", "unknown")
 
         if self._is_spot():
             from apps.exchange.hl_client import build_info
@@ -553,7 +708,20 @@ class LiveBroker:
             if qty <= 0:
                 return None
             close_qty = qty * qty_pct if qty_pct < 1.0 else qty
-            return self._place_spot(is_buy=False, oid=oid, price=price, qty=close_qty)
+            result = self._place_spot(is_buy=False, oid=oid, price=price, qty=close_qty)
+            if result is not None:
+                dispatch_telegram_alert.delay(
+                    user_id=self.strategy.user_id,
+                    strategy_name=self.strategy.name,
+                    symbol=self.symbol,
+                    action="Close",
+                    price=f"Close Price: ${price}" if price else "",
+                    leverage=f"Leverage: {self._leverage}x",
+                    qty=str(close_qty),
+                    exit_reason=exit_reason,
+                    position_side=side,
+                )
+            return result
 
         exchange = self._get_exchange()
         close_sz = None
@@ -591,11 +759,20 @@ class LiveBroker:
                     "price": float(price) if price is not None else 0.0,
                 }
             )
-            self._notify_telegram(
-                f"📉 {self.strategy.name}: CLOSE {self._coin} @ {price}", "trade"
-            )
             if oid in self._open_orders:
                 del self._open_orders[oid]
+
+        dispatch_telegram_alert.delay(
+            user_id=self.strategy.user_id,
+            strategy_name=self.strategy.name,
+            symbol=self.symbol,
+            action="Close",
+            price=f"Close Price: ${price}" if price else "",
+            leverage=f"Leverage: {self._leverage}x",
+            qty=str(close_sz) if close_sz else "",
+            exit_reason=exit_reason,
+            position_side=side,
+        )
         return resp
 
     def exit(self, oid, price, bar_index, **kwargs):

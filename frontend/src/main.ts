@@ -4,7 +4,7 @@ import App from './App.vue'
 import router from './router'
 import { i18n } from './i18n'
 import { useAuthStore } from './stores/auth'
-import { initTheme } from './composables/useTheme'
+import './theme'
 import './style.css'
 
 const app = createApp(App)
@@ -14,9 +14,9 @@ app.use(pinia)
 app.use(router)
 app.use(i18n)
 
-initTheme()
-
 const auth = useAuthStore()
-auth.init().finally(() => {
+auth.init().catch(() => {
+  console.warn('CSRF fetch failed — mutations may not work')
+}).finally(() => {
   app.mount('#app')
 })

@@ -39,9 +39,11 @@ class ExchangeCredential(models.Model):
         max_length=42,
         blank=True,
         default="",
-        help_text="HL master wallet address (read-only monitoring; not encrypted).",
+        help_text="Master wallet address (read-only monitoring; not stored encrypted). Hyperliquid only.",
     )
-    agent_private_key_enc = models.BinaryField(null=True, blank=True)
+    agent_private_key_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Hyperliquid agent private key. Empty for other exchanges."
+    )
     # --- Tabdeal / API-key fields (blank for Hyperliquid) ---
     api_key = models.CharField(
         max_length=128,
@@ -49,7 +51,12 @@ class ExchangeCredential(models.Model):
         default="",
         help_text="Public API key (Tabdeal and other Binance-style exchanges).",
     )
-    api_secret_enc = models.BinaryField(null=True, blank=True)
+    api_key_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Encrypted REST API key (e.g. Tabdeal). Empty for Hyperliquid."
+    )
+    api_secret_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Encrypted REST API secret (e.g. Tabdeal). Empty for Hyperliquid."
+    )
     agent_address = models.CharField(
         max_length=42,
         blank=True,
@@ -100,6 +107,15 @@ class ExchangeCredential(models.Model):
         """Encrypt and store an HMAC API secret (Tabdeal). Does not save()."""
         self.api_secret_enc = encrypt(secret.strip())
 
+    def set_api_credentials(self, api_key: str, api_secret: str) -> None:
+        """Encrypt and store a REST API key/secret pair. Does not save()."""
+        self.api_key_enc = encrypt(api_key.strip())
+        self.api_secret_enc = encrypt(api_secret.strip())
+
+    def get_api_key(self) -> str:
+        """Decrypt API key into memory. Never log or serialize the result."""
+        return decrypt(bytes(self.api_key_enc))
+
     def get_api_secret(self) -> str:
         """Decrypt API secret into memory. Never log or serialize the result."""
-        return decrypt(self.api_secret_enc)
+        return decrypt(bytes(self.api_secret_enc))

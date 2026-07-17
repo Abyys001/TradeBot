@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from apps.exchange.candle_store import load_candles
 from apps.strategies.models import Strategy
 
-from .models import MarketplacePackage, ReplaySession, StrategyVersion, TradeJournal
+from .models import ReplaySession, StrategyVersion
 
 
 class StrategyVersionsView(APIView):
@@ -77,110 +77,6 @@ class StrategyVersionRestoreView(APIView):
         strategy.validation_error = ""
         strategy.save(update_fields=["source", "params", "validation_status", "validation_error"])
         return Response({"ok": True, "strategy_id": strategy.pk, "version": sv.version})
-
-
-class JournalView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        entries = TradeJournal.objects.filter(user=request.user).order_by("-created_at")[:50]
-        return Response(
-            {
-                "entries": [
-                    {
-                        "id": e.id,
-                        "strategy_id": e.strategy_id,
-                        "title": e.title,
-                        "body": e.body,
-                        "tags": e.tags,
-                        "created_at": e.created_at,
-                    }
-                    for e in entries
-                ]
-            }
-        )
-
-    def post(self, request):
-        entry = TradeJournal.objects.create(
-            user=request.user,
-            strategy_id=request.data.get("strategy_id"),
-            title=request.data.get("title", "Untitled"),
-            body=request.data.get("body", ""),
-            tags=request.data.get("tags", []),
-            screenshot_url=request.data.get("screenshot_url", ""),
-        )
-        return Response({"id": entry.id})
-
-
-class MarketplaceView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        packages = MarketplacePackage.objects.filter(is_public=True).order_by("-created_at")[:50]
-        return Response(
-            {
-                "packages": [
-                    {
-                        "id": p.id,
-                        "name": p.name,
-                        "description": p.description,
-                        "author_id": p.author_id,
-                    }
-                    for p in packages
-                ]
-            }
-        )
-
-    def post(self, request):
-        pkg = MarketplacePackage.objects.create(
-            author=request.user,
-            name=request.data.get("name", "Strategy"),
-            description=request.data.get("description", ""),
-            source=request.data.get("source", ""),
-            params=request.data.get("params", {}),
-            metadata=request.data.get("metadata", {}),
-            is_public=bool(request.data.get("is_public", False)),
-        )
-        return Response({"id": pkg.id})
-
-
-class MarketplaceDetailView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, package_id: int):
-        pkg = MarketplacePackage.objects.filter(pk=package_id, is_public=True).first()
-        if not pkg:
-            return Response({"error": "not found"}, status=404)
-        return Response(
-            {
-                "id": pkg.id,
-                "name": pkg.name,
-                "description": pkg.description,
-                "source": pkg.source,
-                "params": pkg.params,
-                "metadata": pkg.metadata,
-                "author_id": pkg.author_id,
-            }
-        )
-
-
-class MarketplaceImportView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, package_id: int):
-        pkg = MarketplacePackage.objects.filter(pk=package_id, is_public=True).first()
-        if not pkg:
-            return Response({"error": "not found"}, status=404)
-        strategy = Strategy.objects.create(
-            user=request.user,
-            name=request.data.get("name", pkg.name),
-            type="pine",
-            symbol=request.data.get("symbol", "BTC"),
-            source=pkg.source,
-            params=pkg.params,
-            live_config=request.data.get("live_config", {}),
-        )
-        return Response({"strategy_id": strategy.pk})
 
 
 class ReplayView(APIView):

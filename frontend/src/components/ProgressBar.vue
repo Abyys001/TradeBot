@@ -23,7 +23,7 @@ const trackHeight = computed(() => (props.size === 'md' ? 'h-1.5' : 'h-1'))
 </script>
 
 <template>
-  <div class="w-full rounded-full bg-zinc-800 overflow-hidden" :class="trackHeight">
+  <div class="w-full rounded-full bg-surface-muted overflow-hidden" :class="trackHeight">
     <div
       v-if="indeterminate"
       class="h-full w-1/3 rounded-full animate-pulse"

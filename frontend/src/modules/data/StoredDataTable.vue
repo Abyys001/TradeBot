@@ -6,6 +6,7 @@ import type { HistoryDataset } from '../../api/client'
 import { useHistoryStore } from '../../stores/history'
 import { useToast } from '../../composables/useToast'
 import DatasetDetailModal from './DatasetDetailModal.vue'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 
 const props = defineProps<{ datasets: HistoryDataset[]; loading?: boolean }>()
 const emit = defineEmits<{ deleted: [] }>()
@@ -63,49 +64,47 @@ async function deleteDataset(d: HistoryDataset) {
 </script>
 
 <template>
-  <div class="rounded-xl border border-zinc-800 overflow-hidden">
-    <div class="px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
-      <h3 class="text-sm font-medium text-zinc-200">{{ t('data.storedTitle') }}</h3>
+  <div class="rounded-xl border border-border overflow-hidden">
+    <div class="px-4 py-3 border-b border-border bg-surface-muted/50">
+      <h3 class="text-sm font-medium text-fg">{{ t('data.storedTitle') }}</h3>
     </div>
-    <div v-if="loading" class="px-4 py-8 text-center text-sm text-zinc-500">
-      {{ t('data.loading') }}
-    </div>
-    <div v-else-if="!sorted.length" class="px-4 py-8 text-center text-sm text-zinc-500">
-      {{ t('data.noDatasets') }}
-    </div>
-    <table v-else class="w-full text-sm">
-      <thead class="text-zinc-500 text-xs uppercase">
-        <tr class="border-b border-zinc-800">
-          <th class="px-4 py-2 text-start">{{ t('data.network') }}</th>
-          <th class="px-4 py-2 text-start">{{ t('data.coin') }}</th>
-          <th class="px-4 py-2 text-start">{{ t('data.interval') }}</th>
-          <th class="px-4 py-2 text-start">{{ t('data.quality') }}</th>
-          <th class="px-4 py-2 text-start">{{ t('data.range') }}</th>
-          <th class="px-4 py-2 text-end">{{ t('data.bars') }}</th>
-          <th class="px-4 py-2 text-end">{{ t('data.size') }}</th>
-          <th class="px-4 py-2 text-end"></th>
-        </tr>
-      </thead>
-      <tbody>
+    <ResponsiveTable :loading="!!loading" :empty="!sorted.length">
+      <template #loading>
+        <span class="block px-4 py-8 text-center">{{ t('data.loading') }}</span>
+      </template>
+      <template #empty>
+        <span class="block px-4 py-8 text-center">{{ t('data.noDatasets') }}</span>
+      </template>
+      <template #head>
+        <th class="px-4 py-2 text-start">{{ t('data.network') }}</th>
+        <th class="px-4 py-2 text-start">{{ t('data.coin') }}</th>
+        <th class="px-4 py-2 text-start">{{ t('data.interval') }}</th>
+        <th class="px-4 py-2 text-start">{{ t('data.quality') }}</th>
+        <th class="px-4 py-2 text-start">{{ t('data.range') }}</th>
+        <th class="px-4 py-2 text-end">{{ t('data.bars') }}</th>
+        <th class="px-4 py-2 text-end">{{ t('data.size') }}</th>
+        <th class="px-4 py-2 text-end"></th>
+      </template>
+      <template #row>
         <tr
           v-for="d in sorted"
           :key="rowKey(d)"
-          class="border-b border-zinc-800/50 hover:bg-zinc-900/30 cursor-pointer"
+          class="border-b border-border/50 hover:bg-surface-muted/30 cursor-pointer"
           @click="detailDataset = d"
         >
-          <td class="px-4 py-2 text-zinc-500 text-xs">{{ d.network || 'mainnet' }}</td>
-          <td class="px-4 py-2 text-zinc-200 font-medium">{{ d.coin }}</td>
-          <td class="px-4 py-2 text-zinc-400">{{ d.interval }}</td>
+          <td class="px-4 py-2 text-fg-muted text-xs">{{ d.network || 'mainnet' }}</td>
+          <td class="px-4 py-2 text-fg font-medium">{{ d.coin }}</td>
+          <td class="px-4 py-2 text-fg-muted">{{ d.interval }}</td>
           <td class="px-4 py-2">
             <span
               v-if="d.kind === 'ohlcv' || !d.kind"
               class="text-xs rounded px-1.5 py-0.5"
               :class="
                 d.healthy === false
-                  ? 'bg-amber-900/50 text-amber-300'
+                  ? 'bg-warning-bg text-warning'
                   : d.healthy === true
-                    ? 'bg-emerald-900/40 text-emerald-300'
-                    : 'text-zinc-600'
+                    ? 'bg-success-bg/40 text-positive'
+                    : 'text-fg-muted'
               "
             >
               {{
@@ -116,11 +115,11 @@ async function deleteDataset(d: HistoryDataset) {
                     : '—'
               }}
             </span>
-            <span v-else class="text-zinc-600 text-xs">—</span>
+            <span v-else class="text-fg-muted text-xs">—</span>
           </td>
-          <td class="px-4 py-2 text-zinc-400">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</td>
-          <td class="px-4 py-2 text-end text-zinc-300">{{ d.bars.toLocaleString() }}</td>
-          <td class="px-4 py-2 text-end text-zinc-500">{{ fmtSize(d.size_bytes) }}</td>
+          <td class="px-4 py-2 text-fg-muted">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</td>
+          <td class="px-4 py-2 text-end text-fg">{{ d.bars.toLocaleString() }}</td>
+          <td class="px-4 py-2 text-end text-fg-muted">{{ fmtSize(d.size_bytes) }}</td>
           <td class="px-4 py-2 text-end space-x-2">
             <RouterLink
               v-if="d.kind === 'ohlcv' || !d.kind"
@@ -132,13 +131,13 @@ async function deleteDataset(d: HistoryDataset) {
                   dataNetwork: d.network || 'mainnet',
                 },
               }"
-              class="text-xs text-violet-400 hover:underline"
+              class="text-xs text-accent hover:underline"
             >
               {{ t('data.useInBacktest') }}
             </RouterLink>
             <button
               type="button"
-              class="text-xs text-red-400 hover:underline disabled:opacity-50"
+              class="text-xs text-negative hover:underline disabled:opacity-50"
               :disabled="deletingKey === rowKey(d)"
               @click.stop="deleteDataset(d)"
             >
@@ -146,8 +145,81 @@ async function deleteDataset(d: HistoryDataset) {
             </button>
           </td>
         </tr>
-      </tbody>
-    </table>
+      </template>
+      <template #card>
+        <div
+          v-for="d in sorted"
+          :key="rowKey(d)"
+          class="grid grid-cols-2 gap-x-3 gap-y-2 rounded-lg border border-border bg-surface-muted/40 p-3 cursor-pointer"
+          @click="detailDataset = d"
+        >
+          <div class="col-span-2 flex items-center justify-between">
+            <span class="font-medium text-fg">{{ d.coin }}</span>
+            <span class="text-xs text-fg-muted">{{ d.network || 'mainnet' }} · {{ d.interval }}</span>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.quality') }}</div>
+            <span
+              v-if="d.kind === 'ohlcv' || !d.kind"
+              class="text-xs rounded px-1.5 py-0.5"
+              :class="
+                d.healthy === false
+                  ? 'bg-warning-bg text-warning'
+                  : d.healthy === true
+                    ? 'bg-success-bg/40 text-positive'
+                    : 'text-fg-muted'
+              "
+            >
+              {{
+                d.healthy === false
+                  ? t('data.gaps', { count: d.gap_count ?? 0 })
+                  : d.healthy === true
+                    ? t('data.healthy')
+                    : '—'
+              }}
+            </span>
+            <span v-else class="text-fg-muted text-xs">—</span>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.bars') }}</div>
+            <div class="text-sm text-fg">{{ d.bars.toLocaleString() }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.size') }}</div>
+            <div class="text-sm text-fg-muted">{{ fmtSize(d.size_bytes) }}</div>
+          </div>
+          <div class="col-span-2">
+            <div class="text-[10px] uppercase text-fg-muted">{{ t('data.range') }}</div>
+            <div class="text-xs text-fg-muted">{{ fmtTs(d.start_ts) }} — {{ fmtTs(d.end_ts) }}</div>
+          </div>
+          <div class="col-span-2 flex items-center justify-end gap-3 border-t border-border pt-2">
+            <RouterLink
+              v-if="d.kind === 'ohlcv' || !d.kind"
+              :to="{
+                path: '/strategies',
+                query: {
+                  dataCoin: d.coin,
+                  dataInterval: d.interval,
+                  dataNetwork: d.network || 'mainnet',
+                },
+              }"
+              class="text-xs text-accent hover:underline"
+              @click.stop
+            >
+              {{ t('data.useInBacktest') }}
+            </RouterLink>
+            <button
+              type="button"
+              class="text-xs text-negative hover:underline disabled:opacity-50"
+              :disabled="deletingKey === rowKey(d)"
+              @click.stop="deleteDataset(d)"
+            >
+              {{ deletingKey === rowKey(d) ? t('data.deleting') : t('data.delete') }}
+            </button>
+          </div>
+        </div>
+      </template>
+    </ResponsiveTable>
     <DatasetDetailModal v-if="detailDataset" :dataset="detailDataset" @close="detailDataset = null" />
   </div>
 </template>

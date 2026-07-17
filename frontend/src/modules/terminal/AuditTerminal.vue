@@ -22,10 +22,10 @@ function formatTime(iso: string) {
 }
 
 function levelClass(level: string) {
-  if (level === 'error') return 'text-red-400'
-  if (level === 'warning') return 'text-amber-400'
-  if (level === 'debug') return 'text-zinc-600'
-  return 'text-zinc-300'
+  if (level === 'error') return 'text-negative'
+  if (level === 'warning') return 'text-warning'
+  if (level === 'debug') return 'text-fg-muted'
+  return 'text-fg'
 }
 
 onMounted(() => {
@@ -52,9 +52,9 @@ watch(
 </script>
 
 <template>
-  <div class="h-48 shrink-0 border-t border-zinc-800 flex flex-col bg-[#0a0a0a]">
-    <div class="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5">
-      <span class="text-xs font-medium text-zinc-400">{{ t('terminal.title') }}</span>
+  <div class="h-48 shrink-0 border-t border-border flex flex-col bg-[#0a0a0a]">
+    <div class="flex items-center gap-2 border-b border-border px-3 py-1.5">
+      <span class="text-xs font-medium text-fg-muted">{{ t('terminal.title') }}</span>
       <div class="flex gap-1 ms-auto">
         <button
           v-for="lv in levels"
@@ -63,8 +63,8 @@ watch(
           class="rounded px-2 py-0.5 text-[10px] uppercase"
           :class="
             terminal.levelFilter === lv
-              ? 'bg-zinc-700 text-zinc-200'
-              : 'text-zinc-600 hover:text-zinc-400'
+              ? 'bg-border text-fg'
+              : 'text-fg-muted hover:text-fg-muted'
           "
           @click="terminal.levelFilter = lv"
         >
@@ -72,7 +72,7 @@ watch(
         </button>
         <button
           type="button"
-          class="rounded px-2 py-0.5 text-[10px] text-zinc-500"
+          class="rounded px-2 py-0.5 text-[10px] text-fg-muted"
           @click="terminal.paused = !terminal.paused"
         >
           {{ terminal.paused ? '▶' : t('terminal.paused') }}
@@ -81,12 +81,12 @@ watch(
     </div>
     <div
       ref="box"
-      class="flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed"
+      class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed"
       @mouseenter="terminal.paused = true"
       @mouseleave="terminal.paused = false"
     >
       <div v-for="line in lines" :key="line.id" :class="levelClass(line.level)">
-        <span class="text-zinc-600">[{{ formatTime(line.created_at) }}]</span>
+        <span class="text-fg-muted">[{{ formatTime(line.created_at) }}]</span>
         {{ line.message }}
       </div>
     </div>

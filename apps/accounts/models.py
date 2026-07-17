@@ -29,6 +29,10 @@ class User(AbstractUser):
         default=Role.INVESTOR,
         help_text="Platform role: admins publish strategies; investors subscribe.",
     )
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text="Force password change on next login (set when an admin creates/resets an account).",
+    )
 
     @property
     def is_admin_role(self) -> bool:
@@ -36,3 +40,28 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.get_username()
+
+
+class TermsAcceptance(models.Model):
+    """Record of an investor accepting the terms of service.
+
+    Each investor must accept the current terms before trading is enabled.
+    """
+
+    user = models.ForeignKey(
+        "User", on_delete=models.CASCADE, related_name="terms_acceptances"
+    )
+    version = models.CharField(
+        max_length=32,
+        default="1.0",
+        help_text="Terms version the user accepted.",
+    )
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ("user", "version")
+        ordering = ["-accepted_at"]
+
+    def __str__(self):
+        return f"{self.user} accepted v{self.version} @ {self.accepted_at}"

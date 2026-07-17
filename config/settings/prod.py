@@ -19,6 +19,10 @@ CSRF_COOKIE_SECURE = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
+# Explicit cookie hardening.
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_HTTPONLY = True
+
 # Require TLS to PostgreSQL (DATABASE_URL may also set sslmode).
 DATABASES["default"].setdefault("OPTIONS", {})  # noqa: F405
 DATABASES["default"]["OPTIONS"].setdefault("sslmode", "require")  # noqa: F405

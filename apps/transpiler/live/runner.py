@@ -4,6 +4,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.utils import timezone
 
+from apps.credentials.models import Exchange
 from apps.dashboard.publish import publish_dashboard
 from apps.exchange.candles import fetch_candles
 from apps.exchange.subscriptions import register_strategy, unregister_strategy
@@ -14,6 +15,7 @@ from ..engine import compile
 from ..runtime import interpreter
 from ..runtime.context import ExecutionContext
 from ..runtime.order_router import LiveBroker, WarmupBroker
+from ..runtime.signal_capture_broker import SignalCaptureBroker
 from .session_store import delete_session, load_session, restore_scalars, save_session
 from .sliding_window import SlidingWindow
 
@@ -66,15 +68,41 @@ class LiveIncrementalRunner:
             network=strategy.credential.network,
         )
 
-    def on_closed_candle(self, strategy: Strategy, candle: dict) -> bool:
-        """Process one closed candle. Returns True if processed, False if skipped."""
+    def _backfill_gap(self, strategy: Strategy, state: StrategyState, ts: int) -> int:
+        """Fetch missed candles when gap detected, replay them, return latest ts."""
+        from apps.exchange.candles import fetch_candles
+
+        gap_start = state.last_bar_ts + 1
+        extra_bars = getattr(settings, "LIVE_BACKFILL_EXTRA", 50)
+        df = fetch_candles(
+            strategy.symbol,
+            strategy.timeframe,
+            extra_bars,
+            before_ts=ts,
+            network=strategy.credential.network,
+        )
+        if df.empty:
+            return state.last_bar_ts
+        missed = df[df["ts"] > gap_start]
+        if missed.empty:
+            return state.last_bar_ts
+        for _, row in missed.iterrows():
+            if not self._process_one(strategy, state, {
+                "ts": row["ts"],
+                "open": row["open"],
+                "high": row["high"],
+                "low": row["low"],
+                "close": row["close"],
+                "volume": row.get("volume", 0),
+            }):
+                break
+        return state.last_bar_ts
+
+    def _process_one(self, strategy: Strategy, state: StrategyState, candle: dict) -> bool:
+        """Process a single candle (internal, no gap check)."""
         from apps.execution.models import ExecutionLog
 
-        state, _ = StrategyState.objects.get_or_create(strategy=strategy)
         ts = int(candle["ts"])
-        if state.last_bar_ts is not None and ts <= state.last_bar_ts:
-            return False
-
         ExecutionLog.objects.create(
             strategy=strategy,
             level=ExecutionLog.Level.DEBUG,
@@ -93,13 +121,24 @@ class LiveIncrementalRunner:
 
         window = SlidingWindow.from_rows(window_max_size(strategy), session["window"])
         window.append_closed(candle)
-
         program = compile(strategy.source)
-        broker = LiveBroker(
-            credential=strategy.credential,
-            strategy=strategy,
-            symbol=strategy.symbol,
-        )
+        copy_mode = bool((strategy.live_config or {}).get("copy_trading"))
+        if copy_mode:
+            broker = SignalCaptureBroker()
+        elif strategy.credential and strategy.credential.exchange == Exchange.TABDEAL:
+            from ..runtime.tabdeal_live_broker import TabdealLiveBroker
+
+            broker = TabdealLiveBroker(
+                credential=strategy.credential,
+                strategy=strategy,
+                symbol=strategy.symbol,
+            )
+        else:
+            broker = LiveBroker(
+                credential=strategy.credential,
+                strategy=strategy,
+                symbol=strategy.symbol,
+            )
         ctx = ExecutionContext(
             window.to_dataframe(),
             broker,
@@ -109,10 +148,8 @@ class LiveIncrementalRunner:
             program=program,
         )
         ctx.scalars = restore_scalars(session)
-
         last_bar = ctx.n - 1
         interpreter.run_bar(program, ctx, last_bar)
-
         action = broker.last_action if hasattr(broker, "last_action") else "No Action"
         ExecutionLog.objects.create(
             strategy=strategy,
@@ -120,26 +157,14 @@ class LiveIncrementalRunner:
             event="strategy.evaluated",
             payload={"name": strategy.name, "action": action},
         )
+        if copy_mode and isinstance(broker, SignalCaptureBroker) and broker.has_actions():
+            from apps.copytrading.tasks import fan_out_signal_task
 
-        # Copy-trading: fan a published master's entries/closes out to investors.
-        for intent in getattr(broker, "copy_intents", []):
-            from apps.copytrading.tasks import record_and_fanout
-
-            record_and_fanout(
-                strategy,
-                action=intent["action"],
-                direction=intent["direction"],
-                coin=intent["coin"],
-                price=intent["price"],
-                ts=ts,
-            )
-
+            fan_out_signal_task.delay(strategy.pk, broker.actions)
         save_session(strategy.pk, window=window, ctx=ctx, source=strategy.source)
-
         state.last_bar_ts = ts
         state.live_error = ""
         state.save(update_fields=["last_bar_ts", "live_error"])
-
         publish_update(
             strategy.credential_id,
             {
@@ -177,6 +202,16 @@ class LiveIncrementalRunner:
                 },
             )
         return True
+
+    def on_closed_candle(self, strategy: Strategy, candle: dict) -> bool:
+        """Process one closed candle. Returns True if processed, False if skipped."""
+        state, _ = StrategyState.objects.get_or_create(strategy=strategy)
+        ts = int(candle["ts"])
+        if state.last_bar_ts is not None and ts <= state.last_bar_ts:
+            return False
+        if state.last_bar_ts is not None and ts - state.last_bar_ts > 60000:
+            self._backfill_gap(strategy, state, ts)
+        return self._process_one(strategy, state, candle)
 
     @staticmethod
     def stop(strategy: Strategy) -> None:

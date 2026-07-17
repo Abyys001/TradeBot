@@ -1,9 +1,14 @@
-import { defineStore } from 'pinia'
-import { computed } from 'vue'
+﻿import { defineStore } from 'pinia'
+import { computed, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 
 export const useLayoutStore = defineStore('layout', () => {
   const navCollapsed = useStorage('tb-nav-collapsed', false)
+  // Mobile off-canvas sidebar state — deliberately separate from navCollapsed:
+  // collapsed/expanded is a desktop-only icon-vs-label axis, open/closed is
+  // whether the drawer is on/off screen at all. Not persisted across reloads
+  // (always starts closed) since it's a transient overlay, not a preference.
+  const mobileNavOpen = ref(false)
   const backtestPanelOpen = useStorage('tb-backtest-panel-open', true)
   const strategyDrawerOpen = useStorage('tb-strategy-drawer-open', true)
   const optimizerPanelOpen = useStorage('tb-optimizer-panel-open', false)
@@ -12,6 +17,14 @@ export const useLayoutStore = defineStore('layout', () => {
 
   function toggleNav() {
     navCollapsed.value = !navCollapsed.value
+  }
+
+  function setMobileNavOpen(open: boolean) {
+    mobileNavOpen.value = open
+  }
+
+  function toggleMobileNavOpen() {
+    mobileNavOpen.value = !mobileNavOpen.value
   }
 
   function setBacktestPanelOpen(open: boolean) {
@@ -48,12 +61,16 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   return {
+    isNavCollapsed: navCollapsed,
     navCollapsed,
+    mobileNavOpen,
     backtestPanelOpen,
     strategyDrawerOpen,
     optimizerPanelOpen,
     navWidth,
     toggleNav,
+    setMobileNavOpen,
+    toggleMobileNavOpen,
     setBacktestPanelOpen,
     toggleBacktestPanel,
     setStrategyDrawerOpen,

@@ -5,6 +5,7 @@ import { useHistoryStore } from '../stores/history'
 import { useHealthStore } from '../stores/health'
 import StoredDataTable from '../modules/data/StoredDataTable.vue'
 import DownloadForm from '../modules/data/DownloadForm.vue'
+import ArchiveImportForm from '../modules/data/ArchiveImportForm.vue'
 import DownloadJobsList from '../modules/data/DownloadJobsList.vue'
 
 const { t } = useI18n()
@@ -68,27 +69,27 @@ async function onRetry(jobId: number) {
 </script>
 
 <template>
-  <div class="p-4 space-y-4">
-    <h1 class="text-lg font-semibold text-zinc-100">{{ t('data.title') }}</h1>
-    <p class="text-sm text-zinc-500 -mt-2">{{ t('data.subtitle') }}</p>
-    <p class="text-xs text-zinc-600">{{ t('data.noApiRequired') }}</p>
+  <div class="scrollbar-styled scrollbar-thin scrollbar-idle-fade flex-1 overflow-y-auto p-3 space-y-4 sm:p-4">
+    <h1 class="text-lg font-semibold text-fg">{{ t('data.title') }}</h1>
+    <p class="text-sm text-fg-muted -mt-2">{{ t('data.subtitle') }}</p>
+    <p class="text-xs text-fg-muted">{{ t('data.noApiRequired') }}</p>
 
     <div
       v-if="celeryOffline"
-      class="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-300"
+      class="rounded-lg border border-negative/30 bg-danger-bg px-3 py-2 text-sm text-negative"
     >
       {{ t('data.celeryOffline') }}
-      <code class="block mt-1 text-xs text-red-200/80">docker compose up -d celery celery-beat</code>
+      <code class="block mt-1 text-xs text-negative/80">docker compose up -d celery celery-beat</code>
     </div>
 
     <div
       v-if="staleJobs.length"
-      class="rounded-lg border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-300 flex items-center justify-between gap-2"
+      class="rounded-lg border border-warning/30 bg-warning-bg px-3 py-2 text-sm text-warning flex items-center justify-between gap-2"
     >
       <span>{{ t('data.staleJobs', { count: staleJobs.length }) }}</span>
       <button
         type="button"
-        class="shrink-0 rounded bg-amber-800/60 px-2 py-1 text-xs hover:bg-amber-700/60 disabled:opacity-50"
+        class="shrink-0 rounded bg-warning/30 px-2 py-1 text-xs hover:bg-warning/40 disabled:opacity-50"
         :disabled="retryingStale || celeryOffline"
         @click="retryAllStale"
       >
@@ -98,15 +99,16 @@ async function onRetry(jobId: number) {
 
     <div
       v-if="history.error"
-      class="rounded-lg border border-red-900/50 bg-red-950/30 px-3 py-2 text-sm text-red-300"
+      class="rounded-lg border border-negative/30 bg-danger-bg px-3 py-2 text-sm text-negative"
     >
       {{ t('data.loadError') }}: {{ history.error }}
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4 items-start">
       <DownloadForm @submitted="onSubmitted" />
-      <DownloadJobsList :downloads="history.downloads" @retry="onRetry" />
+      <ArchiveImportForm @submitted="onSubmitted" />
     </div>
+      <DownloadJobsList :downloads="history.downloads" @retry="onRetry" />
 
     <StoredDataTable
       :datasets="history.datasets"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+import threading
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -26,15 +27,17 @@ class _TokenBucket:
         self.capacity = capacity
         self.window_sec = window_sec
         self.events: deque[float] = deque()
+        self._lock = threading.Lock()
 
     def acquire(self, weight: int = 1) -> bool:
         now = time.monotonic()
-        while self.events and now - self.events[0] > self.window_sec:
-            self.events.popleft()
-        if len(self.events) + weight > self.capacity:
-            return False
-        for _ in range(weight):
-            self.events.append(now)
+        with self._lock:
+            while self.events and now - self.events[0] > self.window_sec:
+                self.events.popleft()
+            if len(self.events) + weight > self.capacity:
+                return False
+            for _ in range(weight):
+                self.events.append(now)
         return True
 
     def wait(self, weight: int = 1) -> None:
@@ -48,6 +51,28 @@ _ip_bucket = _TokenBucket(_IP_WEIGHT_LIMIT, _IP_WINDOW_SEC)
 def is_rate_limit_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
     return "429" in msg or "too many requests" in msg or "rate limit" in msg
+
+
+def is_transient_error(exc: BaseException) -> bool:
+    """True for errors worth retrying: rate limits, timeouts, and connection resets."""
+    if is_rate_limit_error(exc):
+        return True
+    msg = str(exc).lower()
+    return any(
+        kw in msg
+        for kw in (
+            "timed out",
+            "timeout",
+            "connection reset",
+            "connection refused",
+            "connection aborted",
+            "remotedisconnected",
+            "broken pipe",
+            "eof occurred",
+            "ssl",
+            "temporarily unavailable",
+        )
+    )
 
 
 def sanitize_hl_error(exc: BaseException) -> str:
@@ -110,15 +135,18 @@ def with_rate_limit(
                 try:
                     return fn(*args, **kwargs)
                 except Exception as exc:  # noqa: BLE001
-                    if is_rate_limit_error(exc):
+                    if is_transient_error(exc):
                         last_exc = exc
                         delay = min(2**attempt + random.uniform(0.25, 1.0), max_backoff)
+                        kind = "rate-limit" if is_rate_limit_error(exc) else "transient"
                         logger.warning(
-                            "HL rate limit on %s (attempt %s/%s), sleeping %.1fs",
+                            "HL %s on %s (attempt %s/%s), sleeping %.1fs: %s",
+                            kind,
                             fn.__name__,
                             attempt + 1,
                             max_retries,
                             delay,
+                            exc,
                         )
                         time.sleep(delay)
                         continue

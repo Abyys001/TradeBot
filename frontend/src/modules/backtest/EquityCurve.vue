@@ -23,10 +23,10 @@ const pathD = computed(() => {
 </script>
 
 <template>
-  <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2">
+  <div class="rounded-lg border border-border bg-surface-muted/40 p-2">
     <svg v-if="series.length" :viewBox="`0 0 400 ${height}`" class="w-full" :height="height">
       <path :d="pathD" fill="none" stroke="#8b5cf6" stroke-width="1.5" />
     </svg>
-    <div v-else class="text-xs text-zinc-500 text-center py-6">—</div>
+    <div v-else class="text-xs text-fg-muted text-center py-6">—</div>
   </div>
 </template>

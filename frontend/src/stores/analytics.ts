@@ -9,11 +9,16 @@ export interface AnalyticsRun {
   strategy_name: string
   symbol: string
   timeframe?: string
+  network?: string
   net_pnl?: number
   sharpe_ratio?: number
   profit_factor?: number
   max_drawdown?: number
   num_trades?: number
+  win_rate?: number
+  expectancy?: number
+  initial_balance?: number
+  final_equity?: number
   equity_series?: number[]
   created_at: string
 }

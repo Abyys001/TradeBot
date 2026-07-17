@@ -41,8 +41,8 @@ export function useDashboardWebSocket() {
       if (payload.source === 'backtest') backtest.applyWs(payload)
       if (payload.source === 'history_download') history.applyWs(payload)
       if (payload.source === 'paper') paper.applyWs(payload)
-      if (payload.source === 'kill_switch' && auth.user) {
-        auth.user.is_trading_enabled = false
+      if (payload.source === 'kill_switch') {
+        auth.setTradingEnabled(false)
       }
     } catch {
       /* ignore malformed */

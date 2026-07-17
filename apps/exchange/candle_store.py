@@ -5,11 +5,16 @@ without the network segment are still read for backward compatibility.
 """
 from __future__ import annotations
 
-import fcntl
 import logging
 from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
+
+import sys
+if sys.platform == "win32":
+    import portalocker as fcntl
+else:
+    import fcntl
 
 import pandas as pd
 from django.conf import settings
@@ -97,7 +102,7 @@ def _save_parquet(path: Path, df: pd.DataFrame, columns: list[str], dedup_key: s
             .sort_values(dedup_key)
             .reset_index(drop=True)
         )
-        merged.to_parquet(path, index=False)
+        merged.to_parquet(path, index=False, engine="pyarrow")
     return path
 
 

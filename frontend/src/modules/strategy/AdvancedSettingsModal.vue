@@ -40,7 +40,7 @@ const globalStopLossPct = computed({
 })
 
 const inputClass =
-  'mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-600/40'
+  'mt-1 w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40'
 
 async function onSave() {
   const ok = await sf.save()
@@ -52,19 +52,19 @@ async function onSave() {
   <AppModal :title="t('backtest.advancedSettings')" size="lg" @close="emit('close')">
     <div class="space-y-4 p-4">
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.name') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.name') }}</label>
         <input v-model="sf.form.name" :class="inputClass" />
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.engine') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.engine') }}</label>
         <select v-model="sf.engineType" :class="inputClass">
           <option v-for="e in sf.store.engines" :key="e" :value="e">{{ e }}</option>
         </select>
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.source') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.source') }}</label>
         <select
           :class="inputClass"
           @change="sf.loadSourceFrom(Number(($event.target as HTMLSelectElement).value))"
@@ -74,11 +74,11 @@ async function onSave() {
             {{ s.name }}
           </option>
         </select>
-        <p class="mt-1 text-xs text-zinc-600">{{ t('backtest.loadValidatedHint') }}</p>
+        <p class="mt-1 text-xs text-fg-muted">{{ t('backtest.loadValidatedHint') }}</p>
       </div>
 
       <div class="space-y-4">
-        <h3 class="text-xs font-medium text-zinc-400">{{ t('strategy.riskSection') }}</h3>
+        <h3 class="text-xs font-medium text-fg-muted">{{ t('strategy.riskSection') }}</h3>
         <SliderInput
           v-model="leverage"
           :label="t('strategy.leverage')"
@@ -107,60 +107,60 @@ async function onSave() {
       <div>
         <button
           type="button"
-          class="text-xs text-zinc-500 hover:text-zinc-300"
+          class="text-xs text-fg-muted hover:text-fg"
           @click="showAdvancedRisk = !showAdvancedRisk"
         >
           {{ showAdvancedRisk ? '▼' : '▶' }} {{ t('strategy.advancedRisk') }}
         </button>
-        <div v-if="showAdvancedRisk" class="mt-2 grid grid-cols-2 gap-2">
+        <div v-if="showAdvancedRisk" class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div v-for="field in ADVANCED_RISK_FIELDS" :key="field">
-            <label class="text-[10px] text-zinc-600">{{ field }}</label>
+            <label class="text-[10px] text-fg-muted">{{ field }}</label>
             <input
               v-model.number="(sf.form.live_config.risk as Record<string, number>)[field]"
               type="number"
-              class="mt-0.5 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+              class="mt-0.5 w-full rounded border border-border bg-surface px-2 py-1 text-xs"
             />
           </div>
         </div>
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.symbols') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.symbols') }}</label>
         <div class="mt-1 mb-2 flex flex-wrap gap-1">
           <span
             v-for="sym in sf.form.live_config.symbols"
             :key="sym"
-            class="inline-flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 text-xs"
+            class="inline-flex items-center gap-1 rounded bg-surface-raised px-2 py-0.5 text-xs"
           >
             {{ sym }}
-            <button type="button" class="text-zinc-500 hover:text-red-400" @click="sf.removeSymbol(sym)">×</button>
+            <button type="button" class="text-fg-muted hover:text-negative" @click="sf.removeSymbol(sym)">×</button>
           </span>
         </div>
         <div class="flex gap-1">
           <input
             v-model="sf.newSymbol"
             :placeholder="t('strategy.addSymbol')"
-            class="flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            class="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm"
             @keydown.enter.prevent="sf.addSymbol"
           />
-          <button type="button" class="rounded-lg bg-zinc-800 px-3 text-sm" @click="sf.addSymbol">+</button>
+          <button type="button" class="rounded-lg bg-surface-raised px-3 text-sm" @click="sf.addSymbol">+</button>
         </div>
       </div>
 
       <div>
-        <label class="text-xs text-zinc-500">{{ t('strategy.timeframes') }}</label>
+        <label class="text-xs text-fg-muted">{{ t('strategy.timeframes') }}</label>
         <div class="mt-1 mb-2 flex flex-wrap gap-1">
           <span
             v-for="tf in sf.form.live_config.timeframes"
             :key="tf"
-            class="inline-flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 text-xs"
+            class="inline-flex items-center gap-1 rounded bg-surface-raised px-2 py-0.5 text-xs"
           >
             {{ tf }}
-            <button type="button" class="text-zinc-500 hover:text-red-400" @click="sf.removeTf(tf)">×</button>
+            <button type="button" class="text-fg-muted hover:text-negative" @click="sf.removeTf(tf)">×</button>
           </span>
         </div>
         <select
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200"
+          class="w-full rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-fg"
           @change="sf.addTf(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).value = ''"
         >
           <option value="">{{ t('strategy.addTimeframe') }}</option>
@@ -173,14 +173,14 @@ async function onSave() {
       <div class="flex justify-end gap-2">
         <button
           type="button"
-          class="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+          class="rounded-lg px-4 py-2 text-sm text-fg-muted hover:text-fg"
           @click="emit('close')"
         >
           {{ t('modal.close') }}
         </button>
         <button
           type="button"
-          class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+          class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           :disabled="isSaving"
           @click="onSave"
         >

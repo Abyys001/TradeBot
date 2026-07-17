@@ -153,8 +153,15 @@ def run_backtest(
 
 
 def run_live(source: str, df, *, credential, strategy, symbol):
+    from apps.credentials.models import Exchange
+
     program = compile(source)
-    broker = LiveBroker(credential=credential, strategy=strategy, symbol=symbol)
+    if credential and credential.exchange == Exchange.TABDEAL:
+        from .runtime.tabdeal_live_broker import TabdealLiveBroker
+
+        broker = TabdealLiveBroker(credential=credential, strategy=strategy, symbol=symbol)
+    else:
+        broker = LiveBroker(credential=credential, strategy=strategy, symbol=symbol)
     ctx = ExecutionContext(
         df,
         broker,

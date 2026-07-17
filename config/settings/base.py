@@ -5,6 +5,8 @@ via django-environ. See .env.example for the required variables.
 """
 from pathlib import Path
 
+import os
+
 import environ
 
 # BASE_DIR = repo root (two levels up from this file: config/settings/base.py)
@@ -15,8 +17,9 @@ env = environ.Env(
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
 )
 
-# Read .env if present (dev convenience; prod injects real env vars).
-environ.Env.read_env(BASE_DIR / ".env")
+# Read .env only in dev — prod injects real env vars and .env must not override them.
+if os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"):
+    env.read_env(BASE_DIR / ".env")
 
 # --- Core ---
 SECRET_KEY = env("SECRET_KEY")
@@ -56,7 +59,9 @@ LOCAL_APPS = [
     "apps.optimizer",
     "apps.pro",
     "apps.integrations",
+    "apps.telegram",
     "apps.copytrading",
+    "apps.public",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -68,6 +73,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.accounts.middleware.ForcePasswordChangeMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -120,6 +126,15 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = "UTC"
+# Hard kill after 30 min; soft signal at 25 min so tasks can save progress first.
+CELERY_TASK_SOFT_TIME_LIMIT = 1500
+CELERY_TASK_TIME_LIMIT = 1800
+# Fetch one task at a time so a long download doesn't block shorter tasks.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+# Restart worker process after N tasks to avoid slow memory growth.
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 200
+# Keep result tombstones for 1 hour (default 24 h is too long for high-frequency tasks).
+CELERY_RESULT_EXPIRES = 3600
 CELERY_BEAT_SCHEDULE = {
     "dashboard-health-heartbeat": {
         "task": "dashboard.health_heartbeat",
@@ -141,6 +156,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "exchange.sync_history_incremental",
         "schedule": float(env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)),
     },
+    "execution-retry-stale-orders": {
+        "task": "execution.retry_stale_orders",
+        "schedule": 30.0,
+    },
+    "copytrading-reconcile-orders": {
+        "task": "copytrading.reconcile_copy_orders",
+        "schedule": 60.0,
+    },
 }
 
 # Coins polled for forward open-interest history collection (no HL OI history API).
@@ -154,6 +177,8 @@ HISTORY_SYNC_NETWORK = env("HISTORY_SYNC_NETWORK", default="mainnet")
 HISTORY_SYNC_INTERVAL_SECONDS = env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)
 HISTORY_DOWNLOAD_WORKERS = env.int("HISTORY_DOWNLOAD_WORKERS", default=2)
 HISTORY_FUNDING_COOLDOWN_SEC = env.float("HISTORY_FUNDING_COOLDOWN_SEC", default=1.5)
+# Hyperliquid API read timeout in seconds (applies to all Info() and Exchange() calls).
+HL_API_TIMEOUT = env.int("HL_API_TIMEOUT", default=30)
 DOWNLOAD_TRADES = env.bool("DOWNLOAD_TRADES", default=False)
 
 # --- Auth ---
@@ -174,7 +199,22 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/minute",
+        "user": "120/minute",
+        "login": "10/minute",
+        "public_performance": "30/minute",
+        "lead_submit": "5/minute",
+    },
 }
+
+# --- Cookie security ---
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_HTTPONLY = True
 
 # --- i18n / tz ---
 LANGUAGE_CODE = "en-us"
@@ -203,6 +243,14 @@ CSRF_TRUSTED_ORIGINS = env.list(
 LIVE_WINDOW_BUFFER = env.int("LIVE_WINDOW_BUFFER", default=50)
 LIVE_SESSION_KEY_PREFIX = env("LIVE_SESSION_KEY_PREFIX", default="live:session")
 
+# --- Telegram ---
+TELEGRAM_ALERT_ENABLED = env.bool("TELEGRAM_ALERT_ENABLED", default=False)
+
+# --- Tabdeal (copy-trading exchange; FAPI futures client in apps/exchange/tabdeal_futures.py) ---
+TABDEAL_API_BASE_URL = env("TABDEAL_API_BASE_URL", default="https://api1.tabdeal.org")
+TABDEAL_RECV_WINDOW_MS = env.int("TABDEAL_RECV_WINDOW_MS", default=5000)
+TABDEAL_API_TIMEOUT = env.int("TABDEAL_API_TIMEOUT", default=30)
+
 # --- Hyperliquid ---
 HL_NETWORK = env("HL_NETWORK", default="testnet")
 HL_API_URL = env("HL_API_URL", default="")
@@ -210,6 +258,7 @@ HL_CANDLE_CHANNEL_PREFIX = env("HL_CANDLE_CHANNEL_PREFIX", default="hl:candles")
 HL_META_CACHE_TTL = env.int("HL_META_CACHE_TTL", default=300)
 HL_WS_PING_INTERVAL = env.int("HL_WS_PING_INTERVAL", default=55)
 HL_MIN_FREE_MARGIN_USD = env.int("HL_MIN_FREE_MARGIN_USD", default=50)
+HL_API_TIMEOUT = env.int("HL_API_TIMEOUT", default=30)
 
 # Local OHLCV history store (offline backtesting). Default: <repo>/data/candles.
 CANDLE_DATA_DIR = env(

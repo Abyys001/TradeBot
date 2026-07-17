@@ -98,17 +98,18 @@ def test_fetch_candles_range_paginates_and_dedupes():
 
     bar = 60_000  # 1m
     end_ms = 12_000 * bar
-    # Backward pagination: first window is [end-window, end], then steps back.
-    batch_recent = [_hl_candle(300_000, 1, 1, 1, 3), _hl_candle(360_000, 1, 1, 1, 4)]
-    batch_older = [_hl_candle(0, 1, 1, 1, 1), _hl_candle(bar, 1, 1, 1, 2), _hl_candle(300_000, 1, 1, 1, 3)]
+    page1 = [_hl_candle(end_ms - i * bar, 1, 1, 1, 1) for i in range(5000)]
+    oldest = int(page1[-1]["t"])
+    page2 = [_hl_candle(oldest - i * bar, 1, 1, 1, 1) for i in range(1, 4)]
     fake_info = mock.Mock()
-    fake_info.candles_snapshot.side_effect = [batch_recent, batch_older, []]
+    fake_info.candles_snapshot.side_effect = [page1, page2]
 
     with mock.patch("hyperliquid.info.Info", return_value=fake_info):
         df = history.fetch_candles_range("BTC", "1m", 0, end_ms, network="testnet", sleep=0)
 
-    assert fake_info.candles_snapshot.call_count >= 2
-    assert list(df["ts"]) == [0, bar, 300_000, 360_000]
+    assert fake_info.candles_snapshot.call_count == 2
+    assert int(df["ts"].min()) == oldest - 3 * bar
+    assert int(df["ts"].max()) == end_ms
 
 
 def test_fetch_candles_range_stops_at_history_floor():
@@ -119,6 +120,26 @@ def test_fetch_candles_range_stops_at_history_floor():
     with mock.patch("hyperliquid.info.Info", return_value=fake_info):
         df = history.fetch_candles_range("BTC", "1h", 0, 10_000_000, network="testnet", sleep=0)
     assert df.empty
+
+
+def test_fetch_candles_range_steps_back_on_duplicate_page():
+    from apps.exchange import history
+
+    bar = 3_600_000  # 1h
+    end_ms = 10_000 * bar
+    page1 = [_hl_candle(end_ms - i * bar, 1, 1, 1, 1) for i in range(5000)]
+    oldest = int(page1[-1]["t"])
+    page2 = [_hl_candle(oldest - i * bar, 1, 1, 1, 1) for i in range(1, 5001)]
+    fake_info = mock.Mock()
+    fake_info.candles_snapshot.side_effect = [page1, page2, []]
+
+    with mock.patch("hyperliquid.info.Info", return_value=fake_info):
+        df = history.fetch_candles_range("BTC", "1h", 0, end_ms, network="testnet", sleep=0)
+
+    assert fake_info.candles_snapshot.call_count >= 2
+    assert len(df) == 10_000
+    assert int(df["ts"].min()) == bar
+    assert int(df["ts"].max()) == end_ms
 
 
 @pytest.mark.django_db

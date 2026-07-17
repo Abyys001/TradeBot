@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     AnalyticsView,
     CandlesView,
+    HealthPingView,
     HealthView,
     KillSwitchView,
     LoginView,
@@ -17,6 +18,7 @@ urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
     path("me/kill-switch/", KillSwitchView.as_view(), name="kill-switch"),
     path("health/", HealthView.as_view(), name="health"),
+    path("health/ping/", HealthPingView.as_view(), name="health-ping"),
     path("overview/", OverviewView.as_view(), name="overview"),
     path("analytics/", AnalyticsView.as_view(), name="analytics"),
     path("candles/", CandlesView.as_view(), name="candles"),

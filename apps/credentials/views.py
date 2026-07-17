@@ -6,6 +6,7 @@ from apps.exchange.base import get_client
 
 from .models import ExchangeCredential
 from .serializers import ExchangeCredentialSerializer
+from .verification import verify_credential
 
 
 class ExchangeCredentialViewSet(viewsets.ModelViewSet):

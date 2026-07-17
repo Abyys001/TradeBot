@@ -9,7 +9,7 @@ const { t } = useI18n()
 <template>
   <div class="flex flex-col items-center text-center">
     <div
-      class="mb-6 flex h-32 w-32 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900/50"
+      class="mb-6 flex h-32 w-32 items-center justify-center rounded-2xl border border-border bg-surface-muted/50"
     >
       <svg class="h-20 w-20 text-violet-500/70" viewBox="0 0 80 80" fill="none">
         <rect x="8" y="44" width="8" height="20" rx="1" fill="currentColor" opacity="0.5" />
@@ -25,12 +25,12 @@ const { t } = useI18n()
       </svg>
     </div>
 
-    <h2 class="text-lg font-semibold text-zinc-200">{{ t('strategies.emptyTitle') }}</h2>
-    <p class="mt-2 max-w-md text-sm text-zinc-500">{{ t('strategies.empty') }}</p>
+    <h2 class="text-lg font-semibold text-fg">{{ t('strategies.emptyTitle') }}</h2>
+    <p class="mt-2 max-w-md text-sm text-fg-muted">{{ t('strategies.empty') }}</p>
 
     <button
       type="button"
-      class="mt-6 rounded-xl bg-violet-700 px-8 py-3 text-sm font-medium text-white shadow-lg shadow-violet-900/30 transition-colors hover:bg-violet-600"
+      class="mt-6 rounded-xl bg-accent px-8 py-3 text-sm font-medium text-accent-fg shadow-lg shadow-violet-900/30 transition-colors hover:opacity-90"
       @click="emit('create')"
     >
       {{ t('strategies.createFirst') }}

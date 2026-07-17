@@ -50,14 +50,14 @@ async function onValidate() {
       />
 
       <div
-        class="shrink-0 rounded-lg border border-dashed px-3 py-2 text-center text-xs text-zinc-500 transition-colors"
-        :class="isDragOver ? 'border-emerald-500 bg-emerald-950/20' : 'border-zinc-700'"
+        class="shrink-0 rounded-lg border border-dashed px-3 py-2 text-center text-xs text-fg-muted transition-colors"
+        :class="isDragOver ? 'border-positive bg-success-bg/20' : 'border-border'"
         @dragover.prevent="onDragOver"
         @dragleave="onDragLeave"
         @drop.prevent="sf.onDrop"
       >
         {{ t('strategies.dropPine') }}
-        <button type="button" class="ms-2 text-violet-400 hover:underline" @click="browseFile">
+        <button type="button" class="ms-2 text-accent hover:underline" @click="browseFile">
           {{ t('strategies.uploadPine') }}
         </button>
       </div>
@@ -65,13 +65,13 @@ async function onValidate() {
       <div class="flex shrink-0 items-center gap-3 text-xs">
         <span
           v-if="selectedStrategy?.validation_status === 'error'"
-          class="text-red-400"
+          class="text-negative"
         >
           ✗ {{ selectedStrategy.validation_error || t('strategy.validatedFail') }}
         </span>
         <span
           v-else-if="validationText"
-          class="font-mono text-red-400"
+          class="font-mono text-negative"
         >{{ validationText }}</span>
       </div>
 
@@ -87,14 +87,14 @@ async function onValidate() {
       <div class="flex justify-end gap-2">
         <button
           type="button"
-          class="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+          class="rounded-lg px-4 py-2 text-sm text-fg-muted hover:text-fg"
           @click="emit('close')"
         >
           {{ t('modal.close') }}
         </button>
         <button
           type="button"
-          class="rounded-lg bg-zinc-800 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+          class="rounded-lg bg-surface-raised px-4 py-2 text-sm text-fg hover:bg-border disabled:opacity-50"
           :disabled="isSaving"
           @click="onSave"
         >
@@ -102,7 +102,7 @@ async function onValidate() {
         </button>
         <button
           type="button"
-          class="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+          class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           :disabled="isSaving"
           @click="onValidate"
         >

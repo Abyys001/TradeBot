@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../../stores/strategy'
@@ -7,8 +7,8 @@ import { useBacktestStore } from '../../stores/backtest'
 import { useHistoryStore } from '../../stores/history'
 import { useToast } from '../../composables/useToast'
 import ProgressBar from '../../components/ProgressBar.vue'
-
-const CUSTOM_SYMBOL = '__custom__'
+import TradingPairSelector from '../../components/TradingPairSelector.vue'
+import { coinToPair, pairToCoin } from '../../utils/tradingPairs'
 
 const props = defineProps<{ strategyId: number }>()
 
@@ -23,13 +23,12 @@ const toast = useToast()
 
 const FALLBACK_TIMEFRAMES = ['1m', '3m', '5m', '15m', '30m', '1h', '4h', '1d']
 const running = ref(false)
+const downloading = ref(false)
 const batchIds = ref<number[]>([])
-const customCoin = ref('')
-const symbolSelect = ref('')
+const selectedPair = ref('BTC-USDT')
 const selectedInterval = ref('1h')
 const runAllPairs = ref(false)
 const showQuickMenu = ref(false)
-
 const strategy = computed(() => strategyStore.strategies.find((s) => s.id === props.strategyId) ?? null)
 
 const strategySymbols = computed(() => {
@@ -52,6 +51,37 @@ const selectedIntervals = ref<string[]>([])
 const selectedNetwork = ref('mainnet')
 const startDate = ref('')
 const endDate = ref('')
+const initialCapital = ref<number>(10_000)
+
+const strategyPairLabels = computed(() =>
+  strategySymbols.value.map((coin) => coinToPair(coin)),
+)
+
+const storedCoinsForInterval = computed(() => {
+  const iv = selectedInterval.value.toLowerCase()
+  const net = selectedNetwork.value
+  const coins = new Set<string>()
+  for (const ds of historyStore.datasets) {
+    if (
+      ds.interval.toLowerCase() === iv &&
+      (ds.network || 'mainnet') === net &&
+      (ds.kind === 'ohlcv' || !ds.kind)
+    ) {
+      coins.add(ds.coin.toUpperCase())
+    }
+  }
+  return coins
+})
+
+const selectedCoinHasData = computed(() => {
+  if (runAllPairs.value) return missingList.value.length === 0
+  const coin = pairToCoin(selectedPair.value)
+  return historyStore.hasDataset(coin, selectedInterval.value, selectedNetwork.value)
+})
+
+const activeDownload = computed(() =>
+  historyStore.activeDownloads.find((d) => d.network === selectedNetwork.value),
+)
 
 const availableIntervals = computed(() => {
   const fromApi = historyStore.markets?.intervals
@@ -89,17 +119,14 @@ const runBlockedReason = computed(() => {
 const canRun = computed(() => !running.value && !anyActive.value && !runBlockedReason.value)
 
 const selectClass =
-  'mt-1 block w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 focus:border-violet-600 focus:outline-none focus:ring-1 focus:ring-violet-600/40'
+  'mt-1 block w-full rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40'
 
 function syncSelectionFromUi() {
   if (runAllPairs.value) {
     selectedCoins.value = [...strategySymbols.value]
     selectedIntervals.value = [...strategyIntervals.value]
   } else {
-    const coin =
-      symbolSelect.value === CUSTOM_SYMBOL
-        ? customCoin.value.trim().toUpperCase().replace(/-.*$/, '')
-        : symbolSelect.value
+    const coin = pairToCoin(selectedPair.value)
     selectedCoins.value = coin ? [coin] : []
     selectedIntervals.value = selectedInterval.value ? [selectedInterval.value] : []
   }
@@ -121,9 +148,7 @@ function applyRouteQuery() {
   const interval = route.query.dataInterval as string | undefined
   const network = route.query.dataNetwork as string | undefined
   if (coin) {
-    const c = coin.toUpperCase().replace(/-.*$/, '')
-    symbolSelect.value = strategySymbols.value.includes(c) ? c : CUSTOM_SYMBOL
-    if (symbolSelect.value === CUSTOM_SYMBOL) customCoin.value = c
+    selectedPair.value = coinToPair(coin)
   }
   if (interval) selectedInterval.value = interval.toLowerCase()
   if (network === 'mainnet' || network === 'testnet') selectedNetwork.value = network
@@ -135,13 +160,14 @@ function syncFromStrategy(s: NonNullable<typeof strategy.value>) {
     applyRouteQuery()
     return
   }
-  symbolSelect.value = strategySymbols.value[0] || s.symbol
+  const first = strategySymbols.value[0] || pairToCoin(s.symbol)
+  selectedPair.value = coinToPair(first)
   selectedInterval.value = strategyIntervals.value[0] || s.timeframe || '1h'
   syncSelectionFromUi()
 }
 
 watch(strategy, (s) => { if (s) syncFromStrategy(s) }, { immediate: true })
-watch([symbolSelect, selectedInterval, customCoin, runAllPairs], syncSelectionFromUi)
+watch([selectedPair, selectedInterval, runAllPairs], syncSelectionFromUi)
 
 watch(
   () => [route.query.dataCoin, route.query.dataInterval, route.query.dataNetwork],
@@ -150,7 +176,39 @@ watch(
 
 watch(selectedNetwork, (net) => {
   void historyStore.fetchMarkets(net)
+  void historyStore.fetchDatasets(net)
 })
+
+onMounted(() => {
+  void historyStore.fetchMarkets(selectedNetwork.value)
+  void historyStore.fetchDatasets(selectedNetwork.value)
+})
+
+async function downloadMissingData() {
+  syncSelectionFromUi()
+  const coins = [...new Set(selectedCoins.value)]
+  const intervals = [...new Set(selectedIntervals.value)]
+  if (!coins.length || !intervals.length) return
+
+  downloading.value = true
+  try {
+    await historyStore.startDownload({
+      coins,
+      intervals,
+      network: selectedNetwork.value,
+      start: startDate.value || '2023-01-01',
+      end: endDate.value || undefined,
+    })
+    toast.show(t('backtest.downloadQueued'), 'success')
+  } catch {
+    toast.show(
+      historyStore.error === 'Celery worker is offline' ? t('data.celeryOffline') : t('data.downloadFailed'),
+      'error',
+    )
+  } finally {
+    downloading.value = false
+  }
+}
 
 function fmtDate(ms: number) {
   return new Date(ms).toISOString().slice(0, 10)
@@ -238,6 +296,7 @@ async function runQuickBacktest() {
       network: selectedNetwork.value,
       start: ds.start_ts,
       end: ds.end_ts,
+      initial_capital: initialCapital.value,
     })
     toast.show(t('backtest.queued', { count: 1 }), 'success')
     backtestStore.select(id)
@@ -274,6 +333,7 @@ async function runBacktests() {
           network: selectedNetwork.value,
           start: range.start,
           end: range.end,
+          initial_capital: initialCapital.value,
         })
         ids.push(id)
       }
@@ -300,31 +360,55 @@ defineExpose({ runBacktests, canRun })
 </script>
 
 <template>
-  <div class="space-y-3">
-    <label class="text-xs text-zinc-500 block">
-      {{ t('strategy.symbols') }}
-      <select
-        v-model="symbolSelect"
-        :disabled="runAllPairs"
-        :class="selectClass"
-      >
-        <option v-for="sym in strategySymbols" :key="sym" :value="sym">{{ sym }}</option>
-        <option :value="CUSTOM_SYMBOL">{{ t('backtest.customSymbol') }}</option>
-      </select>
-    </label>
+  <div class="space-y-2.5">
+    <div>
+      <label class="text-xs text-fg-muted">{{ t('strategy.symbols') }}</label>
 
-    <label v-if="symbolSelect === CUSTOM_SYMBOL && !runAllPairs" class="text-xs text-zinc-500 block">
-      {{ t('backtest.customSymbolInput') }}
-      <input
-        v-model="customCoin"
-        type="text"
-        :placeholder="t('strategy.addSymbol')"
-        :class="selectClass"
-        @keydown.enter.prevent
+      <div v-if="runAllPairs" class="mt-1.5 flex flex-wrap gap-1.5">
+        <span
+          v-for="pair in strategyPairLabels"
+          :key="pair"
+          class="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-1 text-xs text-fg"
+          dir="ltr"
+        >
+          <span
+            class="h-1.5 w-1.5 rounded-full"
+            :class="storedCoinsForInterval.has(pairToCoin(pair)) ? 'bg-positive' : 'bg-border'"
+          />
+          {{ pair }}
+        </span>
+      </div>
+
+      <TradingPairSelector
+        v-else
+        v-model="selectedPair"
+        :network="selectedNetwork"
+        :marked-coins="storedCoinsForInterval"
+        class="mt-1.5"
       />
-    </label>
 
-    <label class="text-xs text-zinc-500 block">
+      <div
+        v-if="!runAllPairs"
+        class="mt-1.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-xs"
+        :class="selectedCoinHasData ? 'border-positive/40 bg-success-bg text-positive' : 'border-warning/40 bg-warning-bg text-warning'"
+      >
+        <span>{{ selectedCoinHasData ? t('backtest.dataReady') : t('backtest.dataMissing') }}</span>
+        <button
+          v-if="!selectedCoinHasData"
+          type="button"
+          class="shrink-0 rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          :disabled="downloading || !!activeDownload"
+          @click="downloadMissingData"
+        >
+          {{ downloading || activeDownload ? t('backtest.downloading') : t('backtest.downloadMissing') }}
+        </button>
+      </div>
+
+      <p v-if="activeDownload" class="mt-1 text-[10px] text-accent">
+        {{ t('backtest.downloadInProgress') }}
+      </p>
+    </div>
+    <label class="text-xs text-fg-muted block">
       {{ t('strategy.timeframes') }}
       <select
         v-model="selectedInterval"
@@ -335,16 +419,16 @@ defineExpose({ runBacktests, canRun })
       </select>
     </label>
 
-    <label class="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+    <label class="flex items-center gap-2 text-xs text-fg-muted cursor-pointer">
       <input
         v-model="runAllPairs"
         type="checkbox"
-        class="rounded border-zinc-600 bg-zinc-900 text-violet-600 focus:ring-violet-600/40"
+        class="rounded border-border bg-surface-muted text-accent focus:ring-accent/40"
       />
       {{ t('backtest.runAllPairs') }}
     </label>
 
-    <label class="text-xs text-zinc-500 block">
+    <label class="text-xs text-fg-muted block">
       {{ t('backtest.network') }}
       <select v-model="selectedNetwork" :class="selectClass">
         <option value="mainnet">mainnet</option>
@@ -352,19 +436,35 @@ defineExpose({ runBacktests, canRun })
       </select>
     </label>
 
-    <div class="flex gap-2">
-      <label class="text-xs text-zinc-500 flex-1">
+    <div class="grid grid-cols-2 gap-2.5">
+      <label class="text-xs text-fg-muted min-w-0">
         {{ t('backtest.startDate') }}
         <input v-model="startDate" type="date" :class="selectClass" />
       </label>
-      <label class="text-xs text-zinc-500 flex-1">
+      <label class="text-xs text-fg-muted min-w-0">
         {{ t('backtest.endDate') }}
         <input v-model="endDate" type="date" :class="selectClass" />
       </label>
     </div>
 
+    <label class="text-xs text-fg-muted block">
+      {{ t('backtest.initialCapital') }}
+      <div class="relative mt-1">
+        <input
+          v-model.number="initialCapital"
+          type="number"
+          min="100"
+          step="100"
+          :class="selectClass"
+        />
+        <span class="pointer-events-none absolute inset-y-0 end-3 flex items-center text-[10px] text-fg-muted">
+          USDT · fee 0.05%
+        </span>
+      </div>
+    </label>
+
     <div v-if="batchProgress" class="space-y-1">
-      <div class="flex justify-between text-xs text-zinc-500">
+      <div class="flex justify-between text-xs text-fg-muted">
         <span>{{ t('backtest.batchProgress') }}</span>
         <span>{{ batchProgress.finished }}/{{ batchProgress.total }}</span>
       </div>
@@ -374,18 +474,18 @@ defineExpose({ runBacktests, canRun })
     <div class="flex gap-2">
       <button
         type="button"
-        class="relative flex-1 rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50"
+        class="relative flex-1 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         :disabled="!canRun"
         :title="runBlockedReason ?? (hasCoverageWarnings ? t('backtest.coverageClamped') : undefined)"
         @click="runBacktests"
       >
-        <span v-if="runBlockedReason" class="absolute -top-1 -end-1 h-2 w-2 rounded-full bg-amber-500" />
+        <span v-if="runBlockedReason" class="absolute -top-1 -end-1 h-2 w-2 rounded-full bg-warning" />
         {{ running || anyActive ? t('backtest.running') : t('backtest.run') }}
       </button>
       <div class="relative">
         <button
           type="button"
-          class="rounded-lg border border-zinc-700 px-2 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          class="rounded-lg border border-border px-2 py-2 text-sm text-fg hover:bg-surface-raised disabled:opacity-50"
           :disabled="!canRun"
           :title="t('backtest.quickRun')"
           @click="showQuickMenu = !showQuickMenu"
@@ -394,11 +494,11 @@ defineExpose({ runBacktests, canRun })
         </button>
         <div
           v-if="showQuickMenu"
-          class="absolute end-0 top-full z-10 mt-1 w-48 rounded-lg border border-zinc-700 bg-zinc-900 py-1 shadow-lg"
+          class="absolute end-0 top-full z-10 mt-1 w-48 rounded-lg border border-border bg-surface-muted py-1 shadow-lg"
         >
           <button
             type="button"
-            class="block w-full px-3 py-2 text-start text-xs text-zinc-300 hover:bg-zinc-800"
+            class="block w-full px-3 py-2 text-start text-xs text-fg hover:bg-surface-raised"
             @click="runQuickBacktest"
           >
             {{ t('backtest.quickRun') }}
@@ -409,16 +509,24 @@ defineExpose({ runBacktests, canRun })
 
     <p
       v-if="runBlockedReason && missingList.length"
-      class="text-xs text-amber-300"
+      class="text-xs text-warning"
     >
       {{ runBlockedReason }}
+      <button
+        type="button"
+        class="ms-1 underline hover:opacity-80 disabled:opacity-50"
+        :disabled="downloading || !!activeDownload"
+        @click="downloadMissingData"
+      >
+        {{ t('backtest.downloadMissing') }}
+      </button>
+      <span class="text-fg-muted">·</span>
       <RouterLink to="/data" class="underline ms-1">{{ t('nav.data') }}</RouterLink>
-    </p>
-    <p v-else-if="hasCoverageWarnings" class="text-xs text-amber-400/80">
+    </p>    <p v-else-if="hasCoverageWarnings" class="text-xs text-warning/80">
       {{ t('backtest.coverageClamped') }}
     </p>
 
-    <p class="text-center text-[10px] text-zinc-600">
+    <p class="text-center text-[10px] text-fg-muted">
       {{ isMac ? t('backtest.hotkeyHintMac') : t('backtest.hotkeyHintWin') }}
     </p>
   </div>

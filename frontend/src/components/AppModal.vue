@@ -32,26 +32,26 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       @click.self="emit('close')"
     >
       <div
-        class="flex flex-col rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl overflow-hidden"
+        class="flex flex-col rounded-xl border border-border bg-surface-raised shadow-2xl overflow-hidden"
         :class="panelClass[props.size]"
         role="dialog"
         aria-modal="true"
       >
-        <div class="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <h2 class="text-sm font-semibold text-zinc-200">{{ title }}</h2>
+        <div class="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+          <h2 class="text-sm font-semibold text-fg">{{ title }}</h2>
           <button
             type="button"
-            class="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+            class="rounded px-2 py-0.5 text-fg-muted hover:bg-surface-muted hover:text-fg"
             aria-label="Close"
             @click="emit('close')"
           >
             ✕
           </button>
         </div>
-        <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="scrollbar-styled scrollbar-thin min-h-0 flex-1 overflow-y-auto">
           <slot />
         </div>
-        <div v-if="$slots.footer" class="shrink-0 border-t border-zinc-800 px-4 py-3">
+        <div v-if="$slots.footer" class="shrink-0 border-t border-border px-4 py-3">
           <slot name="footer" />
         </div>
       </div>

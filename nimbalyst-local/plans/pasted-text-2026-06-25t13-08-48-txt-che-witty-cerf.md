@@ -1,4 +1,4 @@
-# TradeBot — Full Feature Audit, Fixes & Completion Roadmap
+# Algo Trader — Full Feature Audit, Fixes & Completion Roadmap
 
 ## Context
 

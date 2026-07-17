@@ -1,9 +1,120 @@
 {
   "app": {
-    "title": "TradeBot Command Center"
+    "title": "Algo Trader"
+  },
+  "theme": {
+    "toggle": "Toggle theme",
+    "switchToLight": "Switch to light theme",
+    "switchToDark": "Switch to dark theme"
+  },
+  "landing": {
+    "nav": {
+      "features": "Features",
+      "performance": "Performance",
+      "howItWorks": "How It Works",
+      "security": "Security",
+      "login": "Login",
+      "requestAccess": "Request Access"
+    },
+    "hero": {
+      "badge": "Built on Hyperliquid",
+      "title": "Algorithmic trading, built on real infrastructure.",
+      "subtitle": "Write real Pine Script v5 strategies, backtest them with realistic fills, and run them live on Hyperliquid — behind automatic risk gates, from a platform that never touches your withdrawal key.",
+      "ctaLogin": "Login",
+      "ctaRequestAccess": "Request Access"
+    },
+    "performance": {
+      "title": "Real results, not promises",
+      "subtitle": "Aggregated, sanitized numbers pulled live from our own trading ledger.",
+      "netPnl": "Net realized PnL",
+      "winRate": "Win rate",
+      "totalTrades": "Closed trades",
+      "activeStrategies": "Active strategies",
+      "asOf": "As of {date}",
+      "loading": "Loading live performance…",
+      "empty": "No trading history yet — check back soon.",
+      "error": "Couldn't load live performance right now.",
+      "disclaimer": "Past performance is not indicative of future results."
+    },
+    "features": {
+      "title": "Everything a real trading desk needs",
+      "subtitle": "No placeholders — every feature below is running in production.",
+      "pine": {
+        "title": "Pine Script v5 strategy builder",
+        "desc": "Write or upload real Pine Script v5 — compiled by our own Lark-based transpiler, not a parameter template."
+      },
+      "backtest": {
+        "title": "Realistic backtesting engine",
+        "desc": "Fees, slippage, funding, leverage, liquidation, and intrabar stop-loss/take-profit — simulated bar by bar."
+      },
+      "paper": {
+        "title": "Paper trading",
+        "desc": "Run any strategy against live market data with a virtual balance before risking real capital."
+      },
+      "live": {
+        "title": "Live execution on Hyperliquid",
+        "desc": "EIP-712 signed orders routed directly to Hyperliquid, with a global kill switch on every account."
+      },
+      "risk": {
+        "title": "Automatic risk gates",
+        "desc": "Daily loss limits, max drawdown, exposure caps, and leverage limits enforced on every trade."
+      },
+      "optimizer": {
+        "title": "Strategy optimizer",
+        "desc": "Grid search, walk-forward validation, and Monte Carlo simulation to stress-test your edge before you trust it."
+      },
+      "copyTrading": {
+        "title": "Copy trading",
+        "desc": "Subscribe to a proven signal and mirror its trades on your own exchange account automatically."
+      },
+      "telegram": {
+        "title": "Telegram alerts",
+        "desc": "Real-time trade fills, errors, and system health delivered straight to your phone."
+      },
+      "security": {
+        "title": "Encrypted credential vault",
+        "desc": "AES-256-GCM encrypted, trade-only keys. Your withdrawal key is never stored — anywhere."
+      }
+    },
+    "howItWorks": {
+      "title": "How it works",
+      "subtitle": "From request to running live, in five steps.",
+      "step1": { "title": "Request access", "desc": "Tell us about yourself — our team sets up a secure investor account for you." },
+      "step2": { "title": "Connect your exchange", "desc": "Link a trade-only Hyperliquid agent key. We never ask for your withdrawal key." },
+      "step3": { "title": "Choose or build a strategy", "desc": "Subscribe to a proven signal, or write your own Pine Script v5 strategy." },
+      "step4": { "title": "Backtest & paper trade", "desc": "Validate performance against historical and live data with zero risk." },
+      "step5": { "title": "Go live under risk gates", "desc": "Deploy for real, protected by automatic daily-loss, drawdown, and exposure limits." }
+    },
+    "security": {
+      "title": "Security first, always",
+      "subtitle": "The same protections we'd want if it were our own money.",
+      "point1": { "title": "Non-custodial by design", "desc": "Trade-only agent keys only — your withdrawal key never touches our servers." },
+      "point2": { "title": "AES-256-GCM encryption", "desc": "Every credential is encrypted at rest with authenticated encryption." },
+      "point3": { "title": "Automatic risk gates", "desc": "Daily loss limits, drawdown caps, and exposure limits enforced in real time, on every account." },
+      "point4": { "title": "Emergency kill switch", "desc": "Halt all trading and close positions instantly, with one click." }
+    },
+    "requestAccess": {
+      "title": "Request access",
+      "subtitle": "Tell us a bit about yourself and our team will reach out.",
+      "name": "Name",
+      "email": "Email",
+      "contact": "Telegram or phone (optional)",
+      "message": "What are you looking to trade? (optional)",
+      "submit": "Request Access",
+      "submitting": "Sending…",
+      "success": "Thanks — we'll be in touch soon.",
+      "error": "Something went wrong. Please try again."
+    },
+    "footer": {
+      "tagline": "A full algorithmic trading framework on Hyperliquid — from data to live execution.",
+      "rights": "© {year} Algo Trader. All rights reserved.",
+      "disclaimer": "Trading involves risk. Past performance is not indicative of future results."
+    }
   },
   "nav": {
     "overview": "Overview",
+    "investors": "Investors",
+    "botScripts": "Bot Scripts",
     "strategies": "Strategies",
     "live": "Live Trading",
     "data": "Historical Data",
@@ -16,8 +127,14 @@
     "admin": "Admin",
     "invest": "Marketplace",
     "portfolio": "Portfolio",
+    "telegram": "Telegram",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar",
     "toggleExpand": "Expand sidebar",
-    "toggleCollapse": "Collapse sidebar"
+    "toggleCollapse": "Collapse sidebar",
+    "openMenu": "Open menu",
+    "moreActions": "More actions",
+    "backToHome": "Back to home"
   },
   "modal": {
     "close": "Close",
@@ -29,6 +146,8 @@
     "username": "Username",
     "password": "Password",
     "signIn": "Sign In",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "invalid": "Invalid credentials"
   },
   "health": {
@@ -69,6 +188,7 @@
     "uploadPine": "Upload .pine",
     "empty": "No strategies yet. Create one to get started.",
     "emptyTitle": "No strategies yet",
+    "emptyCta": "Create Your First Strategy",
     "createFirst": "Create Your First Strategy",
     "actions": "Actions",
     "statusColumn": "Status",
@@ -97,7 +217,7 @@
     "researchStep3Hint": "Open the strategy, switch to Backtest tab, pick coin/timeframe, and run."
   },
   "strategy": {
-    "title": "Strategy Configurator",
+    "title": "Backtest Engine",
     "name": "Name",
     "source": "Pine Source",
     "symbols": "Trading Pairs",
@@ -125,7 +245,14 @@
     "liveRequiresCredential": "Live trading requires an API key in Settings",
     "engine": "Engine",
     "aiHint": "AI engine uses plugin signals instead of Pine source.",
-    "advancedRisk": "Advanced risk limits"
+    "advancedRisk": "Advanced risk limits",
+    "searchPairs": "Search pairs (e.g. BTC, ETH)...",
+    "popularPairs": "Popular",
+    "noPairsFound": "No matching pairs",
+    "pairSelected": "Selected",
+    "pairsLoading": "Loading markets from Hyperliquid...",
+    "pairsFallback": "Using default pair list — connect to load full market list",
+    "pairsHint": "Select one or more pairs. Search by coin or pair name."
   },
   "settings": {
     "title": "Settings",
@@ -148,7 +275,7 @@
     "saveFailed": "Failed to save Signum settings"
   },
   "credentials": {
-    "title": "Hyperliquid Agent Credentials",
+    "title": "Exchange Credentials",
     "add": "Add Credential",
     "edit": "Edit",
     "delete": "Delete",
@@ -157,9 +284,11 @@
     "label": "Label",
     "walletAddress": "Master Wallet Address (0x...)",
     "agentKey": "Agent Private Key",
+    "apiKey": "API Key",
+    "apiSecret": "API Secret",
     "active": "Active",
     "inactive": "Inactive",
-    "empty": "No credentials configured. Add your Hyperliquid agent key to start trading.",
+    "empty": "No credentials configured. Add a Hyperliquid or Tabdeal credential to start trading.",
     "created": "Credential created",
     "updated": "Credential updated",
     "deleted": "Credential deleted",
@@ -172,6 +301,20 @@
   "chart": {
     "pnl": "Unrealized PnL",
     "noStrategy": "Select a strategy to view chart"
+  },
+  "bots": {
+    "title": "Bot Scripts",
+    "upload": "Upload Bot Script",
+    "empty": "No bot scripts yet. Upload a Pine Script to get started.",
+    "pnl": "P&L so far",
+    "on": "ON",
+    "off": "OFF",
+    "starting": "Starting...",
+    "stopping": "Stopping...",
+    "onlyOneActiveHint": "Only one bot script can be live at a time — turning this on stops any other running bot.",
+    "notValidated": "Not validated yet",
+    "validationFailed": "Pine validation failed",
+    "needsTabdealCredential": "Add a Tabdeal API key in Settings before uploading a bot script"
   },
   "terminal": {
     "title": "Audit Terminal",
@@ -195,6 +338,7 @@
     "endDate": "End (optional)",
     "coins": "Coins",
     "intervals": "Intervals",
+    "intervalRetentionHint": "HL retention: 1m–1h stores only the most recent ~5,000 bars. 4h and 1d retrieve the full HL history since launch (paginated automatically). Use 4h or 1d for the longest backtests.",
     "dataTypes": "Data Types",
     "dataTypeFunding": "Funding",
     "dataTypeOpenInterest": "Open Interest",
@@ -231,6 +375,8 @@
     "staleJobs": "{count} download job(s) appear stuck (Celery may be offline).",
     "stale": "stale",
     "staleJobHint": "This job has been pending too long. Start the Celery worker and click Retry.",
+    "statusPending": "Pending",
+    "jobsCount": "jobs",
     "retry": "Retry",
     "retrying": "Retrying...",
     "retryAllStale": "Retry all stale",
@@ -280,6 +426,12 @@
     "runFailed": "Backtest failed to start",
     "validateFirst": "Fix Pine validation errors first",
     "missingData": "Missing stored data for: {pairs}",
+    "dataReady": "Data downloaded",
+    "dataMissing": "No stored data for this pair/timeframe",
+    "downloadMissing": "Download data",
+    "downloadQueued": "Download queued — backtest when complete",
+    "downloading": "Downloading…",
+    "downloadInProgress": "Historical download in progress…",
     "needDownload": "Some pairs have no stored data.",
     "coverageStart": "{pair}: stored data starts {have}, but backtest needs {want}",
     "coverageEnd": "{pair}: stored data ends {have}, but backtest needs {want}",
@@ -287,6 +439,7 @@
     "network": "Network",
     "startDate": "Start (optional)",
     "endDate": "End (optional)",
+    "initialCapital": "Initial capital",
     "history": "Run History",
     "noRuns": "No backtests yet",
     "selectRun": "Select a backtest run to view results",
@@ -299,11 +452,11 @@
     "winRate": "Win Rate",
     "maxDrawdown": "Max Drawdown",
     "numTrades": "Trades",
-    "initialCapital": "Initial capital",
     "sharpe": "Sharpe",
     "profitFactor": "Profit Factor",
     "riskReward": "R:R",
     "side": "Side",
+    "time": "Time",
     "entry": "Entry",
     "exit": "Exit",
     "pnl": "PnL",
@@ -312,7 +465,19 @@
     "strategyPanel": "Strategy",
     "optimize": "Optimize",
     "moreMetrics": "More metrics",
-    "tradesTitle": "Trades ({count})"
+    "tradesTitle": "Trades ({count})",
+    "complete": "Backtest complete",
+    "failed": "Backtest failed",
+    "results": "Backtest Results",
+    "editPine": "Edit Pine Script",
+    "savePine": "Save & Close",
+    "advanced": "Advanced Settings",
+    "warmupBars": "Warmup bars",
+    "riskLimits": "Risk limits",
+    "viewOnChart": "View on Chart",
+    "noCandles": "No candle data available for this symbol/timeframe",
+    "noSource": "No source loaded",
+    "hotkeyHint": "Ctrl+Enter to run"
   },
   "paper": {
     "mode": "Paper",
@@ -341,7 +506,40 @@
     "closeFailed": "Failed to close position"
   },
   "live": {
-    "title": "Live Trading",
+    "title": "Live Deployment",
+    "tabBacktest": "Backtest",
+    "tabLive": "Live",
+    "symbol": "Asset Symbol",
+    "timeframe": "Timeframe",
+    "leverage": "Leverage",
+    "positionSize": "Position Size Allocation",
+    "positionSizeHint": "Percentage of equity per trade (e.g. 20%)",
+    "maxDrawdown": "Max Drawdown Limit",
+    "maxDrawdownHint": "Stop trading if drawdown exceeds this %",
+    "maxDailyLoss": "Max Daily Loss",
+    "maxOpenTrades": "Max Open Trades",
+    "start": "Start Live Bot",
+    "stop": "Stop Live Bot",
+    "starting": "Starting...",
+    "stopping": "Stopping...",
+    "statusNotRunning": "Not Running",
+    "statusRunning": "Running",
+    "statusError": "Error",
+    "lastBar": "Last Bar",
+    "currentPosition": "Current Position",
+    "currentPnl": "Current PnL",
+    "lastSignal": "Last Signal",
+    "noStrategy": "Save and validate your strategy before deploying live",
+    "confirmStop": "Stop live trading?",
+    "confirmStopHint": "This will cancel open orders and close the live session.",
+    "started": "Live trading started",
+    "stopped": "Live trading stopped",
+    "failed": "Failed to deploy live bot",
+    "stopFailed": "Failed to stop live bot",
+    "configSaved": "Live configuration saved",
+    "walletAddress": "Agent Wallet",
+    "selectCredential": "Select credential",
+    "network": "Network",
     "newDeployment": "New deployment",
     "commandCenter": "Live Command Center",
     "noLive": "No live strategies running. Launch one with the setup wizard.",
@@ -420,7 +618,9 @@
     "monthly": "Monthly PnL",
     "byAsset": "By asset",
     "funding": "Funding",
-    "date": "Date"
+    "date": "Date",
+    "historyChart": "Backtest History",
+    "noHistoryData": "No backtest data to chart"
   },
   "orders": {
     "title": "Order History",
@@ -473,5 +673,60 @@
   "status": {
     "ok": "OK",
     "error": "Error"
+  },
+  "telegram": {
+    "title": "Telegram Notifications",
+    "subtitle": "Receive trade alerts via Telegram bot",
+    "enabled": "Enable Telegram notifications",
+    "botToken": "Bot Token",
+    "botTokenHint": "Get from @BotFather on Telegram",
+    "chatId": "Chat ID",
+    "chatIdLabel": "Label",
+    "chatIdHint": "Numeric Telegram Chat ID (user or group)",
+    "whitelistTitle": "Authorized Chats",
+    "whitelistEmpty": "No chats whitelisted yet",
+    "addChat": "Add Chat",
+    "removeChat": "Remove",
+    "test": "Send Test Message",
+    "testSent": "Test message sent",
+    "testFailed": "Test failed — check Bot Token and Chat IDs",
+    "saved": "Telegram settings saved",
+    "saveFailed": "Failed to save Telegram settings",
+    "configured": "configured",
+    "statusOk": "Active & Verified",
+    "statusChecking": "Checking...",
+    "statusInvalid": "Invalid Token",
+    "statusDisabled": "Configured but Disabled",
+    "refreshStatus": "Refresh",
+    "lastTest": "Last test"
+  },
+  "investors": {
+    "title": "Investors",
+    "subtitle": "Create and manage investor accounts. Each investor logs in, adds their Tabdeal API key, and follows your activated strategies.",
+    "createTitle": "Create investor",
+    "username": "Username",
+    "email": "Email",
+    "tempPassword": "Temporary password",
+    "generate": "Generate",
+    "mustChangeHint": "The investor will be forced to change this on first login.",
+    "enableTrading": "Enable trading immediately",
+    "createBtn": "Create investor",
+    "creating": "Creating…",
+    "created": "Investor \"{u}\" created.",
+    "status": "Status",
+    "trading": "Trading",
+    "actions": "Actions",
+    "active": "Active",
+    "disabled": "Disabled",
+    "on": "On",
+    "off": "Off",
+    "pendingChange": "pending pw change",
+    "resetPassword": "Reset password",
+    "disable": "Disable",
+    "enable": "Enable",
+    "empty": "No investors yet. Create one above.",
+    "errRequired": "Username and password are required.",
+    "resetPrompt": "Enter a new temporary password for {u}:",
+    "resetDone": "Password reset for \"{u}\". They must change it on next login."
   }
 }

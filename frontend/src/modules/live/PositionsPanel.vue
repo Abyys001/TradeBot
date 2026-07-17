@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { api } from '../../api/client'
 import { useStrategyStore } from '../../stores/strategy'
 import { useToast } from '../../composables/useToast'
+import ResponsiveTable from '../../components/ResponsiveTable.vue'
 import AppModal from '../../components/AppModal.vue'
 
 const props = defineProps<{ strategyId: number; active?: boolean; closable?: boolean }>()
@@ -79,44 +80,46 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <div class="rounded-lg border border-zinc-800 overflow-hidden">
-    <div class="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
-      <span class="text-xs font-medium text-zinc-400">{{ t('positions.title') }}</span>
+  <div class="rounded-lg border border-border overflow-hidden">
+    <div class="px-3 py-2 border-b border-border flex items-center justify-between">
+      <span class="text-xs font-medium text-fg-muted">{{ t('positions.title') }}</span>
       <button
         type="button"
-        class="text-[10px] text-zinc-500 hover:text-zinc-300"
+        class="text-[10px] text-fg-muted hover:text-fg"
         :disabled="loading"
         @click="refresh"
       >
         {{ t('positions.refresh') }}
       </button>
     </div>
-    <div v-if="loading && !positions.length" class="px-3 py-4 text-xs text-zinc-500">{{ t('overview.loading') }}</div>
-    <div v-else-if="!positions.length" class="px-3 py-4 text-xs text-zinc-500">{{ t('positions.empty') }}</div>
-    <table v-else class="w-full text-xs">
-      <thead class="text-zinc-500">
-        <tr>
-          <th class="px-3 py-1 text-start">{{ t('data.coin') }}</th>
-          <th class="px-3 py-1 text-start">{{ t('positions.side') }}</th>
-          <th class="px-3 py-1 text-end">{{ t('positions.size') }}</th>
-          <th class="px-3 py-1 text-end">{{ t('positions.entry') }}</th>
-          <th class="px-3 py-1 text-end">{{ t('positions.liq') }}</th>
-          <th class="px-3 py-1 text-end">PnL</th>
-          <th v-if="closable" class="px-3 py-1 text-end"></th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="p in positions" :key="p.coin" class="border-t border-zinc-800/50">
-          <td class="px-3 py-1.5 text-zinc-300">{{ p.coin }}</td>
+    <ResponsiveTable :loading="loading && !positions.length" :empty="!loading && !positions.length">
+      <template #loading>
+        <span class="block px-3 py-4 text-xs">{{ t('overview.loading') }}</span>
+      </template>
+      <template #empty>
+        <span class="block px-3 py-4 text-xs">{{ t('positions.empty') }}</span>
+      </template>
+      <template #head>
+        <th class="px-3 py-1 text-start">{{ t('data.coin') }}</th>
+        <th class="px-3 py-1 text-start">{{ t('positions.side') }}</th>
+        <th class="px-3 py-1 text-end">{{ t('positions.size') }}</th>
+        <th class="px-3 py-1 text-end">{{ t('positions.entry') }}</th>
+        <th class="px-3 py-1 text-end">{{ t('positions.liq') }}</th>
+        <th class="px-3 py-1 text-end">PnL</th>
+        <th v-if="closable" class="px-3 py-1 text-end"></th>
+      </template>
+      <template #row>
+        <tr v-for="p in positions" :key="p.coin" class="border-t border-border/50 text-xs">
+          <td class="px-3 py-1.5 text-fg">{{ p.coin }}</td>
           <td class="px-3 py-1.5">
-            <span :class="sideOf(p) === 'long' ? 'text-emerald-400' : 'text-red-400'">
-              {{ sideOf(p) === 'long' ? '🟢 Long' : '🔴 Short' }}
+            <span :class="sideOf(p) === 'long' ? 'text-positive' : 'text-negative'">
+              {{ sideOf(p) === 'long' ? 'Long' : 'Short' }}
             </span>
           </td>
-          <td class="px-3 py-1.5 text-end text-zinc-400">{{ p.size }}</td>
-          <td class="px-3 py-1.5 text-end text-zinc-500">{{ p.entry_px }}</td>
-          <td class="px-3 py-1.5 text-end text-zinc-500">{{ p.liquidation_px ?? '—' }}</td>
-          <td class="px-3 py-1.5 text-end" :class="Number(p.unrealized_pnl) >= 0 ? 'text-emerald-400' : 'text-red-400'">
+          <td class="px-3 py-1.5 text-end text-fg-muted">{{ p.size }}</td>
+          <td class="px-3 py-1.5 text-end text-fg-muted">{{ p.entry_px }}</td>
+          <td class="px-3 py-1.5 text-end text-fg-muted">{{ p.liquidation_px ?? '—' }}</td>
+          <td class="px-3 py-1.5 text-end" :class="Number(p.unrealized_pnl) >= 0 ? 'text-positive' : 'text-negative'">
             {{ p.unrealized_pnl }}
           </td>
           <td v-if="closable" class="px-3 py-1.5 text-end">
@@ -130,22 +133,34 @@ defineExpose({ refresh })
             </button>
           </td>
         </tr>
-      </tbody>
-    </table>
+      </template>
+      <template #card>
+        <div v-for="p in positions" :key="p.coin" class="rounded-lg border border-border/70 p-2 text-xs">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-fg">{{ p.coin }}</span>
+            <span :class="Number(p.unrealized_pnl) >= 0 ? 'text-positive' : 'text-negative'">{{ p.unrealized_pnl }}</span>
+          </div>
+          <div class="mt-1 flex items-center justify-between text-fg-muted">
+            <span>{{ t('positions.size') }}: {{ p.size }}</span>
+            <span>{{ t('positions.liq') }}: {{ p.liquidation_px ?? '—' }}</span>
+          </div>
+        </div>
+      </template>
+    </ResponsiveTable>
 
     <AppModal
       v-if="closeTarget"
       :title="t('positions.closeConfirmTitle')"
       @close="closeTarget = null"
     >
-      <p class="px-4 py-4 text-sm text-zinc-300">
+      <p class="px-4 py-4 text-sm text-fg">
         {{ t('positions.closeConfirmBody', { coin: closeTarget.coin }) }}
       </p>
       <template #footer>
         <div class="flex justify-end gap-2">
           <button
             type="button"
-            class="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+            class="rounded-lg px-4 py-2 text-sm text-fg-muted hover:text-fg"
             @click="closeTarget = null"
           >
             {{ t('health.cancel') }}

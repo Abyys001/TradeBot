@@ -1,4 +1,4 @@
-# TradeBot
+# Algo Trader
 
 Hyperliquid automated-trading backend (perpetuals + spot).
 
@@ -297,7 +297,7 @@ pytest                                   # full suite (34)
 
 ## Trading Framework
 
-TradeBot is evolving into a full **algorithmic trading framework** on Hyperliquid:
+Algo Trader is a full **algorithmic trading framework** on Hyperliquid:
 data management → realistic backtests → strategy plugins → risk gates → paper → live → analytics → optimization.
 
 See the living roadmap: [`docs/TRADING_FRAMEWORK_ROADMAP.md`](docs/TRADING_FRAMEWORK_ROADMAP.md)
