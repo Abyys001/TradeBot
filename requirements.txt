@@ -17,6 +17,7 @@ psycopg[binary]==3.2.3
 # --- Exchange ---
 hyperliquid-python-sdk>=0.9.0
 eth-account>=0.10.0
+websockets>=13.0  # Tabdeal FAPI broadcast/stream ingest (apps.exchange.tabdeal_ws)
 
 # --- Crypto ---
 cryptography==44.0.0

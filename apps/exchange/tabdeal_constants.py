@@ -19,3 +19,25 @@ def base_url() -> str:
 
 def recv_window_ms() -> int:
     return getattr(settings, "TABDEAL_RECV_WINDOW_MS", 5000)
+
+
+def _ws_host() -> str:
+    """WS scheme host derived from the REST base (https -> wss)."""
+    base = base_url()
+    if base.startswith("https://"):
+        return "wss://" + base[len("https://"):]
+    if base.startswith("http://"):
+        return "ws://" + base[len("http://"):]
+    return base
+
+
+def broadcast_url() -> str:
+    """FAPI plain-text trade broadcast (Tabdeal_API_Reference.md §10.2)."""
+    override = getattr(settings, "TABDEAL_BROADCAST_URL", "")
+    return override or (_ws_host().rstrip("/") + "/special_margin/broadcast/")
+
+
+def fapi_stream_url() -> str:
+    """FAPI JSON order-book stream (Tabdeal_API_Reference.md §10.1)."""
+    override = getattr(settings, "TABDEAL_FAPI_STREAM_URL", "")
+    return override or (_ws_host().rstrip("/") + "/special_margin/stream/")

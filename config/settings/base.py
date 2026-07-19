@@ -62,6 +62,7 @@ LOCAL_APPS = [
     "apps.telegram",
     "apps.copytrading",
     "apps.public",
+    "apps.watchdog",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -250,6 +251,19 @@ TELEGRAM_ALERT_ENABLED = env.bool("TELEGRAM_ALERT_ENABLED", default=False)
 TABDEAL_API_BASE_URL = env("TABDEAL_API_BASE_URL", default="https://api1.tabdeal.org")
 TABDEAL_RECV_WINDOW_MS = env.int("TABDEAL_RECV_WINDOW_MS", default=5000)
 TABDEAL_API_TIMEOUT = env.int("TABDEAL_API_TIMEOUT", default=30)
+
+# --- Tabdeal trade ingest (Node A; apps/exchange/ingest.py, tabdeal_ws.py) ---
+# WS hosts default off base URL; override only if Tabdeal moves them.
+TABDEAL_BROADCAST_URL = env("TABDEAL_BROADCAST_URL", default="")  # blank -> derived from base
+TABDEAL_FAPI_STREAM_URL = env("TABDEAL_FAPI_STREAM_URL", default="")
+TABDEAL_INGEST_SYMBOLS = env.list("TABDEAL_INGEST_SYMBOLS", default=["BTC_USDT"])
+INGEST_NODE_ID = env("INGEST_NODE_ID", default="")  # blank -> hostname; distinct per replica (§0.1)
+TABDEAL_TRADE_STREAM_PREFIX = env("TABDEAL_TRADE_STREAM_PREFIX", default="tabdeal:trades")
+TABDEAL_TRADE_STREAM_MAXLEN = env.int("TABDEAL_TRADE_STREAM_MAXLEN", default=1_000_000)
+TABDEAL_INGEST_QUEUE_MAX = env.int("TABDEAL_INGEST_QUEUE_MAX", default=20000)
+TABDEAL_PUBLISH_QUEUE_MAX = env.int("TABDEAL_PUBLISH_QUEUE_MAX", default=20000)
+TABDEAL_INGEST_FLUSH_MS = env.int("TABDEAL_INGEST_FLUSH_MS", default=200)
+TABDEAL_INGEST_BATCH_MAX = env.int("TABDEAL_INGEST_BATCH_MAX", default=500)
 
 # --- Hyperliquid ---
 HL_NETWORK = env("HL_NETWORK", default="testnet")
