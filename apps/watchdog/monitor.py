@@ -1,21 +1,23 @@
 """Watchdog monitor — §6.2: heartbeat monitor + tiered response.
 
-Reads heartbeat from Redis, evaluates tier, executes actions.
-Runs as a loop in the watchdog process.
+Reads heartbeat from Redis, evaluates tier, executes actions via the
+exchange client.  Runs as a loop in the watchdog process.
 """
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.core.cache import cache
 
 from .models import WatchdogConfig, WatchdogAction
 from .tiers import evaluate_tier, log_action
-from .guardian import check_position
+from .guardian import check_position, GuardianCheck
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_SL_PCT = 10.0
 
 
 @dataclass
@@ -27,6 +29,8 @@ class MonitorState:
     sl_confirmed: bool
     current_tier: int
     daily_loss_breached: bool
+    guardian: GuardianCheck | None = None
+    symbol: str = ""
 
 
 class WatchdogMonitor:
@@ -51,6 +55,26 @@ class WatchdogMonitor:
             daily_loss_breached=False,
         )
         self._config: WatchdogConfig | None = None
+        self._strategy = None
+
+    # ----- helpers -----
+
+    def _get_strategy(self):
+        if self._strategy is None:
+            from apps.strategies.models import Strategy
+            self._strategy = Strategy.objects.get(pk=self.strategy_id)
+        return self._strategy
+
+    def _get_symbol(self) -> str:
+        if not self.state.symbol:
+            self.state.symbol = self._get_strategy().symbol
+        return self.state.symbol
+
+    def _get_risk_config(self) -> dict:
+        try:
+            return self._get_strategy().live_config.get("risk", {})
+        except Exception:
+            return {}
 
     def _get_config(self) -> WatchdogConfig:
         if self._config is None:
@@ -80,14 +104,21 @@ class WatchdogMonitor:
             return bool(data.get("halted", False))
         return bool(data)
 
-    def _check_sl_status(self) -> bool:
-        """Check if SL is confirmed attached to the position."""
-        from apps.strategies.models import StrategyState
-        try:
-            state = StrategyState.objects.get(strategy_id=self.strategy_id)
-            return bool(state.sl_confirmed)
-        except StrategyState.DoesNotExist:
-            return False
+    # ----- guardian integration -----
+
+    def _run_guardian(self) -> GuardianCheck:
+        """Poll the exchange for actual position state."""
+        symbol = self._get_symbol()
+        risk = self._get_risk_config()
+        has_sl_configured = bool(risk.get("global_stop_loss_pct"))
+        return check_position(
+            exchange_client=self.client,
+            symbol=symbol,
+            expected_has_sl=has_sl_configured,
+            sl_confirmed=self.state.sl_confirmed,
+        )
+
+    # ----- check -----
 
     def check(self) -> tuple[int, dict]:
         """Single check cycle: read state, evaluate tier, return decision.
@@ -102,7 +133,17 @@ class WatchdogMonitor:
         heartbeat_ts = self._read_heartbeat()
         heartbeat_gap_ms = int((now - heartbeat_ts) * 1000) if heartbeat_ts > 0 else 999999
 
-        sl_confirmed = self._check_sl_status()
+        # Guardian: poll exchange for actual SL status (§6.6).
+        guardian_result = None
+        sl_confirmed = False
+        try:
+            guardian_result = self._run_guardian()
+            self.state.guardian = guardian_result
+            if guardian_result.ok and guardian_result.position:
+                sl_confirmed = guardian_result.position.has_sl
+        except Exception:
+            logger.exception("guardian check failed for strategy %s", self.strategy_id)
+
         daily_loss = self._check_daily_loss()
 
         decision = evaluate_tier(
@@ -135,8 +176,10 @@ class WatchdogMonitor:
 
         return decision.tier, detail
 
+    # ----- execution (exchange calls) -----
+
     def execute(self, tier: int, detail: dict) -> None:
-        """Execute the tier decision actions."""
+        """Execute the tier decision actions — calls the exchange."""
         if detail.get("action") == "disabled":
             return
 
@@ -147,16 +190,118 @@ class WatchdogMonitor:
             return
 
         if detail.get("should_attach_sl"):
-            log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED, detail)
-            logger.warning("watchdog %s: T%d attaching SL", self.strategy_id, tier)
+            self._execute_attach_sl(tier, detail)
 
-        if detail.get("should_flatten"):
-            log_action(self.strategy_id, tier, WatchdogAction.ActionType.POSITION_FLAT, detail)
-            logger.warning("watchdog %s: T%d flattening position", self.strategy_id, tier)
-
+        # Kill switch includes flatten internally — skip separate flatten call.
         if detail.get("should_kill_switch"):
-            log_action(self.strategy_id, tier, WatchdogAction.ActionType.KILL_SWITCH, detail)
-            logger.critical("watchdog %s: T%d KILL SWITCH activated", self.strategy_id, tier)
+            self._execute_kill_switch(tier, detail)
+        elif detail.get("should_flatten"):
+            self._execute_flatten(tier, detail)
+
+    def _execute_attach_sl(self, tier: int, detail: dict) -> None:
+        """Attach SL to the current position (§6.3)."""
+        symbol = self._get_symbol()
+        risk = self._get_risk_config()
+        sl_pct = risk.get("global_stop_loss_pct", _DEFAULT_SL_PCT)
+
+        # Read actual position from exchange.
+        position = self.state.guardian.position if self.state.guardian and self.state.guardian.ok else None
+        if position is None:
+            try:
+                pos_raw = self.client.get_position(symbol)
+                if pos_raw is None:
+                    log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                               {**detail, "error": "no_position"})
+                    logger.warning("watchdog %s: T%d no position to attach SL to", self.strategy_id, tier)
+                    return
+                amt = float(pos_raw.get("positionAmt", 0))
+                entry = float(pos_raw.get("entryPrice", 0))
+            except Exception as exc:
+                log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                           {**detail, "error": str(exc)})
+                logger.error("watchdog %s: T%d failed to read position: %s", self.strategy_id, tier, exc)
+                return
+        else:
+            amt = position.size if position.side != "NONE" else 0
+            if position.side == "SHORT":
+                amt = -amt
+            entry = position.entry_price
+
+        if amt == 0:
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                       {**detail, "error": "zero_position"})
+            logger.warning("watchdog %s: T%d zero position, skipping SL", self.strategy_id, tier)
+            return
+
+        # Compute SL price.
+        is_long = amt > 0
+        if is_long:
+            sl_price = round(entry * (1 - sl_pct / 100), 8)
+        else:
+            sl_price = round(entry * (1 + sl_pct / 100), 8)
+
+        # Get internal position ID for SL endpoint.
+        try:
+            position_id = self.client.get_open_position_id(symbol)
+            if position_id is None:
+                log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                           {**detail, "error": "no_position_id"})
+                logger.error("watchdog %s: T%d no position ID for SL", self.strategy_id, tier)
+                return
+        except Exception as exc:
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                       {**detail, "error": str(exc)})
+            logger.error("watchdog %s: T%d failed to get position ID: %s", self.strategy_id, tier, exc)
+            return
+
+        # Attach SL.
+        try:
+            self.client.set_position_sl_tp(position_id=position_id, sl_price=sl_price, symbol=symbol)
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                       {**detail, "sl_price": sl_price, "position_id": position_id, "side": "long" if is_long else "short"})
+            logger.warning("watchdog %s: T%d SL attached at %.8f (%s)", self.strategy_id, tier, sl_price, symbol)
+            self.state.sl_confirmed = True
+        except Exception as exc:
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
+                       {**detail, "error": str(exc), "sl_price": sl_price})
+            logger.error("watchdog %s: T%d failed to attach SL: %s", self.strategy_id, tier, exc)
+
+    def _execute_flatten(self, tier: int, detail: dict) -> None:
+        """Market-close the entire position (§6.4)."""
+        symbol = self._get_symbol()
+        try:
+            result = self.client.close_position(symbol)
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.POSITION_FLAT,
+                       {**detail, "result": result})
+            logger.warning("watchdog %s: T%d position flattened on %s", self.strategy_id, tier, symbol)
+        except Exception as exc:
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.POSITION_FLAT,
+                       {**detail, "error": str(exc)})
+            logger.error("watchdog %s: T%d failed to flatten: %s", self.strategy_id, tier, exc)
+
+    def _execute_kill_switch(self, tier: int, detail: dict) -> None:
+        """Flatten position + disable user trading (§6.5)."""
+        # Flatten first.
+        self._execute_flatten(tier, detail)
+
+        # Disable the user's trading.
+        try:
+            strategy = self._get_strategy()
+            user = strategy.user
+            if user.is_trading_enabled:
+                user.is_trading_enabled = False
+                user.save(update_fields=["is_trading_enabled"])
+                log_action(self.strategy_id, tier, WatchdogAction.ActionType.KILL_SWITCH,
+                           {**detail, "user_id": user.pk, "trading_disabled": True})
+                logger.critical("watchdog %s: T%d kill switch — user %s trading disabled",
+                                self.strategy_id, tier, user.pk)
+            else:
+                log_action(self.strategy_id, tier, WatchdogAction.ActionType.KILL_SWITCH,
+                           {**detail, "user_id": user.pk, "trading_disabled": True})
+        except Exception as exc:
+            log_action(self.strategy_id, tier, WatchdogAction.ActionType.KILL_SWITCH,
+                       {**detail, "error": str(exc)})
+            logger.error("watchdog %s: T%d failed to disable user trading: %s", self.strategy_id, tier, exc)
 
 
 async def run_watchdog(interval_s: float = 5.0) -> None:

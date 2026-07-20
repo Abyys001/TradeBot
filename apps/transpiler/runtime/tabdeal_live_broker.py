@@ -13,15 +13,49 @@ Orders here normally end in a terminal OrderRecord.status (filled/rejected).
 Any left non-terminal (lost response, crash) are resolved by
 apps.execution.tasks.reconcile_orders_task, which queries the Tabdeal order
 record by exchange/client order id (§3.4).
+
+Safety protocols (§1 invariant 8, §3.1 invariant 13, §6.2):
+- ExecutionMutex per-symbol prevents concurrent orders (§1 invariant 8).
+- Auto-SL after every entry: if global_stop_loss_pct is configured, attach SL
+  immediately after fill. If SL attachment fails after retries, the position is
+  closed to prevent naked exposure (§3.1 invariant 13).
+- RiskManager persists halt state via strategy_id so daily-loss/drawdown gates
+  survive worker restarts (§2.2).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from decimal import Decimal
 
 from .tabdeal_broker import to_tabdeal_symbol
 
 logger = logging.getLogger(__name__)
+
+# SL attachment retry config.
+_SL_MAX_RETRIES = 3
+_SL_RETRY_DELAY = 1.0  # seconds, doubled each attempt
+
+
+def _run_sync(coro):
+    """Run an async coroutine from synchronous code (Celery workers, runner.py).
+
+    asyncio.run() creates a fresh event loop each call — safe in prefork
+    Celery workers where the main thread has no running loop.
+    """
+    return asyncio.run(coro)
+
+
+async def _acquire_mutex(symbol: str, owner: str | None = None, ttl: int = 30):
+    """Acquire an ExecutionMutex for *symbol*. Returns the mutex or None."""
+    from apps.exchange.execution_mutex import ExecutionMutex
+
+    mutex = ExecutionMutex(symbol, owner=owner, ttl=ttl)
+    acquired = await mutex.acquire(retry=True)
+    if not acquired:
+        return None
+    return mutex
 
 
 class TabdealLiveBroker:
@@ -42,6 +76,9 @@ class TabdealLiveBroker:
         self._live_config = live_config
         self._position_size_pct = float(risk.get("position_size_pct", 20))
         self._leverage = float(leverage if leverage is not None else risk.get("leverage", DEFAULT_LEVERAGE))
+        self._global_sl_pct: float | None = (
+            float(risk["global_stop_loss_pct"]) if risk.get("global_stop_loss_pct") else None
+        )
 
     # ----- helpers -----
 
@@ -105,7 +142,12 @@ class TabdealLiveBroker:
         from apps.risk.config import parse_risk_config
         from apps.risk.manager import RiskManager
 
-        risk_manager = RiskManager(parse_risk_config(self._live_config), initial_balance=max(equity, 1.0))
+        risk_cfg = parse_risk_config(self._live_config)
+        risk_manager = RiskManager(
+            risk_cfg,
+            initial_balance=max(equity, 1.0),
+            strategy_id=self.strategy.pk,
+        )
         decision = risk_manager.pre_trade(
             equity=equity, open_trades=open_trades, exposure_pct=exposure_pct, leverage=self._leverage
         )
@@ -143,6 +185,84 @@ class TabdealLiveBroker:
         # absent status to "filled" rather than "submitted". A genuinely non-terminal
         # order is later resolved by apps.execution.tasks.reconcile_orders_task.
         return mapping.get((resp_status or "").upper(), "filled")
+
+    # ----- naked-position protection (§3.1 invariant 13) -----
+
+    def _attach_sl_after_entry(self, *, entry_oid: str, entry_price: float, is_buy: bool) -> None:
+        """Attach stop-loss after a successful fill. If SL attachment fails after
+        retries, close the position to prevent naked exposure (§3.1 invariant 13).
+
+        The stop distance is derived from ``global_stop_loss_pct`` in the
+        strategy's ``live_config.risk`` block. If that field is not configured,
+        this method is a no-op — the position stays unprotected but the
+        interpreter's own ``strategy.exit(stop=...)`` may still attach one.
+        """
+        if self._global_sl_pct is None or self._global_sl_pct <= 0:
+            return
+
+        client = self._client()
+
+        # Compute stop price from entry.
+        if is_buy:
+            sl_price = entry_price * (1.0 - self._global_sl_pct / 100.0)
+        else:
+            sl_price = entry_price * (1.0 + self._global_sl_pct / 100.0)
+        sl_price = round(sl_price, 2)
+
+        # Fetch position id (needed for the positionSlTp endpoint).
+        try:
+            pos_id = client.get_open_position_id(self.pair)
+        except Exception:  # noqa: BLE001
+            pos_id = None
+        if pos_id is None:
+            self._log("warning", "slattach.no_position", {"oid": entry_oid, "pair": self.pair})
+            self._close_naked(entry_oid=entry_oid, reason="slattach_no_position")
+            return
+
+        # Attempt with retries (§4.3 retry budget).
+        last_exc = None
+        for attempt in range(_SL_MAX_RETRIES):
+            try:
+                client.set_position_sl_tp(
+                    position_id=pos_id, sl_price=sl_price, symbol=self.pair
+                )
+                self._log("info", "order.sltp_auto", {
+                    "oid": entry_oid, "pair": self.pair, "sl": sl_price, "attempt": attempt + 1,
+                })
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                self._log("warning", "slattach.retry", {
+                    "oid": entry_oid, "attempt": attempt + 1, "error": type(exc).__name__,
+                })
+                if attempt < _SL_MAX_RETRIES - 1:
+                    time.sleep(_SL_RETRY_DELAY * (2 ** attempt))
+
+        # All retries exhausted — close position to prevent naked exposure.
+        self._log("error", "slattach.failed", {
+            "oid": entry_oid, "pair": self.pair, "error": type(last_exc).__name__,
+            "sl_price": sl_price,
+        })
+        self._close_naked(entry_oid=entry_oid, reason="slattach_failed")
+
+    def _close_naked(self, *, entry_oid: str, reason: str) -> None:
+        """Emergency close of an unprotected position (§3.1 invariant 13)."""
+        from apps.exchange.tabdeal_errors import TabdealAPIError
+
+        client = self._client()
+        try:
+            client.close_position(self.pair)
+        except TabdealAPIError as exc:
+            self._log("error", "naked_close_rejected", {"oid": entry_oid, "error": exc.info.code})
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._log("error", "naked_close_rejected", {"oid": entry_oid, "error": type(exc).__name__})
+            return
+
+        # Remove from open tracking.
+        self._open_orders.pop(entry_oid, None)
+        self.last_action = f"EMERGENCY CLOSE ({reason})"
+        self._log("warning", "naked_close_executed", {"oid": entry_oid, "reason": reason, "pair": self.pair})
 
     # ----- order placement core -----
 
@@ -225,32 +345,50 @@ class TabdealLiveBroker:
     def entry(self, oid, direction, price, bar_index, qty=None, **kwargs):
         is_buy = str(direction).lower() in ("long", "strategy.long")
         target_side = "long" if is_buy else "short"
-        for open_oid, meta in list(self._open_orders.items()):
-            if meta.get("side") != target_side:
-                self.close(open_oid, price, bar_index, reason="reversal")
 
-        client = self._client()
-        qty_final = self._compute_qty(client, float(price or 0))
-        if qty_final <= 0:
-            self._log("warning", "order.size_zero", {"oid": oid, "pair": self.pair, "price": price})
-            return None
+        # §1 invariant 8: one in-flight order per symbol.
+        mutex = None
+        try:
+            mutex = _run_sync(_acquire_mutex(self.pair, owner=f"broker-{self.strategy.pk}"))
+            if mutex is None:
+                self._log("warning", "order.mutex_busy", {"oid": oid, "pair": self.pair})
+                return None
 
-        rec = self._place(is_buy=is_buy, oid=oid, price=price, qty=qty_final)
-        if rec is not None and rec.status != "rejected":
-            self._open_orders[str(oid)] = {"side": target_side, "qty": qty_final}
-            from apps.telegram.tasks import dispatch_telegram_alert
+            for open_oid, meta in list(self._open_orders.items()):
+                if meta.get("side") != target_side:
+                    self.close(open_oid, price, bar_index, reason="reversal")
 
-            dispatch_telegram_alert.delay(
-                user_id=self.strategy.user_id,
-                strategy_name=self.strategy.name,
-                symbol=self.symbol,
-                action=f"{'LONG' if is_buy else 'SHORT'} Entry",
-                price=f"Entry Price: ${price}" if price else "",
-                leverage=f"Leverage: {self._leverage}x",
-                qty=str(qty_final),
-                position_side="LONG" if is_buy else "SHORT",
-            )
-        return rec
+            client = self._client()
+            qty_final = self._compute_qty(client, float(price or 0))
+            if qty_final <= 0:
+                self._log("warning", "order.size_zero", {"oid": oid, "pair": self.pair, "price": price})
+                return None
+
+            rec = self._place(is_buy=is_buy, oid=oid, price=price, qty=qty_final)
+            if rec is not None and rec.status != "rejected":
+                self._open_orders[str(oid)] = {"side": target_side, "qty": qty_final}
+                from apps.telegram.tasks import dispatch_telegram_alert
+
+                dispatch_telegram_alert.delay(
+                    user_id=self.strategy.user_id,
+                    strategy_name=self.strategy.name,
+                    symbol=self.symbol,
+                    action=f"{'LONG' if is_buy else 'SHORT'} Entry",
+                    price=f"Entry Price: ${price}" if price else "",
+                    leverage=f"Leverage: {self._leverage}x",
+                    qty=str(qty_final),
+                    position_side="LONG" if is_buy else "SHORT",
+                )
+
+                # §3.1 invariant 13: auto-attach SL to prevent naked exposure.
+                fill_px = float(rec.avg_fill_price or price or 0)
+                if fill_px > 0:
+                    self._attach_sl_after_entry(entry_oid=str(oid), entry_price=fill_px, is_buy=is_buy)
+
+            return rec
+        finally:
+            if mutex is not None:
+                _run_sync(mutex.release())
 
     def close(self, oid, price, bar_index, **kwargs):
         from apps.exchange.tabdeal_errors import TabdealAPIError
@@ -303,8 +441,7 @@ class TabdealLiveBroker:
             raw=resp if isinstance(resp, dict) else {},
         )
         self.last_action = f"CLOSE at {exit_px}"
-        if oid in self._open_orders:
-            del self._open_orders[oid]
+        self._open_orders.pop(str(oid), None)
         self._log("info", "order.closed", {"oid": oid, "pair": self.pair, "px": exit_px, "reason": exit_reason})
 
         from apps.telegram.tasks import dispatch_telegram_alert

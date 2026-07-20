@@ -53,6 +53,7 @@ class RiskConfig:
     leverage: float | None = None
     position_size_pct: float | None = None
     max_notional_usdt: float | None = None
+    global_stop_loss_pct: float | None = None
 
     @classmethod
     def from_dict(cls, data: dict | None) -> RiskConfig:
@@ -69,6 +70,7 @@ class RiskConfig:
             leverage=data.get("leverage"),
             position_size_pct=data.get("position_size_pct"),
             max_notional_usdt=data.get("max_notional_usdt"),
+            global_stop_loss_pct=data.get("global_stop_loss_pct"),
         )
 
 
