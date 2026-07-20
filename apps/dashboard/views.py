@@ -167,6 +167,114 @@ class CandlesView(APIView):
         return Response({"symbol": symbol, "bar": bar, "candles": candles})
 
 
+def _pos_pct(pnl, entry_price, size) -> float:
+    denom = abs(float(entry_price) * float(size))
+    return round(float(pnl) / denom * 100, 2) if denom > 0 else 0.0
+
+
+def _strategy_leverage(strategy) -> float:
+    from apps.risk.config import DEFAULT_LEVERAGE, read_risk
+
+    return float(read_risk(strategy.live_config or {}).get("leverage", DEFAULT_LEVERAGE))
+
+
+def _trade_positions(trades, bar_time, *, leverage: float, has_levels: bool) -> list[dict]:
+    """Build per-position objects (entry→exit ribbons) from backtest/paper trades."""
+    positions: list[dict] = []
+    for t in trades:
+        et = bar_time(t.entry_bar)
+        if et is None:
+            continue
+        entry_price = float(t.entry_price)
+        size = float(t.size)
+        pos = {
+            "id": t.pk,
+            "side": t.side,
+            "entry": {"time": et, "price": entry_price, "qty": size},
+            "exit": None,
+            "sl": None,
+            "tp": None,
+            "liq": None,
+            "pnl": float(getattr(t, "pnl", 0) or 0),
+            "pnl_pct": _pos_pct(getattr(t, "pnl", 0) or 0, entry_price, size),
+            "leverage": leverage,
+        }
+        xt = bar_time(t.exit_bar)
+        if xt is not None and getattr(t, "exit_price", None) is not None:
+            pos["exit"] = {
+                "time": xt,
+                "price": float(t.exit_price),
+                "qty": size,
+                "reason": getattr(t, "exit_reason", "") or "signal",
+            }
+        if has_levels:
+            if getattr(t, "stop_px", None) is not None:
+                pos["sl"] = float(t.stop_px)
+            if getattr(t, "limit_px", None) is not None:
+                pos["tp"] = float(t.limit_px)
+        positions.append(pos)
+    return positions
+
+
+def _quality_series(symbol: str, ts_list: list[int], tf: str) -> list[dict]:
+    """Per-bar quality (CLEAN/SUSPECT/MISSING) from ledger coverage; [] if unrecorded.
+
+    Empty when the symbol has no ingest coverage (e.g. an imported historical
+    archive) — the chart then renders no degraded band rather than crying wolf.
+    """
+    from apps.exchange import coverage as cov_svc
+    from apps.exchange.data_quality import classify_bar
+    from apps.exchange.ledger import union_coverage
+    from apps.exchange.timeframes import is_fixed, tf_to_ms
+
+    if not ts_list or not is_fixed(tf) or not union_coverage(symbol):
+        return []
+    tf_ms = tf_to_ms(tf)
+    out: list[dict] = []
+    for ts_s in ts_list:
+        t0 = int(ts_s) * 1000
+        pct = cov_svc.coverage_pct(symbol, t0, t0 + tf_ms)
+        covered = int(round(pct * tf_ms))
+        q = classify_bar({"trade_count": 1}, covered_ms=covered, tf_ms=tf_ms).value
+        out.append({"time": int(ts_s), "q": q})
+    return out
+
+
+def _live_open_position(strategy) -> dict | None:
+    """Best-effort snapshot of the strategy's open Tabdeal position (entry/qty/liq)."""
+    from apps.credentials.models import Exchange
+
+    cred = getattr(strategy, "credential", None)
+    if cred is None or cred.exchange != Exchange.TABDEAL or not cred.is_active:
+        return None
+    try:
+        from apps.exchange.tabdeal_futures import TabdealFuturesClient
+        from apps.transpiler.runtime.tabdeal_broker import to_tabdeal_symbol
+
+        client = TabdealFuturesClient(cred)
+        pos = client.get_position(to_tabdeal_symbol(strategy.symbol))
+        if not pos:
+            return None
+        amt = float(pos.get("positionAmt", 0) or 0)
+        return {
+            "side": "long" if amt >= 0 else "short",
+            "entry": {
+                "time": None,
+                "price": float(pos.get("entryPrice", 0) or 0),
+                "qty": abs(amt),
+            },
+            "exit": None,
+            "sl": None,
+            "tp": None,
+            "liq": float(pos.get("liquidationPrice", 0) or 0) or None,
+            "pnl": float(pos.get("unRealizedProfit", pos.get("unrealizedProfit", 0)) or 0),
+            "pnl_pct": 0.0,
+            "leverage": _strategy_leverage(strategy),
+        }
+    except Exception:  # noqa: BLE001 — never let a live API hiccup break the chart
+        return None
+
+
 class MarkersView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -178,6 +286,9 @@ class MarkersView(APIView):
 
         strategy = get_object_or_404(Strategy, pk=strategy_id, user=request.user)
         markers = []
+        positions: list[dict] = []
+        open_position: dict | None = None
+        quality: list[dict] = []
 
         if source == "backtest":
             from apps.exchange.candle_store import load_candles
@@ -243,9 +354,14 @@ class MarkersView(APIView):
                         levels.append({"time": entry_time, "price": float(trade.stop_px), "type": "stop"})
                     if trade.limit_px is not None:
                         levels.append({"time": entry_time, "price": float(trade.limit_px), "type": "take_profit"})
-            return Response(
-                {"strategy_id": strategy.pk, "source": source, "markers": markers, "levels": levels}
+            positions = _trade_positions(
+                trades, bar_time, leverage=_strategy_leverage(strategy), has_levels=True
             )
+            quality = _quality_series(bt.symbol, ts_list, bt.timeframe)
+            return Response({
+                "strategy_id": strategy.pk, "source": source, "markers": markers, "levels": levels,
+                "positions": positions, "open_position": None, "quality": quality,
+            })
         elif source == "paper":
             from apps.exchange.candle_store import load_candles
             from apps.paper.models import PaperAccount, PaperTrade
@@ -287,8 +403,16 @@ class MarkersView(APIView):
                                 "side": trade.side,
                             }
                         )
+                positions = _trade_positions(
+                    trades, bar_time, leverage=_strategy_leverage(strategy), has_levels=False
+                )
+                quality = _quality_series(strategy.symbol, ts_list, strategy.timeframe)
         else:
-            orders = OrderRecord.objects.filter(strategy=strategy).order_by("created_at")
+            orders = list(
+                OrderRecord.objects.filter(strategy=strategy).order_by("created_at")
+            )
+            leverage = _strategy_leverage(strategy)
+            open_entry: dict | None = None
             for order in orders:
                 ts = int(order.created_at.timestamp())
                 is_buy = order.side == OrderRecord.Side.BUY
@@ -302,8 +426,39 @@ class MarkersView(APIView):
                         "side": order.side,
                     }
                 )
+                # Pair fills into positions: a fill that flips side closes the open one.
+                px = float(order.avg_fill_price or order.price or 0)
+                qty = float(order.filled_size or order.size or 0)
+                side = "long" if is_buy else "short"
+                if open_entry is None:
+                    open_entry = {"time": ts, "price": px, "qty": qty, "side": side, "order_id": order.pk}
+                elif open_entry["side"] != side:
+                    entry_px = open_entry["price"]
+                    pnl = (px - entry_px) * open_entry["qty"] * (1 if open_entry["side"] == "long" else -1)
+                    positions.append({
+                        "id": open_entry["order_id"], "side": open_entry["side"],
+                        "entry": {"time": open_entry["time"], "price": entry_px,
+                                  "qty": open_entry["qty"], "order_id": open_entry["order_id"]},
+                        "exit": {"time": ts, "price": px, "qty": qty, "reason": "signal"},
+                        "sl": None, "tp": None, "liq": None,
+                        "pnl": round(pnl, 4), "pnl_pct": _pos_pct(pnl, entry_px, open_entry["qty"]),
+                        "leverage": leverage,
+                    })
+                    open_entry = None
+            open_position = _live_open_position(strategy)
+            try:
+                from apps.exchange.candle_store import load_candles_from_db
 
-        return Response({"strategy_id": strategy.pk, "source": source, "markers": markers})
+                df = load_candles_from_db(strategy.symbol, strategy.timeframe, limit=1000)
+                ts_list = [int(t // 1000) for t in df["ts"].tolist()] if not df.empty else []
+                quality = _quality_series(strategy.symbol, ts_list, strategy.timeframe)
+            except Exception:  # noqa: BLE001
+                quality = []
+
+        return Response({
+            "strategy_id": strategy.pk, "source": source, "markers": markers,
+            "positions": positions, "open_position": open_position, "quality": quality,
+        })
 
 
 class AnalyticsView(APIView):

@@ -1,11 +1,21 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api, type Candle, type ChartMarker, type ChartPriceLevel } from '../api/client'
+import {
+  api,
+  type Candle,
+  type ChartMarker,
+  type ChartPriceLevel,
+  type ChartPosition,
+  type ChartQualityPoint,
+} from '../api/client'
 
 export const useChartStore = defineStore('chart', () => {
   const candles = ref<Candle[]>([])
   const markers = ref<ChartMarker[]>([])
   const levels = ref<ChartPriceLevel[]>([])
+  const positions = ref<ChartPosition[]>([])
+  const openPosition = ref<ChartPosition | null>(null)
+  const quality = ref<ChartQualityPoint[]>([])
   const pnl = ref<string>('0')
   const loading = ref(false)
 
@@ -31,12 +41,18 @@ export const useChartStore = defineStore('chart', () => {
     const params: Record<string, string | number> = { strategy_id: strategyId, source }
     if (backtestId != null) params.backtest_id = backtestId
     if (network) params.network = network
-    const { data } = await api.get<{ markers: ChartMarker[]; levels?: ChartPriceLevel[] }>(
-      '/markers/',
-      { params },
-    )
+    const { data } = await api.get<{
+      markers: ChartMarker[]
+      levels?: ChartPriceLevel[]
+      positions?: ChartPosition[]
+      open_position?: ChartPosition | null
+      quality?: ChartQualityPoint[]
+    }>('/markers/', { params })
     markers.value = data.markers
     levels.value = data.levels ?? []
+    positions.value = data.positions ?? []
+    openPosition.value = data.open_position ?? null
+    quality.value = data.quality ?? []
     return data.markers
   }
 
@@ -88,6 +104,9 @@ export const useChartStore = defineStore('chart', () => {
     candles,
     markers,
     levels,
+    positions,
+    openPosition,
+    quality,
     pnl,
     loading,
     fetchCandles,

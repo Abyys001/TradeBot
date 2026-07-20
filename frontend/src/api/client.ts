@@ -189,6 +189,34 @@ export interface ChartPriceLevel {
   type: 'stop' | 'take_profit' | string
 }
 
+export interface ChartPositionSide {
+  time: number | null
+  price: number
+  qty: number
+  order_id?: number
+  reason?: string
+}
+
+export interface ChartPosition {
+  id: number
+  side: string
+  entry: ChartPositionSide
+  exit: ChartPositionSide | null
+  sl: number | null
+  tp: number | null
+  liq: number | null
+  pnl: number
+  pnl_pct: number
+  leverage: number
+}
+
+export type BarQuality = 'CLEAN' | 'FLAT' | 'SUSPECT' | 'MISSING'
+
+export interface ChartQualityPoint {
+  time: number
+  q: BarQuality | string
+}
+
 export interface MarketDataReadiness {
   symbol: string
   timeframe: string
