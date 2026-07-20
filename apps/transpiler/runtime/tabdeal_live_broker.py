@@ -34,11 +34,13 @@ class TabdealLiveBroker:
         self._leverage_set = False
         self._open_orders: dict[str, dict] = {}
 
+        from apps.risk.config import read_risk
+
         live_config = getattr(strategy, "live_config", None) or {}
-        risk_block = live_config.get("risk") or {}
+        risk = read_risk(live_config)
         self._live_config = live_config
-        self._position_size_pct = float(risk_block.get("position_size_pct", 20))
-        self._leverage = float(leverage if leverage is not None else risk_block.get("leverage", 5))
+        self._position_size_pct = float(risk.get("position_size_pct", 20))
+        self._leverage = float(leverage if leverage is not None else risk.get("leverage", 5))
 
     # ----- helpers -----
 

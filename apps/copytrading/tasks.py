@@ -172,7 +172,9 @@ def fan_out_signal_task(strategy_id: int, actions: list[dict]):
         return {"ok": False, "reason": "no active signal"}
 
     live_config = strategy.live_config or {}
-    leverage = float(live_config.get("leverage", 1) or 1)
+    from apps.risk.config import read_risk
+
+    leverage = float(read_risk(live_config).get("leverage", 1) or 1)
     risk_config = parse_risk_config(live_config)
 
     subs = CopySubscription.objects.filter(signal=signal, is_active=True).select_related(

@@ -152,6 +152,7 @@ export interface LiveConfig {
     max_open_trades?: number
     max_exposure_pct?: number
     max_leverage?: number
+    max_notional_usdt?: number
   }
 }
 

@@ -213,12 +213,14 @@ def run_backtest_stored_task(
 
         _progress("running_backtest", 40)
         live_config = strategy.live_config or {}
+        from apps.risk.config import read_risk
+
         result = run_backtest(
             strategy.source,
             df,
             commission=commission,
             slippage=slippage,
-            leverage=live_config.get("leverage"),
+            leverage=read_risk(live_config).get("leverage"),
             initial_balance=initial_balance,
             funding_df=funding_df if not funding_df.empty else None,
             live_config=live_config,

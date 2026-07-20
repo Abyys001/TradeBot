@@ -57,6 +57,21 @@ class ExchangeCredential(models.Model):
     api_secret_enc = models.BinaryField(
         blank=True, default=b"", help_text="Encrypted REST API secret (e.g. Tabdeal). Empty for Hyperliquid."
     )
+    # --- Independent watchdog key (§1.3). Blank -> the watchdog falls back to the
+    # primary key. A separate, independently-revocable key is the spec-ideal. ---
+    watchdog_api_key_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Encrypted watchdog REST API key. Blank -> reuse primary."
+    )
+    watchdog_api_secret_enc = models.BinaryField(
+        blank=True, default=b"", help_text="Encrypted watchdog REST API secret. Blank -> reuse primary."
+    )
+    # --- Empirical probe results (§4), written by the diagnostics endpoint. ---
+    probe_results = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Results of the last exchange-behaviour diagnostics run (§4).",
+    )
+    probed_at = models.DateTimeField(null=True, blank=True)
     agent_address = models.CharField(
         max_length=42,
         blank=True,
@@ -119,3 +134,24 @@ class ExchangeCredential(models.Model):
     def get_api_secret(self) -> str:
         """Decrypt API secret into memory. Never log or serialize the result."""
         return decrypt(bytes(self.api_secret_enc))
+
+    def set_watchdog_api_credentials(self, api_key: str, api_secret: str) -> None:
+        """Encrypt and store the independent watchdog key pair. Does not save()."""
+        self.watchdog_api_key_enc = encrypt(api_key.strip()) if api_key else b""
+        self.watchdog_api_secret_enc = encrypt(api_secret.strip()) if api_secret else b""
+
+    @property
+    def has_watchdog_key(self) -> bool:
+        return bool(self.watchdog_api_key_enc and self.watchdog_api_secret_enc)
+
+    def get_watchdog_api_key(self) -> str:
+        """Watchdog key, falling back to the primary key when none is set."""
+        if self.watchdog_api_key_enc:
+            return decrypt(bytes(self.watchdog_api_key_enc))
+        return self.get_api_key()
+
+    def get_watchdog_api_secret(self) -> str:
+        """Watchdog secret, falling back to the primary secret when none is set."""
+        if self.watchdog_api_secret_enc:
+            return decrypt(bytes(self.watchdog_api_secret_enc))
+        return self.get_api_secret()

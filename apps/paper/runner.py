@@ -83,9 +83,11 @@ class PaperIncrementalRunner:
         window.append_closed(candle)
         program = compile(strategy.source)
         live_config = strategy.live_config or {}
+        from apps.risk.config import read_risk
+
         broker = PaperBroker(
             account,
-            leverage=float(live_config.get("leverage", 1)),
+            leverage=float(read_risk(live_config).get("leverage", 1)),
             initial_balance=float(account.balance),
             allow_pyramiding=bool(live_config.get("pyramiding")),
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from apps.risk.config import parse_risk_config
+from apps.risk.config import parse_risk_config, read_risk
 from apps.risk.manager import RiskManager
 
 from . import ast_nodes as ast
@@ -83,7 +83,7 @@ def run_backtest_pine(
     comm = commission if commission is not None else _coerce_float(hk.get("commission_value"), 0.0)
     slip = slippage if slippage is not None else _coerce_float(hk.get("slippage"), 0.0)
     lev = leverage if leverage is not None else _coerce_float(
-        (live_config or {}).get("leverage", 1), 1.0
+        read_risk(live_config).get("leverage", 1), 1.0
     )
 
     risk_cfg = parse_risk_config(live_config)

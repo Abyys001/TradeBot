@@ -65,7 +65,9 @@ class StartStrategyView(APIView):
 
         live_config = strategy.live_config or {}
         copy_mode = bool(live_config.get("copy_trading"))
-        leverage = (live_config.get("risk") or {}).get("leverage", live_config.get("leverage"))
+        from apps.risk.config import read_risk
+
+        leverage = read_risk(live_config).get("leverage")
         if copy_mode:
             # Fan-out mode: auto-subscribe all active investors' Tabdeal accounts,
             # plus the strategy owner's own active Tabdeal credential if any.

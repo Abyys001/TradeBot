@@ -57,6 +57,7 @@ export function useStrategyForm(strategyId: Ref<number> | number) {
         max_open_trades: s.live_config?.risk?.max_open_trades ?? 3,
         max_exposure_pct: s.live_config?.risk?.max_exposure_pct ?? 50,
         max_leverage: s.live_config?.risk?.max_leverage ?? 10,
+        max_notional_usdt: s.live_config?.risk?.max_notional_usdt ?? 2000,
       },
     }
     validationMsg.value = ''

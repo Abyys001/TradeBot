@@ -51,12 +51,12 @@ class LiveBroker:
         self._exchange = None
         self._name = None
         self.last_action = "No Action"
-        from apps.risk.config import parse_risk_config
+        from apps.risk.config import parse_risk_config, read_risk
         from apps.risk.manager import RiskManager
 
         live_config = getattr(strategy, "live_config", None) or {}
         self._risk_manager = RiskManager(parse_risk_config(live_config))
-        self._leverage = float(live_config.get("leverage", 1))
+        self._leverage = float(read_risk(live_config).get("leverage", 1))
         self._open_orders: dict[str, dict] = {}
         self.copy_intents: list[dict] = []
 

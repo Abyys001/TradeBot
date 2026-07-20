@@ -250,6 +250,38 @@ class TabdealFuturesClient:
         data = self._signed("GET", "/r/fapi/v1/openOrders", params)
         return data if isinstance(data, list) else data.get("orders", [])
 
+    def all_orders(self, symbol: str, *, start_time: int | None = None, limit: int = 50) -> list[dict]:
+        """All orders (open, filled, cancelled) for a symbol — used by the
+        post-timeout reconciler (§3.4) to answer "did the order exist at all?".
+        """
+        params: dict = {"symbol": symbol, "limit": limit}
+        if start_time is not None:
+            params["startTime"] = int(start_time)
+        data = self._signed("GET", "/r/fapi/v1/allOrders", params)
+        return data if isinstance(data, list) else data.get("orders", [])
+
+    def income(
+        self,
+        *,
+        income_type: str | None = None,
+        start_time: int | None = None,
+        end_time: int | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Income history — the exchange's own accounting (realized PnL, fees,
+        funding). Authority for the daily-loss gate (§2.2); pass
+        ``income_type="TradePNL"`` + ``start_time=<00:00 UTC>``.
+        """
+        params: dict = {"limit": limit}
+        if income_type:
+            params["incomeType"] = income_type
+        if start_time is not None:
+            params["startTime"] = int(start_time)
+        if end_time is not None:
+            params["endTime"] = int(end_time)
+        data = self._signed("GET", "/r/fapi/v1/income", params)
+        return data if isinstance(data, list) else data.get("income", [])
+
     # ----- position close & protective SL/TP -----
 
     def close_position(self, symbol: str) -> dict:
