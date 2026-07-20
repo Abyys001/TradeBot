@@ -109,51 +109,6 @@ services:
     mem_limit: 256m
     cpus: 0.5
 
-  market-feed:
-    <<: *app-common
-    command:
-      - sh
-      - -c
-      - |
-        if [ "$RELOAD" = "1" ]; then
-          watchfiles --filter python "python manage.py run_market_feed" /app
-        else
-          python manage.py run_market_feed
-        fi
-    restart: unless-stopped
-    mem_limit: 512m
-    cpus: 0.5
-
-  user-feed:
-    <<: *app-common
-    command:
-      - sh
-      - -c
-      - |
-        if [ "$RELOAD" = "1" ]; then
-          watchfiles --filter python "python manage.py run_user_feed" /app
-        else
-          python manage.py run_user_feed
-        fi
-    restart: unless-stopped
-    mem_limit: 512m
-    cpus: 0.5
-
-  candle-consumer:
-    <<: *app-common
-    command:
-      - sh
-      - -c
-      - |
-        if [ "$RELOAD" = "1" ]; then
-          watchfiles --filter python "python manage.py consume_hl_candles" /app
-        else
-          python manage.py consume_hl_candles
-        fi
-    restart: unless-stopped
-    mem_limit: 512m
-    cpus: 0.5
-
   # --- Tabdeal trade ingest — N>=2 redundant nodes (Master Plan §0.1, §2 Node A).
   # Each writes its own ledger partition (INGEST_NODE_ID); readers take the union,
   # so one node losing its socket is a recoverable Class-2 gap, not a lost history.

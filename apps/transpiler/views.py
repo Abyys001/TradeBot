@@ -84,7 +84,7 @@ class BacktestStoredStrategyView(APIView):
 
         from django.utils import timezone
 
-        from apps.exchange.hl_constants import HL_TAKER_FEE
+        from apps.exchange.constants import HL_TAKER_FEE
 
         strategy = _user_strategy(request, pk)
         coin = request.data.get("coin") or strategy.symbol
