@@ -8,8 +8,7 @@ from __future__ import annotations
 from enum import Enum
 
 from apps.exchange.candle_store import load_candles, load_candles_from_db
-from apps.exchange.candles import _INTERVAL_MS
-from apps.exchange.hl_constants import normalize_coin, normalize_interval
+from apps.exchange.constants import INTERVAL_MS, normalize_coin, normalize_interval
 
 
 class BarQuality(str, Enum):
@@ -104,7 +103,7 @@ def find_gaps(
     """Detect missing candles based on expected interval spacing."""
     coin = normalize_coin(coin)
     interval = normalize_interval(interval)
-    bar_ms = _INTERVAL_MS.get(interval, 60_000)
+    bar_ms = INTERVAL_MS.get(interval, 60_000)
 
     if source == "parquet":
         df = load_candles(coin, interval, network=network)
@@ -144,7 +143,7 @@ def dataset_quality_light(
         return {"healthy": True, "gap_count": 0, "missing_bars": 0}
 
     interval = normalize_interval(interval)
-    bar_ms = _INTERVAL_MS.get(interval, 60_000)
+    bar_ms = INTERVAL_MS.get(interval, 60_000)
     expected = int((end_ts - start_ts) / bar_ms) + 1
     missing = max(0, expected - bars)
     return {

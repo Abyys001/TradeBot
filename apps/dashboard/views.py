@@ -12,7 +12,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.credentials.models import ExchangeCredential
-from apps.exchange.candles import BAR_MAP, CandleFetchError, fetch_candles
+from apps.exchange.candle_store import CandleFetchError, fetch_candles
+from apps.exchange.constants import BAR_MAP
 from apps.execution.models import ExecutionLog, OrderRecord
 from apps.strategies.models import Strategy
 from apps.transpiler.models import BacktestTrade

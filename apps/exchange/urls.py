@@ -1,20 +1,15 @@
-from django.urls import include, path
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
 from .views import (
     ArchiveImportView,
     HistoryCandlesView,
     HistoryCoverageView,
     HistoryDatasetsView,
-    HistoryDownloadViewSet,
     HistoryFundingView,
     HistoryGapsView,
     HistoryMarketsView,
     HistoryQualityView,
 )
-
-router = DefaultRouter()
-router.register("history/downloads", HistoryDownloadViewSet, basename="history-download")
 
 urlpatterns = [
     path("history/datasets/", HistoryDatasetsView.as_view(), name="history-datasets"),
@@ -25,5 +20,4 @@ urlpatterns = [
     path("history/quality/", HistoryQualityView.as_view(), name="history-quality"),
     path("history/markets/", HistoryMarketsView.as_view(), name="history-markets"),
     path("history/import-archive/", ArchiveImportView.as_view(), name="history-import-archive"),
-    path("", include(router.urls)),
 ]

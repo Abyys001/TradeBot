@@ -42,7 +42,7 @@ class HistoryDownloadSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: HistoryDownload) -> dict:
         data = super().to_representation(instance)
         if not data.get("progress"):
-            from .history_download import build_initial_progress
+            from .history_jobs import build_initial_progress
 
             data["progress"] = build_initial_progress(
                 instance.coins,

@@ -1,10 +1,9 @@
 """Exchange-agnostic client interface + factory.
 
 Copy-trading and live execution route orders through this interface so the
-same signal can be mirrored onto any supported exchange (Hyperliquid, Tabdeal)
-using each investor's own credentials. Concrete clients live in
-``hl_client``/``tabdeal_client``; ``get_client`` picks one by
-``credential.exchange``.
+same signal can be mirrored onto any supported exchange using each investor's
+own credentials. Concrete clients live in ``tabdeal_client``; ``get_client``
+picks one by ``credential.exchange``.
 """
 from __future__ import annotations
 
@@ -57,15 +56,11 @@ def get_client(credential) -> ExchangeClient:
     """Return the exchange client bound to ``credential``.
 
     Keyed on ``credential.exchange``; import concrete clients lazily to avoid
-    pulling heavy SDKs (hyperliquid, requests) at module import time.
+    pulling heavy SDKs at module import time.
     """
     from apps.credentials.models import Exchange
 
     exchange = credential.exchange
-    if exchange == Exchange.HYPERLIQUID:
-        from .hl_client import HyperliquidClient
-
-        return HyperliquidClient(credential)
     if exchange == Exchange.TABDEAL:
         from .tabdeal_client import TabdealClient
 

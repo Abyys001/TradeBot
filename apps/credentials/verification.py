@@ -14,6 +14,5 @@ def verify_credential(cred) -> tuple[bool, str]:
         from apps.exchange.tabdeal_futures import verify_tabdeal_credential
 
         return verify_tabdeal_credential(cred)
-    from apps.exchange.hl_client import verify_credential as hl_verify
-
-    return hl_verify(cred)
+    # Hyperliquid verification removed
+    return False, "Hyperliquid credentials are no longer supported"

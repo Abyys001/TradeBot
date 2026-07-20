@@ -1,10 +1,7 @@
 """REST API for historical market data management."""
 from __future__ import annotations
 
-import time
-
-from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,15 +15,13 @@ from apps.exchange.candle_store import (
     load_candles_from_db,
     load_funding_from_db,
 )
-from apps.exchange.hl_constants import BAR_MAP, normalize_coin, normalize_interval
-from apps.exchange.history_download import DEFAULT_START, VALID_DATA_TYPES, build_initial_progress, date_to_ms, job_has_retryable_pairs, known_perp_coins, reset_pairs_for_retry
+from apps.exchange.constants import BAR_MAP, normalize_coin, normalize_interval
 
 from .models import HistoryDownload
-from .serializers import HistoryDownloadSerializer, is_stale_pending
-from .tasks import download_history_task, import_archive_task
+from .serializers import HistoryDownloadSerializer
+from .tasks import import_archive_task
 
 _VALID_NETWORKS = frozenset({"mainnet", "testnet"})
-_VALID_DATA_TYPES = frozenset(VALID_DATA_TYPES)
 _VALID_KINDS = frozenset({"ohlcv", "funding", "open_interest"})
 
 
@@ -242,200 +237,15 @@ class HistoryMarketsView(APIView):
     def get(self, request):
         network = request.query_params.get("network", "mainnet")
         intervals = sorted(set(BAR_MAP.values()))
+        # Tabdeal-only: markets are whatever we have actually recorded locally
+        # (no exchange metadata backfill). Derive coins from the stored datasets.
         try:
-            coins = sorted(known_perp_coins(network))
+            coins = sorted({ds.get("coin") for ds in list_datasets(network=network) if ds.get("coin")})
         except Exception as exc:  # noqa: BLE001
             return Response(
                 {"network": network, "coins": [], "intervals": intervals, "error": str(exc)}
             )
         return Response({"network": network, "coins": coins, "intervals": intervals})
-
-
-class HistoryDownloadViewSet(
-    mixins.CreateModelMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
-):
-    permission_classes = [IsAuthenticated]
-    serializer_class = HistoryDownloadSerializer
-
-    def get_queryset(self):
-        return HistoryDownload.objects.filter(user=self.request.user).order_by("-created_at")
-
-    def create(self, request, *args, **kwargs):
-        coins = request.data.get("coins") or []
-        intervals = request.data.get("intervals") or []
-        data_types = request.data.get("data_types") or ["ohlcv"]
-
-        if "trades" in data_types:
-            return Response(
-                {"error": "trades have no Hyperliquid history endpoint and cannot be backfilled"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        invalid = [d for d in data_types if d not in _VALID_DATA_TYPES]
-        if invalid:
-            return Response(
-                {"error": f"invalid data_types: {', '.join(invalid)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not coins:
-            return Response(
-                {"error": "coins required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if "ohlcv" in data_types and not intervals:
-            return Response(
-                {"error": "intervals required for ohlcv"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        network = request.data.get("network", "mainnet")
-        if network not in _VALID_NETWORKS:
-            return Response(
-                {"error": f"invalid network: {network}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        start_str = request.data.get("start", DEFAULT_START)
-        end_str = request.data.get("end")
-
-        try:
-            start_ms = int(request.data["start"]) if str(request.data.get("start", "")).isdigit() else date_to_ms(start_str)
-            if end_str:
-                end_ms = int(end_str) if str(end_str).isdigit() else date_to_ms(end_str)
-            else:
-                end_ms = int(time.time() * 1000)
-        except (TypeError, ValueError) as exc:
-            return Response({"error": f"bad date: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
-
-        if start_ms >= end_ms:
-            return Response(
-                {"error": "start must be before end"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            norm_coins = [normalize_coin(c) for c in coins]
-            norm_intervals = [normalize_interval(i) for i in intervals]
-        except ValueError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        job = HistoryDownload.objects.create(
-            user=request.user,
-            network=network,
-            coins=norm_coins,
-            intervals=norm_intervals,
-            data_types=list(data_types),
-            start_ms=start_ms,
-            end_ms=end_ms,
-            progress=build_initial_progress(norm_coins, norm_intervals, list(data_types)),
-        )
-        try:
-            download_history_task.delay(job.id)
-        except Exception as exc:  # noqa: BLE001
-            job.status = HistoryDownload.Status.FAILED
-            job.error = f"Failed to queue task: {exc}"
-            job.save(update_fields=["status", "error"])
-            return Response(
-                HistoryDownloadSerializer(job).data,
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        publish_dashboard(
-            request.user.pk,
-            {
-                "source": "history_download",
-                "job_id": job.id,
-                "status": "pending",
-                "progress": job.progress,
-            },
-        )
-        return Response(
-            HistoryDownloadSerializer(job).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-    @action(detail=True, methods=["post"])
-    def retry(self, request, pk=None):
-        job = self.get_object()
-        retryable_done = job.status == HistoryDownload.Status.DONE and job_has_retryable_pairs(job.progress)
-        if job.status not in {
-            HistoryDownload.Status.FAILED,
-            HistoryDownload.Status.PARTIAL,
-            HistoryDownload.Status.PENDING,
-        } and not retryable_done:
-            return Response(
-                {"error": "only failed, partial, stale pending, or empty jobs can be retried"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if job.status == HistoryDownload.Status.PENDING and not is_stale_pending(job):
-            return Response(
-                {"error": "job is still queued"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        job.status = HistoryDownload.Status.PENDING
-        job.error = ""
-        if job.progress:
-            job.progress = reset_pairs_for_retry(job.progress)
-        else:
-            job.progress = build_initial_progress(job.coins, job.intervals, job.data_types or ["ohlcv"])
-        job.save(update_fields=["status", "error", "progress"])
-
-        try:
-            download_history_task.delay(job.id)
-        except Exception as exc:  # noqa: BLE001
-            job.status = HistoryDownload.Status.FAILED
-            job.error = f"Failed to queue task: {exc}"
-            job.save(update_fields=["status", "error"])
-            return Response(
-                HistoryDownloadSerializer(job).data,
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        publish_dashboard(
-            request.user.pk,
-            {
-                "source": "history_download",
-                "job_id": job.id,
-                "status": "pending",
-                "progress": job.progress,
-            },
-        )
-        return Response(HistoryDownloadSerializer(job).data, status=status.HTTP_202_ACCEPTED)
-
-    @action(detail=False, methods=["post"], url_path="retry-stale")
-    def retry_stale(self, request):
-        """Re-queue all stale pending download jobs for the current user."""
-        stale_jobs = [
-            j
-            for j in self.get_queryset().filter(status=HistoryDownload.Status.PENDING)
-            if is_stale_pending(j)
-        ]
-        retried: list[int] = []
-        failed: list[int] = []
-        for job in stale_jobs:
-            job.status = HistoryDownload.Status.PENDING
-            job.error = ""
-            job.save(update_fields=["status", "error"])
-            try:
-                download_history_task.delay(job.id)
-                retried.append(job.id)
-            except Exception as exc:  # noqa: BLE001
-                job.status = HistoryDownload.Status.FAILED
-                job.error = f"Failed to queue task: {exc}"
-                job.save(update_fields=["status", "error"])
-                failed.append(job.id)
-
-        if retried:
-            publish_dashboard(
-                request.user.pk,
-                {"source": "history_download", "status": "pending", "retried": retried},
-            )
-        return Response({"retried": retried, "failed": failed, "count": len(retried)})
 
 
 class ArchiveImportView(APIView):

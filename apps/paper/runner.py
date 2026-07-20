@@ -5,7 +5,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.dashboard.publish import publish_dashboard
-from apps.exchange.candles import fetch_candles
+from apps.exchange.candle_store import fetch_candles
 from apps.exchange.subscriptions import register_strategy, unregister_strategy
 from apps.strategies.models import Strategy, StrategyState
 from apps.transpiler.engine import compile

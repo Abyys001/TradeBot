@@ -19,7 +19,6 @@ def emergency_stop_all_task(user_id: int) -> dict:
     """
     from apps.accounts.models import User
     from apps.credentials.models import ExchangeCredential
-    from apps.exchange.hl_client import cancel_all_orders, close_all_positions
     from apps.execution.models import ExecutionLog
     from apps.strategies.models import Strategy
     from apps.transpiler.tasks import stop_live_strategy_task
@@ -40,24 +39,8 @@ def emergency_stop_all_task(user_id: int) -> dict:
         strategy.save(update_fields=["status"])
         stopped.append(strategy.pk)
 
+    # HL-specific cancel/close removed
     cancelled = []
-    cred_ids = (
-        ExchangeCredential.objects.filter(user=user, is_active=True)
-        .values_list("pk", flat=True)
-        .distinct()
-    )
-    for cred in ExchangeCredential.objects.filter(pk__in=cred_ids):
-        try:
-            cancel_result = cancel_all_orders(cred)
-            close_result = close_all_positions(cred)
-            cancelled.append({
-                "credential_id": cred.pk,
-                "cancel": cancel_result.get("ok", False),
-                "close": close_result.get("ok", False),
-            })
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("emergency stop failed for cred %s", cred.pk)
-            cancelled.append({"credential_id": cred.pk, "ok": False, "error": str(exc)})
 
     ExecutionLog.objects.create(
         strategy=None,

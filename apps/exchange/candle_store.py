@@ -21,7 +21,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Max, Min
 
-from .hl_constants import normalize_coin, normalize_interval
+from .constants import normalize_coin, normalize_interval
 from .models import Candle, FundingRate, OpenInterest
 
 logger = logging.getLogger(__name__)
@@ -285,6 +285,36 @@ def load_candles_from_db(
             "volume": [float(r.volume) for r in rows],
         }
     )
+
+
+class CandleFetchError(Exception):
+    """Raised when recent candles cannot be served from the local store."""
+
+
+def fetch_candles(
+    coin: str,
+    bar: str,
+    limit: int,
+    *,
+    network: str = "mainnet",
+) -> pd.DataFrame:
+    """Return the last *limit* recorded candles for ``(coin, bar)`` from the store.
+
+    Tabdeal-only: candles are recorded locally by the ingest engine — there is no
+    REST backfill. Reads PostgreSQL first, falls back to Parquet. Replaces the old
+    Hyperliquid ``candles.fetch_candles`` REST fetcher.
+    """
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    try:
+        df = load_candles_from_db(coin, bar, network=network, limit=limit)
+        if df.empty:
+            df = load_candles(coin, bar, network=network)
+    except Exception as exc:  # noqa: BLE001
+        raise CandleFetchError(str(exc)) from exc
+    if len(df) > limit:
+        df = df.iloc[-limit:].reset_index(drop=True)
+    return df
 
 
 def _load_range(path: Path | None, columns: list[str], start: int | None, end: int | None) -> pd.DataFrame:

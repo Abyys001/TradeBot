@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from apps.credentials.models import Exchange
 from apps.dashboard.publish import publish_dashboard
-from apps.exchange.candles import fetch_candles
+from apps.exchange.constants import INTERVAL_MS, normalize_coin, normalize_interval
 from apps.exchange.data_quality import BarQuality, should_halt
 from apps.exchange.subscriptions import register_strategy, unregister_strategy
 from apps.exchange.ws_manager import publish_update
@@ -35,14 +35,19 @@ class LiveIncrementalRunner:
     """Seed historical candles, warmup interpreter state, then process live bars."""
 
     def seed_and_warmup(self, strategy: Strategy) -> None:
-        df = fetch_candles(
-            strategy.symbol,
-            strategy.timeframe,
-            strategy.warmup_bars,
-            network=strategy.credential.network,
-        )
+        from apps.exchange.candle_store import load_candles
+
+        coin = normalize_coin(strategy.symbol)
+        interval = normalize_interval(strategy.timeframe)
+        df = load_candles(coin, interval, network=strategy.credential.network)
+        
         if df.empty:
-            raise ValueError("no candles returned from exchange")
+            raise ValueError("no candles found in store")
+
+        # Take last N bars for warmup
+        warmup_bars = strategy.warmup_bars
+        if len(df) > warmup_bars:
+            df = df.tail(warmup_bars)
 
         window = SlidingWindow(window_max_size(strategy))
         window.load_df(df)
@@ -75,23 +80,22 @@ class LiveIncrementalRunner:
         )
 
     def _backfill_gap(self, strategy: Strategy, state: StrategyState, ts: int) -> int:
-        """Fetch missed candles when gap detected, replay them, return latest ts."""
-        from apps.exchange.candles import fetch_candles
+        """Load missed candles from store when gap detected, replay them, return latest ts."""
+        from apps.exchange.candle_store import load_candles
 
         gap_start = state.last_bar_ts + 1
-        extra_bars = getattr(settings, "LIVE_BACKFILL_EXTRA", 50)
-        df = fetch_candles(
-            strategy.symbol,
-            strategy.timeframe,
-            extra_bars,
-            before_ts=ts,
-            network=strategy.credential.network,
-        )
+        coin = normalize_coin(strategy.symbol)
+        interval = normalize_interval(strategy.timeframe)
+        df = load_candles(coin, interval, network=strategy.credential.network)
+        
         if df.empty:
             return state.last_bar_ts
+        
+        # Filter to candles after the gap
         missed = df[df["ts"] > gap_start]
         if missed.empty:
             return state.last_bar_ts
+        
         for _, row in missed.iterrows():
             if not self._process_one(strategy, state, {
                 "ts": row["ts"],

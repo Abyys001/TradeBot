@@ -1,8 +1,7 @@
 """Chart timeframe helpers for Pine `timeframe.*` and `request.security`."""
 from __future__ import annotations
 
-from apps.exchange.candles import _INTERVAL_MS
-from apps.exchange.hl_constants import normalize_interval
+from apps.exchange.constants import INTERVAL_MS, normalize_interval
 
 # Pine-style period string for common HL intervals.
 _PERIOD_MAP = {
@@ -24,7 +23,7 @@ _PERIOD_MAP = {
 def chart_bar_minutes(interval: str) -> int:
     """Minutes per bar for the chart interval."""
     iv = normalize_interval(interval)
-    ms = _INTERVAL_MS.get(iv, 60_000)
+    ms = INTERVAL_MS.get(iv, 60_000)
     return max(int(ms // 60_000), 1)
 
 
@@ -60,7 +59,7 @@ def resolve_security_minutes(chart_interval: str, tf_str: str) -> int:
         return int(s[:-1]) * 24 * 60
     if s.endswith("M") and s[:-1].isdigit():
         return int(s[:-1])
-    if s in _INTERVAL_MS:
+    if s in INTERVAL_MS:
         return chart_bar_minutes(s)
     try:
         return int(s)

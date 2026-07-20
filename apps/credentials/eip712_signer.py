@@ -142,7 +142,7 @@ class AgentSigner:
         The SDK manages its own EIP-712 signing internally. Use ``sign_l1_action``
         directly when you need explicit control (custom endpoints, auditing).
         """
-        from apps.exchange.hl_constants import network_url
+        from apps.exchange.constants import network_url
         from hyperliquid.exchange import Exchange
 
         return Exchange(

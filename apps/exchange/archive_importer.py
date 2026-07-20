@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 
 from apps.exchange.candle_store import save_candles
-from apps.exchange.hl_constants import normalize_coin, normalize_interval
+from apps.exchange.constants import normalize_coin, normalize_interval
 
 logger = logging.getLogger(__name__)
 

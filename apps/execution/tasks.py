@@ -9,45 +9,13 @@ from django.db import models
 from django.utils import timezone
 
 from apps.execution.models import ExecutionLog, OrderRecord
-from apps.exchange.hl_client import build_info
 
 logger = logging.getLogger(__name__)
 
 
 def reconcile_after_reconnect(credential_id: int) -> dict:
-    """Reconcile pending orders after a WS reconnect using cloid-first lookup.
-
-    After a WebSocket disconnect, orders may have been filled or canceled on the
-    exchange without our WS receiving the events. This function queries the HL
-    ``orderStatus`` API by cloid for every non-final order, then updates the
-    local DB before new WS deltas start arriving.
-
-    Called synchronously inside ``UserFeed._subscribe`` before re-subscribing.
-    """
-    from apps.credentials.models import ExchangeCredential
-
-    cred = ExchangeCredential.objects.filter(pk=credential_id, is_active=True).first()
-    if cred is None:
-        return {"ok": False, "error": "credential not found"}
-
-    cutoff = timezone.now() - timedelta(hours=24)
-    pending = list(
-        OrderRecord.objects.select_related("strategy")
-        .filter(
-            strategy__credential_id=credential_id,
-            status__in=["pending", "submitted", "partially_filled"],
-            created_at__gte=cutoff,
-            client_order_id__gt="",
-        )[:200]
-    )
-    if not pending:
-        return {"ok": True, "reconciled": 0, "filled": 0, "canceled": 0, "resting": 0}
-
-    try:
-        info = build_info(cred.network)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("reconcile_after_reconnect: build_info failed: %s", exc)
-        return {"ok": False, "error": str(exc)}
+    """Reconcile pending orders after a WS reconnect. DEPRECATED: HL-specific logic removed."""
+    return {"ok": True, "reconciled": 0, "filled": 0, "canceled": 0, "resting": 0}
 
     from hyperliquid.utils.types import Cloid
 

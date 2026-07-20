@@ -21,7 +21,7 @@ def _channel_key(network: str, coin: str, interval: str) -> str:
 
 def register_strategy(strategy_id: int, *, symbol: str, bar: str, network: str) -> None:
     """Register a strategy for candle fan-out on *symbol*/*bar*."""
-    from .hl_constants import normalize_coin, normalize_interval
+    from .constants import normalize_coin, normalize_interval
 
     coin = normalize_coin(symbol)
     interval = normalize_interval(bar)
@@ -33,7 +33,7 @@ def register_strategy(strategy_id: int, *, symbol: str, bar: str, network: str) 
 
 def unregister_strategy(strategy_id: int, *, symbol: str, bar: str, network: str) -> None:
     """Remove a strategy from the subscription registry."""
-    from .hl_constants import normalize_coin, normalize_interval
+    from .constants import normalize_coin, normalize_interval
 
     coin = normalize_coin(symbol)
     interval = normalize_interval(bar)
@@ -75,7 +75,7 @@ def publish_closed_candle(
     volume: float,
 ) -> int:
     """Publish a closed candle to Redis Pub/Sub. Returns subscriber count."""
-    from .hl_constants import candle_channel
+    from .constants import candle_channel
 
     r = _client()
     channel = candle_channel(network, coin, interval)
