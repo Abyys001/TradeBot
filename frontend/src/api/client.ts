@@ -189,6 +189,27 @@ export interface ChartPriceLevel {
   type: 'stop' | 'take_profit' | string
 }
 
+export interface MarketDataReadiness {
+  symbol: string
+  timeframe: string
+  clean_bars: number
+  required_bars: number
+  ready: boolean
+  eta_seconds: number | null
+  recording_since: string | null
+  coverage_pct: number
+  suspect_bars_24h: number
+  error?: string
+}
+
+export interface MarketDataCoverage {
+  symbol: string
+  recording_since: number | null
+  recorded_until: number | null
+  coverage_pct: number
+  intervals: [number, number][]
+}
+
 export interface Credential {
   id: number
   exchange: string

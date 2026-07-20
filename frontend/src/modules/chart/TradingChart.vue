@@ -108,7 +108,9 @@ async function loadChartData() {
 
 function updatePriceLines() {
   clearPriceLines()
-  if (!series || props.mode !== 'backtest') return
+  // Draw SL/TP price lines whenever levels are present — live and paper included,
+  // not just backtest (levels come from the markers API per mode).
+  if (!series) return
   for (const level of chartStore.levels) {
     const isStop = level.type === 'stop'
     priceLines.push(
@@ -232,18 +234,16 @@ onMounted(() => {
 <template>
   <div class="relative h-full w-full flex flex-col">
     <div
-      v-if="selected && (mode === 'live' || mode === 'paper') && (symbols.length > 1 || timeframes.length > 1)"
+      v-if="selected && (mode === 'live' || mode === 'paper')"
       class="absolute top-2 start-2 z-10 flex max-w-[calc(100%-4rem)] flex-wrap gap-2"
     >
       <select
-        v-if="symbols.length > 1"
         v-model="selectedSymbol"
         class="rounded border border-border bg-surface-muted/90 px-2 py-1 text-xs text-fg"
       >
         <option v-for="sym in symbols" :key="sym" :value="sym">{{ sym }}</option>
       </select>
       <select
-        v-if="timeframes.length > 1"
         v-model="selectedTimeframe"
         class="rounded border border-border bg-surface-muted/90 px-2 py-1 text-xs text-fg"
       >
