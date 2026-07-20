@@ -154,6 +154,102 @@ services:
     mem_limit: 512m
     cpus: 0.5
 
+  # --- Tabdeal trade ingest — N>=2 redundant nodes (Master Plan §0.1, §2 Node A).
+  # Each writes its own ledger partition (INGEST_NODE_ID); readers take the union,
+  # so one node losing its socket is a recoverable Class-2 gap, not a lost history.
+  # NOTE: in dev both share this host + the marketdata volume. For real redundancy
+  # (§0.1) run a2 on a separate host/network in prod.
+  tabdeal-ingest-a1:
+    <<: *app-common
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
+          watchfiles --filter python "python manage.py run_tabdeal_ingest" /app
+        else
+          python manage.py run_tabdeal_ingest
+        fi
+    environment:
+      <<: *app-env
+      INGEST_NODE_ID: a1
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+
+  tabdeal-ingest-a2:
+    <<: *app-common
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
+          watchfiles --filter python "python manage.py run_tabdeal_ingest" /app
+        else
+          python manage.py run_tabdeal_ingest
+        fi
+    environment:
+      <<: *app-env
+      INGEST_NODE_ID: a2
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+
+  # --- Hot compute — Node B (Master Plan §2, §3.3).
+  # Consumes the Tabdeal trade stream (acked cursor, crash-safe), aggregates sealed
+  # bars, tags quality from ledger coverage, and drives the live strategy runner
+  # in-process. Crashes/redeploys here cost only a re-warm — history lives on Node A.
+  hot-compute:
+    <<: *app-common
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
+          watchfiles --filter python "python manage.py run_hot_compute" /app
+        else
+          python manage.py run_hot_compute
+        fi
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+
+  # --- Background resampler — Node C (Master Plan §0.2, §3.2).
+  # Separate OS process from Node B. Reads raw trades from ledger, resamples to
+  # base TFs (1m, 1h, 1d), writes Parquet + PG, publishes quality to Redis.
+  resampler:
+    <<: *app-common
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
+          watchfiles --filter python "python manage.py run_resampler" /app
+        else
+          python manage.py run_resampler
+        fi
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+
+  # --- Watchdog — Node D (Master Plan §6).
+  # Independent process: monitors Node B health, manages position protection,
+  # enforces kill switch. Cannot open positions — only close/flatten.
+  watchdog:
+    <<: *app-common
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
+          watchfiles --filter python "python manage.py run_watchdog" /app
+        else
+          python manage.py run_watchdog
+        fi
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+
   frontend:
     build:
       context: ./frontend

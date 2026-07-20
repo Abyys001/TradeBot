@@ -36,17 +36,38 @@ onUnmounted(pause)
       <AppSidebar />
       <main class="flex flex-1 flex-col min-w-0 min-h-0 overflow-hidden">
         <RouterView v-slot="{ Component }">
-          <component :is="Component" class="h-full min-h-0 flex flex-col" />
+          <Transition
+            mode="out-in"
+            enter-active-class="transition-all duration-200 ease-out"
+            enter-from-class="opacity-0 -translate-y-1"
+            enter-to-class="opacity-100 translate-y-0"
+            leave-active-class="transition-all duration-150 ease-in"
+            leave-from-class="opacity-100 translate-y-0"
+            leave-to-class="opacity-0 translate-y-1"
+          >
+            <component :is="Component" class="h-full min-h-0 flex flex-col" />
+          </Transition>
         </RouterView>
       </main>
     </div>
 
-    <div
-      v-if="layout.mobileNavOpen"
-      class="fixed inset-0 z-30 bg-black/50 lg:hidden"
-      @click="layout.setMobileNavOpen(false)"
-    />
+    <!-- Mobile overlay -->
+    <Transition
+      enter-active-class="transition-opacity duration-200"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-150"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="layout.mobileNavOpen"
+        class="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm lg:hidden"
+        @click="layout.setMobileNavOpen(false)"
+      />
+    </Transition>
 
+    <!-- Toast container -->
     <div class="pointer-events-none fixed top-4 end-4 z-50 flex max-w-sm flex-col gap-2">
       <TransitionGroup
         enter-active-class="transition-all duration-200 ease-out"
@@ -59,11 +80,11 @@ onUnmounted(pause)
         <div
           v-for="toast in toasts"
           :key="toast.id"
-          class="pointer-events-auto cursor-pointer rounded-lg border px-4 py-2 text-sm shadow-lg"
+          class="pointer-events-auto cursor-pointer rounded-xl border px-4 py-3 text-sm shadow-lg backdrop-blur-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl"
           :class="{
             'border-positive/40 bg-success-bg text-positive': toast.type === 'success',
             'border-negative/40 bg-danger-bg text-negative': toast.type === 'error',
-            'border-border bg-surface-raised text-fg': toast.type === 'info',
+            'border-border bg-surface-raised/90 text-fg': toast.type === 'info',
           }"
           @click="dismiss(toast.id)"
         >
