@@ -1,8 +1,6 @@
 """Redis-backed subscription registry for live market data feeds."""
 from __future__ import annotations
 
-import json
-
 import redis
 from django.conf import settings
 
@@ -60,36 +58,3 @@ def strategies_for(network: str, coin: str, interval: str) -> list[int]:
     """Return strategy IDs subscribed to a channel."""
     r = _client()
     return [int(x) for x in r.smembers(_subs_key(network, coin, interval))]
-
-
-def publish_closed_candle(
-    *,
-    network: str,
-    coin: str,
-    interval: str,
-    ts: int,
-    open_: float,
-    high: float,
-    low: float,
-    close: float,
-    volume: float,
-) -> int:
-    """Publish a closed candle to Redis Pub/Sub. Returns subscriber count."""
-    from .constants import candle_channel
-
-    r = _client()
-    channel = candle_channel(network, coin, interval)
-    payload = json.dumps(
-        {
-            "network": network,
-            "coin": coin,
-            "interval": interval,
-            "ts": ts,
-            "open": open_,
-            "high": high,
-            "low": low,
-            "close": close,
-            "volume": volume,
-        }
-    )
-    return r.publish(channel, payload)

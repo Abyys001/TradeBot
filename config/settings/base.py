@@ -145,18 +145,6 @@ CELERY_BEAT_SCHEDULE = {
         "task": "execution.reconcile_orders",
         "schedule": 60.0,
     },
-    "exchange-sync-active-accounts": {
-        "task": "exchange.sync_active_accounts",
-        "schedule": 30.0,
-    },
-    "exchange-collect-open-interest": {
-        "task": "exchange.collect_open_interest",
-        "schedule": 3600.0,
-    },
-    "exchange-sync-history-incremental": {
-        "task": "exchange.sync_history_incremental",
-        "schedule": float(env.int("HISTORY_SYNC_INTERVAL_SECONDS", default=3600)),
-    },
     "execution-retry-stale-orders": {
         "task": "execution.retry_stale_orders",
         "schedule": 30.0,

@@ -9,6 +9,9 @@ from .views import (
     HistoryGapsView,
     HistoryMarketsView,
     HistoryQualityView,
+    MarketDataCoverageView,
+    MarketDataReadinessView,
+    MarketDataSymbolsView,
 )
 
 urlpatterns = [
@@ -20,4 +23,7 @@ urlpatterns = [
     path("history/quality/", HistoryQualityView.as_view(), name="history-quality"),
     path("history/markets/", HistoryMarketsView.as_view(), name="history-markets"),
     path("history/import-archive/", ArchiveImportView.as_view(), name="history-import-archive"),
+    path("marketdata/readiness/", MarketDataReadinessView.as_view(), name="marketdata-readiness"),
+    path("marketdata/coverage/", MarketDataCoverageView.as_view(), name="marketdata-coverage"),
+    path("marketdata/symbols/", MarketDataSymbolsView.as_view(), name="marketdata-symbols"),
 ]

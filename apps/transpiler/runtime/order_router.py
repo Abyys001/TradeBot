@@ -1,12 +1,12 @@
 """Order routing for `strategy.entry / close / exit`.
 
-Two backends behind one interface:
-  - SimBroker  — backtest fills at the next bar's open with commission/slippage;
+Backends behind one interface:
+  - SimBroker   — backtest fills at the next bar's open with commission/slippage;
     tracks position and realised PnL; emits trade records and summary metrics.
-  - LiveBroker — routes to Hyperliquid via agent-signed orders
-    (`apps.exchange.hl_client.build_exchange`) and persists
-    `apps.execution.OrderRecord` + `ExecutionLog`. Honours the per-user
-    `is_trading_enabled` kill-switch before any live order.
+  - WarmupBroker — no-op broker for historical warmup (places no orders).
+  - LiveBroker  — DEPRECATED guard: Hyperliquid live trading has been removed.
+    Constructing it raises; live trading goes through
+    `apps.transpiler.runtime.tabdeal_live_broker.TabdealLiveBroker`.
 """
 from __future__ import annotations
 

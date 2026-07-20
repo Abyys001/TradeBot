@@ -9,9 +9,10 @@ vocabulary LiveBroker uses (order.placed/order.rejected/order.blocked,
 risk.blocked) so Tabdeal-primary trades look identical in the UI/order
 history/execution log stream to HL-primary trades.
 
-Orders here must always end in a terminal OrderRecord.status (filled/rejected,
-never left "submitted") — apps.execution.tasks.reconcile_orders_task is
-Hyperliquid-only and would mishandle a Tabdeal order left non-terminal.
+Orders here normally end in a terminal OrderRecord.status (filled/rejected).
+Any left non-terminal (lost response, crash) are resolved by
+apps.execution.tasks.reconcile_orders_task, which queries the Tabdeal order
+record by exchange/client order id (§3.4).
 """
 from __future__ import annotations
 
@@ -34,13 +35,13 @@ class TabdealLiveBroker:
         self._leverage_set = False
         self._open_orders: dict[str, dict] = {}
 
-        from apps.risk.config import read_risk
+        from apps.risk.config import DEFAULT_LEVERAGE, read_risk
 
         live_config = getattr(strategy, "live_config", None) or {}
         risk = read_risk(live_config)
         self._live_config = live_config
         self._position_size_pct = float(risk.get("position_size_pct", 20))
-        self._leverage = float(leverage if leverage is not None else risk.get("leverage", 5))
+        self._leverage = float(leverage if leverage is not None else risk.get("leverage", DEFAULT_LEVERAGE))
 
     # ----- helpers -----
 
@@ -139,9 +140,8 @@ class TabdealLiveBroker:
             "EXPIRED": "expired",
         }
         # Tabdeal market orders fill synchronously, so default any unrecognized/
-        # absent status to "filled" rather than "submitted" -- leaving it
-        # "submitted" would make apps.execution.tasks.reconcile_orders_task (HL-only)
-        # pick this order up and mishandle it.
+        # absent status to "filled" rather than "submitted". A genuinely non-terminal
+        # order is later resolved by apps.execution.tasks.reconcile_orders_task.
         return mapping.get((resp_status or "").upper(), "filled")
 
     # ----- order placement core -----

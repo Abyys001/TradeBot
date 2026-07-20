@@ -48,15 +48,3 @@ def normalize_interval(interval: str) -> str:
     """Normalize interval string to canonical form."""
     interval = interval.strip()
     return BAR_MAP.get(interval, interval)
-
-
-def candle_channel(network: str, coin: str, interval: str) -> str:
-    """Generate Redis Pub/Sub channel name for closed candles."""
-    return f"hl:candles:{network}:{coin}:{interval}"
-
-
-def network_url(network: str = "mainnet") -> str:
-    """Return API URL for the given network."""
-    if network == "testnet":
-        return "https://api.hyperliquid-testnet.xyz"
-    return "https://api.hyperliquid.xyz"

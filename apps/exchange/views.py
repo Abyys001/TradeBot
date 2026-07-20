@@ -306,3 +306,81 @@ class ArchiveImportView(APIView):
         return Response(
             HistoryDownloadSerializer(job).data, status=status.HTTP_202_ACCEPTED
         )
+
+
+# --- Market Data Engine: readiness / coverage / symbols (Master Plan §P3) --------
+
+_DEFAULT_REQUIRED_BARS = 200
+
+
+def _resolve_required_bars(request) -> int:
+    """Warmup requirement: explicit ``required_bars``, else the strategy's warmup_bars."""
+    raw = request.query_params.get("required_bars")
+    if raw is not None:
+        try:
+            return max(int(raw), 0)
+        except (TypeError, ValueError):
+            return _DEFAULT_REQUIRED_BARS
+    strategy_id = request.query_params.get("strategy_id")
+    if strategy_id:
+        from apps.strategies.models import Strategy
+
+        strat = Strategy.objects.filter(pk=strategy_id, user=request.user).first()
+        if strat is not None:
+            return int(getattr(strat, "warmup_bars", _DEFAULT_REQUIRED_BARS))
+    return _DEFAULT_REQUIRED_BARS
+
+
+class MarketDataReadinessView(APIView):
+    """GET /api/marketdata/readiness/?symbol=BTC_USDT&tf=1m[&strategy_id=|&required_bars=]"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.exchange.readiness import readiness
+
+        symbol = request.query_params.get("symbol", "BTC_USDT")
+        tf = request.query_params.get("tf") or request.query_params.get("timeframe", "1m")
+        required = _resolve_required_bars(request)
+        return Response(readiness(symbol, tf, required))
+
+
+class MarketDataCoverageView(APIView):
+    """GET /api/marketdata/coverage/?symbol=BTC_USDT — recorded coverage window."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.exchange import coverage as coverage_svc
+        from apps.exchange.ledger import union_coverage
+
+        symbol = request.query_params.get("symbol", "BTC_USDT")
+        intervals_ms = union_coverage(symbol)
+        if not intervals_ms:
+            return Response({"symbol": symbol.upper(), "recording_since": None,
+                             "recorded_until": None, "coverage_pct": 0.0, "intervals": []})
+        start_ms, end_ms = intervals_ms[0][0], intervals_ms[-1][1]
+        # Chart consumes seconds; expose interval edges in seconds for the scrubber.
+        intervals_s = [[lo // 1000, hi // 1000] for lo, hi in intervals_ms]
+        return Response({
+            "symbol": symbol.upper(),
+            "recording_since": start_ms // 1000,
+            "recorded_until": end_ms // 1000,
+            "coverage_pct": round(coverage_svc.coverage_pct(symbol, start_ms, end_ms) * 100, 2),
+            "intervals": intervals_s,
+        })
+
+
+class MarketDataSymbolsView(APIView):
+    """GET /api/marketdata/symbols/ — symbols the recorder has any ledger for."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.exchange.ledger import ledger_dir
+
+        base = ledger_dir()
+        symbols: list[str] = []
+        if base.exists():
+            symbols = sorted(p.name for p in base.iterdir() if p.is_dir())
+        return Response({"symbols": symbols})

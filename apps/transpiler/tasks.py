@@ -177,7 +177,6 @@ def run_backtest_stored_task(
     from datetime import datetime, timezone
 
     from apps.exchange.candle_store import load_candles, load_funding
-    from apps.exchange.history_download import ensure_data_available
 
     bt = Backtest.objects.select_related("strategy").get(pk=backtest_id)
     strategy = bt.strategy
@@ -193,19 +192,16 @@ def run_backtest_stored_task(
             except Exception:  # noqa: BLE001 — best-effort, fails gracefully in tests
                 pass
 
-        # Auto-download missing data before loading
-        if start is not None and end is not None:
-            _progress("ensuring_data", 5)
-            fetch_result = ensure_data_available(coin, interval, start, end, network=network)
-            if fetch_result.get("status") == "failed":
-                raise ValueError(
-                    f"Data unavailable for {coin}/{interval}: {fetch_result.get('error')}"
-                )
-
+        # Tabdeal-only: there is no candle backfill. Backtests run over locally
+        # recorded history only; a range with no recorded data is an explicit error
+        # (the frontend clamps range pickers to the recorded coverage window).
         _progress("loading_data", 20)
         df = load_candles(coin, interval, start, end, network=network)
         if df.empty:
-            raise ValueError(f"no candles for {coin}/{interval} in the requested range")
+            raise ValueError(
+                f"no recorded candles for {coin}/{interval} in the requested range "
+                f"(history begins when the recorder was switched on)"
+            )
         funding_df = load_funding(coin, start, end, network=network)
         bt.range_start = datetime.fromtimestamp(int(df["ts"].min()) / 1000, tz=timezone.utc)
         bt.range_end = datetime.fromtimestamp(int(df["ts"].max()) / 1000, tz=timezone.utc)
@@ -248,30 +244,7 @@ def _recover_positions_if_any(strategy: Strategy) -> dict[str, object] | None:
         return None
     if strategy.credential.exchange == Exchange.TABDEAL:
         return _recover_tabdeal_position(strategy)
-    if strategy.credential.exchange != Exchange.HYPERLIQUID:
-        return None
-    if strategy.credential.network == "spot":
-        return None
-    from apps.exchange.hl_client import build_info
-
-    try:
-        info = build_info(strategy.credential.network)
-        state_data = info.user_state(strategy.credential.wallet_address) or {}
-        for item in state_data.get("assetPositions") or []:
-            pos = item.get("position") or {}
-            from apps.exchange.hl_constants import normalize_coin
-
-            if normalize_coin(pos.get("coin", "")) == normalize_coin(strategy.symbol):
-                try:
-                    return {
-                        "position": float(pos.get("szi", 0)),
-                        "entry_px": float(pos.get("entryPx", 0)),
-                        "pnl": float(pos.get("unrealizedPnl", 0)),
-                    }
-                except (TypeError, ValueError):
-                    return None
-    except Exception:  # noqa: BLE001
-        logger.exception("position recovery failed")
+    # Tabdeal is the only supported live exchange; nothing to recover otherwise.
     return None
 
 

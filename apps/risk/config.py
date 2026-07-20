@@ -13,11 +13,18 @@ from dataclasses import dataclass
 # Keys that older records / some writers put at the top level of live_config.
 _LEGACY_TOPLEVEL_KEYS = ("leverage", "position_size_pct")
 
+# Single canonical fallback leverage when live_config sets none. Matches the
+# frontend form default (useStrategyForm: risk.leverage = 1) and every other
+# reader (engine/paper/copytrading), so an unset value resolves the same
+# everywhere instead of the old Tabdeal-5x / others-1x split.
+DEFAULT_LEVERAGE = 1
+
 
 def read_risk(live_config: dict | None) -> dict:
     """Return a single flattened risk dict: nested ``risk`` block overlaid on the
-    legacy top-level keys. Callers apply their own defaults via ``.get(k, default)``
-    so per-path behaviour (e.g. Tabdeal 5x vs HL 1x) is preserved.
+    legacy top-level keys. Callers apply their own defaults via
+    ``.get("leverage", DEFAULT_LEVERAGE)`` so an unset leverage resolves to the
+    same canonical default everywhere.
     """
     lc = live_config or {}
     merged: dict = {}
