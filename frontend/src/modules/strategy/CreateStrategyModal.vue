@@ -20,6 +20,7 @@ const selectedSymbols = ref<string[]>(['BTC-USDT'])
 const selectedTimeframes = ref<string[]>(['1h'])
 const source = ref(props.initialSource || '')
 const engineType = ref('pine')
+const marketType = ref<'perp' | 'spot'>('perp')
 const saving = ref(false)
 const dragOver = ref(false)
 
@@ -75,6 +76,7 @@ async function submit() {
       type: engineType.value,
       credential: credentialId.value,
       symbol: selectedSymbols.value[0] || 'BTC-USDT',
+      market_type: marketType.value,
       source: source.value,
       live_config: {
         symbols: selectedSymbols.value.length ? selectedSymbols.value : ['BTC-USDT'],
@@ -122,6 +124,23 @@ async function submit() {
           <p v-if="!availableCredentials.length" class="text-xs text-fg-muted mt-1">
             {{ t('strategy.liveRequiresCredential') }}
           </p>
+        </div>
+        <div>
+          <label class="text-xs text-fg-muted">Market Type</label>
+          <div class="mt-1 flex gap-1">
+            <button
+              type="button"
+              class="rounded px-3 py-1 text-xs transition-colors"
+              :class="marketType === 'perp' ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted'"
+              @click="marketType = 'perp'"
+            >Perpetual</button>
+            <button
+              type="button"
+              class="rounded px-3 py-1 text-xs transition-colors"
+              :class="marketType === 'spot' ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted'"
+              @click="marketType = 'spot'"
+            >Spot</button>
+          </div>
         </div>
         <div>
           <label class="text-xs text-fg-muted">{{ t('strategy.symbols') }}</label>

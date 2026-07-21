@@ -49,6 +49,7 @@ const backtestStore = useBacktestStore()
 const container = ref<HTMLElement | null>(null)
 let chart: IChartApi | null = null
 let series: ISeriesApi<'Candlestick'> | null = null
+let qualitySeries: ISeriesApi<'Histogram'> | null = null
 let markersApi: ReturnType<typeof createSeriesMarkers<Time>> | null = null
 let priceLines: IPriceLine[] = []
 
@@ -121,8 +122,6 @@ async function loadChartData() {
 
 function updatePriceLines() {
   clearPriceLines()
-  // Draw SL/TP price lines whenever levels are present — live and paper included,
-  // not just backtest (levels come from the markers API per mode).
   if (!series) return
   for (const level of chartStore.levels) {
     const isStop = level.type === 'stop'
@@ -136,6 +135,35 @@ function updatePriceLines() {
         title: isStop ? 'SL' : 'TP',
       }),
     )
+  }
+
+  const pos = chartStore.openPosition
+  if (pos) {
+    if (pos.liq != null && pos.liq > 0) {
+      priceLines.push(
+        series.createPriceLine({
+          price: pos.liq,
+          color: '#f97316',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'LIQ',
+        }),
+      )
+    }
+    if (pos.entry?.price != null && pos.entry.price > 0) {
+      const isProfit = pos.pnl >= 0
+      priceLines.push(
+        series.createPriceLine({
+          price: pos.entry.price,
+          color: isProfit ? '#22c55e' : '#ef4444',
+          lineWidth: 2,
+          lineStyle: 0,
+          axisLabelVisible: true,
+          title: 'ENTRY',
+        }),
+      )
+    }
   }
 }
 
@@ -162,6 +190,16 @@ function updateSeries() {
   } else if (series) {
     markersApi = createSeriesMarkers(series, markers)
   }
+
+  if (qualitySeries) {
+    const qualityData: HistogramData[] = chartStore.quality.map((q) => ({
+      time: q.time as Time,
+      value: 1,
+      color: QUALITY_COLORS[q.q] ?? '#71717a',
+    }))
+    qualitySeries.setData(qualityData)
+  }
+
   updatePriceLines()
 }
 
@@ -224,6 +262,14 @@ onMounted(() => {
     wickDownColor: '#ef4444',
   })
 
+  qualitySeries = chart.addSeries(HistogramSeries, {
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'quality',
+  })
+  chart.priceScale('quality').applyOptions({
+    scaleMargins: { top: 0.8, bottom: 0 },
+  })
+
   const el = container.value
   const ro = new ResizeObserver(() => {
     if (el && chart) {
@@ -239,6 +285,7 @@ onMounted(() => {
     chart?.remove()
     chart = null
     series = null
+    qualitySeries = null
     markersApi = null
   })
 })

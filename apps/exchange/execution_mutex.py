@@ -10,7 +10,9 @@ Usage::
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -137,3 +139,50 @@ class ExecutionMutex:
 def sync_mutex(symbol: str, **kwargs) -> ExecutionMutex:
     """Create a mutex for synchronous usage (e.g., in Celery tasks)."""
     return ExecutionMutex(symbol, **kwargs)
+
+
+class SyncMutexContext:
+    """Synchronous context-manager wrapper around ExecutionMutex."""
+
+    def __init__(self, symbol: str, ttl: int = _DEFAULT_LOCK_TTL):
+        self.symbol = symbol
+        self.ttl = ttl
+        self._mutex: ExecutionMutex | None = None
+
+    def __enter__(self):
+        self._mutex = ExecutionMutex(self.symbol, ttl=self.ttl)
+        result = [False]
+
+        def _acquire():
+            loop = asyncio.new_event_loop()
+            try:
+                result[0] = loop.run_until_complete(self._mutex.acquire(retry=False))
+            finally:
+                loop.close()
+
+        t = threading.Thread(target=_acquire, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        if not result[0]:
+            raise TimeoutError(f"mutex timeout for {self.symbol}")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._mutex and self._mutex._acquired:
+
+            def _release():
+                loop = asyncio.new_event_loop()
+                try:
+                    loop.run_until_complete(self._mutex.release())
+                finally:
+                    loop.close()
+
+            t = threading.Thread(target=_release, daemon=True)
+            t.start()
+            t.join(timeout=3)
+        return False
+
+
+def sync_lock_order(symbol: str, ttl: int = _DEFAULT_LOCK_TTL) -> SyncMutexContext:
+    """Return a synchronous context-manager that acquires/releases the mutex."""
+    return SyncMutexContext(symbol, ttl=ttl)

@@ -147,8 +147,19 @@ class TabdealBroker:
         from apps.risk.manager import RiskManager
 
         equity = client.available_usdt()
+        pos = client.get_position(self.pair)
+        open_trades = 1 if pos else 0
+        exposure_pct = 0.0
+        if pos:
+            try:
+                notional = abs(float(pos.get("positionAmt", 0))) * float(
+                    pos.get("markPrice") or pos.get("entryPrice") or 0
+                )
+                exposure_pct = (notional / equity * 100.0) if equity > 0 else 0.0
+            except (TypeError, ValueError):
+                exposure_pct = 0.0
         risk_manager = RiskManager(parse_risk_config(self._live_config), initial_balance=max(equity, 1.0))
-        decision = risk_manager.pre_trade(equity=equity, open_trades=0, exposure_pct=0.0, leverage=self.leverage)
+        decision = risk_manager.pre_trade(equity=equity, open_trades=open_trades, exposure_pct=exposure_pct, leverage=self.leverage)
         if not decision.ok:
             self._log("warning", "copy.risk_blocked", {"reason": decision.reason, "cred": self.credential.pk})
             return None

@@ -5,6 +5,7 @@ exchange client.  Runs as a loop in the watchdog process.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -43,9 +44,10 @@ class WatchdogMonitor:
     HEARTBEAT_KEY = "health:hot_compute:{strategy_id}"
     DAILY_LOSS_KEY = "risk:halted:{strategy_id}"
 
-    def __init__(self, strategy_id: int, exchange_client):
+    def __init__(self, strategy_id: int, exchange_client, symbol: str):
         self.strategy_id = strategy_id
         self.client = exchange_client
+        self.symbol = symbol
         self.state = MonitorState(
             strategy_id=strategy_id,
             last_heartbeat_ts=0.0,
@@ -176,6 +178,23 @@ class WatchdogMonitor:
 
         return decision.tier, detail
 
+    def _read_intent_sl_price(self) -> float | None:
+        """Read expected SL price from write-ahead intent in Redis."""
+        import redis as _redis
+        from django.conf import settings
+
+        try:
+            r = _redis.from_url(settings.REDIS_URL, decode_responses=True)
+            key = f"intent:entry:{self.strategy_id}:{self.symbol}"
+            raw = r.get(key)
+            if raw is None:
+                return None
+            data = json.loads(raw)
+            return float(data.get("expected_sl_price"))
+        except Exception:
+            logger.warning("watchdog %s: failed to read intent SL price", self.strategy_id)
+            return None
+
     # ----- execution (exchange calls) -----
 
     def execute(self, tier: int, detail: dict) -> None:
@@ -199,10 +218,17 @@ class WatchdogMonitor:
             self._execute_flatten(tier, detail)
 
     def _execute_attach_sl(self, tier: int, detail: dict) -> None:
-        """Attach SL to the current position (§6.3)."""
+        """Attach SL to the current position (§6.3).
+
+        Reads expected SL price from write-ahead intent first; falls back to
+        computing from risk config ``global_stop_loss_pct``.
+        """
         symbol = self._get_symbol()
         risk = self._get_risk_config()
         sl_pct = risk.get("global_stop_loss_pct", _DEFAULT_SL_PCT)
+
+        # Try write-ahead intent first.
+        intent_sl = self._read_intent_sl_price()
 
         # Read actual position from exchange.
         position = self.state.guardian.position if self.state.guardian and self.state.guardian.ok else None
@@ -233,12 +259,15 @@ class WatchdogMonitor:
             logger.warning("watchdog %s: T%d zero position, skipping SL", self.strategy_id, tier)
             return
 
-        # Compute SL price.
-        is_long = amt > 0
-        if is_long:
-            sl_price = round(entry * (1 - sl_pct / 100), 8)
+        # Use intent SL if available, otherwise compute from risk config.
+        if intent_sl is not None and intent_sl > 0:
+            sl_price = intent_sl
         else:
-            sl_price = round(entry * (1 + sl_pct / 100), 8)
+            is_long = amt > 0
+            if is_long:
+                sl_price = round(entry * (1 - sl_pct / 100), 8)
+            else:
+                sl_price = round(entry * (1 + sl_pct / 100), 8)
 
         # Get internal position ID for SL endpoint.
         try:
@@ -258,9 +287,11 @@ class WatchdogMonitor:
         try:
             self.client.set_position_sl_tp(position_id=position_id, sl_price=sl_price, symbol=symbol)
             log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
-                       {**detail, "sl_price": sl_price, "position_id": position_id, "side": "long" if is_long else "short"})
+                       {**detail, "sl_price": sl_price, "position_id": position_id, "side": "long" if amt > 0 else "short"})
             logger.warning("watchdog %s: T%d SL attached at %.8f (%s)", self.strategy_id, tier, sl_price, symbol)
             self.state.sl_confirmed = True
+            from apps.strategies.models import StrategyState
+            StrategyState.objects.filter(strategy_id=self.strategy_id).update(sl_confirmed=True)
         except Exception as exc:
             log_action(self.strategy_id, tier, WatchdogAction.ActionType.SL_ATTACHED,
                        {**detail, "error": str(exc), "sl_price": sl_price})
@@ -274,6 +305,9 @@ class WatchdogMonitor:
             log_action(self.strategy_id, tier, WatchdogAction.ActionType.POSITION_FLAT,
                        {**detail, "result": result})
             logger.warning("watchdog %s: T%d position flattened on %s", self.strategy_id, tier, symbol)
+            from apps.strategies.models import StrategyState
+            StrategyState.objects.filter(strategy_id=self.strategy_id).update(sl_confirmed=False)
+            self.state.sl_confirmed = False
         except Exception as exc:
             log_action(self.strategy_id, tier, WatchdogAction.ActionType.POSITION_FLAT,
                        {**detail, "error": str(exc)})
@@ -327,9 +361,30 @@ async def run_watchdog(interval_s: float = 5.0) -> None:
                     continue
                 try:
                     client = TabdealFuturesClient(strat.credential)
-                    monitor = WatchdogMonitor(strat.pk, client)
+                    monitor = WatchdogMonitor(strat.pk, client, strat.symbol)
                     tier, detail = monitor.check()
                     monitor.execute(tier, detail)
+
+                    # Guardian check: verify position state matches expectations
+                    try:
+                        guardian_result = check_position(
+                            exchange_client=client,
+                            symbol=strat.symbol,
+                            expected_has_sl=detail.get("should_attach_sl") or st.sl_confirmed,
+                            sl_confirmed=st.sl_confirmed,
+                        )
+                        if not guardian_result.ok:
+                            logger.warning(
+                                "watchdog %s: guardian mismatch: %s (action=%s)",
+                                strat.pk, guardian_result.mismatch, guardian_result.action_needed,
+                            )
+                            log_action(strat.pk, tier, WatchdogAction.ActionType.POSITION_GUARDIAN, {
+                                "mismatch": guardian_result.mismatch,
+                                "action_needed": guardian_result.action_needed,
+                            })
+                    except Exception:
+                        logger.exception("watchdog %s: guardian check failed", strat.pk)
+
                 except Exception:
                     logger.exception("watchdog check failed for strategy %s", strat.pk)
         except Exception:

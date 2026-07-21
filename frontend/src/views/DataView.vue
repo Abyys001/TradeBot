@@ -7,6 +7,7 @@ import StoredDataTable from '../modules/data/StoredDataTable.vue'
 import DownloadForm from '../modules/data/DownloadForm.vue'
 import ArchiveImportForm from '../modules/data/ArchiveImportForm.vue'
 import DownloadJobsList from '../modules/data/DownloadJobsList.vue'
+import CoverageDashboard from '../modules/data/CoverageDashboard.vue'
 
 const { t } = useI18n()
 const history = useHistoryStore()
@@ -103,6 +104,8 @@ async function onRetry(jobId: number) {
     >
       {{ t('data.loadError') }}: {{ history.error }}
     </div>
+
+    <CoverageDashboard />
 
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4 items-start">
       <DownloadForm @submitted="onSubmitted" />
