@@ -15,6 +15,17 @@ from .. import ast_nodes as ast
 from .context import NA, ExecutionContext, SeriesBuffer, is_na
 from .indicators import MULTI_REGISTRY, REGISTRY
 from .mathfns import MATH, nz
+from .plot_data import (
+    PlotAlert,
+    PlotAlertCondition,
+    PlotBgColor,
+    PlotBarColor,
+    PlotChar,
+    PlotHLine,
+    PlotLine,
+    PlotShape,
+    resolve_color,
+)
 from .security import evaluate_security
 from .timeframe import pine_multiplier, pine_period
 
@@ -193,6 +204,8 @@ def _vectorize_builtin(node, ctx):
         if name in REGISTRY:
             return _vectorize_ta(name, argvals, ctx)
         raise NotVectorizable
+    if ns in ("color", "shape", "location", "hline"):
+        return np.full(ctx.n, name, dtype=object)
     if ns == "input" or (ns is None and name == "input"):
         default = _input_default_vector(node, ctx)
         n = ctx.n
@@ -239,6 +252,104 @@ def _vectorize_builtin(node, ctx):
     if ns is None and name == "na":
         return np.isnan(as_array(argvals[0], ctx).astype("float64"))
     if ns is None and name == "plot":
+        series = as_array(argvals[0], ctx).astype("float64")
+        kw = {a.name: a.value for a in node.args if a.name is not None}
+        title = str(_const(kw["title"], ctx)) if "title" in kw else ""
+        color_raw = resolve_color(_const(kw["color"], ctx)) if "color" in kw else "#2196f3"
+        lw = int(_const(kw["linewidth"], ctx)) if "linewidth" in kw else 1
+        style_raw = str(_const(kw["style"], ctx)) if "style" in kw else "solid"
+        ctx.plot_data.lines.append(PlotLine(
+            title=title,
+            values=[None if np.isnan(v) else round(v, 8) for v in series],
+            color=color_raw,
+            linewidth=lw,
+            style=style_raw,
+        ))
+        return np.full(ctx.n, NA)
+    if ns is None and name == "plotshape":
+        series = _as_bool(as_array(argvals[0], ctx))
+        kw = {a.name: a.value for a in node.args if a.name is not None}
+        color_raw = resolve_color(_const(kw["color"], ctx)) if "color" in kw else "#2196f3"
+        style_raw = str(_const(kw["style"], ctx)) if "style" in kw else "circle"
+        location = str(_const(kw["location"], ctx)) if "location" in kw else "above"
+        text = str(_const(kw["text"], ctx)) if "text" in kw else ""
+        title = str(_const(kw["title"], ctx)) if "title" in kw else ""
+        ctx.plot_data.shapes.append(PlotShape(
+            bar_indices=[int(i) for i in np.where(series)[0]],
+            color=color_raw,
+            style=style_raw,
+            location=location,
+            text=text,
+            title=title,
+        ))
+        return np.full(ctx.n, NA)
+    if ns is None and name == "plotchar":
+        series = _as_bool(as_array(argvals[0], ctx))
+        kw = {a.name: a.value for a in node.args if a.name is not None}
+        char_raw = str(_const(kw["char"], ctx)) if "char" in kw else "●"
+        color_raw = resolve_color(_const(kw["color"], ctx)) if "color" in kw else "#2196f3"
+        location = str(_const(kw["location"], ctx)) if "location" in kw else "above"
+        text = str(_const(kw["text"], ctx)) if "text" in kw else ""
+        title = str(_const(kw["title"], ctx)) if "title" in kw else ""
+        ctx.plot_data.chars.append(PlotChar(
+            bar_indices=[int(i) for i in np.where(series)[0]],
+            char=char_raw,
+            color=color_raw,
+            location=location,
+            text=text,
+            title=title,
+        ))
+        return np.full(ctx.n, NA)
+    if ns is None and name == "bgcolor":
+        color_arr = as_array(argvals[0], ctx)
+        kw = {a.name: a.value for a in node.args if a.name is not None}
+        transp = float(_const(kw["transp"], ctx)) if "transp" in kw else 0.0
+        ctx.plot_data.bg_colors.append(PlotBgColor(
+            colors=[resolve_color(c) for c in color_arr],
+        ))
+        return np.full(ctx.n, NA)
+    if ns is None and name == "barcolor":
+        color_arr = as_array(argvals[0], ctx)
+        ctx.plot_data.bar_colors.append(PlotBarColor(
+            colors=[resolve_color(c) for c in color_arr],
+        ))
+        return np.full(ctx.n, NA)
+    if ns is None and name == "hline":
+        price = float(_const(argvals[0], ctx))
+        kw = {a.name: a.value for a in node.args if a.name is not None}
+        title = str(_const(kw["title"], ctx)) if "title" in kw else ""
+        color_raw = resolve_color(_const(kw["color"], ctx)) if "color" in kw else "#9598a1"
+        linestyle = str(_const(kw["linestyle"], ctx)) if "linestyle" in kw else "solid"
+        lw = int(_const(kw["linewidth"], ctx)) if "linewidth" in kw else 1
+        ctx.plot_data.hlines.append(PlotHLine(
+            price=price, color=color_raw, linestyle=linestyle, linewidth=lw, title=title,
+        ))
+        return np.full(ctx.n, price)
+    if ns is None and name == "fill":
+        if len(argvals) >= 2:
+            top = as_array(argvals[0], ctx).astype("float64")
+            bottom = as_array(argvals[1], ctx).astype("float64")
+            kw = {a.name: a.value for a in node.args if a.name is not None}
+            color_raw = resolve_color(_const(kw["color"], ctx)) if "color" in kw else "rgba(76,175,80,0.2)"
+            title = str(_const(kw["title"], ctx)) if "title" in kw else ""
+            ctx.plot_data.fills.append(PlotFill(
+                top_values=[None if np.isnan(v) else round(v, 8) for v in top],
+                bottom_values=[None if np.isnan(v) else round(v, 8) for v in bottom],
+                color=color_raw,
+                title=title,
+            ))
+        return np.full(ctx.n, NA)
+    if ns is None and name == "alertcondition":
+        if len(argvals) >= 1:
+            cond = _as_bool(as_array(argvals[0], ctx))
+            kw = {a.name: a.value for a in node.args if a.name is not None}
+            title = str(_const(kw["title"], ctx)) if "title" in kw else ""
+            message = str(_const(kw["message"], ctx)) if "message" in kw else ""
+            ctx.plot_data.alert_conditions.append(PlotAlertCondition(
+                condition=[bool(c) for c in cond],
+                title=title,
+                message=message,
+            ))
         return np.full(ctx.n, NA)
     if ns == "request" and name == "security":
         if ctx.program is None or len(argvals) < 3:
@@ -509,6 +620,9 @@ def _scalar_builtin(node, ctx):
         return is_na(eval_scalar(argvals[0], ctx))
     if ns is None and name == "plot":
         return NA
+    if ns is None and name in ("plotshape", "plotchar", "bgcolor", "barcolor",
+                                "hline", "fill", "alert", "alertcondition"):
+        return NA
     if ns == "str" and name == "tostring":
         v = eval_scalar(argvals[0], ctx)
         if is_na(v):
@@ -522,6 +636,8 @@ def _scalar_builtin(node, ctx):
         if name == "period":
             return pine_period(ctx.chart_interval or "1h")
     if ns == "color":
+        return name
+    if ns in ("shape", "location", "hline"):
         return name
     if ns == "barmerge":
         return name
@@ -597,7 +713,7 @@ def _vectorize_tuple_assign(node: ast.TupleAssignNode, ctx) -> None:
 
 
 def vectorize_pass(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
-    """Phase A — precompute series-pure top-level assignments."""
+    """Phase A — precompute series-pure top-level assignments and visual builtins."""
     ctx._array_cache.clear()
     for stmt in program.body:
         if isinstance(stmt, ast.TupleAssignNode):
@@ -608,6 +724,18 @@ def vectorize_pass(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
         elif isinstance(stmt, ast.AssignNode) and not stmt.reassign:
             try:
                 ctx.arrays[stmt.name] = as_array(stmt.value, ctx)
+            except NotVectorizable:
+                pass
+        elif isinstance(stmt, ast.ExprStatementNode):
+            inner = stmt.expr
+            if isinstance(inner, ast.BuiltinFunctionNode) and inner.namespace is None:
+                try:
+                    _vectorize_builtin(inner, ctx)
+                except NotVectorizable:
+                    pass
+        elif isinstance(stmt, ast.BuiltinFunctionNode) and stmt.namespace is None:
+            try:
+                _vectorize_builtin(stmt, ctx)
             except NotVectorizable:
                 pass
 
@@ -660,6 +788,35 @@ def run(program: ast.ProgramNode, ctx: ExecutionContext):
     ctx.broker.finalize(last_price, last)
 
 
+_VISUAL_BUILTINS = frozenset({
+    "plot", "plotshape", "plotchar", "plotcandle", "plotbar", "plotarrow",
+    "bgcolor", "barcolor", "hline", "fill", "alert", "alertcondition",
+})
+
+
+def _exec_visual(node: ast.BuiltinFunctionNode, ctx: ExecutionContext) -> None:
+    """Execute a visual/alert builtin via the vectorized path to capture plot data."""
+    ns, name = node.namespace, node.name
+    if ns is not None or name not in _VISUAL_BUILTINS:
+        return
+    if name == "alert":
+        msg_parts = []
+        for a in node.args:
+            v = eval_scalar(a.value, ctx)
+            msg_parts.append("" if is_na(v) else str(v))
+        ctx.plot_data.alerts.append(PlotAlert(
+            bar_index=ctx.bar_index,
+            message="".join(msg_parts),
+        ))
+        return
+    # All other visual builtins: route through the vectorized path which
+    # captures data in ctx.plot_data.
+    try:
+        _vectorize_builtin(node, ctx)
+    except NotVectorizable:
+        pass
+
+
 def _exec(node, ctx):
     if isinstance(node, ast.AssignNode):
         if not node.reassign and node.name in ctx.arrays:
@@ -701,10 +858,17 @@ def _exec(node, ctx):
     elif isinstance(node, ast.OrderExecutionNode):
         _exec_order(node, ctx)
     elif isinstance(node, ast.ExprStatementNode):
-        pass
+        inner = node.expr
+        # alert() must execute per-bar; other visual builtins were captured in Phase A.
+        if isinstance(inner, ast.BuiltinFunctionNode) and inner.namespace is None:
+            if inner.name == "alert":
+                _exec_visual(inner, ctx)
+            # plot/plotshape/bgcolor/etc. already captured in vectorize_pass — skip.
+        else:
+            eval_scalar(inner, ctx)
     elif isinstance(node, ast.BuiltinFunctionNode):
-        if node.namespace is None and node.name == "plot":
-            pass
+        if node.namespace is None and node.name == "alert":
+            _exec_visual(node, ctx)
     elif isinstance(node, ast.FunctionDefNode):
         pass
 

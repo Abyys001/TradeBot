@@ -47,6 +47,7 @@ export interface User {
   email?: string
   is_trading_enabled: boolean
   role: 'admin' | 'investor'
+  is_admin?: boolean
   must_change_password: boolean
 }
 
@@ -120,6 +121,7 @@ export interface Strategy {
   name: string
   type: string
   symbol: string
+  market_type: 'perp' | 'spot'
   params: Record<string, unknown>
   status: string
   source: string
@@ -323,6 +325,71 @@ export interface BacktestTrade {
   exit_time: string | null
 }
 
+export interface PlotLine {
+  title: string
+  values: (number | null)[]
+  color: string
+  linewidth: number
+  style: string
+}
+
+export interface PlotShape {
+  bar_indices: number[]
+  color: string
+  style: string
+  location: string
+  text: string
+  title: string
+}
+
+export interface PlotChar {
+  bar_indices: number[]
+  char: string
+  color: string
+  location: string
+  text: string
+  title: string
+}
+
+export interface PlotHLine {
+  price: number
+  color: string
+  linestyle: string
+  linewidth: number
+  title: string
+}
+
+export interface PlotFill {
+  top_values: (number | null)[]
+  bottom_values: (number | null)[]
+  color: string
+  title: string
+}
+
+export interface PlotBarColor {
+  colors: (string | null)[]
+}
+
+export interface PlotBgColor {
+  colors: (string | null)[]
+}
+
+export interface PlotAlert {
+  bar_index: number
+  message: string
+}
+
+export interface PlotData {
+  lines: PlotLine[]
+  shapes: PlotShape[]
+  chars: PlotChar[]
+  bar_colors: PlotBarColor[]
+  bg_colors: PlotBgColor[]
+  hlines: PlotHLine[]
+  fills: PlotFill[]
+  alerts: PlotAlert[]
+}
+
 export interface BacktestMetrics {
   num_trades?: number
   net_pnl?: number
@@ -340,6 +407,7 @@ export interface BacktestMetrics {
   liquidations?: number
   initial_balance?: number
   final_equity?: number
+  plot_data?: PlotData
 }
 
 export interface Backtest {

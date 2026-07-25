@@ -20,15 +20,13 @@ import {
 import { useStrategyStore } from '../../stores/strategy'
 import { useChartStore } from '../../stores/chart'
 import { useBacktestStore } from '../../stores/backtest'
-import { useMarketDataStore } from '../../stores/marketdata'
 import ChartSkeleton from '../../components/ChartSkeleton.vue'
 import PnlCard from './PnlCard.vue'
 
-// Data-quality band colours (candle design §7.1).
 const QUALITY_COLORS: Record<string, string> = {
   CLEAN: '#22c55e',
-  FLAT: '#71717a',
-  SUSPECT: '#f59e0b',
+  FLAT: '#eab308',
+  SUSPECT: '#f97316',
   MISSING: '#ef4444',
 }
 
@@ -52,6 +50,8 @@ let series: ISeriesApi<'Candlestick'> | null = null
 let qualitySeries: ISeriesApi<'Histogram'> | null = null
 let markersApi: ReturnType<typeof createSeriesMarkers<Time>> | null = null
 let priceLines: IPriceLine[] = []
+let plotLineSeries: ISeriesApi<'Line'>[] = []
+let plotMarkersApi: ReturnType<typeof createSeriesMarkers<Time>> | null = null
 
 const selectedSymbol = ref('')
 const selectedTimeframe = ref('')
@@ -93,6 +93,96 @@ function clearPriceLines() {
     series.removePriceLine(pl)
   }
   priceLines = []
+}
+
+function clearPlotOverlays() {
+  if (!chart) return
+  for (const ls of plotLineSeries) {
+    try { chart.removeSeries(ls) } catch { /* already removed */ }
+  }
+  plotLineSeries = []
+  plotMarkersApi = null
+}
+
+function updatePlotOverlays() {
+  if (!chart || !series) return
+  clearPlotOverlays()
+
+  const bt = activeBacktest.value
+  const pd = bt?.metrics?.plot_data
+  if (!pd) return
+
+  const candles = chartStore.candles
+  if (!candles.length) return
+
+  // --- plot() lines ---
+  for (const line of pd.lines ?? []) {
+    if (!line.values?.length) continue
+    const ls = chart.addSeries(LineSeries, {
+      color: line.color || '#2196f3',
+      lineWidth: (line.linewidth ?? 1) as 1 | 2 | 3 | 4,
+      lineStyle: line.style === 'dashed' ? 1 : line.style === 'dotted' ? 2 : 0,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    })
+    const lineData: LineData[] = line.values
+      .map((v, i) => {
+        if (v == null || i >= candles.length) return null
+        return { time: candles[i].time as Time, value: v }
+      })
+      .filter((d): d is LineData => d != null)
+    ls.setData(lineData)
+    plotLineSeries.push(ls)
+  }
+
+  // --- hline() price lines ---
+  for (const h of pd.hlines ?? []) {
+    priceLines.push(
+      series.createPriceLine({
+        price: h.price,
+        color: h.color || '#9598a1',
+        lineWidth: (h.linewidth ?? 1) as 1 | 2 | 3 | 4,
+        lineStyle: h.linestyle === 'dashed' ? 1 : h.linestyle === 'dotted' ? 2 : 0,
+        axisLabelVisible: true,
+        title: h.title || '',
+      }),
+    )
+  }
+
+  // --- plotshape() + plotchar() markers ---
+  const plotMarkers: SeriesMarker<Time>[] = []
+  const shapeMap: Record<string, string> = {
+    circle: 'circle', cross: 'cross', triangleup: 'arrowUp', triangledown: 'arrowDown',
+    flag: 'circle', arrowup: 'arrowUp', arrowdown: 'arrowDown',
+  }
+  for (const shape of pd.shapes ?? []) {
+    for (const idx of shape.bar_indices ?? []) {
+      if (idx >= candles.length) continue
+      plotMarkers.push({
+        time: candles[idx].time as Time,
+        position: shape.location === 'below' ? 'belowBar' : 'aboveBar',
+        color: shape.color || '#2196f3',
+        shape: (shapeMap[shape.style] ?? 'circle') as 'arrowUp' | 'arrowDown' | 'circle' | 'cross',
+        text: shape.text || '',
+      })
+    }
+  }
+  for (const ch of pd.chars ?? []) {
+    for (const idx of ch.bar_indices ?? []) {
+      if (idx >= candles.length) continue
+      plotMarkers.push({
+        time: candles[idx].time as Time,
+        position: ch.location === 'below' ? 'belowBar' : 'aboveBar',
+        color: ch.color || '#2196f3',
+        shape: 'circle',
+        text: ch.text || ch.char || '',
+      })
+    }
+  }
+  if (plotMarkers.length) {
+    plotMarkersApi = createSeriesMarkers(series, plotMarkers)
+  }
 }
 
 async function loadChartData() {
@@ -201,6 +291,7 @@ function updateSeries() {
   }
 
   updatePriceLines()
+  updatePlotOverlays()
 }
 
 watch(
@@ -282,6 +373,7 @@ onMounted(() => {
   onUnmounted(() => {
     ro.disconnect()
     clearPriceLines()
+    clearPlotOverlays()
     chart?.remove()
     chart = null
     series = null

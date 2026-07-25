@@ -24,6 +24,7 @@ def compile(source: str) -> ast.ProgramNode:
 class BacktestResult:
     metrics: dict
     trades: list
+    plot_data: dict | None = None
 
 
 def _header_kwargs(program: ast.ProgramNode) -> dict:
@@ -110,7 +111,11 @@ def run_backtest_pine(
         program=program,
     )
     interpreter.run(program, ctx)
-    return BacktestResult(metrics=broker.metrics(), trades=broker.trades())
+    return BacktestResult(
+        metrics=broker.metrics(),
+        trades=broker.trades(),
+        plot_data=ctx.plot_data.to_dict(),
+    )
 
 
 def run_backtest(

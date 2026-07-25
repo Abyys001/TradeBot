@@ -2,8 +2,6 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.exchange.base import get_client
-
 from .models import ExchangeCredential
 from .serializers import ExchangeCredentialSerializer
 from .verification import verify_credential
@@ -25,6 +23,6 @@ class ExchangeCredentialViewSet(viewsets.ModelViewSet):
     def verify(self, request, pk=None):
         """Validate credentials against the exchange (routed by exchange type)."""
         cred = self.get_object()
-        ok, detail = get_client(cred).verify()
+        ok, detail = verify_credential(cred)
         code = status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST
         return Response({"ok": ok, "detail": detail, "is_active": cred.is_active}, status=code)

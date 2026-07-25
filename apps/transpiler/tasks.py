@@ -85,6 +85,8 @@ def _persist_backtest_result(bt, result):
     from datetime import datetime, timezone
 
     bt.metrics = result.metrics
+    if result.plot_data:
+        bt.metrics["plot_data"] = result.plot_data
     bt.status = Backtest.Status.DONE
     bt.save(update_fields=["metrics", "status"])
 

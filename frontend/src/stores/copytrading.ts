@@ -115,8 +115,8 @@ export const useCopytradingStore = defineStore('copytrading', () => {
     return data
   }
 
-  async function setFeeConfig(fee_rate: string) {
-    const { data } = await api.patch<FeeConfig>('/copytrading/admin/fee-config/', { fee_rate })
+  async function setFeeConfig(share_pct: string) {
+    const { data } = await api.patch<FeeConfig>('/copytrading/admin/fee-config/', { share_pct })
     feeConfig.value = data
     return data
   }

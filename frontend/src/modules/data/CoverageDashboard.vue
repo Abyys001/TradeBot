@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { api, type MarketDataReadiness } from '../../api/client'
-
-const { t } = useI18n()
 
 const symbols = ref<string[]>(['BTC-USDT', 'ETH-USDT', 'SOL-USDT'])
 const readiness = ref<Record<string, MarketDataReadiness>>({})

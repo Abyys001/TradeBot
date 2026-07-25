@@ -13,7 +13,7 @@ onMounted(async () => {
   await fetchCsrf()
   try {
     await Promise.all([store.fetchInvestors(), store.fetchLedger(), store.fetchFeeConfig()])
-    if (store.feeConfig) feeRate.value = store.feeConfig.fee_rate
+    if (store.feeConfig) feeRate.value = store.feeConfig.share_pct
   } finally {
     loading.value = false
   }

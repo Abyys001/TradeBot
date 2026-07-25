@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .plot_data import PlotData
+
 NA = float("nan")
 
 # Derived price series Pine exposes as builtins.
@@ -74,6 +76,8 @@ class ExecutionContext:
         self.bar_state: dict = {}
         # Cache of vectorized expression results, keyed by id(node).
         self._array_cache: dict[int, np.ndarray] = {}
+        # Visual output collector (plot/plotshape/bgcolor/etc.)
+        self.plot_data = PlotData()
 
     @property
     def close_price(self) -> float:
