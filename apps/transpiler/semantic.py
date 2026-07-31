@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from . import ast_nodes as ast
 from .exceptions import PineSemanticError, UnsupportedFeatureError
-from .runtime.indicators import MULTI_REGISTRY
+from .runtime.indicators import MULTI_REGISTRY, REGISTRY
+from .runtime.mathfns import MATH
 
 # Builtin price/series variables and their types.
 BUILTIN_VARS = {
@@ -38,6 +39,31 @@ IGNORED_KWARGS = frozenset({
 
 # Whole namespaces rejected (drawing objects).
 FORBIDDEN_NAMESPACES = {"label", "table", "box", "line"}
+
+# Members the runtime actually implements, per namespace. Anything absent used to
+# evaluate to `na` silently, so a script could trade on a nan-valued indicator
+# with no error at any stage — see `_restrict`.
+SUPPORTED_MEMBERS: dict[str, frozenset] = {
+    "ta": frozenset(REGISTRY) | frozenset(MULTI_REGISTRY) | {"barssince", "valuewhen", "cum"},
+    "math": frozenset(MATH),
+    "str": frozenset({"tostring"}),
+    "request": frozenset({"security"}),
+    "timeframe": frozenset({"period", "multiplier"}),
+    "syminfo": frozenset({"tickerid", "ticker", "currency"}),
+    "input": frozenset({
+        "int", "float", "bool", "string", "source", "default",
+        "timeframe", "symbol", "price", "session", "color",
+    }),
+    "strategy": frozenset({
+        "entry", "close", "close_all", "exit", "cancel", "cancel_all",
+        "position_size", "equity", "openprofit", "long", "short",
+        "percent_of_equity", "fixed", "cash", "contracts",
+    }),
+}
+
+# Namespaces of opaque constants (`color.green`, `barmerge.lookahead_off`) — the
+# runtime passes the member name through, so any member is harmless.
+CONSTANT_NAMESPACES = {"color", "barmerge", "size", "shape", "location", "extend", "xloc", "yloc"}
 
 INPUT_TYPES = {
     "int": "int", "float": "float", "bool": "bool", "string": "string",
@@ -119,8 +145,36 @@ class SemanticAnalyzer:
                     f"in a headless backend.",
                     node.line, node.column,
                 )
+            self._check_supported(node)
         for child in _children(node):
             self._restrict(child)
+
+    def _check_supported(self, node) -> None:
+        """Reject builtins the runtime does not implement.
+
+        Without this, an unknown member evaluates to `na` at every stage — the
+        script compiles, backtests, and trades on a nan-valued series.
+        """
+        ns, name = node.namespace, node.name
+        if ns is None:
+            if name not in ALLOWED_PLAIN and name != "plot" and name not in self.functions:
+                raise UnsupportedFeatureError(
+                    f"`{name}()` is not a supported builtin or user-defined function.",
+                    node.line, node.column,
+                )
+            return
+        if ns in CONSTANT_NAMESPACES:
+            return
+        supported = SUPPORTED_MEMBERS.get(ns)
+        if supported is None:
+            raise UnsupportedFeatureError(
+                f"the `{ns}` namespace is not supported.", node.line, node.column
+            )
+        if name not in supported:
+            raise UnsupportedFeatureError(
+                f"`{ns}.{name}` is not implemented by this transpiler.",
+                node.line, node.column,
+            )
 
     def _stmt(self, node):
         if isinstance(node, ast.StateDeclarationNode):

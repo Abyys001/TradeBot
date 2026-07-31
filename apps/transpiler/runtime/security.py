@@ -10,45 +10,112 @@ from .order_router import WarmupBroker
 from .timeframe import chart_bar_minutes, resolve_security_minutes
 
 
-def resample_ohlcv(df: pd.DataFrame, target_minutes: int, chart_minutes: int) -> pd.DataFrame:
-    """Aggregate chart OHLCV to a higher timeframe (integer multiple of chart bars)."""
-    if target_minutes <= chart_minutes:
+_MIN_MS = 60_000
+
+
+def resample_ohlcv(
+    df: pd.DataFrame,
+    target_minutes: int,
+    chart_minutes: int,
+) -> pd.DataFrame:
+    """Aggregate chart OHLCV to a higher timeframe.
+
+    Buckets are cut on **absolute UTC time** (``ts // target_ms``), never on the
+    dataframe's own index. Live execution slides a window over the candles, so
+    index-relative bucketing would move the HTF boundaries every bar and give the
+    same chart bar a different HTF value depending on where the window started.
+
+    The returned frame carries ``ts`` = bucket **start**, so callers can tell
+    exactly when each HTF bar closes.
+    """
+    if target_minutes <= chart_minutes or df.empty:
         return df.reset_index(drop=True)
-    factor = max(int(round(target_minutes / chart_minutes)), 1)
+    if "ts" not in df.columns:
+        # No timestamps (synthetic frames in tests) — fall back to index chunks.
+        return _resample_by_index(df, max(int(round(target_minutes / chart_minutes)), 1))
+
+    target_ms = int(target_minutes) * _MIN_MS
+    buckets = (df["ts"].to_numpy(dtype="int64") // target_ms) * target_ms
+    grouped = df.groupby(buckets, sort=True)
+    out = pd.DataFrame(
+        {
+            "ts": grouped["ts"].first().index.to_numpy(dtype="int64"),
+            "open": grouped["open"].first().to_numpy(dtype="float64"),
+            "high": grouped["high"].max().to_numpy(dtype="float64"),
+            "low": grouped["low"].min().to_numpy(dtype="float64"),
+            "close": grouped["close"].last().to_numpy(dtype="float64"),
+            "volume": (
+                grouped["volume"].sum().to_numpy(dtype="float64")
+                if "volume" in df.columns
+                else np.zeros(grouped.ngroups, dtype="float64")
+            ),
+        }
+    )
+    return out.reset_index(drop=True)
+
+
+def _resample_by_index(df: pd.DataFrame, factor: int) -> pd.DataFrame:
     if factor <= 1:
         return df.reset_index(drop=True)
-
-    out_rows = []
-    n = len(df)
-    for start in range(0, n, factor):
+    rows = []
+    for start in range(0, len(df), factor):
         chunk = df.iloc[start : start + factor]
         if chunk.empty:
             continue
-        out_rows.append(
-            {
-                "ts": int(chunk["ts"].iloc[-1]),
-                "open": float(chunk["open"].iloc[0]),
-                "high": float(chunk["high"].max()),
-                "low": float(chunk["low"].min()),
-                "close": float(chunk["close"].iloc[-1]),
-                "volume": float(chunk["volume"].sum()) if "volume" in chunk else 0.0,
-            }
-        )
-    return pd.DataFrame(out_rows)
+        row = {
+            "open": float(chunk["open"].iloc[0]),
+            "high": float(chunk["high"].max()),
+            "low": float(chunk["low"].min()),
+            "close": float(chunk["close"].iloc[-1]),
+            "volume": float(chunk["volume"].sum()) if "volume" in chunk else 0.0,
+        }
+        if "ts" in chunk:
+            row["ts"] = int(chunk["ts"].iloc[0])
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def align_htf_to_ltf(
     htf_values: np.ndarray,
     chart_len: int,
     factor: int,
+    *,
+    chart_ts: np.ndarray | None = None,
+    htf_ts: np.ndarray | None = None,
+    target_ms: int | None = None,
+    lookahead: bool = False,
 ) -> np.ndarray:
-    """Forward-fill HTF values onto the chart timeframe (one value per HTF bar)."""
+    """Project HTF values onto chart bars.
+
+    With ``lookahead=False`` (Pine's ``barmerge.lookahead_off``, the default) a
+    chart bar may only see HTF bars that have already **closed** — the bar the
+    chart is currently inside is still forming. Using it would repaint: the
+    backtest would trade on information that did not exist yet in live.
+    """
     out = np.full(chart_len, NA, dtype="float64")
-    if factor < 1 or len(htf_values) == 0:
+    if len(htf_values) == 0:
         return out
+
+    if chart_ts is None or htf_ts is None or target_ms is None:
+        if factor < 1:
+            return out
+        for i in range(chart_len):
+            idx = i // factor - (1 if lookahead is False else 0)
+            if 0 <= idx < len(htf_values):
+                out[i] = float(htf_values[idx])
+        return out
+
+    # Absolute-time mapping: last HTF bar whose window has closed by this bar.
+    ends = np.asarray(htf_ts, dtype="int64") + int(target_ms)
     for i in range(chart_len):
-        htf_idx = min(i // factor, len(htf_values) - 1)
-        out[i] = float(htf_values[htf_idx])
+        t = int(chart_ts[i])
+        idx = (
+            int(np.searchsorted(ends, t, side="right")) - 1
+            if not lookahead
+            else int(np.searchsorted(np.asarray(htf_ts, dtype="int64"), t, side="right")) - 1
+        )
+        if 0 <= idx < len(htf_values):
+            out[i] = float(htf_values[idx])
     return out
 
 
@@ -123,6 +190,7 @@ def evaluate_security(
     *,
     expr,
     tf_str: str,
+    lookahead: bool = False,
 ) -> np.ndarray:
     """Evaluate `request.security(..., tf, expr, ...)` on resampled HTF data."""
     from . import interpreter
@@ -142,7 +210,9 @@ def evaluate_security(
         htf_df,
         broker,
         header=parent_ctx.header,
-        chart_interval=chart_iv,
+        # Inside a security() call Pine's `timeframe.*` refers to the requested
+        # timeframe, not the chart's.
+        chart_interval=_interval_label(target_min, chart_iv),
         symbol=parent_ctx.symbol,
         program=stripped,
     )
@@ -156,4 +226,23 @@ def evaluate_security(
     if hist > 0:
         htf_arr = pd.Series(htf_arr).shift(hist).to_numpy()
 
-    return align_htf_to_ltf(htf_arr, parent_ctx.n, factor)
+    chart_ts = parent_ctx.arrays.get("ts")
+    htf_ts = htf_df["ts"].to_numpy(dtype="int64") if "ts" in htf_df.columns else None
+    return align_htf_to_ltf(
+        htf_arr,
+        parent_ctx.n,
+        factor,
+        chart_ts=chart_ts,
+        htf_ts=htf_ts,
+        target_ms=target_min * _MIN_MS,
+        lookahead=lookahead,
+    )
+
+
+def _interval_label(target_minutes: int, fallback: str) -> str:
+    from .timeframe import minutes_to_interval
+
+    try:
+        return minutes_to_interval(target_minutes)
+    except Exception:  # noqa: BLE001 — off-ladder TF: keep the chart's label
+        return fallback

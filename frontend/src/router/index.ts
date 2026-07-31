@@ -72,14 +72,9 @@ const router = createRouter({
           component: () => import('../views/OrdersView.vue'),
         },
         {
-          path: 'journal',
-          name: 'journal',
-          component: () => import('../views/JournalView.vue'),
-        },
-        {
           path: 'marketplace',
           name: 'marketplace',
-          component: () => import('../views/MarketplaceView.vue'),
+          component: () => import('../modules/investor/InvestorMarketplaceView.vue'),
         },
         // Admin-only
         {
@@ -98,6 +93,12 @@ const router = createRouter({
           path: 'admin/bots',
           name: 'admin-bots',
           component: () => import('../views/admin/BotScriptsView.vue'),
+          meta: { requiresAdmin: true },
+        },
+        {
+          path: 'admin/market-data',
+          name: 'admin-marketdata',
+          component: () => import('../views/admin/MarketDataView.vue'),
           meta: { requiresAdmin: true },
         },
         // Investor-only

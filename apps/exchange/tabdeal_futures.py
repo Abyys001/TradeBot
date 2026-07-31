@@ -13,7 +13,9 @@ endpoint. Futures must be activated once per key via set-leverage (error 1207).
 from __future__ import annotations
 
 import logging
+import math
 import time
+from dataclasses import dataclass
 
 import requests
 from django.conf import settings
@@ -28,6 +30,54 @@ logger = logging.getLogger(__name__)
 # Rate-limit retry config.
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1.0  # seconds
+
+
+def _as_float(value, fallback: float) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return out if out > 0 else fallback
+
+
+@dataclass
+class SymbolFilters:
+    """Exchange-enforced order constraints for one futures symbol."""
+
+    symbol: str
+    price_precision: int = 2
+    qty_precision: int = 3
+    step_size: float = 0.001
+    tick_size: float = 0.01
+    min_qty: float = 0.0
+    max_qty: float = 0.0
+    min_notional: float = 0.0
+
+    def round_qty(self, qty: float) -> float:
+        """Floor to the lot step — rounding up can exceed available margin."""
+        if self.step_size <= 0:
+            return round(qty, self.qty_precision)
+        steps = math.floor(round(qty / self.step_size, 9))
+        return round(steps * self.step_size, self.qty_precision)
+
+    def round_price(self, price: float) -> float:
+        if self.tick_size <= 0:
+            return round(price, self.price_precision)
+        ticks = round(price / self.tick_size)
+        return round(ticks * self.tick_size, self.price_precision)
+
+    def reject_reason(self, qty: float, price: float) -> str | None:
+        """Why the exchange would refuse this order, or None if it is placeable."""
+        if qty <= 0:
+            return "quantity rounds to zero at this lot size"
+        if self.min_qty and qty < self.min_qty:
+            return f"quantity {qty} is below minQty {self.min_qty}"
+        if self.max_qty and qty > self.max_qty:
+            return f"quantity {qty} is above maxQty {self.max_qty}"
+        notional = qty * price
+        if self.min_notional and notional < self.min_notional:
+            return f"notional {notional:.4f} is below minNotional {self.min_notional}"
+        return None
 
 
 class TabdealFuturesClient:
@@ -117,6 +167,43 @@ class TabdealFuturesClient:
             if s.get("symbol") == symbol:
                 return int(s.get("pricePrecision", 2)), int(s.get("quantityPrecision", 3))
         return 2, 3
+
+    def symbol_filters(self, symbol: str) -> "SymbolFilters":
+        """Order-sizing constraints the exchange enforces for *symbol*.
+
+        Rounding a quantity to N decimals is not the same as respecting the lot
+        size: a value can sit off the step, or under the minimum, and the order is
+        then rejected at submit time with an opaque error. Fetch the real filters
+        so we can floor to the step and refuse locally with a clear reason.
+        """
+        info = self.exchange_info(symbol)
+        symbols = info.get("symbols") or info.get("data") or []
+        entry = next((s for s in symbols if s.get("symbol") == symbol), None)
+        if entry is None:
+            return SymbolFilters(symbol=symbol)
+
+        price_prec = int(entry.get("pricePrecision", 2))
+        qty_prec = int(entry.get("quantityPrecision", 3))
+        out = SymbolFilters(
+            symbol=symbol,
+            price_precision=price_prec,
+            qty_precision=qty_prec,
+            step_size=10.0 ** -qty_prec,
+            tick_size=10.0 ** -price_prec,
+        )
+        for f in entry.get("filters") or []:
+            ftype = f.get("filterType")
+            if ftype == "LOT_SIZE":
+                out.step_size = _as_float(f.get("stepSize"), out.step_size)
+                out.min_qty = _as_float(f.get("minQty"), out.min_qty)
+                out.max_qty = _as_float(f.get("maxQty"), out.max_qty)
+            elif ftype == "PRICE_FILTER":
+                out.tick_size = _as_float(f.get("tickSize"), out.tick_size)
+            elif ftype in ("MIN_NOTIONAL", "NOTIONAL"):
+                out.min_notional = _as_float(
+                    f.get("minNotional") or f.get("notional"), out.min_notional
+                )
+        return out
 
     # ----- account / balance / positions -----
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import HistoryDownload
+from .models import HistoryDownload, RecordedSymbol
 
 STALE_PENDING_SECONDS = 120
 
@@ -50,3 +50,41 @@ class HistoryDownloadSerializer(serializers.ModelSerializer):
                 instance.data_types or ["ohlcv"],
             )
         return data
+
+
+class RecordedSymbolSerializer(serializers.ModelSerializer):
+    """A market the ingest nodes record, plus its live recording status."""
+
+    coverage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RecordedSymbol
+        fields = ["id", "symbol", "is_active", "note", "created_at", "updated_at", "coverage"]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def validate_symbol(self, value: str) -> str:
+        symbol = str(value).strip().upper().replace("-", "_").replace("/", "_")
+        if not symbol:
+            raise serializers.ValidationError("Symbol is required.")
+        if "_" not in symbol:
+            raise serializers.ValidationError(
+                "Use the exchange pair format, e.g. BTC_USDT."
+            )
+        return symbol
+
+    def get_coverage(self, obj) -> dict:
+        """Recorded span for this symbol — None until the first trade lands."""
+        from .ledger import available_range
+
+        try:
+            span = available_range(obj.symbol)
+        except Exception:  # noqa: BLE001 — a missing ledger dir is not an error
+            span = None
+        if span is None:
+            return {"recording_since": None, "recorded_until": None, "hours": 0.0}
+        first, last = span
+        return {
+            "recording_since": first,
+            "recorded_until": last,
+            "hours": round((last - first) / 3_600_000, 2),
+        }

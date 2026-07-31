@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useCopyTradingStore } from '../stores/copytrading'
+import { useCopytradingStore } from '../stores/copytrading'
 import StatCard from '../modules/overview/StatCard.vue'
 import EquityCurve from '../modules/backtest/EquityCurve.vue'
 
 const { t } = useI18n()
-const copy = useCopyTradingStore()
+const copy = useCopytradingStore()
 
 const equitySeries = computed(() => copy.equity.map((p) => Number(p.equity)))
 const netAccent = computed(() => {

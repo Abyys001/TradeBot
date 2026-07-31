@@ -17,7 +17,52 @@ from .semantic import analyze
 def compile(source: str) -> ast.ProgramNode:
     program = parse(source)
     analyze(program)
+    program.security_minutes = security_minutes(program)
     return program
+
+
+def security_minutes(program: ast.ProgramNode, chart_interval: str = "1h") -> tuple[int, ...]:
+    """Higher timeframes (in minutes) the program requests via `request.security`.
+
+    Higher-timeframe bars are folded out of the chart window rather than stored
+    separately, so this is what decides how many chart bars a live session needs
+    before its HTF indicators are warm. Resolutions that depend on the chart
+    timeframe are resolved against *chart_interval*.
+    """
+    from .runtime.context import ExecutionContext
+    from .runtime.order_router import WarmupBroker
+    from .runtime.security import _is_security_expr  # noqa: PLC2701 — same package
+    from .runtime.timeframe import resolve_security_minutes
+
+    import pandas as pd
+
+    # A one-row frame is enough: only bar-invariant expressions are evaluated.
+    stub = pd.DataFrame({c: [1.0] for c in ("open", "high", "low", "close", "volume")})
+    ctx = ExecutionContext(stub, WarmupBroker(), header=program.header,
+                           chart_interval=chart_interval, program=program)
+    interpreter.const_eval_pass(program, ctx)
+
+    found: set[int] = set()
+    for node in _walk(program.body):
+        if not _is_security_expr(node) or len(node.args) < 2:
+            continue
+        try:
+            tf_str = str(interpreter.eval_scalar(node.args[1].value, ctx))
+            found.add(resolve_security_minutes(chart_interval, tf_str))
+        except Exception:  # noqa: BLE001 — unresolvable here surfaces at run time
+            continue
+    return tuple(sorted(found))
+
+
+def _walk(nodes):
+    """Depth-first walk over every node reachable from a statement list."""
+    from .semantic import _children  # noqa: PLC2701 — same package
+
+    for node in nodes:
+        if node is None:
+            continue
+        yield node
+        yield from _walk(_children(node))
 
 
 @dataclass
@@ -42,6 +87,23 @@ def _header_kwargs(program: ast.ProgramNode) -> dict:
 def _header_qty_mode(hk: dict) -> bool:
     qty_type = hk.get("default_qty_type", "")
     return str(qty_type) == "percent_of_equity"
+
+
+def header_sizing(program: ast.ProgramNode) -> dict:
+    """`default_qty_type` / `default_qty_value` as live-broker kwargs.
+
+    The backtest broker has always honoured these; the live Tabdeal brokers did
+    not, so a script declaring `percent_of_equity=90` was backtested at 90% and
+    traded at whatever the dashboard risk config said. Passing the same values
+    both ways is what makes a backtest predictive of live.
+    """
+    hk = _header_kwargs(program)
+    if "default_qty_value" not in hk and "qty" not in hk:
+        return {}
+    return {
+        "default_qty": _coerce_float(hk.get("default_qty_value", hk.get("qty")), 1.0),
+        "qty_is_percent_of_equity": _header_qty_mode(hk),
+    }
 
 
 def _coerce_float(value, fallback: float) -> float:
@@ -159,7 +221,10 @@ def run_live(source: str, df, *, credential, strategy, symbol):
     if credential and credential.exchange == Exchange.TABDEAL:
         from .runtime.tabdeal_live_broker import TabdealLiveBroker
 
-        broker = TabdealLiveBroker(credential=credential, strategy=strategy, symbol=symbol)
+        broker = TabdealLiveBroker(
+            credential=credential, strategy=strategy, symbol=symbol,
+            **header_sizing(program),
+        )
     else:
         broker = LiveBroker(credential=credential, strategy=strategy, symbol=symbol)
     ctx = ExecutionContext(

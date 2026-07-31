@@ -4,10 +4,8 @@ import CredentialsPanel from '../modules/settings/CredentialsPanel.vue'
 import SignumSettingsPanel from '../modules/settings/SignumSettingsPanel.vue'
 import TelegramPanel from '../modules/settings/TelegramPanel.vue'
 import { useI18n } from 'vue-i18n'
-import { useTheme } from '../composables/useTheme'
 
 const { t } = useI18n()
-const { theme, toggle } = useTheme()
 </script>
 
 <template>

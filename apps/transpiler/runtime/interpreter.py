@@ -39,6 +39,16 @@ def _const(node, ctx):
     return eval_scalar(node, ctx)
 
 
+def _security_lookahead(node, ctx) -> bool:
+    """Read `lookahead=` off a request.security call. Pine defaults to *off*."""
+    for arg in getattr(node, "args", []):
+        if getattr(arg, "name", None) != "lookahead":
+            continue
+        value = eval_scalar(arg.value, ctx)
+        return str(value).endswith("lookahead_on")
+    return False
+
+
 def _vectorize(node, ctx) -> np.ndarray:
     n = ctx.n
     if isinstance(node, ast.LiteralNode):
@@ -244,7 +254,13 @@ def _vectorize_builtin(node, ctx):
         if ctx.program is None or len(argvals) < 3:
             raise NotVectorizable
         tf_str = str(_const(argvals[1], ctx))
-        return evaluate_security(ctx.program, ctx, expr=argvals[2], tf_str=tf_str)
+        return evaluate_security(
+            ctx.program,
+            ctx,
+            expr=argvals[2],
+            tf_str=tf_str,
+            lookahead=_security_lookahead(node, ctx),
+        )
     if ns == "strategy" and name in ("position_size", "equity", "openprofit"):
         raise NotVectorizable
     raise NotVectorizable
@@ -445,7 +461,50 @@ def _bind_udf_param(ctx, arg_node, value) -> SeriesBuffer:
     return buf
 
 
-def _call_user_function(name: str, arg_nodes, ctx) -> object:
+def _collect_assigned_names(body, out: set) -> None:
+    """Names a statement list assigns, recursing into nested blocks."""
+    for stmt in body:
+        if isinstance(stmt, (ast.AssignNode, ast.StateDeclarationNode)):
+            out.add(stmt.name)
+        elif isinstance(stmt, ast.TupleAssignNode):
+            out.update(stmt.names)
+        elif isinstance(stmt, ast.IfNode):
+            _collect_assigned_names(stmt.then_body, out)
+            for _cond, blk in stmt.elif_clauses:
+                _collect_assigned_names(blk, out)
+            if stmt.else_body is not None:
+                _collect_assigned_names(stmt.else_body, out)
+        elif isinstance(stmt, ast.ForNode):
+            out.add(stmt.var)
+            _collect_assigned_names(stmt.body, out)
+
+
+def _udf_local_names(fn) -> tuple[str, ...]:
+    """Body-local names of a UDF (assigned, not a parameter). Cached on the node."""
+    cached = getattr(fn, "_local_names", None)
+    if cached is None:
+        names: set = set()
+        _collect_assigned_names(fn.body, names)
+        cached = tuple(sorted(names - set(fn.params)))
+        fn._local_names = cached
+    return cached
+
+
+def _udf_local_key(fn, call_node, local: str) -> str:
+    """Per-call-site storage key for a UDF local.
+
+    Pine gives every call site its own copy of a function's local series, so
+    ``getMA(basisType, close, len)`` and ``getMA(basisType, open, len)`` must not
+    share one ``smma`` history. Keyed by source position so the key survives the
+    recompile that happens on every live bar, and lives in ``ctx.scalars`` so it
+    serializes into the Redis session for free.
+    """
+    line = getattr(call_node, "line", None)
+    col = getattr(call_node, "column", None)
+    return f"{local}@{fn.name}#{line}:{col}"
+
+
+def _call_user_function(name: str, arg_nodes, ctx, call_node=None) -> object:
     fn = ctx.functions[name]
     depth = ctx.bar_state.get("_udf_depth", 0)
     if depth >= _MAX_UDF_DEPTH:
@@ -456,30 +515,63 @@ def _call_user_function(name: str, arg_nodes, ctx) -> object:
         buf = _bind_udf_param(ctx, arg_node, value)
         saved[param] = ctx.scalars.get(param)
         ctx.scalars[param] = buf
+    # Bind body locals to this call site's own persistent buffers.
+    for local in _udf_local_names(fn):
+        key = _udf_local_key(fn, call_node, local)
+        buf = ctx.scalars.get(key)
+        if buf is None:
+            buf = SeriesBuffer()
+            ctx.scalars[key] = buf
+        saved.setdefault(local, ctx.scalars.get(local))
+        ctx.scalars[local] = buf
     ctx.bar_state["_udf_depth"] = depth + 1
     try:
         for stmt in fn.body[:-1]:
             _exec(stmt, ctx)
-        last = fn.body[-1]
-        if isinstance(last, ast.ExprStatementNode):
-            return eval_scalar(last.expr, ctx)
-        if isinstance(last, ast.AssignNode):
-            _exec(last, ctx)
-            return ctx.scalars[last.name].current
-        if not isinstance(
-            last,
-            (ast.StateDeclarationNode, ast.IfNode, ast.ForNode, ast.OrderExecutionNode, ast.TupleAssignNode),
-        ):
-            return eval_scalar(last, ctx)
-        _exec(last, ctx)
-        return NA
+        return _block_result(fn.body[-1], ctx)
     finally:
         ctx.bar_state["_udf_depth"] = depth
-        for param, prev in saved.items():
+        for bound, prev in saved.items():
             if prev is None:
-                ctx.scalars.pop(param, None)
+                ctx.scalars.pop(bound, None)
             else:
-                ctx.scalars[param] = prev
+                ctx.scalars[bound] = prev
+
+
+def _block_result(last, ctx):
+    """Execute the final statement of a block and return its Pine value."""
+    if isinstance(last, ast.ExprStatementNode):
+        return eval_scalar(last.expr, ctx)
+    if isinstance(last, ast.AssignNode):
+        _exec(last, ctx)
+        buf = ctx.scalars.get(last.name)
+        return buf.current if buf is not None else NA
+    if isinstance(last, ast.IfNode):
+        # An if/else-if chain is an expression in Pine: its value is the value of
+        # the branch taken (`na` when no branch matches).
+        if _truthy(eval_scalar(last.condition, ctx)):
+            return _exec_block_result(last.then_body, ctx)
+        for cond, body in last.elif_clauses:
+            if _truthy(eval_scalar(cond, ctx)):
+                return _exec_block_result(body, ctx)
+        if last.else_body is not None:
+            return _exec_block_result(last.else_body, ctx)
+        return NA
+    if not isinstance(
+        last,
+        (ast.StateDeclarationNode, ast.ForNode, ast.OrderExecutionNode, ast.TupleAssignNode),
+    ):
+        return eval_scalar(last, ctx)
+    _exec(last, ctx)
+    return NA
+
+
+def _exec_block_result(body, ctx):
+    if not body:
+        return NA
+    for stmt in body[:-1]:
+        _exec(stmt, ctx)
+    return _block_result(body[-1], ctx)
 
 
 def _scalar_builtin(node, ctx):
@@ -499,7 +591,7 @@ def _scalar_builtin(node, ctx):
     if ns == "input" or (ns is None and name == "input"):
         return _input_default(node, ctx)
     if ns is None and name in ctx.functions:
-        return _call_user_function(name, argvals, ctx)
+        return _call_user_function(name, argvals, ctx, call_node=node)
     if ns == "math" and name in MATH:
         return MATH[name](*[eval_scalar(v, ctx) for v in argvals])
     if ns is None and name == "nz":
@@ -596,6 +688,60 @@ def _vectorize_tuple_assign(node: ast.TupleAssignNode, ctx) -> None:
         ctx.arrays[var_name] = np.asarray(arr, dtype="float64")
 
 
+# Namespaces whose values are fixed for the whole run, not per bar.
+_BAR_INVARIANT_NS = ("input", "timeframe", "syminfo")
+
+
+def _is_bar_invariant(node, consts: set) -> bool:
+    """True if *node* evaluates to the same value on every bar.
+
+    Used to resolve things like a `request.security` resolution string before the
+    bar loop starts — without this, a computed resolution is `na` at vectorize
+    time and the multi-timeframe request silently collapses to the chart TF.
+    """
+    if isinstance(node, ast.ArgNode):
+        return _is_bar_invariant(node.value, consts)
+    if isinstance(node, ast.LiteralNode):
+        return True
+    if isinstance(node, ast.IdentifierNode):
+        return node.name in consts or node.name == "na"
+    if isinstance(node, ast.UnaryOpNode):
+        return _is_bar_invariant(node.operand, consts)
+    if isinstance(node, ast.BinaryOpNode):
+        return _is_bar_invariant(node.left, consts) and _is_bar_invariant(node.right, consts)
+    if isinstance(node, ast.TernaryNode):
+        return all(
+            _is_bar_invariant(x, consts)
+            for x in (node.condition, node.if_true, node.if_false)
+        )
+    if isinstance(node, ast.BuiltinFunctionNode):
+        ns, name = node.namespace, node.name
+        if ns in _BAR_INVARIANT_NS or (ns is None and name == "input"):
+            return True
+        if (ns == "str" and name == "tostring") or ns == "math":
+            return all(_is_bar_invariant(a, consts) for a in node.args)
+    return False
+
+
+def const_eval_pass(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
+    """Phase 0 — resolve bar-invariant top-level assignments before vectorizing."""
+    consts: set = set()
+    for stmt in program.body:
+        if not isinstance(stmt, ast.AssignNode) or stmt.reassign:
+            continue
+        if stmt.name in ctx.arrays or not _is_bar_invariant(stmt.value, consts):
+            continue
+        try:
+            value = eval_scalar(stmt.value, ctx)
+        except Exception:  # noqa: BLE001 — a non-const expression must not break compile
+            continue
+        if is_na(value):
+            continue
+        buf = ctx.scalars.setdefault(stmt.name, SeriesBuffer())
+        buf.current = value
+        consts.add(stmt.name)
+
+
 def vectorize_pass(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
     """Phase A — precompute series-pure top-level assignments."""
     ctx._array_cache.clear()
@@ -633,6 +779,7 @@ def run_warmup(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
     """Replay all bars to build indicator/scalar state without placing orders."""
     ctx.functions = {f.name: f for f in program.functions}
     ctx.bar_state.clear()
+    const_eval_pass(program, ctx)
     vectorize_pass(program, ctx)
     for i in range(ctx.n):
         _drive_bar(program, ctx, i)
@@ -644,6 +791,7 @@ def run_warmup(program: ast.ProgramNode, ctx: ExecutionContext) -> None:
 
 def run_bar(program: ast.ProgramNode, ctx: ExecutionContext, bar_index: int) -> None:
     """Re-vectorize on the current window and execute a single bar."""
+    const_eval_pass(program, ctx)
     vectorize_pass(program, ctx)
     _drive_bar(program, ctx, bar_index)
 
@@ -651,6 +799,7 @@ def run_bar(program: ast.ProgramNode, ctx: ExecutionContext, bar_index: int) -> 
 def run(program: ast.ProgramNode, ctx: ExecutionContext):
     ctx.functions = {f.name: f for f in program.functions}
     ctx.bar_state.clear()
+    const_eval_pass(program, ctx)
     vectorize_pass(program, ctx)
     for i in range(ctx.n):
         _drive_bar(program, ctx, i)

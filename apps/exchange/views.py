@@ -1,10 +1,14 @@
 """REST API for historical market data management."""
 from __future__ import annotations
 
+from django.conf import settings
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.accounts.permissions import IsAdmin
 
 from apps.dashboard.publish import publish_dashboard
 from apps.exchange.candle_store import (
@@ -337,7 +341,19 @@ class MarketDataReadinessView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from apps.exchange.readiness import readiness
+        from apps.exchange.readiness import readiness, strategy_readiness
+
+        # With a strategy_id we can answer the question that actually matters:
+        # is *this* strategy startable, including the higher timeframes it requests.
+        strategy_id = request.query_params.get("strategy_id")
+        if strategy_id:
+            from apps.strategies.models import Strategy
+
+            strategy = Strategy.objects.filter(pk=strategy_id, user=request.user).first()
+            if strategy is not None:
+                explicit = request.query_params.get("required_bars")
+                required = int(explicit) if (explicit or "").isdigit() else None
+                return Response(strategy_readiness(strategy, required))
 
         symbol = request.query_params.get("symbol", "BTC_USDT")
         tf = request.query_params.get("tf") or request.query_params.get("timeframe", "1m")
@@ -384,3 +400,84 @@ class MarketDataSymbolsView(APIView):
         if base.exists():
             symbols = sorted(p.name for p in base.iterdir() if p.is_dir())
         return Response({"symbols": symbols})
+
+
+class RecordedSymbolListView(APIView):
+    """GET/POST /api/marketdata/recorded/ — markets the ingest nodes record.
+
+    Admin-only: switching a market on starts consuming its trade broadcast, and
+    switching one off permanently stops history accruing for it (Tabdeal has no
+    candle backfill, so a gap here can only be filled by waiting).
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        from .models import RecordedSymbol
+        from .serializers import RecordedSymbolSerializer
+
+        rows = RecordedSymbol.objects.all()
+        return Response({
+            "symbols": RecordedSymbolSerializer(rows, many=True).data,
+            "seeded_from_env": not rows.exists(),
+            "env_default": list(getattr(settings, "TABDEAL_INGEST_SYMBOLS", [])),
+        })
+
+    def post(self, request):
+        from .serializers import RecordedSymbolSerializer
+
+        serializer = RecordedSymbolSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class RecordedSymbolDetailView(APIView):
+    """PATCH/DELETE /api/marketdata/recorded/<pk>/ — pause, annotate, or remove."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def patch(self, request, pk=None):
+        from .models import RecordedSymbol
+        from .serializers import RecordedSymbolSerializer
+
+        obj = get_object_or_404(RecordedSymbol, pk=pk)
+        serializer = RecordedSymbolSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk=None):
+        from .models import RecordedSymbol
+
+        obj = get_object_or_404(RecordedSymbol, pk=pk)
+        # The ledger is deliberately left on disk: deleting a row stops recording,
+        # it does not throw away history that cannot be re-fetched.
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MarketDataBackfillView(APIView):
+    """POST /api/marketdata/backfill/ — materialize candles from the trade ledger.
+
+    Body: ``{"symbols": [...], "timeframes": [...]}`` or ``{"strategy_id": N}``.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request):
+        from .tasks import backfill_candles_task
+
+        data = request.data or {}
+        strategy_id = data.get("strategy_id")
+        symbols = data.get("symbols") or None
+        timeframes = data.get("timeframes") or None
+        if not strategy_id and not symbols:
+            return Response(
+                {"errors": ["provide symbols[] or strategy_id"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        task = backfill_candles_task.delay(
+            symbols=symbols, timeframes=timeframes, strategy_id=strategy_id
+        )
+        return Response({"task_id": task.id, "status": "queued"}, status=status.HTTP_202_ACCEPTED)

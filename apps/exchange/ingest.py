@@ -155,6 +155,31 @@ class IngestService:
 
     # ----- lifecycle -----
 
+    async def _watch_symbols(self, client, poll_s: float = 30.0) -> None:
+        """Restart the broadcast subscription when the recorded-symbol set changes.
+
+        History only accrues while a symbol is being recorded, so waiting for a
+        container restart to pick up a newly added market costs real data.
+        """
+        from asgiref.sync import sync_to_async
+
+        from .models import RecordedSymbol
+
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=poll_s)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                latest = await sync_to_async(RecordedSymbol.active_symbols, thread_sensitive=True)()
+            except Exception:  # noqa: BLE001 — a DB blip must not kill ingest
+                continue
+            if latest and sorted(latest) != sorted(self.symbols):
+                added, removed = client.set_symbols(latest)
+                self.symbols = list(latest)
+                logger.info("recorded symbols changed: +%s -%s", added, removed)
+
     async def run(self) -> None:
         self._started_at = time.time()
         try:
@@ -169,6 +194,7 @@ class IngestService:
             asyncio.create_task(client.run(), name="ws"),
             asyncio.create_task(self._ledger_loop(), name="ledger"),
             asyncio.create_task(self._publish_loop(), name="publish"),
+            asyncio.create_task(self._watch_symbols(client), name="symbols"),
         ]
         loop = asyncio.get_running_loop()
         stop = self._stop
@@ -202,6 +228,9 @@ class IngestService:
 
 def run_ingest(symbols: list[str] | None = None, node_id: str | None = None) -> None:
     import socket
-    symbols = symbols or _cfg("TABDEAL_INGEST_SYMBOLS", ["BTC_USDT"])
+    if not symbols:
+        from .models import RecordedSymbol
+
+        symbols = RecordedSymbol.active_symbols()
     node_id = node_id or _cfg("INGEST_NODE_ID", None) or socket.gethostname()
     asyncio.run(IngestService(symbols, node_id).run())

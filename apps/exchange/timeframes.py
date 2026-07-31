@@ -22,7 +22,8 @@ _DAY = 24 * _HOUR
 FIXED_MS: dict[str, int] = {
     "1s": 1 * _SEC, "5s": 5 * _SEC, "15s": 15 * _SEC, "30s": 30 * _SEC,
     "1m": 1 * _MIN, "3m": 3 * _MIN, "5m": 5 * _MIN, "15m": 15 * _MIN, "30m": 30 * _MIN,
-    "1h": 1 * _HOUR, "2h": 2 * _HOUR, "4h": 4 * _HOUR, "6h": 6 * _HOUR, "12h": 12 * _HOUR,
+    "1h": 1 * _HOUR, "2h": 2 * _HOUR, "3h": 3 * _HOUR, "4h": 4 * _HOUR,
+    "6h": 6 * _HOUR, "8h": 8 * _HOUR, "12h": 12 * _HOUR,
     "1d": 1 * _DAY, "3d": 3 * _DAY,
 }
 

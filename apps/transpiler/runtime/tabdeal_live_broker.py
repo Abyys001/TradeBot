@@ -59,7 +59,16 @@ async def _acquire_mutex(symbol: str, owner: str | None = None, ttl: int = 30):
 
 
 class TabdealLiveBroker:
-    def __init__(self, credential, strategy, symbol, *, leverage: float | None = None):
+    def __init__(
+        self,
+        credential,
+        strategy,
+        symbol,
+        *,
+        leverage: float | None = None,
+        default_qty: float | None = None,
+        qty_is_percent_of_equity: bool = False,
+    ):
         self.credential = credential
         self.strategy = strategy
         self.symbol = symbol
@@ -68,13 +77,23 @@ class TabdealLiveBroker:
         self._client_obj = None
         self._leverage_set = False
         self._open_orders: dict[str, dict] = {}
+        self._filters = None
 
         from apps.risk.config import DEFAULT_LEVERAGE, read_risk
 
         live_config = getattr(strategy, "live_config", None) or {}
         risk = read_risk(live_config)
         self._live_config = live_config
-        self._position_size_pct = float(risk.get("position_size_pct", 20))
+        # The Pine header is the strategy's own statement of size, and it is what
+        # the backtest used. When it specifies percent-of-equity, live must match
+        # it or backtest results say nothing about live behaviour.
+        self._default_qty = default_qty
+        self._qty_is_pct = bool(qty_is_percent_of_equity)
+        self._position_size_pct = (
+            float(default_qty)
+            if (qty_is_percent_of_equity and default_qty is not None)
+            else float(risk.get("position_size_pct", 20))
+        )
         self._leverage = float(leverage if leverage is not None else risk.get("leverage", DEFAULT_LEVERAGE))
         self._global_sl_pct: float | None = (
             float(risk["global_stop_loss_pct"]) if risk.get("global_stop_loss_pct") else None
@@ -106,17 +125,39 @@ class TabdealLiveBroker:
             logger.warning("set_leverage failed for cred %s: %s", self.credential.pk, exc)
         self._leverage_set = True
 
-    def _compute_qty(self, client, price: float) -> float:
+    def _get_filters(self, client):
+        from apps.exchange.tabdeal_futures import SymbolFilters
+
+        if self._filters is None:
+            filters = None
+            try:
+                filters = client.symbol_filters(self.pair)
+            except Exception:  # noqa: BLE001 — metadata must never block a trade
+                filters = None
+            # A client that predates symbol_filters (or a stub) can hand back
+            # anything; only a real filter set is safe to size against.
+            self._filters = (
+                filters if isinstance(filters, SymbolFilters) else SymbolFilters(symbol=self.pair)
+            )
+        return self._filters
+
+    def _compute_qty(self, client, price: float, explicit_qty: float | None = None) -> float:
+        """Order quantity, floored to the exchange's lot step.
+
+        Precedence matches the backtest broker: an explicit Pine ``qty=`` wins,
+        then the header's percent-of-equity, then the dashboard risk config.
+        """
+        filters = self._get_filters(client)
+        if explicit_qty is not None and float(explicit_qty) > 0:
+            return filters.round_qty(float(explicit_qty))
+        if not self._qty_is_pct and self._default_qty is not None:
+            return filters.round_qty(float(self._default_qty))
+
         equity = client.available_usdt()
         notional = equity * (self._position_size_pct / 100.0) * self._leverage
         if price <= 0 or notional <= 0:
             return 0.0
-        raw_qty = notional / price
-        try:
-            _, qty_prec = client.symbol_precision(self.pair)
-        except Exception:  # noqa: BLE001
-            qty_prec = 3
-        return round(raw_qty, qty_prec)
+        return filters.round_qty(notional / price)
 
     def _risk_gate(self, *, oid, client) -> bool:
         try:
@@ -207,7 +248,9 @@ class TabdealLiveBroker:
             sl_price = entry_price * (1.0 - self._global_sl_pct / 100.0)
         else:
             sl_price = entry_price * (1.0 + self._global_sl_pct / 100.0)
-        sl_price = round(sl_price, 2)
+        # Two decimals is right for BTC_USDT and wrong for most other pairs;
+        # use the symbol's real tick size.
+        sl_price = self._get_filters(client).round_price(sl_price)
 
         # Fetch position id (needed for the positionSlTp endpoint).
         try:
@@ -359,7 +402,18 @@ class TabdealLiveBroker:
                     self.close(open_oid, price, bar_index, reason="reversal")
 
             client = self._client()
-            qty_final = self._compute_qty(client, float(price or 0))
+            qty_final = self._compute_qty(client, float(price or 0), explicit_qty=qty)
+            # Refuse locally with a readable reason rather than letting the
+            # exchange bounce it with an opaque filter error.
+            reject = self._get_filters(client).reject_reason(qty_final, float(price or 0))
+            if reject:
+                self._log(
+                    "warning",
+                    "order.rejected_by_filters",
+                    {"oid": oid, "pair": self.pair, "qty": qty_final,
+                     "price": price, "reason": reject},
+                )
+                return None
             if qty_final <= 0:
                 self._log("warning", "order.size_zero", {"oid": oid, "pair": self.pair, "price": price})
                 return None

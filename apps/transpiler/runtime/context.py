@@ -19,14 +19,22 @@ def is_na(v) -> bool:
 
 
 class SeriesBuffer:
-    """History buffer for a path-dependent (`var`/`varip`/`:=`) variable."""
+    """History buffer for a path-dependent (`var`/`varip`/`:=`) variable.
+
+    Invariant while bar ``i`` executes: ``values`` holds the committed values of
+    bars ``0..i-1`` (so ``len(values) == i``) and ``current`` is bar ``i``'s
+    working value. ``commit()`` appends ``current`` at end of bar.
+    """
 
     def __init__(self):
         self.values: list = []
         self.current = NA  # value for the bar currently executing
 
     def get(self, n: int):
-        idx = len(self.values) - 1 - n
+        """Pine `x[n]`: offset 0 is the current bar, 1 the previous bar."""
+        if n <= 0:
+            return self.current
+        idx = len(self.values) - n
         return self.values[idx] if 0 <= idx < len(self.values) else NA
 
     def commit(self):

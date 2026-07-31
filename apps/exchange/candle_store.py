@@ -27,6 +27,8 @@ from .models import Candle, FundingRate, OpenInterest
 logger = logging.getLogger(__name__)
 
 _COLUMNS = ["ts", "open", "high", "low", "close", "volume"]
+# Written when the producer supplies them (the resampler does; imports may not).
+_PROVENANCE_COLUMNS = ["quality", "trade_count"]
 _FUNDING_COLUMNS = ["ts", "funding_rate", "premium"]
 _OI_COLUMNS = ["ts", "open_interest"]
 _BULK_CHUNK = 1000
@@ -120,6 +122,8 @@ def _bulk_insert(model, objects: list) -> int:
 def _df_to_candles(network: str, coin: str, interval: str, df: pd.DataFrame) -> list[Candle]:
     coin = normalize_coin(coin)
     interval = normalize_interval(interval)
+    has_quality = "quality" in df.columns
+    has_trades = "trade_count" in df.columns
     rows: list[Candle] = []
     for row in df.itertuples(index=False):
         rows.append(
@@ -133,6 +137,8 @@ def _df_to_candles(network: str, coin: str, interval: str, df: pd.DataFrame) -> 
                 low=Decimal(str(row.low)),
                 close=Decimal(str(row.close)),
                 volume=Decimal(str(row.volume)),
+                quality=str(row.quality) if has_quality else "CLEAN",
+                trade_count=int(row.trade_count) if has_trades else 0,
             )
         )
     return rows
@@ -151,7 +157,8 @@ def save_candles(
     path = candle_path(coin, interval, network=network)
 
     if not df.empty:
-        projected = df[_COLUMNS].copy()
+        columns = _COLUMNS + [c for c in _PROVENANCE_COLUMNS if c in df.columns]
+        projected = df[columns].copy()
         count = _bulk_insert(Candle, _df_to_candles(network, coin, interval, projected))
         logger.info(
             "records inserted asset=%s timeframe=%s network=%s count=%s",

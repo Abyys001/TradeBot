@@ -34,6 +34,47 @@ class HistoryDownload(models.Model):
         return f"HistoryDownload<{self.pk}> {self.status}"
 
 
+class RecordedSymbol(models.Model):
+    """A market the ingest nodes should be recording.
+
+    Source of truth for what gets recorded. ``TABDEAL_INGEST_SYMBOLS`` only seeds
+    this table on first run, so symbols can be added from the dashboard without a
+    container restart — which matters because recording is the long pole: history
+    only exists from the moment a symbol is switched on.
+    """
+
+    symbol = models.CharField(
+        max_length=32, unique=True, help_text="Ledger symbol, e.g. BTC_USDT."
+    )
+    is_active = models.BooleanField(
+        default=True, help_text="Whether ingest should currently record this market."
+    )
+    note = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["symbol"]
+
+    def __str__(self):
+        return f"{self.symbol}{'' if self.is_active else ' (paused)'}"
+
+    @classmethod
+    def active_symbols(cls) -> list[str]:
+        """Symbols to record, seeding from settings the first time."""
+        from django.conf import settings
+
+        try:
+            rows = list(cls.objects.filter(is_active=True).values_list("symbol", flat=True))
+            if rows:
+                return rows
+            if cls.objects.exists():
+                return []  # deliberately all paused — not an empty-table seed
+        except Exception:  # noqa: BLE001 — no DB yet (migrate, collectstatic)
+            pass
+        return list(getattr(settings, "TABDEAL_INGEST_SYMBOLS", ["BTC_USDT"]))
+
+
 class Candle(models.Model):
     """OHLCV candle stored in PostgreSQL (canonical source for queries)."""
 
@@ -46,6 +87,16 @@ class Candle(models.Model):
     low = models.DecimalField(max_digits=24, decimal_places=8)
     close = models.DecimalField(max_digits=24, decimal_places=8)
     volume = models.DecimalField(max_digits=24, decimal_places=8)
+    # Provenance (§3.2 invariant 1): a bar built from partial ingest coverage must
+    # stay identifiable after the fact, or a backtest silently trusts bad data.
+    quality = models.CharField(
+        max_length=8,
+        default="CLEAN",
+        help_text="CLEAN | FLAT | SUSPECT | MISSING — see apps.exchange.data_quality.",
+    )
+    trade_count = models.PositiveIntegerField(
+        default=0, help_text="Raw trades folded into this bar (0 == FLAT)."
+    )
 
     class Meta:
         constraints = [

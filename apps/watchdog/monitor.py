@@ -312,26 +312,32 @@ async def run_watchdog(interval_s: float = 5.0) -> None:
     from apps.credentials.models import Exchange
     from apps.exchange.tabdeal_futures import TabdealFuturesClient
 
+    from asgiref.sync import sync_to_async
+
     logger.info("watchdog starting: interval=%.1fs", interval_s)
+
+    def _tick() -> None:
+        """One sweep. Sync: the ORM and the exchange client both block."""
+        # Find all live strategies on Tabdeal
+        states = (
+            StrategyState.objects.select_related("strategy", "strategy__credential")
+            .filter(live_started_at__isnull=False)
+        )
+        for st in states:
+            strat = st.strategy
+            if not strat.credential or strat.credential.exchange != Exchange.TABDEAL:
+                continue
+            try:
+                client = TabdealFuturesClient(strat.credential)
+                monitor = WatchdogMonitor(strat.pk, client)
+                tier, detail = monitor.check()
+                monitor.execute(tier, detail)
+            except Exception:
+                logger.exception("watchdog check failed for strategy %s", strat.pk)
 
     while True:
         try:
-            # Find all live strategies on Tabdeal
-            states = (
-                StrategyState.objects.select_related("strategy", "strategy__credential")
-                .filter(live_started_at__isnull=False)
-            )
-            for st in states:
-                strat = st.strategy
-                if not strat.credential or strat.credential.exchange != Exchange.TABDEAL:
-                    continue
-                try:
-                    client = TabdealFuturesClient(strat.credential)
-                    monitor = WatchdogMonitor(strat.pk, client)
-                    tier, detail = monitor.check()
-                    monitor.execute(tier, detail)
-                except Exception:
-                    logger.exception("watchdog check failed for strategy %s", strat.pk)
+            await sync_to_async(_tick, thread_sensitive=True)()
         except Exception:
             logger.exception("watchdog loop error")
 

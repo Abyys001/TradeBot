@@ -239,6 +239,18 @@ def union_coverage(symbol: str, nodes: list[str] | None = None) -> list[list[int
     return _merge_intervals(intervals)
 
 
+def available_range(symbol: str, nodes: list[str] | None = None) -> tuple[int, int] | None:
+    """``(first_ms, last_ms)`` the ledger holds for *symbol*, or None if empty.
+
+    Every caller that needs "how far back does recorded data go" should use this
+    rather than re-deriving it from ``union_coverage`` edges.
+    """
+    cov = union_coverage(symbol, nodes)
+    if not cov:
+        return None
+    return int(cov[0][0]), int(cov[-1][1])
+
+
 def coverage_gaps(symbol: str, start_ms: int, end_ms: int, nodes: list[str] | None = None) -> list[list[int]]:
     """Sub-windows of ``[start_ms, end_ms)`` not covered by any node — the honest holes."""
     covered = union_coverage(symbol, nodes)

@@ -87,18 +87,31 @@ class TabdealBroker:
             logger.warning("set_leverage failed for cred %s: %s", self.credential.pk, exc)
         self._leverage_set = True
 
+    def _get_filters(self, client):
+        from apps.exchange.tabdeal_futures import SymbolFilters
+
+        if getattr(self, "_filters", None) is None:
+            try:
+                filters = client.symbol_filters(self.pair)
+            except Exception:  # noqa: BLE001 — metadata must never block a trade
+                filters = None
+            self._filters = (
+                filters if isinstance(filters, SymbolFilters) else SymbolFilters(symbol=self.pair)
+            )
+        return self._filters
+
     def _compute_qty(self, client, price: float) -> float:
+        """Size off *this investor's* own equity, floored to the lot step.
+
+        Deliberately ignores the master's absolute quantity — every account has a
+        different balance, so only the percentage carries over.
+        """
         equity = client.available_usdt()
         risk_factor = float(self.subscription.risk_factor or 1)
         notional = equity * (self._effective_pct() / 100.0) * risk_factor * self.leverage
         if price <= 0 or notional <= 0:
             return 0.0
-        raw_qty = notional / price
-        try:
-            _, qty_prec = client.symbol_precision(self.pair)
-        except Exception:  # noqa: BLE001
-            qty_prec = 3
-        return round(raw_qty, qty_prec)
+        return self._get_filters(client).round_qty(notional / price)
 
     def _open_copy_trade(self):
         from apps.copytrading.models import CopyTrade
@@ -157,6 +170,16 @@ class TabdealBroker:
         qty_final = self._compute_qty(client, float(price or 0))
         if qty_final <= 0:
             self._log("warning", "copy.size_zero", {"cred": self.credential.pk, "equity": equity, "price": price})
+            return None
+        # A small investor account can fall under the exchange minimum even when
+        # the master's order is fine. Say so per-investor instead of failing opaquely.
+        reject = self._get_filters(client).reject_reason(qty_final, float(price or 0))
+        if reject:
+            self._log(
+                "warning",
+                "copy.rejected_by_filters",
+                {"cred": self.credential.pk, "qty": qty_final, "price": price, "reason": reject},
+            )
             return None
 
         try:

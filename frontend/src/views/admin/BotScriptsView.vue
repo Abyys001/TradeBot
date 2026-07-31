@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '../../stores/strategy'
-import { useCopyTradingStore } from '../../stores/copytrading'
+import { useCopytradingStore } from '../../stores/copytrading'
 import { useCredentialsStore } from '../../stores/credentials'
 import { useToast } from '../../composables/useToast'
 import CreateStrategyModal from '../../modules/strategy/CreateStrategyModal.vue'
@@ -10,7 +10,7 @@ import BotScriptCard from '../../modules/strategy/BotScriptCard.vue'
 
 const { t } = useI18n()
 const store = useStrategyStore()
-const copyStore = useCopyTradingStore()
+const copyStore = useCopytradingStore()
 const credentials = useCredentialsStore()
 const toast = useToast()
 

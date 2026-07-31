@@ -896,9 +896,12 @@ def test_occ_signum_c_alt_has_values():
     program = compile(OCC_SIGNUM)
     ctx = ExecutionContext(df, WarmupBroker(), chart_interval="1h", symbol="HYPE", program=program)
     ctx.functions = {f.name: f for f in program.functions}
+    interpreter.const_eval_pass(program, ctx)
     interpreter.vectorize_pass(program, ctx)
     assert np.isfinite(ctx.arrays["c_alt"]).sum() > 8
     assert np.isfinite(ctx.arrays["o_alt"]).sum() > 8
+    # The resolution string must resolve to the 3x higher timeframe, not the chart TF.
+    assert ctx.scalars["res_str"].current == "180"
 
 
 def test_occ_signum_produces_trades():
@@ -945,3 +948,158 @@ if ta.crossover(c_alt, ta.sma(close, 3))
 """
     res = run_backtest(src, _hourly_trend_df(120), chart_interval="1h", symbol="BTC")
     assert "num_trades" in res.metrics
+
+
+# --- Phase 1 correctness regressions -------------------------------------
+# These assert numeric correctness, not just finiteness. The OCC_SIGNUM fixture
+# passed for months while silently computing the wrong series.
+
+def test_series_history_offset_is_one_bar_back():
+    """`x[1]` is the previous bar, not two bars back."""
+    src = """strategy("hist")
+var float ctr = na
+ctr := na(ctr[1]) ? 1 : ctr[1] + 1
+prev = ctr[1]
+"""
+    df = _wave_df(8)
+    program = compile(src)
+    ctx = ExecutionContext(df, WarmupBroker(), program=program)
+    interpreter.run_warmup(program, ctx)
+    ctr = ctx.scalars["ctr"].values
+    prev = ctx.scalars["prev"].values
+    assert ctr == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    # prev[i] == ctr[i-1]; bar 0 has no history.
+    assert prev[1:] == ctr[:-1]
+
+
+def test_udf_locals_are_per_call_site():
+    """Two calls to one UDF must not share the callee's local series."""
+    src = """strategy("scope")
+acc(src) =>
+    float run = na
+    run := na(run[1]) ? src : run[1] + src
+    run
+a = acc(close)
+b = acc(open)
+"""
+    df = _hourly_trend_df(30)
+    program = compile(src)
+    ctx = ExecutionContext(df, WarmupBroker(), chart_interval="1h", program=program)
+    interpreter.run_warmup(program, ctx)
+    a = np.array(ctx.scalars["a"].values, dtype=float)
+    b = np.array(ctx.scalars["b"].values, dtype=float)
+    assert np.allclose(a, np.cumsum(df["close"].to_numpy()))
+    assert np.allclose(b, np.cumsum(df["open"].to_numpy()))
+
+
+def test_occ_signum_smma_matches_reference():
+    """getMA(SMMA) must equal the hand-computed SMMA, and ma_c/ma_o must differ."""
+    df = _hourly_trend_df(120)
+    program = compile(OCC_SIGNUM)
+    ctx = ExecutionContext(df, WarmupBroker(), chart_interval="1h", symbol="HYPE", program=program)
+    interpreter.run_warmup(program, ctx)
+
+    length = 8
+
+    def smma(src):
+        sma = pd.Series(src).rolling(length).mean().to_numpy()
+        out, prev = np.full(len(src), np.nan), np.nan
+        for i in range(len(src)):
+            prev = sma[i] if np.isnan(prev) else (prev * (length - 1) + src[i]) / length
+            out[i] = prev
+        return out
+
+    ma_c = np.array(ctx.scalars["ma_c"].values, dtype=float)
+    ma_o = np.array(ctx.scalars["ma_o"].values, dtype=float)
+    # Each call site must track its own source series. When the locals are
+    # shared, both collapse onto whichever ran last.
+    assert np.allclose(ma_c[-10:], smma(df["close"].to_numpy())[-10:], atol=1e-9)
+    assert np.allclose(ma_o[-10:], smma(df["open"].to_numpy())[-10:], atol=1e-9)
+
+
+def test_pine_timeframe_semantics():
+    from .runtime.timeframe import pine_multiplier, pine_period, resolve_security_minutes
+
+    assert pine_period("1h") == "60"
+    assert pine_multiplier("1h") == 60
+    assert pine_multiplier("5m") == 5
+    assert pine_multiplier("1d") == 1
+    # A bare number is minutes in Pine, not chart-bar multiples.
+    assert resolve_security_minutes("1h", "180") == 180
+    assert resolve_security_minutes("15m", "60") == 60
+    assert resolve_security_minutes("1h", "D") == 1440
+
+
+def test_unresolvable_security_timeframe_raises():
+    from .runtime.timeframe import resolve_security_minutes
+
+    with pytest.raises(PineSemanticError):
+        resolve_security_minutes("1h", "nan")
+    with pytest.raises(PineSemanticError):
+        resolve_security_minutes("1h", "banana")
+
+
+def test_unknown_builtin_is_rejected():
+    """Unimplemented builtins used to evaluate to `na` silently at every stage."""
+    for bad in ("ta.supertrend(3, 10)", "ta.dema(close, 5)", "foo.bar(1)", "str.upper(close)"):
+        with pytest.raises(UnsupportedFeatureError):
+            compile(f'strategy("x")\ny = {bad}\n')
+
+
+def test_real_occ_strategy_file_still_compiles():
+    """The user's actual strategy must survive the allow-list."""
+    prog = compile(OCC_SIGNUM)
+    assert prog.header is not None
+
+
+# --- Phase 2: multi-timeframe (request.security) ---------------------------
+
+def _hourly_df_slice(n_total=240, take=None):
+    df = _hourly_trend_df(n_total)
+    return df if take is None else df.iloc[n_total - take:].reset_index(drop=True)
+
+
+def test_htf_buckets_are_absolute_time_not_window_relative():
+    """Live slides a window; HTF bars must not move when the window start moves."""
+    from .runtime.security import resample_ohlcv
+
+    full = resample_ohlcv(_hourly_df_slice(), 180, 60).set_index("ts")
+    assert (full.index.to_numpy() % (3 * 3_600_000) == 0).all()
+
+    for take in (120, 121, 122, 137):
+        part = resample_ohlcv(_hourly_df_slice(take=take), 180, 60).set_index("ts")
+        # Skip the first bucket: a sliced window can begin mid-bucket.
+        shared = [ts for ts in part.index[1:] if ts in full.index]
+        assert shared
+        for ts in shared:
+            cols = ["open", "high", "low", "close"]
+            assert np.allclose(
+                part.loc[ts, cols].to_numpy(dtype=float),
+                full.loc[ts, cols].to_numpy(dtype=float),
+            )
+
+
+def test_security_lookahead_off_does_not_repaint():
+    """A chart bar may only see HTF bars that already closed."""
+    from .runtime.security import align_htf_to_ltf
+
+    target_ms = 3 * 3_600_000
+    htf_ts = np.array([0, target_ms, 2 * target_ms], dtype="int64")
+    values = np.array([10.0, 20.0, 30.0])
+    # A chart bar one hour into the second HTF bucket.
+    chart_ts = np.array([target_ms + 3_600_000], dtype="int64")
+
+    off = align_htf_to_ltf(values, 1, 3, chart_ts=chart_ts, htf_ts=htf_ts,
+                           target_ms=target_ms, lookahead=False)
+    on = align_htf_to_ltf(values, 1, 3, chart_ts=chart_ts, htf_ts=htf_ts,
+                          target_ms=target_ms, lookahead=True)
+    assert off[0] == 10.0  # last *closed* bucket
+    assert on[0] == 20.0   # the bucket still forming
+
+
+def test_security_minutes_declared_at_compile():
+    from .engine import security_minutes
+
+    program = compile(OCC_SIGNUM)
+    assert program.security_minutes == (180,)          # 1h chart x multiplier 3
+    assert security_minutes(program, "15m") == (45,)   # scales with the chart TF

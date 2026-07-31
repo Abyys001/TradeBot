@@ -47,6 +47,7 @@ export interface User {
   email?: string
   is_trading_enabled: boolean
   role: 'admin' | 'investor'
+  is_admin?: boolean
   must_change_password: boolean
 }
 
@@ -221,13 +222,36 @@ export interface MarketDataReadiness {
   symbol: string
   timeframe: string
   clean_bars: number
+  /** Candles actually materialized — what a strategy warms up from. */
+  stored_bars: number
+  /** Enough history recorded. Not sufficient on its own: it still needs backfilling. */
+  recording_ready: boolean
   required_bars: number
   ready: boolean
   eta_seconds: number | null
   recording_since: string | null
   coverage_pct: number
   suspect_bars_24h: number
+  /** Set when trades are recorded but not yet turned into candles. */
+  needs_backfill?: boolean
+  hint?: string
+  /** Higher timeframes the strategy requests via request.security. */
+  htf?: MarketDataReadiness[]
   error?: string
+}
+
+export interface RecordedSymbol {
+  id: number
+  symbol: string
+  is_active: boolean
+  note: string
+  created_at: string
+  updated_at: string
+  coverage: {
+    recording_since: number | null
+    recorded_until: number | null
+    hours: number
+  }
 }
 
 export interface MarketDataCoverage {
@@ -409,6 +433,8 @@ export interface FeeConfig {
   share_pct: string
   destination_exchange: string
   destination_account: string
+  // /copytrading/admin/fee-config/ returns the legacy solo FeeConfig shape.
+  fee_rate?: string
   updated_at?: string
 }
 

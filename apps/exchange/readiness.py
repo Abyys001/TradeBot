@@ -55,13 +55,20 @@ def readiness(symbol: str, tf: str, required_bars: int) -> dict:
     else:
         clean_bars = _contiguous_clean(symbol, last_bucket, tf_ms, cap=max(required_bars, 1))
 
-    ready = required_bars > 0 and clean_bars >= required_bars
-    eta_seconds = 0 if ready else int((required_bars - clean_bars) * (tf_ms / 1000))
+    # Recorded trades are not enough: the strategy seeds its warmup window from the
+    # *candle store*, so a symbol can be fully recorded and still unable to start.
+    stored_bars = stored_bar_count(symbol, tf)
 
-    return {
+    recording_ready = required_bars > 0 and clean_bars >= required_bars
+    ready = recording_ready and stored_bars >= required_bars
+    eta_seconds = 0 if recording_ready else int((required_bars - clean_bars) * (tf_ms / 1000))
+
+    out = {
         "symbol": symbol.upper(),
         "timeframe": tf,
         "clean_bars": clean_bars,
+        "stored_bars": stored_bars,
+        "recording_ready": recording_ready,
         "required_bars": required_bars,
         "ready": ready,
         "eta_seconds": eta_seconds,
@@ -69,6 +76,63 @@ def readiness(symbol: str, tf: str, required_bars: int) -> dict:
         "coverage_pct": round(coverage.coverage_pct(symbol, recording_since_ms, latest_ms) * 100, 2),
         "suspect_bars_24h": _suspect_bars_24h(symbol, tf_ms, latest_ms),
     }
+    if recording_ready and not ready:
+        out["needs_backfill"] = True
+        out["hint"] = (
+            f"{clean_bars} bars recorded but only {stored_bars} stored — run "
+            f"`manage.py backfill_candles --symbols {symbol.upper()} --timeframes {tf}`"
+        )
+    return out
+
+
+def stored_bar_count(symbol: str, tf: str) -> int:
+    """Candles actually materialized for ``(symbol, tf)`` — what warmup reads."""
+    from .candle_store import Candle
+    from .resampler import ledger_symbol_to_coin
+
+    return Candle.objects.filter(
+        asset=ledger_symbol_to_coin(symbol), timeframe=tf
+    ).count()
+
+
+def strategy_readiness(strategy, required_bars: int | None = None) -> dict:
+    """Readiness for a strategy across its chart timeframe *and* every HTF it requests.
+
+    A `request.security` strategy is only ready when the higher timeframe is warm
+    too; reporting the chart timeframe alone is the same false green light as
+    reporting recorded trades without stored candles.
+    """
+    from apps.transpiler.engine import compile as pine_compile
+    from apps.transpiler.runtime.tabdeal_broker import to_tabdeal_symbol
+    from apps.transpiler.runtime.timeframe import minutes_to_interval
+
+    symbol = to_tabdeal_symbol(strategy.symbol)
+    required = int(required_bars if required_bars is not None else strategy.warmup_bars)
+    report = readiness(symbol, strategy.timeframe, required)
+
+    htf: list[dict] = []
+    if (strategy.source or "").strip():
+        try:
+            program = pine_compile(strategy.source)
+            minutes = getattr(program, "security_minutes", ()) or ()
+        except Exception:  # noqa: BLE001 — a broken script is the start endpoint's problem
+            minutes = ()
+        for mins in minutes:
+            try:
+                tf = minutes_to_interval(mins)
+            except Exception:  # noqa: BLE001
+                htf.append({"minutes": mins, "error": "timeframe not on the supported ladder",
+                            "ready": False})
+                report["ready"] = False
+                continue
+            # An HTF bar spans several chart bars, so proportionally fewer are needed.
+            factor = max(mins // max(tf_to_ms(strategy.timeframe) // 60_000, 1), 1)
+            sub = readiness(symbol, tf, max(required // factor, 1))
+            htf.append(sub)
+            if not sub["ready"]:
+                report["ready"] = False
+    report["htf"] = htf
+    return report
 
 
 def _contiguous_clean(symbol: str, last_bucket: int, tf_ms: int, *, cap: int) -> int:
@@ -106,6 +170,8 @@ def _empty(symbol: str, tf: str, required_bars: int, *, error: str | None = None
         "symbol": symbol.upper(),
         "timeframe": tf,
         "clean_bars": 0,
+        "stored_bars": 0,
+        "recording_ready": False,
         "required_bars": required_bars,
         "ready": False,
         "eta_seconds": None,

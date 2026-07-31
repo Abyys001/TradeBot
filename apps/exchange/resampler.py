@@ -34,6 +34,15 @@ from .timeframes import (
 logger = logging.getLogger(__name__)
 
 
+def ledger_symbol_to_coin(symbol: str) -> str:
+    """`BTC_USDT` (ledger/ingest) -> `BTC` (candle store asset key)."""
+    sym = str(symbol).strip().upper()
+    for quote in ("_USDT", "_USD", "USDT"):
+        if sym.endswith(quote) and len(sym) > len(quote):
+            return sym[: -len(quote)].rstrip("_")
+    return sym
+
+
 # ---------------------------------------------------------------------------
 # Calendar anchor helpers (§0.3 — separate from fixed-bucket resampling)
 # ---------------------------------------------------------------------------
@@ -215,6 +224,17 @@ class Resampler:
         self.symbol = symbol
         self.node_id = node_id
 
+    def resample_fixed_tagged(self, trades: pd.DataFrame, tf: str) -> list[dict]:
+        """Fold trades into quality-tagged bars for one fixed timeframe.
+
+        Same pair of steps ``resample_range`` applies to the base tiers, exposed
+        for any timeframe so a backfill can build the higher timeframes a
+        ``request.security`` strategy needs.
+        """
+        if trades.empty:
+            return []
+        return tag_bars(resample_fixed(trades, tf), self.symbol, tf_to_ms(tf))
+
     def resample_range(
         self,
         start_ms: int,
@@ -247,6 +267,31 @@ class Resampler:
 
         return result
 
+    def persist(self, bars: dict[str, list[dict]]) -> dict[str, int]:
+        """Write materialized timeframes to Parquet + PG.
+
+        Without this the resampler computed bars, published a quality heartbeat,
+        and dropped them — the ledger filled up while the candle store stayed
+        empty, so a strategy could never seed its warmup window.
+        """
+        from .candle_store import save_candles
+
+        written: dict[str, int] = {}
+        coin = ledger_symbol_to_coin(self.symbol)
+        for tf, bar_list in bars.items():
+            if not bar_list or not needs_persistence(tf):
+                continue
+            df = pd.DataFrame(bar_list)
+            if df.empty:
+                continue
+            try:
+                save_candles(coin, tf, df)
+            except Exception:  # noqa: BLE001 — one TF must not sink the others
+                logger.exception("persist failed symbol=%s tf=%s", self.symbol, tf)
+                continue
+            written[tf] = len(df)
+        return written
+
     def publish_quality(
         self,
         bars: dict[str, list[dict]],
@@ -277,11 +322,15 @@ async def run_resampler(
 ) -> None:
     """Main loop: resample all tracked symbols every ``interval_s`` seconds."""
     import redis.asyncio as aioredis
+    from asgiref.sync import sync_to_async
     from django.conf import settings
 
     from .ledger import union_coverage
 
-    symbols = symbols or getattr(settings, "TABDEAL_INGEST_SYMBOLS", ["BTC_USDT"])
+    if not symbols:
+        from .models import RecordedSymbol
+
+        symbols = await sync_to_async(RecordedSymbol.active_symbols, thread_sensitive=True)()
     client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
     logger.info("resampler starting: symbols=%s interval=%.1fs", symbols, interval_s)
@@ -294,10 +343,14 @@ async def run_resampler(
                 start_ms = now_ms - 86_400_000
                 resampler = Resampler(symbol)
                 bars = resampler.resample_range(start_ms, now_ms)
+                written = await asyncio.to_thread(resampler.persist, bars)
                 resampler.publish_quality(bars, client)
                 total = sum(len(v) for v in bars.values())
                 if total:
-                    logger.debug("resampler %s: %d bars across %d TFs", symbol, total, len(bars))
+                    logger.debug(
+                        "resampler %s: %d bars across %d TFs, persisted %s",
+                        symbol, total, len(bars), written,
+                    )
             except Exception:
                 logger.exception("resampler failed for %s", symbol)
 

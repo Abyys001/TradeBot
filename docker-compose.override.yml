@@ -1,0 +1,75 @@
+# Local testing override.
+#
+# Two host-level docker problems this works around (both need root to fix
+# properly — see the notes at the bottom):
+#   1. The bridge cannot forward: a container reaches neither another container
+#      nor the internet. Sharing the host netns sidesteps the bridge entirely.
+#   2. dockerd cannot signal running containers (apparmor denies it), so old
+#      containers can neither be stopped nor replaced. Hence this file is meant
+#      to be used with a separate project name:
+#         docker compose -p tradebot-test up -d --no-build
+#      Named volumes are declared external so the fresh project still uses the
+#      original pgdata / redisdata / marketdata.
+#
+# Ports: dashboard on 0.0.0.0:8080 (LAN reachable — the point of this file),
+# API/daphne on 0.0.0.0:8001 (8000 is still held by a stuck old container).
+# Postgres and Redis stay pinned to 127.0.0.1.
+#
+# Delete this file to go back to the bridge + loopback-only setup.
+x-host-net: &host-net
+  network_mode: host
+  networks: !reset null
+  ports: !reset null
+
+services:
+  postgres:
+    <<: *host-net
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+
+  redis:
+    <<: *host-net
+    command: ["sh", "-c", "redis-server --bind 127.0.0.1 --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+  web:
+    <<: *host-net
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$RELOAD" = "1" ]; then
+          watchfiles --filter python "daphne -b 0.0.0.0 -p 8001 config.asgi:application" /app
+        else
+          daphne -b 0.0.0.0 -p 8001 config.asgi:application
+        fi
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8001/api/health/ping/', headers={'X-Forwarded-Proto':'https'})).read()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  celery: *host-net
+  celery-beat: *host-net
+  tabdeal-ingest-a1: *host-net
+  tabdeal-ingest-a2: *host-net
+  hot-compute: *host-net
+  resampler: *host-net
+  watchdog: *host-net
+
+  frontend:
+    <<: *host-net
+    volumes:
+      - ./frontend/nginx.host.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  pgdata:
+    external: true
+    name: tradebot_pgdata
+  redisdata:
+    external: true
+    name: tradebot_redisdata
+  marketdata:
+    external: true
+    name: tradebot_marketdata

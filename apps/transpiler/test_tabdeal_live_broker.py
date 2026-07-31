@@ -380,3 +380,67 @@ def test_risk_gate_persists_halt_state_via_strategy_id(mock_alert):
     # The second attempt should also be blocked (same halt reason persisted).
     blocked_logs = ExecutionLog.objects.filter(strategy=strat, event="risk.blocked")
     assert blocked_logs.count() >= 2
+
+
+# --- Phase 4: Pine header sizing reaches the live broker -------------------
+
+def test_header_sizing_extracted_from_program():
+    from apps.transpiler.engine import compile as pine_compile, header_sizing
+
+    program = pine_compile(
+        'strategy("pct", default_qty_type=strategy.percent_of_equity, default_qty_value=90)\n'
+        'plot(close)\n'
+    )
+    assert header_sizing(program) == {"default_qty": 90.0, "qty_is_percent_of_equity": True}
+
+    plain = pine_compile('strategy("plain")\nplot(close)\n')
+    assert header_sizing(plain) == {}
+
+
+def test_live_broker_uses_header_percent_not_risk_config():
+    """A script declaring 90% of equity must trade at 90%, not the risk default of 20%."""
+    from unittest import mock
+    from apps.transpiler.runtime.tabdeal_live_broker import TabdealLiveBroker
+    from apps.exchange.tabdeal_futures import SymbolFilters
+
+    strategy = mock.Mock(live_config={"risk": {"position_size_pct": 20, "leverage": 1}})
+    broker = TabdealLiveBroker(
+        credential=mock.Mock(), strategy=strategy, symbol="BTC",
+        default_qty=90.0, qty_is_percent_of_equity=True,
+    )
+    client = mock.Mock()
+    client.available_usdt.return_value = 1000.0
+    client.symbol_filters.return_value = SymbolFilters(symbol="BTC_USDT", step_size=0.0001,
+                                                       qty_precision=4)
+    # 90% of 1000 USDT at 100 = 9.0 units, not 20% (2.0).
+    assert broker._compute_qty(client, 100.0) == pytest.approx(9.0)
+
+
+def test_live_broker_explicit_pine_qty_wins():
+    from unittest import mock
+    from apps.transpiler.runtime.tabdeal_live_broker import TabdealLiveBroker
+    from apps.exchange.tabdeal_futures import SymbolFilters
+
+    strategy = mock.Mock(live_config={})
+    broker = TabdealLiveBroker(credential=mock.Mock(), strategy=strategy, symbol="BTC",
+                               default_qty=90.0, qty_is_percent_of_equity=True)
+    client = mock.Mock()
+    client.available_usdt.return_value = 1000.0
+    client.symbol_filters.return_value = SymbolFilters(symbol="BTC_USDT", step_size=0.001,
+                                                       qty_precision=3)
+    assert broker._compute_qty(client, 100.0, explicit_qty=2.5) == pytest.approx(2.5)
+
+
+def test_live_broker_floors_quantity_to_lot_step():
+    from unittest import mock
+    from apps.transpiler.runtime.tabdeal_live_broker import TabdealLiveBroker
+    from apps.exchange.tabdeal_futures import SymbolFilters
+
+    strategy = mock.Mock(live_config={"risk": {"position_size_pct": 100, "leverage": 1}})
+    broker = TabdealLiveBroker(credential=mock.Mock(), strategy=strategy, symbol="BTC")
+    client = mock.Mock()
+    client.available_usdt.return_value = 1000.0
+    client.symbol_filters.return_value = SymbolFilters(symbol="BTC_USDT", step_size=0.05,
+                                                       qty_precision=2)
+    # 1000/70 = 14.2857... -> floored onto the 0.05 grid, never rounded up.
+    assert broker._compute_qty(client, 70.0) == pytest.approx(14.25)

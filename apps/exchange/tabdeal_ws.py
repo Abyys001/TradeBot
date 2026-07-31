@@ -129,12 +129,45 @@ class TabdealBroadcastClient:
         self._ping_interval = ping_interval
         self._max_backoff = max_backoff
         self._stop = asyncio.Event()
+        self._tasks: dict[str, asyncio.Task] = {}
 
     def stop(self) -> None:
         self._stop.set()
 
+    @property
+    def symbols(self) -> list[str]:
+        return list(self._symbols)
+
+    def set_symbols(self, symbols: list[str]) -> tuple[list[str], list[str]]:
+        """Start/stop per-symbol connections to match *symbols*.
+
+        Returns ``(added, removed)``. Recording history cannot be backfilled, so a
+        newly enabled market must start streaming immediately rather than at the
+        next process restart.
+        """
+        wanted = [s.strip().upper() for s in symbols if s and s.strip()]
+        added = [s for s in wanted if s not in self._tasks]
+        removed = [s for s in self._tasks if s not in wanted]
+
+        for symbol in removed:
+            task = self._tasks.pop(symbol, None)
+            if task is not None:
+                task.cancel()
+        for symbol in added:
+            self._tasks[symbol] = asyncio.create_task(
+                self._run_symbol(symbol), name=f"ws:{symbol}"
+            )
+        self._symbols = wanted
+        return added, removed
+
     async def run(self) -> None:
-        await asyncio.gather(*(self._run_symbol(s) for s in self._symbols))
+        self.set_symbols(self._symbols)
+        await self._stop.wait()
+        for task in self._tasks.values():
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        self._tasks.clear()
 
     async def _run_symbol(self, symbol: str) -> None:
         import websockets  # lazy: keeps the pure normalizer importable without the dep

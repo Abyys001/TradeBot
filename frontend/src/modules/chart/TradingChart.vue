@@ -5,14 +5,10 @@ import {
   createChart,
   createSeriesMarkers,
   CandlestickSeries,
-  HistogramSeries,
-  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type IPriceLine,
   type CandlestickData,
-  type HistogramData,
-  type LineData,
   type SeriesMarker,
   type Time,
   ColorType,
@@ -20,17 +16,8 @@ import {
 import { useStrategyStore } from '../../stores/strategy'
 import { useChartStore } from '../../stores/chart'
 import { useBacktestStore } from '../../stores/backtest'
-import { useMarketDataStore } from '../../stores/marketdata'
 import ChartSkeleton from '../../components/ChartSkeleton.vue'
 import PnlCard from './PnlCard.vue'
-
-// Data-quality band colours (candle design §7.1).
-const QUALITY_COLORS: Record<string, string> = {
-  CLEAN: '#22c55e',
-  FLAT: '#71717a',
-  SUSPECT: '#f59e0b',
-  MISSING: '#ef4444',
-}
 
 const props = withDefaults(
   defineProps<{

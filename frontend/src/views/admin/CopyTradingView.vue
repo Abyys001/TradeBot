@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useCopyTradingStore } from '../../stores/copytrading'
+import { useCopytradingStore } from '../../stores/copytrading'
 import StatCard from '../../modules/overview/StatCard.vue'
 
 const { t } = useI18n()
-const copy = useCopyTradingStore()
+const copy = useCopytradingStore()
 
 const feeForm = reactive({ share_pct: '20', destination_account: '', destination_exchange: 'tabdeal' })
 const saved = ref(false)
@@ -28,7 +28,7 @@ async function saveFee() {
 }
 
 async function settleAll() {
-  const ids = copy.ledger.filter((l) => l.status === 'accrued').map((l) => l.id)
+  const ids = copy.newLedger.filter((l) => l.status === 'accrued').map((l) => l.id)
   if (ids.length) await copy.settle(ids)
 }
 
@@ -131,7 +131,7 @@ onMounted(() => copy.fetchAdmin())
           </tr>
         </thead>
         <tbody class="divide-y divide-border">
-          <tr v-for="l in copy.ledger" :key="l.id" class="text-fg">
+          <tr v-for="l in copy.newLedger" :key="l.id" class="text-fg">
             <td class="px-4 py-2">{{ l.investor }}</td>
             <td class="px-4 py-2 tabular-nums text-warning">{{ fmt(l.amount) }}</td>
             <td class="px-4 py-2 tabular-nums">{{ fmt(l.share_pct, 1) }}</td>
@@ -140,7 +140,7 @@ onMounted(() => copy.fetchAdmin())
             </td>
             <td class="px-4 py-2 text-fg-muted">{{ new Date(l.accrued_at).toLocaleDateString() }}</td>
           </tr>
-          <tr v-if="!copy.loading && copy.ledger.length === 0">
+          <tr v-if="!copy.loading && copy.newLedger.length === 0">
             <td colspan="5" class="px-4 py-8 text-center text-fg-muted">{{ t('copyAdmin.noLedger') }}</td>
           </tr>
         </tbody>

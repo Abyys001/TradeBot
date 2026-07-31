@@ -194,3 +194,34 @@ def sync_active_accounts_task() -> dict:
     for cid in creds:
         sync_account_state_task.delay(cid)
     return {"ok": True, "count": len(list(creds))}
+
+
+@shared_task(name="exchange.backfill_candles")
+def backfill_candles_task(
+    symbols: list[str] | None = None,
+    timeframes: list[str] | None = None,
+    strategy_id: int | None = None,
+) -> dict:
+    """Celery wrapper around the ``backfill_candles`` command.
+
+    Rebuilding a long recording run can take minutes, so the dashboard fires this
+    rather than blocking a request.
+    """
+    import io
+
+    from django.core.management import call_command
+
+    args: list[str] = []
+    if strategy_id:
+        args += ["--strategy-id", str(strategy_id)]
+    if symbols:
+        args += ["--symbols", *symbols]
+    if timeframes:
+        args += ["--timeframes", *timeframes]
+
+    out = io.StringIO()
+    try:
+        call_command("backfill_candles", *args, stdout=out, stderr=out)
+    except Exception as exc:  # noqa: BLE001 — report failure to the caller, don't retry blindly
+        return {"ok": False, "error": str(exc), "output": out.getvalue()}
+    return {"ok": True, "output": out.getvalue()}

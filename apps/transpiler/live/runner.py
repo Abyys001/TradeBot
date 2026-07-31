@@ -119,10 +119,13 @@ class LiveIncrementalRunner:
         if strategy.credential and strategy.credential.exchange == Exchange.TABDEAL:
             from ..runtime.tabdeal_live_broker import TabdealLiveBroker
 
+            from ..engine import header_sizing
+
             return TabdealLiveBroker(
                 credential=strategy.credential,
                 strategy=strategy,
                 symbol=strategy.symbol,
+                **header_sizing(compile(strategy.source)),
             )
         return LiveBroker(
             credential=strategy.credential,
