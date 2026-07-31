@@ -21,6 +21,7 @@ const form = ref({
   name: '',
   credential: null as number | null,
   source: '',
+  market_type: 'perp' as 'perp' | 'spot',
   live_config: {
     symbols: [] as string[],
     timeframes: [] as string[],
@@ -52,6 +53,7 @@ watch(
       name: s.name,
       credential: s.credential,
       source: s.source,
+      market_type: (s.market_type as 'perp' | 'spot') || 'perp',
       live_config: {
         symbols: s.live_config?.symbols?.length ? [...s.live_config.symbols] : [s.symbol],
         timeframes: s.live_config?.timeframes?.length ? [...s.live_config.timeframes] : [s.timeframe],
@@ -106,6 +108,7 @@ async function save() {
       credential: form.value.credential,
       source: form.value.source,
       type: engineType.value,
+      market_type: form.value.market_type,
       live_config: form.value.live_config,
     })
     toast.show(t('strategy.saved'), 'success')
@@ -231,6 +234,24 @@ function loadSourceFrom(id: number) {
         >✗ {{ selected.validation_error || t('strategy.validatedFail') }}</span>
       </div>
       <p v-if="validationMsg" class="mt-1 font-mono text-xs text-negative">{{ validationMsg }}</p>
+    </div>
+
+    <div>
+      <label class="text-xs text-fg-muted">Market Type</label>
+      <div class="mt-1 flex gap-1">
+        <button
+          type="button"
+          class="rounded px-3 py-1 text-xs transition-colors"
+          :class="form.market_type === 'perp' ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted'"
+          @click="form.market_type = 'perp'"
+        >Perpetual</button>
+        <button
+          type="button"
+          class="rounded px-3 py-1 text-xs transition-colors"
+          :class="form.market_type === 'spot' ? 'bg-success-bg text-positive' : 'bg-surface-raised text-fg-muted'"
+          @click="form.market_type = 'spot'"
+        >Spot</button>
+      </div>
     </div>
 
     <div>

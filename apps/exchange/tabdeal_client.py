@@ -46,7 +46,7 @@ class TabdealClient:
 
     # ---- signing -------------------------------------------------------
     def _headers(self) -> dict:
-        return {"X-MBX-APIKEY": self.credential.api_key}
+        return {"X-MBX-APIKEY": self.credential.api_key or self.credential.get_api_key()}
 
     def _sign(self, params: dict) -> str:
         query = urlencode(params)
@@ -105,7 +105,7 @@ class TabdealClient:
     # ---- ExchangeClient interface -------------------------------------
     def verify(self) -> tuple[bool, str]:
         cred = self.credential
-        if not cred.api_key or cred.api_secret_enc is None:
+        if not (cred.api_key or cred.api_key_enc) or not cred.api_secret_enc:
             return False, "missing api key or secret"
         try:
             self._request("GET", "/balance")

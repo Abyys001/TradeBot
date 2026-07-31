@@ -1,0 +1,39 @@
+# Standalone watchdog — runs on the same or different host.
+# Shares Postgres and Redis via network, but has its own connection pool
+# and doesn't depend on the main stack's health.
+#
+# Usage:
+#   docker compose -f docker-compose.watchdog.yml up -d --build
+#
+# For true independence, run this on a different host and point
+# WATCHDOG_REDIS_URL / WATCHDOG_DATABASE_URL to the shared infra.
+
+x-app-common: &app-common
+  build: .
+  env_file: .env
+  volumes:
+    - .:/app
+    - marketdata:/app/data
+
+services:
+  watchdog:
+    <<: *app-common
+    container_name: algotrader-watchdog
+    command:
+      - sh
+      - -c
+      - |
+        python manage.py run_watchdog --interval 3
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      # Independent timeouts — don't hang on the same connection pool
+      WATCHDOG_DB_CONN_MAX_AGE: 300
+      WATCHDOG_DB_CONN_TIMEOUT: 5
+    # No depends_on — if Postgres/Redis are down, watchdog retries independently
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

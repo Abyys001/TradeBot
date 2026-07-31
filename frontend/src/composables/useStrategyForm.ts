@@ -25,6 +25,7 @@ export function useStrategyForm(strategyId: Ref<number> | number) {
   const form = reactive({
     name: '',
     source: '',
+    market_type: 'perp' as 'perp' | 'spot',
     live_config: {
       symbols: [] as string[],
       timeframes: [] as string[],
@@ -44,6 +45,7 @@ export function useStrategyForm(strategyId: Ref<number> | number) {
     engineType.value = s.type || 'pine'
     form.name = s.name
     form.source = s.source
+    form.market_type = (s.market_type as 'perp' | 'spot') || 'perp'
     form.live_config = {
       symbols: s.live_config?.symbols?.length ? [...s.live_config.symbols] : [s.symbol],
       timeframes: s.live_config?.timeframes?.length ? [...s.live_config.timeframes] : [s.timeframe],
@@ -127,6 +129,7 @@ export function useStrategyForm(strategyId: Ref<number> | number) {
         credential: s.credential,
         source: form.source,
         type: engineType.value,
+        market_type: form.market_type,
         live_config: form.live_config,
       })
       toast.show(t('strategy.saved'), 'success')

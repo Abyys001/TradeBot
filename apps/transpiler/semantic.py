@@ -25,11 +25,11 @@ BUILTIN_VARS = {
 # Plain (namespace-less) builtins that ARE supported.
 ALLOWED_PLAIN = {"nz", "na", "input"}
 
-# Plain builtins rejected as visual / non-headless (`plot` allowed as no-op).
-FORBIDDEN_PLAIN = {
-    "plotshape", "plotchar", "plotcandle", "plotbar", "plotarrow",
-    "bgcolor", "barcolor", "hline", "fill", "alert", "alertcondition",
-}
+# Plain builtins rejected as non-headless.  Visual/chart builtins that produce
+# plot overlays are now supported (plot, plotshape, plotchar, bgcolor, barcolor,
+# hline, fill, alert, alertcondition).  Only truly unsupported drawing-object
+# namespaces remain forbidden.
+FORBIDDEN_PLAIN: set[str] = set()
 
 # Keyword args ignored for TradingView UI compatibility.
 IGNORED_KWARGS = frozenset({
@@ -37,7 +37,7 @@ IGNORED_KWARGS = frozenset({
     "title", "linewidth", "color", "overlay", "display",
 })
 
-# Whole namespaces rejected (drawing objects).
+# Whole namespaces rejected (complex drawing objects — not yet supported).
 FORBIDDEN_NAMESPACES = {"label", "table", "box", "line"}
 
 # Members the runtime actually implements, per namespace. Anything absent used to
@@ -320,6 +320,8 @@ class SemanticAnalyzer:
             return "int" if name == "multiplier" else "string"
         if ns == "color":
             return "color"
+        if ns in ("shape", "location", "hline"):
+            return "string"
         if ns == "barmerge":
             return "unknown"
         if ns == "request" and name == "security":

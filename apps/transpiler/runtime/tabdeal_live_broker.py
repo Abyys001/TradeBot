@@ -272,6 +272,12 @@ class TabdealLiveBroker:
                 self._log("info", "order.sltp_auto", {
                     "oid": entry_oid, "pair": self.pair, "sl": sl_price, "attempt": attempt + 1,
                 })
+                # Mark sl_confirmed on StrategyState after successful attach.
+                try:
+                    self.strategy.state.sl_confirmed = True
+                    self.strategy.state.save(update_fields=["sl_confirmed"])
+                except Exception:  # noqa: BLE001
+                    pass
                 return
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
@@ -310,6 +316,7 @@ class TabdealLiveBroker:
     # ----- order placement core -----
 
     def _place(self, *, is_buy: bool, oid, price, qty):
+        from apps.exchange.execution_mutex import sync_lock_order
         from apps.exchange.tabdeal_errors import TabdealAPIError
         from apps.execution.models import OrderRecord
 
@@ -328,9 +335,13 @@ class TabdealLiveBroker:
         coid = f"s{self.strategy.pk}-{oid}"
 
         try:
-            resp = client.place_market_order(
-                symbol=self.pair, side=tabdeal_side, quantity=qty, price=price, client_order_id=coid,
-            )
+            with sync_lock_order(self.pair):
+                resp = client.place_market_order(
+                    symbol=self.pair, side=tabdeal_side, quantity=qty, price=price, client_order_id=coid,
+                )
+        except TimeoutError:
+            self._log("warning", "order.mutex_contention", {"oid": oid, "symbol": self.pair})
+            return None
         except TabdealAPIError as exc:
             rec = OrderRecord.objects.create(
                 strategy=self.strategy,
@@ -386,6 +397,8 @@ class TabdealLiveBroker:
     # ----- interface -----
 
     def entry(self, oid, direction, price, bar_index, qty=None, **kwargs):
+        from apps.watchdog.intent import confirm_intent, publish_entry_intent
+
         is_buy = str(direction).lower() in ("long", "strategy.long")
         target_side = "long" if is_buy else "short"
 
@@ -418,6 +431,17 @@ class TabdealLiveBroker:
                 self._log("warning", "order.size_zero", {"oid": oid, "pair": self.pair, "price": price})
                 return None
 
+            # Publish write-ahead intent before order placement.
+            from apps.risk.config import read_risk
+            risk = read_risk(self._live_config)
+            sl_pct = risk.get("global_stop_loss_pct")
+            if sl_pct is not None:
+                fill_f = float(price or 0)
+                expected_sl = fill_f * (1 - float(sl_pct) / 100.0) if is_buy else fill_f * (1 + float(sl_pct) / 100.0)
+            else:
+                expected_sl = 0.0
+            publish_entry_intent(self.strategy.pk, self.symbol, target_side, qty_final, expected_sl)
+
             rec = self._place(is_buy=is_buy, oid=oid, price=price, qty=qty_final)
             if rec is not None and rec.status != "rejected":
                 self._open_orders[str(oid)] = {"side": target_side, "qty": qty_final}
@@ -438,6 +462,10 @@ class TabdealLiveBroker:
                 fill_px = float(rec.avg_fill_price or price or 0)
                 if fill_px > 0:
                     self._attach_sl_after_entry(entry_oid=str(oid), entry_price=fill_px, is_buy=is_buy)
+
+                confirm_intent(self.strategy.pk, self.symbol)
+            else:
+                confirm_intent(self.strategy.pk, self.symbol)
 
             return rec
         finally:
@@ -496,6 +524,11 @@ class TabdealLiveBroker:
         )
         self.last_action = f"CLOSE at {exit_px}"
         self._open_orders.pop(str(oid), None)
+        try:
+            self.strategy.state.sl_confirmed = False
+            self.strategy.state.save(update_fields=["sl_confirmed"])
+        except Exception:  # noqa: BLE001
+            pass
         self._log("info", "order.closed", {"oid": oid, "pair": self.pair, "px": exit_px, "reason": exit_reason})
 
         from apps.telegram.tasks import dispatch_telegram_alert

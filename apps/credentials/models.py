@@ -124,6 +124,7 @@ class ExchangeCredential(models.Model):
 
     def set_api_credentials(self, api_key: str, api_secret: str) -> None:
         """Encrypt and store a REST API key/secret pair. Does not save()."""
+        self.api_key = api_key.strip()
         self.api_key_enc = encrypt(api_key.strip())
         self.api_secret_enc = encrypt(api_secret.strip())
 

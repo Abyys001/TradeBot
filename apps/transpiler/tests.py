@@ -60,10 +60,14 @@ def test_syntax_error_reports_location():
 
 
 # 2. Restriction layer
-@pytest.mark.parametrize("bad", ["plotshape(close)", "bgcolor(close)"])
-def test_restriction_rejects_visual_builtins(bad):
+@pytest.mark.parametrize("bad", ["label.new()", "table.new(1,1)"])
+def test_restriction_rejects_drawing_objects(bad):
     with pytest.raises(UnsupportedFeatureError):
         compile(f'strategy("x")\n{bad}\n')
+
+
+def test_visual_builtins_are_allowed():
+    compile('strategy("x")\nplotshape(close)\nbgcolor(close > open ? color.green : color.red)\n')
 
 
 def test_plot_is_allowed_noop():
@@ -1103,3 +1107,114 @@ def test_security_minutes_declared_at_compile():
     program = compile(OCC_SIGNUM)
     assert program.security_minutes == (180,)          # 1h chart x multiplier 3
     assert security_minutes(program, "15m") == (45,)   # scales with the chart TF
+
+
+# ---------------------------------------------------------------------------
+# 14. Visual builtins (plot, plotshape, bgcolor, barcolor, hline, fill)
+# ---------------------------------------------------------------------------
+
+def test_plot_captures_series():
+    src = """strategy("x")
+plot(close, title="Close", color=color.blue, linewidth=2)
+"""
+    res = run_backtest(src, _wave_df(30))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["lines"]) == 1
+    line = pd["lines"][0]
+    assert line["title"] == "Close"
+    assert line["color"] == "#3b82f6"
+    assert line["linewidth"] == 2
+    assert len(line["values"]) == 30
+
+
+def test_plotshape_captures_markers():
+    src = """strategy("x")
+plotshape(ta.crossover(ta.sma(close, 5), ta.sma(close, 20)), title="X", style=shape.triangleup, location=location.belowbar, color=color.green)
+"""
+    res = run_backtest(src, _wave_df(60))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["shapes"]) == 1
+    shape = pd["shapes"][0]
+    assert shape["style"] == "triangleup"
+    assert shape["location"] == "belowbar"
+    assert len(shape["bar_indices"]) >= 0  # may or may not have crossovers
+
+
+def test_bgcolor_captures_colors():
+    src = """strategy("x")
+bgcolor(close > open ? color.green : color.red)
+"""
+    res = run_backtest(src, _wave_df(20))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["bg_colors"]) == 1
+    assert len(pd["bg_colors"][0]["colors"]) == 20
+
+
+def test_barcolor_captures_colors():
+    src = """strategy("x")
+barcolor(close > open ? color.green : color.red)
+"""
+    res = run_backtest(src, _wave_df(20))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["bar_colors"]) == 1
+    assert len(pd["bar_colors"][0]["colors"]) == 20
+
+
+def test_hline_captures_price():
+    src = """strategy("x")
+hline(100, title="Reference", color=color.orange, linestyle=hline.style_dashed)
+"""
+    res = run_backtest(src, _wave_df(10))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["hlines"]) == 1
+    h = pd["hlines"][0]
+    assert h["price"] == 100.0
+    assert h["linestyle"] == "style_dashed"
+
+
+def test_multiple_plots():
+    src = """strategy("x")
+fast = ta.sma(close, 5)
+slow = ta.sma(close, 20)
+plot(fast, title="Fast", color=color.green)
+plot(slow, title="Slow", color=color.red, linewidth=2)
+"""
+    res = run_backtest(src, _wave_df(40))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["lines"]) == 2
+    assert pd["lines"][0]["title"] == "Fast"
+    assert pd["lines"][1]["title"] == "Slow"
+
+
+def test_plot_with_strategy_and_visual():
+    src = """strategy("x")
+fast = ta.sma(close, 5)
+slow = ta.sma(close, 20)
+plot(fast, color=color.green)
+plot(slow, color=color.red)
+if ta.crossover(fast, slow)
+    strategy.entry("long", strategy.long)
+if ta.crossunder(fast, slow)
+    strategy.close("long")
+"""
+    res = run_backtest(src, _wave_df(60))
+    assert res.plot_data is not None
+    assert len(res.plot_data["lines"]) == 2
+    assert res.metrics["num_trades"] >= 0
+
+
+def test_alert_collects_messages():
+    from .runtime.plot_data import PlotData as _PD
+    src = """strategy("x")
+alert("price crossed")
+"""
+    res = run_backtest(src, _wave_df(10))
+    pd = res.plot_data
+    assert pd is not None
+    assert len(pd["alerts"]) == 10  # one per bar

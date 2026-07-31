@@ -87,6 +87,7 @@ class StrategyState(models.Model):
     live_started_at = models.DateTimeField(null=True, blank=True)
     last_bar_ts = models.BigIntegerField(null=True, blank=True)
     live_error = models.TextField(blank=True, default="")
+    sl_confirmed = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
