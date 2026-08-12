@@ -1,0 +1,11 @@
+# Host node_modules must never enter the image: it is large, and native
+# binaries (esbuild, oxc-parser) built for the host can break inside the
+# container. The image installs its own with `npm install`.
+node_modules
+.output
+.nuxt
+.data
+dist
+*.log
+.env
+.env.*

@@ -1,0 +1,55 @@
+---
+title: 簽署協議
+sidebar_label: 簽署協議
+sidebar_position: 0.1
+---
+
+通過該接口, 您可以完成貴金融合約協議的簽署, 只有在完成簽署後, 才能進行交易貴金屬合約
+
+:::info
+* 請使用母帳戶調用接口, 子帳戶不支持。一旦母帳戶簽署後，所有子帳戶都可以交易
+* API key權限需要擁有其中之一"帳戶劃轉, 母子帳戶劃轉, 提幣"
+:::
+
+### HTTP 請求
+<APIEndpoint method="POST" url="/v5/user/agreement" />
+
+### 請求參數
+| 參數 | 是否必須 | 類型 | 說明|
+|:----- |:-------|:-----|------ |
+|category |false |integer |`2`: 貴金屬(黃金、白銀)合約協議，股票永續合約共用此協議<br/>`3`: 原油合約協議<br/>_`category` 與 `categoryV2` 二選一必傳。該字段仍然可用，但後續新增的枚舉值將不再添加至此字段，請使用 `categoryV2`。_|
+|categoryV2 |false |integer |`1`: 貴金屬(黃金、白銀)合約協議，股票永續合約共用此協議<br/>`2`: 原油合約協議<br/>_`category` 與 `categoryV2` 二選一必傳。建議使用此字段，後續新增的枚舉值將統一添加至此字段。_|
+|agree |**true** |boolean |`true`|
+
+### 返回參數
+無
+
+### 請求示例
+
+```http
+POST /v5/user/agreement HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: XXXXXX
+X-BAPI-TIMESTAMP: 1772695036541
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 40
+
+{
+    "agree": true,
+    "categoryV2": 2
+}
+```
+
+### 響應示例
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "success",
+    "result": {},
+    "retExtInfo": {},
+    "time": 1772695037330
+}
+```

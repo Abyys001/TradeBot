@@ -1,0 +1,78 @@
+---
+title: Sign Agreement
+sidebar_label: Sign Agreement
+sidebar_position: 0.1
+---
+
+To trade commodity contracts, please complete the agreement signing first. Once completed, you will be able to trade all metals commodity contracts.
+
+:::info
+* Only the master account can sign the agreement via this endpoint. Subaccounts are not supported for this action.
+* Once the master account has signed, all subaccounts will be eligible to trade.
+* The API key must have at least one of the following permissions to call this endpoint: Account Transfer, Subaccount Transfer, or Withdrawal.
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/user/agreement" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|category |false |integer |`2`: Metals commodity contracts (XAU & XAG). Stock perps share this agreement<br/>`3`: Crude oil commodity contract<br/>_Either `category` or `categoryV2` is required. This field remains supported, but new enum values will no longer be added here — use `categoryV2` instead._|
+|categoryV2 |false |integer |`1`: Metals commodity contracts (XAU & XAG). Stock perps share this agreement<br/>`2`: Crude oil commodity contract<br/>_Either `category` or `categoryV2` is required. Recommend using this field; new enum values will be added here going forward._|
+|agree |**true** |boolean |`true`|
+
+### Response Parameters
+None
+
+### Request Example
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/user/agreement HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: XXXXXX
+X-BAPI-TIMESTAMP: 1772695036541
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 40
+
+{
+    "agree": true,
+    "categoryV2": 2
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.sign_agreement(
+    category=2,
+    agree=True
+))
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "success",
+    "result": {},
+    "retExtInfo": {},
+    "time": 1772695037330
+}
+```

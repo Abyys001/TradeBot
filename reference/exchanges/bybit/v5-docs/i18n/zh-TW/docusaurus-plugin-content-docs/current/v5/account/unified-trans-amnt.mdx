@@ -1,0 +1,81 @@
+---
+title: 查詢可劃轉餘額(统一账户)
+sidebar_label: 查詢可劃轉餘額(统一账户)
+sidebar_position: 2
+---
+查詢統一帳戶錢包裡指定幣種的可劃轉餘額
+
+:::info
+資產可劃轉餘額計算公式：
+1. 使用 [查詢錢包餘額](wallet-balance#) `totalAvailableBalance`和該資產階梯質押率，反向計算資產可用金額 = X,<br/>
+2. 資產可劃轉餘額 = min(X, 資產現貨可提現餘額)
+- 在全倉保證金模式下: 資產現貨可提現餘額 = asset wallet balance + min(unrealised pnl,0) + asset reservation - frozen + negative option value - bonus - Positive Option OrderIM + orderloss <br/>
+- 在組合保證金模式下: 資產現貨可提現餘額 = asset wallet balance + min(unrealised pnl,0) + asset reservation - frozen  - max(bonus, Pm spot Hedged Balance) + orderloss + min(optionValue,0) <br/>
+3. 在極端市場波動期間, 此介面可能會出現延遲增加或資料傳遞暫時延遲的情況
+:::
+
+### HTTP 請求
+<APIEndpoint method="GET" url="/v5/account/withdrawal" />
+
+### 請求參數
+| 參數 | 是否必需 | 類型 | 說明|
+|:----- |:-------|:-----|------ |
+|coinName |**true** |string |幣種名稱, 僅大寫. 支持最多20個幣種批量查詢, 用逗號分隔. `BTC,SOL,USDT,USDC`|
+
+### 響應參數
+| 參數 | 類型 | 說明|
+|:----- |:-----|----- |
+|availableWithdrawal |string |請求中第一個幣種的可劃轉餘額|
+|availableWithdrawalMap |Object |每個請求幣種的可劃轉餘額的對象。在映射中，鍵是請求的幣種，值是相應的金額(字符串)<br/>例如, "availableWithdrawalMap":{"BTC":"4.54549050","SOL":"33.16713007","XRP":"10805.54548970","ETH":"17.76451865"}|
+
+### 請求示例
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+GET /v5/account/withdrawal?coinName=BTC,SOL,ETH,XRP HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1739861239242
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+
+```
+
+</TabItem>
+<TabItem value="Node" label="Node.js">
+
+```n4js
+
+```
+
+</TabItem>
+</Tabs>
+
+### 響應示例
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "OK",
+    "result": {
+        "availableWithdrawal": "4.54549050",
+        "availableWithdrawalMap": {
+            "BTC": "4.54549050",
+            "SOL": "33.16713007",
+            "XRP": "10805.54548970",
+            "ETH": "17.76451865"
+        }
+    },
+    "retExtInfo": {},
+    "time": 1739858984601
+}
+```

@@ -1,0 +1,86 @@
+{
+  "item.label.v5 API": {
+    "message": "V5 接口",
+    "description": "v5接口的navbar"
+  },
+  "item.label.v3 API": {
+    "message": "V3 接口",
+    "description": "v3接口的navbar"
+  },
+  "item.label.API Explorer": {
+    "message": "交互式瀏覽器",
+    "description": "Navbar item with label API Explorer"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  },
+  "item.label.Changelog": {
+    "message": "更新日誌",
+    "description": "Navbar item with label Changelog"
+  },
+  "item.label.Institutional Docs": {
+  "message": "機構文檔",
+  "description": "Navbar item with label Institutional Docs"
+  },
+  "item.label.Institution": {
+    "message": "機構",
+    "description": "Navbar item with label Institution"
+  },
+  "item.label.FAQ": {
+    "message": "常見問題",
+    "description": "Navbar item with label FAQ"
+  },
+  "item.label.Pilot Feature": {
+    "message": "試點功能",
+    "description": "Navbar item with label Pilot Feature"
+  },
+  "item.label.V5 API": {
+    "message": "V5 API",
+    "description": "Navbar item with label V5 API"
+  },
+  "item.label.P2P Trading": {
+    "message": "",
+    "description": "Navbar item with label P2P Trading"
+  },
+  "item.label.Bybit Pay": {
+    "message": "",
+    "description": "Navbar item with label Bybit Pay"
+  },
+  "item.label.Tax API V3": {
+    "message": "Tax API V3",
+    "description": "Navbar item with label Tax API V3"
+  },
+  "item.label.Self Match Prevention": {
+    "message": "自成交攔截",
+    "description": "Navbar item with label Self Match Prevention"
+  },
+  "item.label.Spot DMM Listing Integration": {
+    "message": "現貨 DMM 上架指南",
+    "description": "Navbar item with label Spot DMM Listing Integration"
+  },
+  "item.label.MMWS": {
+    "message": "MMWS",
+    "description": "Navbar item with label MMWS"
+  },
+  "item.label.Get Whitelist IP": {
+    "message": "查詢 IP 白名單",
+    "description": "Navbar item with label Get Whitelist IP"
+  },
+  "item.label.Get IP Change Log": {
+    "message": "查詢 IP 變更記錄",
+    "description": "Navbar item with label Get IP Change Log"
+  },
+  "item.label.Institutional Loan": {
+    "message": "機構借貸",
+    "description": "Navbar item with label Institutional Loan"
+  },
+  "item.label.SBE": {
+    "message": "SBE",
+    "description": "Navbar item with label SBE"
+  },
+  "item.label.How To Start Copy Trading": {
+    "message": "如何使用API帶單",
+    "description": "Navbar item with label How To Start Copy Trading"
+  }
+}

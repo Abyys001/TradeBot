@@ -1,0 +1,47 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+backend/.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node ---
+node_modules/
+.output/
+.nuxt/
+dist/
+.docusaurus/
+
+# --- Env & secrets (NEVER commit — this repo handles live API keys) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- Data / runtime ---
+db.sqlite3
+*.log
+media/
+staticfiles/
+# run.sh's process ids and log files. Never commit: they are machine-local, and
+# a server log is the last place you want mirrored to a public remote on a
+# platform that handles live trading credentials.
+.run/
+# Browser-automation scratch output (console dumps, screenshots).
+.playwright-mcp/
+
+# --- Vendored reference material build artifacts ---
+reference/**/node_modules/
+reference/**/build/
+reference/**/.docusaurus/
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+.DS_Store

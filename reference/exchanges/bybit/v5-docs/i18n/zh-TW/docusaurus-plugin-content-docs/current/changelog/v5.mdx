@@ -1,0 +1,2536 @@
+---
+title: V5
+---
+
+import '/src/css/changelog.css';
+
+## 2026-08-11
+### REST API
+- [查詢交易日誌](../v5/account/transaction-log) [更新]
+    - 新增響應字段 `displayType`：交易記錄顯示類型，與 UI 界面顯示保持一致
+    - 新增type類型`DIVIDEND_SETTLEMENT`，表示股票合約分紅流水
+
+- [全深度訂單簿](../v5/market/full-ob) [更新]
+    - 支持合約
+ 
+- [獲取空投產品列表](../v5/finance/earn/hold-to-earn/product) [更新]
+    - `yields` 下新增響應字段 `personalApy`（個人 APR）和 `multiplier`（個人係數）
+    - 產品層級新增響應字段 `personalApy`：所有收益幣種個人 APR 之和
+
+### Websocket API
+- [全深度訂單簿](../v5/websocket/public/full-ob) [更新]
+    - 支持合約
+
+## 2026-08-09
+### REST API
+- [接入指南](../v5/guide#authentication)
+    - 新增阿根廷用戶的Rest API接入方式
+
+### Websocket API
+- [訂閱WebSocket](../v5/ws/connect)
+    - 新增阿根廷用戶的Websocket API接入方式
+
+## 2026-08-07
+### REST API
+**定期加密貸款**
+- [查詢定期可借存量](../v5/new-crypto-loan/fixed/available-inventory) [新增]
+    - 新增接口，查詢定期借貸池可用存量
+- [創建借款單](../v5/new-crypto-loan/fixed/borrow) [更新]
+    - 新增請求參數 `strategyType`：`PARTIAL`（允許部分成交，預設）；`FULL`（僅允許全部成交）
+- [查詢個人借款訂單](../v5/new-crypto-loan/fixed/borrow-order) [更新]
+    - 新增響應字段 `strategyType`：`PARTIAL`（允許部分成交，預設）；`FULL`（僅允許全部成交）
+
+**活期加密貸款**
+- [查詢活期可借存量](../v5/new-crypto-loan/flexible/available-inventory) [新增]
+    - 新增接口，查詢活期借貸池可用存量
+
+## 2026-08-06
+### REST API
+- [移倉](../v5/position/move-position) [更新]
+    - 新增支持 TradFi 永續合約（包括外匯、股票及大宗商品）
+- [切換持倉模式](../v5/position/position-mode) [更新]
+    - USDT 交割、USDC 永續、USDC 交割、反向永續、反向交割均新增支持雙向持倉模式
+- [查詢歷史委託](../v5/order/order-list) [更新]
+    - `smpGroup` 字段類型由 `integer` 變更為 `string`
+- [查詢實時委託](../v5/order/open-order) [更新]
+    - `smpGroup` 字段類型由 `integer` 變更為 `string`
+- [查詢交易行為設置](../v5/account/get-user-setting-config) [更新]
+    - 新增響應字段 `smpType`：用戶 SMP 自成交攔截類型配置。`0`: 默認；`1`: 取消 Taker；`2`: 取消 Maker；`3`: 同時取消
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - `smpGroup` 字段類型由 `integer` 變更為 `string`
+
+## 2026-08-04
+### REST API
+- [自成交攔截](../v5/smp) [更新]
+    - 哈薩克斯坦（KAZ）衍生品：強制開啟 SMP，所有衍生品訂單均強制啟用
+    - 土耳其（TUR）、哈薩克斯坦（KAZ）、格魯吉亞（GEO）現貨：`smpType` 為 `None`、非法值或未傳值時，自動設為 `CancelMaker`
+- [升級到UTA PRO](../v5/account/upgrade-unified-account) [更新]
+    - UTA PUBLIC 升級 UTA PRO 每天 UTC+0 07:55～08:05 禁止升級
+
+## 2026-07-30
+### REST API
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 已將 RPI 權限模型從帳戶層級（account-level）調整為交易對層級（symbol-level）。現在，只要交易對支援 RPI，所有使用者都可以提交 RPI 訂單，無需再具備帳戶層級的 RPI 權限。參考字段含義更新 `isPublicRpi`
+ 和 `myRpiPermission`
+- [查詢幣種 Delta 額度](../v5/otc/coin-delta-amount) [更新]
+    - 新增返回字段 `riskUnitDelta`（風險單元 Delta 值）
+- [詢價](../v5/rfq/trade/create-rfq) [更新]
+    - 新增 `hedge` 入參：可選的 Delta Hedge 腿，僅支持 `linear`（永續合約 / 線性交割期貨），包含 `category`、`symbol`、`side`、`qty` 及可選的 `price`
+    - `anonymous` 為 `true` 時，獲取詢價單返回的 `deskCode` 為空字串
+- [報價](../v5/rfq/trade/create-quote) [更新]
+    - 對 hedge 腿報價為可選項，可加入 `quoteBuyList` 或 `quoteSellList`；若詢價單已攜帶 hedge 腿的 `price`，報價時不傳價格則自動使用詢價中的 `price`
+- [執行報價](../v5/rfq/trade/execute-quote) [更新]
+    - 新增入參 `isHedge`：設為 `true` 時同時執行詢價單中的 hedge 腿，執行方向取決於 `quoteSide`，預設為 `false`
+- [獲取實時的詢價單資訊](../v5/rfq/trade/rfq-realtime) [更新]
+    - 新增返回字段：`anonymous`（boolean）、`hedge`（含 `category`、`symbol`、`side`、`qty`、`price` 的對象陣列）
+- [獲取歷史詢價資訊](../v5/rfq/trade/rfq-list) [更新]
+    - 新增返回字段：`anonymous`（boolean）、`hedge`（含 `category`、`symbol`、`side`、`qty`、`price` 的對象陣列）
+- [獲取即時報價](../v5/rfq/trade/quote-realtime) [更新]
+    - 新增返回字段 `anonymous`（boolean）；`quoteBuyList` 和 `quoteSellList` 各子項新增 `isHedge`（boolean）
+- [獲取歷史報價](../v5/rfq/trade/quote-list) [更新]
+    - 新增返回字段 `anonymous`（boolean）；`quoteBuyList` 和 `quoteSellList` 各子項新增 `isHedge`（boolean）
+- [獲取歷史詢價詳情](../v5/rfq/trade/rfq-detail-list) [新增]
+    - 新增接口，返回歷史詢價單的完整資訊，包含有效報價列表（`quoteList`）及成交腿詳情（`tradeLegs`）
+
+## 2026-07-28
+### REST API
+**Spot-X Launchpool — 新增接口**
+- [查詢 Launchpool 項目列表](../v5/finance/spot-x/launchpool/launchpool-project-list) [新增]
+- [查詢 Launchpool 用戶操作記錄](../v5/finance/spot-x/launchpool/launchpool-activity-log) [新增]
+- [查詢 Launchpool 當前質押倉位](../v5/finance/spot-x/launchpool/launchpool-current-staking) [新增]
+- [查詢 Launchpool 用戶歷史倉位](../v5/finance/spot-x/launchpool/launchpool-user-history) [新增]
+
+**Spot-X Puzzle — 新增接口**
+- [查詢 Puzzle 項目列表](../v5/finance/spot-x/puzzle/puzzle-project-list) [新增]
+
+**Spot-X Token Splash — 新增接口**
+- [查詢 Token Splash 項目列表](../v5/finance/spot-x/token-splash/token-splash-project-list) [新增]
+- [查詢 Token Splash 用戶活動參數](../v5/finance/spot-x/token-splash/token-splash-user-activity-params) [新增]
+
+## 2026-07-27
+### REST API
+- [查詢邀請碼](../v5/user/referral-code) [新增]
+    - 新增接口，用於查詢當前用戶持有的邀請碼及對應站點的邀請注冊鏈接；子帳號將返回母帳號的邀請碼
+
+## 2026-07-24
+### REST API
+- [接入指南](../v5/guide#鑒權認證) [更新]
+    - 更新日本地區用戶 Open API 域名
+
+## 2026-07-23
+### REST API
+- [枚舉定義](../v5/enum#exectype) [更新]
+    - 新增 `execType` 枚舉值：`CorporateAction`（拆股或並股）
+
+## 2026-07-21
+### Websocket API
+- [快速訂單回報](../v5/sbe/private/fast-order) [更新]
+    - 期權上線
+    - xml版本更新到v2，新增4個字段
+
+## 2026-07-16
+### REST API
+- [全深度訂單簿](../v5/market/full-ob) [新增]
+    - 您可以獲取最多單邊10,000檔位的訂單簿深度 (現貨)
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增 `depositStatus` 值, `7`, `70011`, `70012`, `70013`. 請參閱[入金狀態枚舉定義⁠](../v5/enum#depositstatus)
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增 `depositStatus` 值, `7`, `70011`, `70012`, `70013`. 請參閱[入金狀態枚舉定義⁠](../v5/enum#depositstatus)
+- [查詢子帳號充值紀錄](../v5/broker/exchange-broker/sub-deposit-record) [更新]
+    - 新增 `depositStatus` 值, `7`, `70011`, `70012`, `70013`. 請參閱[入金狀態枚舉定義⁠](../v5/enum#depositstatus)
+
+### Websocket API
+- [全深度訂單簿](../v5/websocket/public/full-ob) [新增]
+    - 您可以訂閱僅增量的完整深度的訂單簿推送頻道 (現貨)
+
+## 2026-07-14
+### REST API
+- [查詢靈活借貸可借額度](../v5/spot-margin-uta/flexible-available-inventory) [新增]
+    - 新增接口，用於查詢現貨槓桿交易中指定幣種的靈活借貸可借額度（借貸池剩餘可借數量）
+- [查詢定期借貸可借額度](../v5/spot-margin-uta/fixed-available-inventory) [新增]
+    - 新增接口，支持按幣種、借款期限及年化利率查詢定期借貸可借額度
+
+## 2026-07-10
+### REST API
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增一個depositType枚舉值 `50`，該類型表示您的帳戶處於封禁或合規限制中，無法正常上帳。命中後，您需要前往網頁端提出資金
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增一個depositType枚舉值 `50`，該類型表示您的帳戶處於封禁或合規限制中，無法正常上帳。命中後，您需要前往網頁端提出資金
+- [查詢子帳號充值紀錄](../v5/broker/exchange-broker/sub-deposit-record) [更新]
+    - 新增一個depositType枚舉值 `50`，該類型表示您的帳戶處於封禁或合規限制中，無法正常上帳。命中後，您需要前往網頁端提出資金
+
+## 2026-07-06
+### REST API
+- [接入指南](../v5/guide#鑒權認證) [更新]
+    - 新增日本地區用戶 Open API 域名
+
+## 2026-07-01
+### REST API
+- [查詢充值記錄（平台轉帳）](../v5/asset/deposit/internal-deposit-record) [更新]
+    - 新增返回字段 `complianceStatus`（內部轉帳合規收集狀態，僅適用於 Bybit 土耳其站用戶）
+
+## 2026-07-02
+### REST API
+- [Alpha 預測市場](../v5/alpha/prediction/engine-status) [新增]
+    - 新增一系列接口用於支持Alpha的預測市場
+
+### Websocket API
+- [SBE 快速訂單響應](../v5/sbe/private/fast-order) [更新]
+    - Fast Orde XML 模板版本更新到1.
+    - 新增一個響應字段, `liquidity`, 用於說明即時發生成交的那個訂單推送是maker還是taker
+
+## 2026-06-29
+### REST API
+- [查詢訂單列表](../v5/finance/earn/byusdt/order) [更新]
+    - 新增返回字段：`fromAccount`、`toAccount`、`externalEventType`
+
+## 2026-06-23
+### REST API
+- [查詢幣種 Delta 額度](../v5/otc/coin-delta-amount) [新增]
+    - 新增接口，用於查詢機構借貸對沖產品的幣種 Delta 額度詳情
+- [查詢產品信息](../v5/otc/margin-product-info) [更新]
+    - 新增返回字段 `productType`（`0`: 默認, `1`: CTA, `2`: 對沖）
+
+## 2026-06-16
+### REST API
+- [查詢合約槓桿](../v5/position/batch-lvg) [新增]
+    - 新增一個接口，只需要一次請求就能查詢到所有合約的槓桿倍數
+- [查詢優惠券列表](../v5/finance/earn/easy-onchain/coupons) [新增]
+    - 新增接口，用於查詢利率優惠券及雙幣投資獎勵卡
+- [質押/贖回](../v5/finance/earn/easy-onchain/create-order) [更新]
+    - 新增可選請求參數 `interestCard`（利率優惠券，僅適用於 `FlexibleSaving` 質押訂單）
+
+**Alpha LP — 新增接口**
+- [執行 LP 質押](../v5/alpha/lp/stake) [新增]
+- [執行 LP 贖回](../v5/alpha/lp/redeem) [新增]
+- [查詢 LP 訂單列表](../v5/alpha/lp/order-list) [新增]
+- [查詢 LP 支付代幣列表](../v5/alpha/lp/pay-token-list) [新增]
+- [查詢 LP 支付代幣價格](../v5/alpha/lp/pay-token-price) [新增]
+- [查詢 LP 礦池詳情](../v5/alpha/lp/pool-info) [新增]
+- [查詢 LP 礦池列表](../v5/alpha/lp/pool-list) [新增]
+- [查詢 LP 倉位列表](../v5/alpha/lp/position-list) [新增]
+
+## 2026-06-15
+### REST API
+**RWA（真實世界資產）— 新增接口**
+- [獲取產品列表](../v5/finance/rwa/product) [新增]
+- [下單（認購/贖回）](../v5/finance/rwa/place-order) [新增]
+- [獲取持倉列表](../v5/finance/rwa/position) [新增]
+- [獲取訂單列表](../v5/finance/rwa/order) [新增]
+- [獲取NAV歷史數據](../v5/finance/rwa/nav-chart) [新增]
+
+## 2026-06-11
+### REST API
+-  [查詢最新行情信息](../v5/market/tickers) [更新]
+    - 新增單邊OI字段, `singleOpenInterest`, `singleOpenInterestValue`
+-  [查詢未平倉合約持倉數量](../v5/market/open-interest) [更新]
+    - 新增單邊OI字段, `singleOpenInterest`
+### Websocket API
+- [行情](../v5/websocket/public/ticker) [更新]
+    - 新增單邊OI字段, `singleOpenInterest`, `singleOpenInterestValue`
+
+## 2026-06-10
+### REST API
+- [提幣](../v5/asset/withdraw) [更新]
+    - 新增可選入參 `questionnaire`, 可用於替換 `beneficiary`. 強烈建議您儘快集成該新參數.
+- [問卷說明](../v5/asset/withdraw/questionnaire) [新增]
+    - 這是一個問卷頁面用於入金和出金時有travel rule要求時參考的參數說明.
+- [提交入金發起人信息](../v5/asset/deposit/submit-info) [新增]
+    - 新增接口當入金記錄觸發 Travel Rule 審核時，由用戶提交發起人（Originator）合規信息，供應商完成審核後返回結果狀態
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增 `travelRuleStatus`
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增 `travelRuleStatus`
+- [查詢子帳號充值紀錄](../v5/broker/exchange-broker/sub-deposit-record) [更新]
+    - 新增 `travelRuleStatus`
+- [查詢分組手續費结构](../v5/market/fee-group-info) [更新]
+    - 新增一個手續費分組 `groupId`="9", G9(TradFi). 該分組一直到6月16日才會有symbols
+
+## 2026-06-09
+### REST API
+- [設置MMP](../v5/account/set-mmp) [更新]
+    - 新增可選請求參數 `vegaLimit`（Vega 上限，預設值：`500000`）
+- [查詢MMP狀態](../v5/account/get-mmp-state) [更新]
+    - 新增返回字段 `vegaLimit`
+- [重置MMP](../v5/account/reset-mmp) [更新]
+    - 重置後 `vegaLimit` 也將歸零
+
+## 2026-06-03
+- [創建委託單](../v5/order/create-order) [更新]
+    - 新增請求參數 `rpiTakerAccess`, 目前灰度中, 6月12日全量
+
+### Websocket API
+- [SBE下單](../v5/sbe/trade/order-entry) [更新]
+    - 更新xml模板, version=1 更新為 version=2, 請看[模板](../v5/sbe/sbe-basic-info#交易-sbe-xml-template)
+    - 新增請求參數 `rpiTakerAccess`, 目前灰度中, 6月12日全量
+
+## 2026-06-02
+### Websocket API
+- [SBE下單](../v5/sbe/trade/order-entry) [更新]
+    - SBE下單功能目前已支持主網
+
+## 2026-05-28
+### REST API
+- [查詢質押借幣持倉](../v5/new-crypto-loan/crypto-loan-position) [更新]
+    - 新增返回字段 `colRes`（平台層面的抵押品限制狀態）
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 新增返回字段 `colRes`（平台層面的抵押品限制狀態）
+
+### Websocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 新增返回字段 `colRes`（平台層面的抵押品限制狀態）
+
+## 2026-05-26
+### REST API
+- [策略](../v5/strategy/create-strategy.mdx) [更新]
+    - 新增策略類型 `pov`
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增返回字段 `rpiTakerAccess`（訂單是否與RPI訂單成交）和 `rpiMatchedQty`（RPI累計成交數量）
+
+## 2026-05-22
+### REST API
+- [獲取空投產品列表](../v5/finance/earn/hold-to-earn/product)
+    - 新增Byfi空投產品查詢接口
+
+- [查詢空投每日收益記錄](../v5/finance/earn/hold-to-earn/yield-history)
+    - 新增Byfi空投每日收益查詢接口
+
+**PWM（私人財富管理）— 新增接口**
+- [查詢所有投資計劃](../v5/finance/pwm/investment-plan/all) [新增]
+- [查詢已投資計劃詳情](../v5/finance/pwm/investment-plan/detail) [新增]
+- [查詢待投資計劃詳情](../v5/finance/pwm/investment-plan/new-plan) [新增]
+- [領取可提取資金](../v5/finance/pwm/investment-plan/claim) [新增]
+- [查詢資產趨勢曲線](../v5/finance/pwm/investment-plan/asset-trend) [新增]
+- [查詢基金歷史淨值](../v5/finance/pwm/investment-plan/fund-nav) [新增]
+- [一鍵申購](../v5/finance/pwm/investment-plan/subscribe) [新增]
+- [追加申購](../v5/finance/pwm/investment-plan/invest-more) [新增]
+- [贖回](../v5/finance/pwm/investment-plan/redeem) [新增]
+- [查詢投資計劃訂單列表](../v5/finance/pwm/investment-plan/order) [新增]
+- [查詢可申購產品卡片（直客模式）](../v5/finance/pwm/customize-plan/product) [新增]
+- [創建自定義投資計劃（直客模式）](../v5/finance/pwm/customize-plan/create) [新增]
+- [查詢機構管轄的基金列表](../v5/finance/pwm/asset-manager/all-funds) [新增]
+- [執行指定基金的分潤](../v5/finance/pwm/asset-manager/settle-profit) [新增]
+- [機構創建待申購基金](../v5/finance/pwm/asset-manager/create-fund) [新增]
+- [機構創建投資計劃](../v5/finance/pwm/asset-manager/create-investment-plan) [新增]
+- [機構查詢為客戶創建的投資計劃列表](../v5/finance/pwm/asset-manager/get-investment-plan) [新增]
+- [編輯投資計劃狀態和基金配置](../v5/finance/pwm/asset-manager/manage-investment-plan) [新增]
+- [查詢機構相關基金全部訂單列表](../v5/finance/pwm/asset-manager/all-order) [新增]
+- [處理申購/贖回訂單](../v5/finance/pwm/asset-manager/manage-order) [新增]
+- [創建基金子賬戶](../v5/finance/pwm/asset-manager/create-sub-account) [新增]
+- [基金托管子賬號間資金劃轉](../v5/finance/pwm/fund-transfer) [新增]
+- [查詢劃轉流水](../v5/finance/pwm/query-fund-transfer-result) [新增]
+
+## 2026-05-21
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增返回字段 `rpiTakerAccess`（訂單是否與RPI訂單成交）和 `rpiMatchedQty`（RPI累計成交數量）
+
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - 該接口的請求頻率從50次/s降低到25次/秒
+
+## 2026-05-14
+### REST API
+- [查詢代理用戶列表](../v5/affiliate/affiliate-user-list) [更新]
+    - `size` 參數的取值範圍從 [0, 1000] 變成 [0, 100]
+- [查詢子代理列表](../v5/affiliate/affiliate-sub-list) [新增]
+    - 新增接口查詢子代理
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - 從響應中移除`FiatBybitPay`這個key
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - 從響應中移除`FiatBybitPay`這個key
+
+### Websocket API
+- [SBE Order Entry](../v5/sbe/sbe-basic-info#ws-order-entry-sbe-xml-template)
+    - 更新了XML模板. 1. 將 `retMsg`類型從"varString8"改成"varString16"; 2. 從"BatchCreateRespV5"結構中移除 `createAt` 字段
+
+## 2026-05-07
+### REST API
+- [查詢理財持倉](../v5/finance/earn/easy-onchain/position.mdx) [更新]
+    - 新增返回字段 `availableAmount`（可贖回金額）和 `freezeDetails`（凍結明細列表，包含 `amount` 和 `description`）
+
+## 2026-05-06
+### REST API
+- [創建存款單](../v5/new-crypto-loan/fixed/supply.mdx) [更新]
+    - 新增可選請求參數 `availableSource`，用於指定出借資金來源帳戶（`0`: 資金帳戶，`1`: 靈活賺幣帳戶，`2`: 全部，預設值：`0`）
+- [撤銷存款單](../v5/new-crypto-loan/fixed/cancel-supply.mdx) [更新]
+    - 新增可選請求參數 `refundedAccount`，用於指定退款返回的目標帳戶（`0`: 資金帳戶，`1`: EasyEarn，預設值：`0`）
+
+## 2026-04-30
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 新增響應字段 `symbolId` (期貨 & 期權)
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 新增響應字段 `symbolId` (期貨)
+- [查詢幣種信息](../v5/asset/coin-info) [更新]
+    - 新增字段 `withdrawMax` 表示對應鏈的單筆最大提幣金額，"-1"表示無上限
+    - 廢棄字段 `remainAmount`
+
+## 2026-04-27
+### REST API
+- [策略](../v5/strategy/create-strategy.mdx) [新增]
+    - 新增策略下單API
+
+## 2026-04-23
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 新增響應字段 `symbolId` (現貨)
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 新增響應字段 `symbolId` (現貨)
+
+## 2026-04-22
+### REST API
+- [查詢代理用戶信息](../v5/affiliate/affiliate-info) [更新]
+    - 新增返回參數：`paySendAmount30Day`、`payFtt`、`cardFtt`
+
+## 2026-04-21
+### REST API
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 新增 `openTime` 字段
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - `symbolType` 新增枚舉值：`stock`（合約）、`forex`（合約）
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - `symbolType` 新增枚舉值：`stock`（合約）、`forex`（合約）
+
+### Websocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - 新增 `openTime` 字段
+
+## 2026-04-20
+### REST API
+- [簽署協議](../v5/user/sign-agreement) [更新]
+    - 新增請求參數 `categoryV2`。後續新增的枚舉值將統一添加至 `categoryV2`，現有 `category` 字段仍然可用
+
+## 2026-04-17
+### REST API
+- [提幣](../v5/asset/withdraw) [更新]
+    - 針對Bybit土耳其站點用戶, 新增必填字段 `transactionPurpose`
+
+## 2026-04-16
+### REST API
+- Bybit Card 新增接口 [新增]
+    - [查詢資產記錄](../v5/bybit-card/asset-records) [新增]
+    - [查詢積分餘額](../v5/bybit-card/point/balance) [新增]
+    - [查詢積分流水](../v5/bybit-card/point/records) [新增]
+    - [查詢 Tier 信息](../v5/bybit-card/point/tier) [新增]
+    - [查詢商城商品列表](../v5/bybit-card/point/item-list) [新增]
+    - [查詢 Cashback 明細](../v5/bybit-card/point/cashback-detail) [新增]
+
+## 2026-04-14
+### REST API
+- 理財新增1個產品 [更新]
+    - [定期理財](../v5/finance/earn/fixed-saving/product) [新增]
+
+- 高級理財新增1個產品 [更新]
+    - [折價買幣](../v5/finance/advanced-earn/discount-buy/product-info) [新增]
+
+## 2026-04-10
+### REST API
+- 高級理財新增1個產品 [更新]
+    - [流動性挖礦](../v5/finance/advanced-earn/liquidity-mining/product-info) [新增]
+
+## 2026-04-09
+### REST API
+- [手工還款](../v5/account/repay) [更新]
+- [無損手工還款](../v5/account/no-convert-repay) [更新]
+    - 新增請求參數 `repaymentType`，用於指定還款類型（定期、活期或兩者均還）
+- [查詢負債信息](../v5/spot-margin-uta/liability) [新增]
+    - 新增接口，用於查詢指定幣種的負債詳情，包括總負債、定期負債、活期負債、現貨負債及衍生品負債金額
+- [固定利率借款](../v5/spot-margin-uta/fixedborrow) [新增]
+    - 新增接口，用於發起固定利率借款訂單，支持自定義年化利率、借款期限、還款方式及成交策略
+- [查詢固定利率借款訂單信息](../v5/spot-margin-uta/fixedborrow-order-info) [新增]
+    - 新增接口，用於查詢固定利率借款訂單歷史，支持按訂單 ID、幣種、狀態及期限篩選
+- [查詢固定利率借款合約信息](../v5/spot-margin-uta/fixedborrow-contract-info) [新增]
+    - 新增接口，用於查詢固定利率借款合約詳情，包括本金、利息、還款時間及合約狀態
+- [查詢固定利率借款掛單報價](../v5/spot-margin-uta/fixedborrow-order-quote) [新增]
+    - 新增接口，用於查詢可借的固定利率掛單報價，支持按年化利率、期限或數量排序
+- [固定利率借款續借](../v5/spot-margin-uta/fixedborrow-renew) [新增]
+    - 新增接口，用於對固定利率借款合約進行續借，支持全額續借或按指定數量部分續借
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - `permissions` 下新增響應字段 `FiatBitPay`，過渡期內舊字段 `FiatBybitPay` 仍可用
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - `permissions` 下新增請求參數 `FiatBitPay`，過渡期內傳入舊字段 `FiatBybitPay` 仍正常可用
+
+## 2026-04-08
+### REST API
+- 支持新的理財產品 [更新]
+    - [BYUSDT](../v5/finance/earn/byusdt/product) [新增]
+
+## 2026-04-07
+### REST API
+- 高級理財新增2個產品 [更新]
+    - [槓桿無憂](../v5/finance/advanced-earn/smart-lvg/product-info) [新增]
+    - [漲跌雙贏](../v5/finance/advanced-earn/double-win/product-info) [新增]
+
+## 2026-03-26
+### REST API
+- [設置充值帳戶](../v5/asset/deposit/set-deposit-acct) [更新]
+    - 支持設置理財帳戶作為充值帳戶
+
+- [提幣](../v5/asset/withdraw) [更新]
+    - 支持從理財帳戶提幣
+
+- [查詢延遲提幣凍結金額](../v5/asset/balance/delay-amount)
+    - 支持返回理財帳戶的可提現金額 [更新]
+
+## 2026-03-26
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 針對現貨交易, 新增響應字段`xstockMultiplier`, 用於xstocks幣對
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 針對現貨交易, 新增響應字段`xstockMultiplier`, 用於xstocks幣對
+- [資產總覽](../v5/asset/balance/asset-overview) [更新]
+    - 新增請求參數 `valuationCurrency` 和 `accountType`
+    - 當 `accountType=Alpha` 時，`coinDetail` 下新增返回字段 `extMap`（含 `priceUpper`、`priceLower`、`equityUnit`）
+- [查詢價差最大下單數量](../v5/spread/trade/max-qty) [新增]
+    - 新增接口，根據交易對ID、方向及下單價格查詢下單可用餘額
+- [查詢期權資產信息](../v5/account/option-asset-info) [新增]
+    - 新增接口，查詢帳戶下各幣種的期權資產盈虧信息，包含Delta、已實現/未實現盈虧及保證金數據
+- [查詢組合保證金信息](../v5/asset/portfolio-margin) [新增]
+    - 新增接口，查詢組合保證金帳戶的錢包餘額及資產盈虧範圍信息
+- [查詢還款信息](../v5/account/pay-info) [新增]
+    - 新增接口，查詢帳戶的還款抵押品信息
+- [查詢交易分析信息](../v5/account/trade-info-for-analysis) [新增]
+    - 新增接口，查詢指定交易對的聚合交易統計信息，包括成交金額、數量、手續費及每日明細
+- [查詢全部成員資產](../v5/asset/total-members-assets) [新增]
+    - 新增接口，查詢所有成員帳戶的總資產，支持指定幣種計價
+- [查詢交易行為設置](../v5/account/get-user-setting-config) [更新]
+    - 新增響應字段 `smsef` 和 `fmsef`，分別表示現貨及合約MNT手續費抵扣開關狀態
+
+## 2026-03-24
+### REST API
+- [手工還款](../v5/account/repay) [更新]
+- [一鍵還款](../v5/account/repay-liability) [更新]
+- [無損手工還款](../v5/account/no-convert-repay) [更新]
+    - 自2026年3月17日起開始灰度，2026年3月24日全量發布，BYUSDT 可用於還款
+- [高級理財雙幣投資 API 與 WebSocket](../v5/finance/advanced-earn/dual-asset/product-info) [新增]
+    - OpenAPI已正式上線 Bybit 高級理財雙幣投資功能。詳情請參閱我們的[產品資訊](../v5/finance/advanced-earn/dual-asset/product-info).
+
+- [查詢標記價格K線數據](../v5/market/mark-kline) [更新]
+    - 支持期權
+
+## 2026-03-23
+### REST API
+- [獲取交易報價](../v5/alpha/trade/trade-quote) [新增]
+    - 新增接口，在執行鏈上購買或贖回交易前獲取價格報價
+- [執行購買](../v5/alpha/trade/trade-purchase) [新增]
+    - 新增接口，使用支付代幣（如 USDT）執行買入訂單購買鏈上代幣
+- [執行贖回](../v5/alpha/trade/trade-redeem) [新增]
+    - 新增接口，執行賣出訂單將鏈上代幣贖回為支付代幣
+- [獲取支付代幣列表](../v5/alpha/trade/pay-token-list) [新增]
+    - 新增接口，查詢鏈上交易可用的支付代幣及其 CEX 代幣代碼
+- [查詢訂單列表](../v5/alpha/trade/order-list) [新增]
+    - 新增接口，查詢鏈上交易訂單歷史，包含狀態、手續費及執行詳情
+- [獲取業務代幣列表](../v5/alpha/trade/biz-token-list) [新增]
+    - 新增接口，查詢可交易的鏈上代幣列表，包含 DEX 代幣代碼、風險標識及下單限制
+- [獲取代幣價格列表](../v5/alpha/trade/biz-token-price-list) [新增]
+    - 新增接口，批量查詢鏈上代幣的價格、24 小時漲跌幅、成交量及市值
+- [獲取代幣詳情](../v5/alpha/trade/biz-token-details) [新增]
+    - 新增接口，查詢代幣項目詳情，包含描述、社交鏈接及風險標識
+- [查詢資產列表](../v5/alpha/trade/asset-list) [新增]
+    - 新增接口，查詢用戶的鏈上代幣持倉，包含持倉數量、盈虧及市值
+- [查詢資產詳情](../v5/alpha/trade/asset-detail) [新增]
+    - 新增接口，查詢指定鏈上代幣的持倉詳情，包含盈虧及成本數據
+
+## 2026-03-20
+### REST API
+- [簽署協議](../v5/user/sign-agreement) [更新]
+    - 新增category=3表示原油合約協議
+
+## 2026-03-19
+### WebSocket
+- [深度](../v5/websocket/public/orderbook) [更新]
+    - 現貨 200 檔數據推送頻率由 200ms 調整為 100ms
+
+### REST API
+- [查詢理財持倉](../v5/finance/earn/easy-onchain/position) [更新]
+    - 新增響應字段 `autoReinvest`，表示自動複投是否開啟。
+- [修改持倉設置](../v5/finance/earn/easy-onchain/modify-position) [新增]
+    - 新增接口用於修改鏈上定期產品持倉的自動複投設置
+- [查詢收益歷史](../v5/finance/earn/easy-onchain/yield-history) [更新]
+    - `category` 新增支持 `OnChain`
+- [查詢歷史 APR](../v5/finance/earn/easy-onchain/apr-history) [新增]
+    - 新增接口用於查詢 FlexibleSaving 和 OnChain 產品的歷史 APR 數據，最多支持查詢 6 個月
+
+## 2026-03-17
+### WebSocket
+- [個人成交 (Fast)](../v5/websocket/private/fast-execution) [更新]
+    - 支持期權fast成交推送
+
+## 2026-03-13
+### REST API
+- [查詢借幣幣種數據](../v5/spot-margin-uta/currency-data) [新增]
+    - 新增接口用於查詢借幣幣種數據，包括活期/定期借幣開關狀態、最小借幣數量、精度及利率範圍
+
+## 2026-03-12
+### REST API
+- [設置Delta中性模式](../v5/account/set-delta-mode) [新增]
+    - 新增接口用於開啟或關閉 Delta 中性模式
+- [查詢交易行為設置](../v5/account/get-user-setting-config) [更新]
+    - 新增響應字段 `deltaEnable`，用於標識 Delta 中性模式是否已開啟
+
+## 2026-03-09
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 合約symbolType新增類型"commodity"
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 合約symbolType新增類型"commodity"
+
+## 2026-03-06
+### REST API
+- [資產總覽](../v5/asset/balance/asset-overview) [新增]
+    - 新增接口用於查詢母帳戶或子帳戶在不同帳戶類型及產品分類下的總資產及持倉明細
+- [資金帳戶歷史記錄](../v5/asset/fund-history) [新增]
+    - 新增接口用於查詢資金帳戶的交易記錄，支持按交易類型和時間範圍篩選
+
+## 2026-03-05
+### REST API
+- [簽署協議](../v5/user/sign-agreement) [新增]
+    - 新增接口用於簽署交易協議
+
+## 2026-03-03
+### REST API
+- [查詢好友被邀請人](../v5/user/friend-referral) [新增]
+    - 新增接口用於查詢好友被邀請人數據
+
+## 2026-02-12
+### REST API
+- [查詢分組手續費结构](../v5/market/fee-group-info) [更新]
+    - 新增一個小組, `groupId`="8", 用於呈現USDC合約的手續費率
+
+## 2026-02-10
+### REST API
+- [設定 API 速率限制](../v5/broker/exchange-broker/rate-limit/set) [新增]
+    - 新增接口用於支持EB客戶給指定子帳戶分配rate limit
+- [查詢EB帳戶的速率上限和使用量](../v5/broker/exchange-broker/rate-limit/query-cap) [新增]
+    - 新增接口用於查詢EB帳戶級別的已使用數量和上限
+- [查詢所有 API 限速](../v5/broker/exchange-broker/rate-limit/query-all) [新增]
+    - 新增接口用於查詢所有子帳戶當前配置的頻率
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - 移除請求字段 "ips"，禁止透過 API 修改、新增或刪除 IP 位址。
+    - 針對讀写 (Read_Write) API ，禁止新增或刪除 FiatP2P、FiatBybitPay 及 FiatConvertBroker 權限。
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - 移除請求字段 "ips"，禁止透過 API 修改、新增或刪除 IP 位址。
+- [現貨 DMM 上架指南](../institutional/dmm-listing/spot) [新增]
+    - 添加現貨 DMM 上架指南及描述
+
+## 2026-02-04
+### REST API
+- [查詢代理用戶列表](../v5/affiliate/affiliate-user-list) [更新]
+    - 新增響應字段 "tradfiTradeVol", "tradfiTradeVol30Day", "tradfiTradeVol365Day", "commissionsVol", "commissions30Day", "commissions365Day"
+- [查詢代理用戶信息](../v5/affiliate/affiliate-info) [更新]
+    - 新增響應字段 "tradfiTradeVol30Day", "tradfiTradeVol365Day", "commissions30Day", "commissions365Day"
+
+## 2026-01-28
+### REST API
+- [升級到UTA PRO](../v5/account/upgrade-unified-account) [更新]
+    - UTA 用戶升級 PRO 新增門檻限制
+
+## 2026-01-16
+### REST API
+- [獲取最大可借](../v5/new-crypto-loan/max-loan-amt) [新增]
+    - 新增接口用戶獲取質押借貸的最大可借以及剩餘可借額度
+
+## 2026-01-13
+### REST API
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 对于`linear`,`inverse`,`option`新增請求字段 "settleCoin"
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 对于`linear`和`inverse`,新增響應字段: `breakEvenPrice`
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - 对于`linear`和`inverse`,新增響應字段: `breakEvenPrice`
+
+## 2026-01-08
+### REST API
+- [還款](../v5/otc/repay) [新增]
+    - 新增接口用於給機構借貸客戶主動還款
+
+## 2026-01-07
+### REST API
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 新增響應字段`parentOrderLinkId`, 用於止盈止損單關於到其母單
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增響應字段`parentOrderLinkId`, 用於止盈止損單關於到其母單
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應字段`parentOrderLinkId`, 用於止盈止損單關於到其母單
+
+## 2026-01-06
+### REST API
+- [設定現貨自動還款模式](../v5/spot-margin-uta/set-auto-repay-mode) [新增]
+    - 新增接口設定現貨自動還款模式
+- [獲取現貨自動還款模式](../v5/spot-margin-uta/get-auto-repay-mode) [新增]
+    - 新增接口獲取現貨自動還款模式
+
+## 2026-01-05
+### REST API
+- [提幣](../v5/asset/withdraw) [更新]
+    - 對於受益信息, 針對特定場景-當走韓國CODE渠道出金到公司帳戶時, 新增三個必傳字段`beneficiaryTransactionPurpose`, `beneficiaryRepresentativeFirstName`, `beneficiaryRepresentativeLastName`
+
+## 2025-12-25
+### REST API
+- [查詢風險率](../v5/otc/ltv-convert) [更新]
+    - 新增響應字段 `liqStatus`
+
+## 2025-12-24
+### REST API
+- [Fiat Convert](../v5/asset/fiat-convert/query-coin-list) [新增]
+    - 新增 Fiat 兌換功能
+
+## 2025-12-23
+- [小額資產兌換](../v5/asset/convert-small-balance/small-balanc-coins) [新增]
+    - 新增小額資產兌換功能
+
+## 2025-12-18
+### REST API
+- [接受非 LP 報價](../v5/rfq/trade/accept-other-quote)[新增]
+    - 新增接口用于接受非 LP 報價
+- [獲取實时的詢價單資訊](../v5/rfq/trade/rfq-realtime)[更新]
+    - 新增響應字段 `acceptOtherQuoteStatus`
+- [獲取歷史詢價資訊](../v5/rfq/trade/rfq-list)[更新]
+    - 新增響應字段 `acceptOtherQuoteStatus`
+- [查詢ADL告警](../v5/market/adl-alert) [更新]
+    - 對於共用保險池，balance 將採用 T+1 刷新機制，並於每日 UTC 時間 00:00 更新。
+    - "maxBalance" 字段將被棄用，並將傳回空字串。
+- [手工還款](../v5/account/repay) [更新]
+    - MNT 暫時不會被用於還款, 亦不支援通過貨幣轉換還款(convert-repay)來償還 MNT 負債. 不過, 您仍可使用 [無損手工還款](/docs/zh-TW/v5/account/no-convert-repay)以現有餘額償還 MNT 借款
+
+### WebSocket API
+- [ADL告警](../v5/websocket/public/adl-alert) [更新]
+    - 對於共用保險池，balance 將採用 T+1 刷新機制，並於每日 UTC 時間 00:00 更新。
+    - "maxBalance" 字段將被棄用，並將傳回空字串。
+- [詢價頻道](../v5/rfq/websocket/private/inquiry) [更新]
+    - 新增響應字段 `acceptOtherQuoteStatus`
+
+## 2025-12-16
+- [SBE Level 50](../v5/sbe/market/level-50) [更新]
+    - 期貨的 SBE Level 50 將於 **12 月 16 日上午 7:00（UTC+0）** 在主網上發布
+
+## 2025-12-02
+### SBE API
+- [SBE 基本信息](../v5/sbe/sbe-basic-info) [新增]
+    - Add SBE 基本信息描述
+- [SBE BBO 接入指南](../v5/sbe/market/bbo) [新增]
+    - Add SBE BBO 市場數據接口
+    - 現貨的 SBE BBO 50 已於 **09 月 18 日** 在主網上發布
+    - 期貨的 SBE BBO 50 已於 **11 月 4 日** 在主網上發布
+- [SBE Level 50 接入指南](../v5/sbe/market/level-50) [新增]
+    - Add SBE Level 50 市場數據接口
+    - 現貨的 SBE Level 50 已於 **12 月 2 日上午 7:00（UTC+0）** 在主網上發布
+
+## 2025-11-27
+### REST API
+- [創建續借單](../v5/new-crypto-loan/fixed/renew) [新增]
+    - 創建續借單
+- [查詢個人續借訂單](../v5/new-crypto-loan/fixed/renew-order) [新增]
+    - 查詢個人續借訂單
+
+## 2025-11-25
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 盤前永續合約新增響應字段`skipCallAuction`
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 盤前永續合約新增響應字段`skipCallAuction`
+
+### Websocket API
+- [深度](../v5/websocket/public/orderbook) [更新]
+    - 1000檔數據的推送頻率將由 300ms 調整為 200ms
+
+## 2025-11-17
+### REST API
+- 因新版質押借貸服務已上線，舊版質押借貸接款接口已標記為棄用。
+    - [借款](../v5/abandon/borrow)
+## 2025-11-13
+### REST API
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - 新增查詢參數`transSubType`, 僅用於篩選移倉產生的交易流水
+
+## 2025-11-11
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    -  用於現貨交易新增響應參數 `postOnlyMaxLimitOrderSize`, 每個交易對皆有獨立配置,用於定義被動委託(Post-Only)與零售價格優化(RPI)的最大限價單規模
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    -  用於現貨交易新增響應參數 `postOnlyMaxLimitOrderSize`, 每個交易對皆有獨立配置,用於定義被動委託(Post-Only)與零售價格優化(RPI)的最大限價單規模
+
+## 2025-11-04
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 期權支持設置滑點容差類型 `slippageToleranceType`
+- [獲取rfq公共成交數據](../v5/rfq/trade/public-trades) [更新]
+    - 訂單交易的開始時間`startTime` 和 結束時間 `endTime` 之間的間隔，從 7 天調整為 30 天
+
+### Websocket API
+- [行情](../v5/websocket/public/ticker) [更新]
+    - Spot推送頻率由即時調整為50毫秒
+
+## 2025-11-03
+### REST API
+- [無損手工還款](../v5/account/no-convert-repay) [新增]
+    - 新增UTA無損手動還款接口
+
+## 2025-10-23
+### REST API
+- [手工借款](../v5/account/borrow) [新增]
+    - 新增UTA手動借幣接口
+
+- [查詢最大可藉數](../v5/spot-margin-uta/max-borrowable) [新增]
+    - 新增查詢最大可藉數接口
+
+- [查詢借貸倉位風險訊息](../v5/spot-margin-uta/position-tiers) [新增]
+    - 新增查詢借貸倉位風險訊息接口
+
+- [全倉槓桿設置](../v5/spot-margin-uta/set-leverage) [更新]
+    - 新增新的輸入參數`currency`，透過`currency`設定槓桿
+
+- [查詢幣種槓桿](../v5/spot-margin-uta/coinstate) [新增]
+    - 新增查詢幣種槓桿接口
+
+- [查詢負債幣種可還款金額](../v5/spot-margin-uta/repayment-available-amount) [新增]
+    - 新增查詢負債幣種可還款金額接口
+
+- [交易日誌](../v5/account/transaction-log) [更新]
+    -  新增 `type` 枚舉，`MANUAL_LOANS_BORROW`, `MANUAL_LOANS_REPAY`, `AUTO_LOANS_BORROW`, `AUTO_LOANS_REPAY`
+
+- [查詢最新行情信息](../v5/market/tickers) [更新]
+    - 新增響應參數 `basisRateYear`, `fundingIntervalHour`, `fundingCap`
+
+## 2025-10-22
+### REST API
+- [查詢代理用戶列表](../v5/affiliate/affiliate-user-list) [更新]
+    - 新增請求字段 `startDate`, `endDate`
+    - 新增響應字段 `takerVol`, `makerVol`, `tradeVol`, `startDate`, `endDate`
+
+## 2025-10-21
+### REST API
+- [查詢地址簿提幣地址](../v5/asset/withdraw/withdraw-address) [NEW]
+    - 我們推出一個新的端點，用於查詢地址簿中的提幣地址
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 对`spot`新增請求參數 `symbolType`,有效用於指定篩選交易產品紀錄
+    - 新增響應參數 `forbidUplWithdrawal`
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [更新]
+    - 新增 category = `spot` ,支援查詢`spot`交易產品
+
+- [創建委託單](../v5/order/create-order) [更新]
+    - 新增輸入參數 `bboSideType`、`bboLevel` 支持BBO訂單
+- [查詢實時和終態委託單](../v5/order/open-order) [更新]
+    - `createType` 新增枚舉值：`CreateByBboOrder`，用於指示BBO訂單
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - `createType` 新增枚舉值：`CreateByBboOrder`，用於指示BBO訂單
+
+### WebSocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - `createType` 新增枚舉值：`CreateByBboOrder`，用於指示BBO訂單
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - `createType` 新增枚舉值：`CreateByBboOrder`，用於指示BBO訂單
+
+## 2025-10-16
+### REST API
+- [查詢用户可交易產品的規格信息](../v5/account/instrument) [新增]
+    - 這個新端點支援查詢當前賬戶是否有交易權限、是否有 RPI 權限，以及當前的symbol是否屬於公開的 RPI symbols
+- [查詢借款中信息](../v5/new-crypto-loan/flexible/unpaid-loan-order) [更新]
+    - 更新響應參數`unpaidAmount`, `unpaidInterest`, 以區分`totalDebt`中的未償還本金與未償還利息
+- [手工還款](../v5/account/repay) [新增]
+    - 新增UTA手動還幣接口
+### WebSocket API
+- [行情](../v5/websocket/public/ticker) [更新]
+    - 新增響應參數 `basisRateYear`, `fundingIntervalHour`, `fundingCap`
+   
+## 2025-10-14
+### REST API
+- [查詢子帳戶UID列表 (限制)](../v5/user/subuid-list) [更新]
+    - 更新響應參數`accountMode`, 目前支持區分經典賬戶, UTA1.0 帳戶, UTA1.0 Pro 帳戶, UTA2.0 帳戶, UTA2.0 Pro 帳戶
+- [查詢子帳戶UID列表 (無限制)](../v5/user/page-subuid) [更新]
+    - 更新響應參數`accountMode`, 目前支持區分經典賬戶, UTA1.0 帳戶, UTA1.0 Pro 帳戶, UTA2.0 帳戶, UTA2.0 Pro 帳戶
+
+## 2025-10-10
+### REST API
+- [RFQ Open API](../v5/rfq/basic-workflow) [新增]
+    - 我們已上線全新的 RFQ 功能，具體內容請參考 [連結](../v5/rfq/basic-workflow).
+- 理財API [新增]
+    - [查詢收益歷史](../v5/finance/earn/easy-onchain/yield-history)
+    - [查詢每小時收益歷史](../v5/finance/earn/easy-onchain/hourly-yield)
+- Earn API [更新]
+    - [查詢質押/贖回訂單歷史](../v5/finance/earn/easy-onchain/order-history)
+     - 新增新的輸入參數 `productId`,`startTime`,`endTime`,`limit`,`cursor`,支援批次查詢訂單
+
+## 2025-10-09
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 請求參數 `slippageTolerance`數值範圍調整，其中,TickSize 從 [5, 2000] 變更為 [1, 10000],Percent 從 [0.05, 1] 變更為 [0.01, 10]
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 新增請求參數 `symbolType`,用於指定篩選交易產品紀錄,目前僅对`linear`,`inverse`有效
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - category=`spot` 添加新的響應字段 `maxLimitOrderQty`, `maxMarketOrderQty`, 10月16日生效, 更多詳情可以參閱 [限價單與市價單最大訂單規模即將調整](https://announcements.bybit.com/zh-TW/article/changes-to-maximum-order-size-for-limit-and-market-orders-blt6ac479804a794c46/)
+
+## 2025-09-28  
+### REST API  
+- [限速](../v5/rate-limit) [更新]  
+    - [設定 API 速率限制](/docs/zh-TW/v5/rate-limit/rules-for-pros/apilimit-set)
+        - 將入參 `limit` 更改為 `rate`，並將回應字段 `limit` 更改為 `rate` 
+    - [查詢 API 速率限制](/docs/zh-TW/v5/rate-limit/rules-for-pros/apilimit-query)
+        - 將回應字段 `limit` 更改為 `rate`  
+- [限速](../v5/rate-limit) [新增]  
+    - 新增端點以[查詢 Ins 等級速率限制上限和使用量](/docs/zh-TW/v5/rate-limit/rules-for-pros/apilimit-query-cap)和[查詢所有API 限速](/docs/zh-TW/v5/rate-limit/rules-for-pros/apilimit-query-all)
+
+## 2025-09-25
+### REST API
+- [查詢分組手續費结构](../v5/market/fee-group-info) [新增]
+    - 新增分組手續費结构及相關信息接口
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - category=`option`,`linear`,`spot` 添加新的響應字段 `symbolType`
+    - `innovation` 字段廢棄, 總是返回`0`
+
+## 2025-09-24
+### REST API
+- [創建借款單](../v5/new-crypto-loan/fixed/borrow) [更新]
+    - 新增新的輸入參數 `repayType`
+- [查詢借款合同](../v5/new-crypto-loan/fixed/borrow-contract) [更新]
+    - 添加新的響應字段 `repayType`
+- [查詢個人借款訂單](../v5/new-crypto-loan/fixed/borrow-order) [更新]
+    - 添加新的響應字段 `repayType`
+- [查詢還款紀錄](../v5/new-crypto-loan/fixed/repay-history) [更新]
+    - 給`repayType`新增新的枚舉`8`（轉為活期貸款）`repayType`
+
+## 2025-09-23
+### REST API
+- [查詢ADL告警](../v5/market/adl-alert) [新增]
+    - 新增按組劃分保險池ADL告警及相關信息接口
+
+- [指數價格組成](../v5/market/index-components) [新增]
+    - 新增接口以查詢指數價格組成 
+
+### WebSocket API
+- [ADL告警](../v5/websocket/public/adl-alert) [新增]
+    - 新增topic，用於監聽按組劃分保險池ADL告警及相關信息
+
+## 2025-09-18
+### REST API
+- [RPI Orderbook (深度)](../v5/market/rpi-orderbook) [新增]
+    - 新增接口以查詢 RPI 訂單簿
+- [查詢實時和終態委託單](../v5/order/open-order) [更新]
+    - 添加新的響應字段`cumFeeDetail`以返回交易費用詳細信息替代`cumExecFee`
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 添加新的響應字段`cumFeeDetail`以返回交易費用詳細信息替代`cumExecFee`
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 響應字段`feeCurrency` 支持衍生品交易
+
+### WebSocket API
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - 新增 `feeCurrency` 以返回交易手續費貨幣
+- [訂單](../v5/websocket/private/order) [更新]
+    - 添加新的響應字段`cumFeeDetail`以返回交易費用詳細信息替代`cumExecFee`和`feeCurrency`
+- [訂單](../v5/spread/websocket/private/order) [更新]
+    - 添加新的響應字段`cumFeeDetail`以返回交易費用詳細信息替代`cumExecFee`和`feeCurrency`
+
+## 2025-09-16
+### REST API
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 新增響應字段: `spotBorrow`
+
+### Websocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 新增響應字段: `spotBorrow`
+
+## 2025-09-15
+### REST API
+- [交易日誌](../v5/account/transaction-log) [更新]
+    -  交易日誌type新增枚舉值 `PLATFORM_TOKEN_MNT_LIQRECALLEDMMNT`, `PLATFORM_TOKEN_MNT_LIQRETURNEDMNT`
+
+## 2025-09-11
+### WebSocket API
+- [深度](../v5/websocket/public/orderbook) [删除]
+    - 删除現貨以及合約的500檔推送
+
+## 2025-09-09
+### REST API
+- [撤銷所有訂單](../v5/order/cancel-all) [更新]
+    - orderFilter為期權產品類型新增了一個枚舉值`StopOrder`
+
+## 2025-09-08
+### REST API
+- [定期抵押品還款](../v5/new-crypto-loan/fixed/repay-collateral) [新增]
+    - 新增定期抵押品還款接口
+- [定期查詢還款紀錄](../v5/new-crypto-loan/fixed/repay-history) [更新]
+    - 定期查詢還款紀錄repayType新增 7: 兌幣還款
+- [活期抵押品還款](../v5/new-crypto-loan/flexible/repay-collateral) [新增]
+    - 新增活期抵押品還款接口
+- [活期查詢還款歷史](../v5/new-crypto-loan/flexible/repay-orders) [更新]
+    - 活期查詢還款紀錄repayType新增 7: 兌幣還款
+- [移倉](../v5/position/move-position) [更新]
+    - 新增 category = inverse ,僅支援UTA2.0
+
+## 2025-09-04
+### REST API
+- [查詢限價單行為](../v5/account/get-user-setting-config) [新增]
+    - 新增查詢限價單行為接口
+
+## 2025-08-28
+### REST API
+- [查詢合約風險限額](../v5/market/risk-limit) [更新]
+    - 新增對盤前交易合約交易對的風險限額表查詢功能支持
+
+## 2025-08-26
+### REST API
+- [查詢期權歷史交割價格](../v5/market/new-delivery-price) [新增]
+    - 新增查詢期權歷史交割價格的接口
+
+- [質押/贖回](../v5/finance/earn/easy-onchain/create-order) [更新]
+    - 新增新的輸入參數 `toAccountType`
+
+## 2025-08-14
+### WebSocket API
+- [深度](../v5/websocket/public/orderbook) [更新]
+    - 增加現貨以及合約的1000檔推送
+
+## 2025-08-13
+### REST API
+- [頻率限制](../v5/rate-limit) [更新]
+    - 新增設定 api 速率限制和查詢 api 速率限制的接口
+
+## 2025-08-07
+### REST API
+- [查詢平台最近成交歷史](../v5/market/recent-trade) [更新]
+    - 新增響應字段`seq`
+
+- [查詢最近公共成交](../v5/spread/market/recent-trade) [更新]
+    - 價差交易，新增響應字段`seq` 
+
+## 2025-08-06
+### REST API
+- [提幣](../v5/asset/withdraw) [更新]
+    - 請求參數 `accountType` 變成必傳, 並支持從多個錢包提幣
+
+- [查詢延遲提幣凍結金額](../v5/asset/balance/delay-amount)
+    - 支持返回Unified錢包的餘額數據
+
+## 2025-08-05
+### Websocket API
+- [平台成交](../v5/websocket/public/trade) [更新]
+    - 新增字段 `seq`
+    - 期貨和現貨當一個撮合包超過1024條成交時, 會拆分成多個消息下發, 每條消息最多1024筆成交
+
+- [平台成交](../v5/spread/websocket/public/trade) [更新]
+    - 新增字段 `seq` (價差交易)
+    - 期貨和現貨當一個撮合包超過1024條成交時, 會拆分成多個消息下發, 每條消息最多1024筆成交
+
+## 2025-07-31
+### REST API
+- [設置限價單行為](../v5/account/set-price-limit) [新增]
+    - 該接口用於選擇當限價單價格超過邊界的時候，期望的系統行為
+
+## 2025-07-25
+### REST API
+- [新質押借貸](../v5/new-crypto-loan/loan-coin) [更新]
+    - 新增響應字段: `flexibleAnnualizedInterestRate`,`annualizedInterestRate7D`,`annualizedInterestRate14D`,`annualizedInterestRate30D`,`annualizedInterestRate60D`,`annualizedInterestRate90D`,`annualizedInterestRate180D`
+
+## 2025-07-22
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 響應字段`extraFees`新增新的枚舉值`VAT`, 用於kyc=阿聯酋 增值稅
+
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 響應字段`extraFees`新增新的枚舉值`VAT`, 用於kyc=阿聯酋 增值稅
+
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 響應字段`extraFees`新增新的枚舉值`VAT`, 用於kyc=阿聯酋 增值稅
+
+### Websocket API
+- [RPI 深度](../v5/websocket/public/orderbook-rpi) [更新]
+    - 支持期貨
+
+## 2025-07-17
+### REST API
+- [新質押借貸](../v5/new-crypto-loan/loan-coin) [新增]
+    - 新質押借貸open api上線了
+
+## 2025-07-16
+### REST API
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 新增交易類型 `DEFI_INVESTMENT_SUBSCRIPTION`, `DEFI_INVESTMENT_REFUND`, `DEFI_INVESTMENT_REDEMPTION`, 
+
+## 2025-07-15
+### Websocket API
+- [RPI 深度](../v5/websocket/public/orderbook-rpi) [新增]
+    - 新增topic，用於監聽帶有RPI報價的訂單簿
+
+## 2025-07-08
+### REST API
+- [取得系統狀態](../v5/system-status) [新增]
+    - 新增端點以取得系統狀態
+
+### Websocket API
+- [Websocket取得系統狀態](../v5/websocket/system/system-status) [新增]
+    - 新增主題以取得系統狀態
+
+## 2025-07-03
+### REST API
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 新增響應字段: `totalMaintenanceMarginByMp`,`accountMMRateByMp`,`accountIMRateByMp`,`totalInitialMarginByMp`
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 新增響應字段: `positionIMByMp`,`positionMMByMp`
+
+### Websocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 新增字段: `accountIMRateByMp`,`accountMMRateByMp`,`totalInitialMarginByMp`,`totalMaintenanceMarginByMp`
+- [持倉](../v5/websocket/private/position) [更新]
+    - 新增字段: `positionIMByMp`,`positionMMByMp`
+
+## 2025-06-30
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 響應字段`extraFees`新增新的枚舉值`GST`, 用於kyc=Indian用戶商品及服務稅
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 響應字段`extraFees`新增新的枚舉值`GST`, 用於kyc=Indian用戶商品及服務稅
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 響應字段`extraFees`新增新的枚舉值`GST`, 用於kyc=Indian用戶商品及服務稅
+
+### Websocket API
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - 新增 `extraFees`字段, 用於kyc=Indian用戶商品及服務稅
+- 槓桿代幣中的 BTC 和 ETH 幣種已經下架, 同時槓桿代幣的API服務將會在 <b>4 July, 2025</b>下線
+
+## 2025-06-26
+### REST API
+- [查詢價差成交歷史](../v5/spread/trade/trade-history) [更新]
+    - 新增 `execFeeV2`字段, 表示現貨單腿的成交手續費
+    - 新增 `feeCurrency`字段, 表示各單腿成交時的手續費幣種
+- [個人成交](../v5/order/execution) [更新]
+    - 新增 `execFeeV2`字段, 表示在價差交易的類型下, 對應的現貨單腿的成交手續費
+
+### Websocket API
+- [價差交易個人成交](../v5/spread/websocket/private/execution) [更新]
+    - 新增 `execFeeV2`字段, 表示現貨單腿的成交手續費
+    - 新增 `feeCurrency`字段, 表示各單腿成交時的手續費幣種
+
+## 2025-06-24
+### REST API
+- [查詢期权平倉](../v5/position/close-position) [新增]
+    - 新增用於獲取權平倉記錄的接口
+- [查詢平倉盈虧](../v5/position/close-pnl) [更新]
+    - 新增響應字段 `openFee`, `closeFee`
+    - 入參`category`字段新增新的枚舉值"option", 用於支持查詢期權的平倉盈虧紀錄
+- [查詢交割紀錄](../v5/asset/delivery) [更新]
+    - 新增響應字段 `entryPrice`
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 新增交易類型 `ONCHAINEARN_SUBSCRIPTION`, `ONCHAINEARN_REDEMPTION`, `ONCHAINEARN_REFUND`, 
+    `STRUCTURE_PRODUCT_SUBSCRIPTION`, `STRUCTURE_PRODUCT_REFUND`, `CLASSIC_WEALTH_MANAGEMENT_SUBSCRIPTION`,
+     `PREMIMUM_WEALTH_MANAGEMENT_SUBSCRIPTION`, `PREMIMUM_WEALTH_MANAGEMENT_REFUND`, `LIQUIDITY_MINING_SUBSCRIPTION`, 
+     `LIQUIDITY_MINING_REFUND`, `FLEXIBLE_STAKING_REFUND`, `FIXED_STAKING_REFUND`, `PWM_SUBSCRIPTION`, `PWM_REFUND`
+
+## 2025-06-19
+### REST API
+- [Get Order Price Limit](../v5/market/order-price-limit) [新增]
+    - 新增用於獲取訂單限價的接口
+
+### WebSocket API
+- [Order Price Limit](../v5/websocket/public/order-price-limit) [新增]
+    - 新增 websocket 主題“priceLimit”，用於取得訂單限價
+
+## 2025-06-12
+### REST API
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增 `id`, `txID` 請求參數, 用於指定篩選入金紀錄
+    - 響應新增 `id` 字段
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增 `id`, `txID` 請求參數, 用於指定篩選入金紀錄
+    - 響應新增 `id` 字段
+- [查詢子帳號充值紀錄](../v5/broker/exchange-broker/sub-deposit-record) [更新]
+    - 新增 `id`, `txID` 請求參數, 用於指定篩選入金紀錄
+    - 響應新增 `id` 字段
+- [查詢幣種信息](../v5/asset/coin-info) [更新]
+    - 響應新增 `safeConfirmNumber` 字段, 表示安全高度
+
+## 2025-06-10
+### REST API
+- [預下單](../v5/order/pre-check-order) [新增]
+    - 增加新的接口，用於計算UTA帳戶下單前後IMR、MMR的變化。
+
+## 2025-05-28
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增響應字段“extraFees”，僅用於印尼站或歐盟站
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 新增響應字段“extraFees”，僅用於印尼站或歐盟站
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 新增響應字段“extraFees”，僅用於印尼站或歐盟站
+
+## 2025-05-27
+### REST API
+- [查詢交割價格](../v5/market/delivery-price) [更新]
+    - 新增查詢參數`settleCoin`，並支持settleCoin=USDT
+
+## 2025-05-23
+### REST API
+- [查詢保險基金](../v5/market/insurance) [更新]
+    - 保險池餘額數據的更新頻率從每24小時調整到每1分鐘
+- [保險池餘額](../v5/websocket/public/insurance-pool) [新增]
+    - 新增保險池餘額推送
+
+## 2025-05-06
+### REST API
+- [價差交易限頻](../v5/rate-limit#spread-trading) [更新]
+    - 修改下改撤接口的頻率從100/分到20/秒
+    - 修改全部撤銷接口的頻率從100/分到5/秒
+
+## 2025-04-24
+### REST API
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 新增響應字段 `transSubType`, 用於標記移倉產生的流水
+    - 修改默認查詢時間範圍, 從7天變成24小時
+- [查詢價差訂單歷史](../v5/spread/trade/order-history) [更新]
+    - 新增響應字段 `cxlRejReason`
+    - 移除冗余字段 `orderPrice`
+
+## 2025-04-22
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - category=`option` 新增響應字段 `displayName`
+    - category=`linear` 新增響應字段 `displayName`
+
+## 2025-04-17
+### REST API
+- [提交報價](../v5/asset/convert/apply-quote) [更新]
+    - 新增響應字段 `extTaxAndFee`
+
+## 2025-04-16
+### REST API
+- [查詢劃轉紀錄 (單帳號內)](../v5/asset/transfer/inter-transfer-list) [更新]
+    - 限制每次查詢最多返回7天的數據
+- [查詢萬能劃轉紀錄](../v5/asset/transfer/inter-transfer-list) [更新]
+    - 限制每次查詢最多返回7天的數據
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - `NFT`字段廢棄, 總是返回`[]`
+- [新建子帳戶的API Key](../v5/user/create-subuid-apikey) [更新]
+    - `NFT`字段廢棄, 總是返回`[]`
+- [查詢子帳戶的所有API Key信息](../v5/user/list-sub-apikeys) [更新]
+    - `NFT`字段廢棄, 總是返回`[]`
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - `NFT`字段廢棄, 總是返回`[]`
+- [修改子帳戶的API Key設置](../v5/user/modify-sub-apikey) [更新]
+    - `NFT`字段廢棄, 總是返回`[]`
+
+## 2025-04-14
+### REST API
+- [價差交易 Open API](../v5/spread/market/instrument) [新增]
+
+## 2025-04-11
+### REST API
+- 理財API [UPDATE]
+    - 新增 category `OnChain`.
+
+## 2025-04-01
+### REST API
+- [創建委託單](../v5/order/create-order) [期貨]
+    - "timeInForce"參數支持`RPI`, 更多詳情可以參閱[Retail Price Improvement (RPI) Order](https://www.bybit.com/en/help-center/article/Retail-Price-Improvement-RPI-Order)
+- [批量創建委託單](../v5/order/batch-place) [期貨]
+    - "timeInForce"參數支持`RPI`
+- [查詢實時委託單](../v5/order/open-order) [期貨]
+    - 響應字段"timeInForce"支持`RPI`
+- [查詢歷史訂單](../v5/order/order-list) [期貨]
+    - 響應字段"timeInForce"支持`RPI`
+- [查詢平台最近成交歷史](../v5/market/recent-trade) [期貨]
+    - 新增響應字段`isRPITrade`
+
+### Websocket API
+- [Websocket下單服務](../v5/websocket/trade/guideline)[期貨]
+    - 創建訂單時, "timeInForce"參數支持`RPI`
+- [訂單](../v5/websocket/private/order) [期貨]
+    - 響應字段"timeInForce"支持`RPI`
+- [平台成交](../v5/websocket/public/trade) [期貨]
+    - 目前幣本位永續和交割已經生效, 其餘將會在1周內完成發佈
+
+## 2025-03-20
+### WebSocket API
+- [深度](../v5/websocket/public/orderbook) [更新]
+    - 現貨以及合約的1檔推送, 改成僅推送snapshot模式
+
+## 2025-02-27
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 新增請求參數 `slippageToleranceType`, 用於現貨和期貨市價單支持設置滑點容差類型
+    - 新增請求參數 `slippageTolerance`, 現貨和期貨市價單針對在設置滑點類型後, 設置對應的值
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增響應參數 `slippageToleranceType`
+    - 新增響應參數 `slippageTolerance`
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應參數 `slippageToleranceType`
+    - 新增響應參數 `slippageTolerance`
+
+## 2025-02-26
+### Websocket API
+- [Websocket下單服務](../v5/websocket/trade/guideline)[更新]
+    - [單筆下改撤的響應體](../v5/websocket/trade/guideline#響應參數-1), 新增了響應字段 `retExtInfo`
+    - 支持[批量下單/改單/撤單](../v5/websocket/trade/guideline#批量下單改單撤單)
+
+## 2025-02-20
+### REST API
+- 理財API [新增]
+    - [查询产品信息](../v5/finance/earn/easy-onchain/product-info)
+    - [質押/贖回](../v5/finance/earn/easy-onchain/create-order)
+    - [查詢質押/贖回訂單歷史](../v5/finance/earn/easy-onchain/order-history)
+    - [查詢理財持倉](../v5/finance/earn/easy-onchain/position)
+
+### Websocket API
+- [完整強平推送](../v5/websocket/public/all-liquidation) [新增]
+    - 一個全新的topic, 用於訂閱Bybit交易所完整的強平推送
+- 強平推送 [廢棄]
+    - 舊版本的強平推送可以捨棄, 因為每秒鐘僅推送至多一條消息
+
+## 2025-02-19
+### REST API
+- [查詢代理用戶列表](../v5/affiliate/affiliate-user-list) [更新]
+    - 新增響應字段 `takerVol30Day`, `makerVol30Day`, `tradeVol30Day`, `depositAmount30Day`, `takerVol365Day`, `makerVol365Day`, `tradeVol365Day`, `depositAmount365Day`
+
+## 2025-02-18
+### REST API
+- [查詢階梯價值率](../v5/spot-margin-uta/tier-collateral-ratio) (新增)
+    - 新增接口用於查詢UTA借貸的階梯價值率
+- [查詢統一帳戶可劃轉餘額](../v5/account/unified-trans-amnt) [更新]
+    - `coinName`參數支持單個請求查詢最多20個幣種
+    - 新增響應字段 `availableWithdrawalMap` 來支持批量查詢
+- [查詢期權波動率](../v5/market/iv) [更新]
+    - 新增請求參數`quoteCoin`, 值可以是"USD"或"USDT"
+- [創建委託單](../v5/order/create-order) [現貨]
+    - "timeInForce"參數支持`RPI`, 更多詳情可以參閱[Retail Price Improvement (RPI) Order](https://www.bybit.com/en/help-center/article/Retail-Price-Improvement-RPI-Order)
+- [批量創建委託單](../v5/order/batch-place) [現貨]
+    - "timeInForce"參數支持`RPI`
+- [查詢實時委託單](../v5/order/open-order) [現貨]
+    - 響應字段"timeInForce"支持`RPI`
+- [查詢歷史訂單](../v5/order/order-list) [現貨]
+    - 響應字段"timeInForce"支持`RPI`
+- [查詢平台最近成交歷史](../v5/market/recent-trade) [現貨]
+    - 新增響應字段`isRPITrade`
+
+### Websocket API
+- [Websocket下單服務](../v5/websocket/trade/guideline)[現貨]
+    - 創建訂單時, "timeInForce"參數支持`RPI`
+- [訂單](../v5/websocket/private/order) [現貨]
+    - 響應字段"timeInForce"支持`RPI`
+- [平台成交](../v5/websocket/public/trade) [現貨]
+    - 目前4個交易對(MASKUSDT, IOUSDT, ZROUSDT, TWTUSDT)已經有`RPI`響應字段, 將會在2月20號完全釋出.
+
+## 2025-02-17
+### REST API
+- [新建子帳戶的API Key](../v5/user/create-subuid-apikey) [更新]
+    - 支持創建基金託管子帳戶的api key
+- [修改子帳戶的API Key設置](../v5/user/modify-sub-apikey) [更新]
+    - 支持受託管機構修改基金託管子帳戶的api key
+- [刪除子帳戶的API Key](../v5/user/rm-sub-apikey) [更新]
+    - 支持受託管機構刪除基金託管子帳戶的api key
+- [查詢基金託管子帳戶列表](../v5/user/fund-subuid-list) [新增]
+    - 新增接口用於查詢受託管機構下綁定的基金託管子帳戶
+- [查詢子帳戶的所有API Key信息](../v5/user/list-sub-apikeys) [更新]
+    - 支持基金託管子帳戶
+
+## 2025-02-13
+### REST API
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 新增交易類型枚舉值 `PEF_TRANSFER_IN`, `PEF_TRANSFER_OUT`, `PEF_PROFIT_SHARE`
+- [查詢抵押品信息](../v5/account/collateral-info) [更新]
+    - 由於從 2025 年 2 月 19 日起從單一轉換率過渡到分級抵押品價值比率, 字段`collat​​​​eralRatio`將不再準確, 參考[公告](https://announcements.bybit.com/zh-TW/article/updates-to-collateral-value-ratio-rules-for-uta-borrowing-blteba1497739a08988/)
+- [查詢不同VIP的槓桿數據](../v5/spot-margin-uta/vip-margin) [更新]
+    - 由於從 2025 年 2 月 19 日起從單一轉換率過渡到分級抵押品價值比率, 字段`collat​​​​eralRatio`將不再準確, 參考[公告](https://announcements.bybit.com/zh-TW/article/updates-to-collateral-value-ratio-rules-for-uta-borrowing-blteba1497739a08988/)
+
+## 2025-02-07
+### REST API
+- [撤銷所有訂單](../v5/order/cancel-all) [更新]
+    - 期權訂單支持通過傳`settleCoin`參數, 指定USDT或USDC來撤銷所有對應訂單
+
+## 2025-01-14
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 對於category=`spot`, 移除字段`limitParameter`和`marketParamter`, 改為`priceLimitRatioX`, `priceLimitRatioY`, 請查看[公告](https://announcements.bybit.com/zh-TW/article/title-adjustments-to-bybit-s-spot-trading-limit-order-mechanism-blt786c0c5abf865983/)
+
+## 2025-01-09
+### REST API
+- [查詢經紀商的子帳號充值紀錄](../v5/broker/exchange-broker/sub-deposit-record) [更新]
+    - 新增響應字段 `fromAddress`, 鏈上來源地址
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增響應字段 `fromAddress`, 鏈上來源地址
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增響應字段 `fromAddress`, 鏈上來源地址
+- [查詢主帳號充值地址](../v5/asset/deposit/master-deposit-addr) [更新]
+    - 新增響應字段`contractAddress`, 表示合約地址, 僅展示最後6位
+- [查詢子帳號充值地址](../v5/asset/deposit/sub-deposit-addr) [更新]
+    - 新增響應字段`contractAddress`, 表示合約地址, 僅展示最後6位
+- [查詢幣種信息](../v5/asset/coin-info) [更新]
+    - 新增響應字段`contractAddress`, 表示合約地址, 展示完整地址
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 對於accountType=`UNIFIED`, 響應字段 `availableToWithdraw`已經廢棄, 總是返回 `""`
+- [查詢賬戶所有幣種余額](../v5/asset/balance/all-balance) [更新]
+    - 對於accountType=`UNIFIED`, "coin" 參數變成**必傳**, 且單次請求支持最多10個幣種
+- [查詢經紀商返佣信息](../v5/broker/exchange-broker/exchange-earning) [更新]
+    - 新增響應字段`execId`
+
+### Websocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 對於accountType=`UNIFIED`, 響應字段 `availableToWithdraw`已經廢棄, 總是返回 `""`
+
+## 2025-01-02
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 對於category=`linear`以及`inverse`, 新增響應字段 `riskParameters`, `priceLimitRatioX`, `priceLimitRatioY`, 請查看[公告](https://announcements.bybit.com/zh-TW/article/adjustments-to-bybit-s-derivative-trading-limit-order-mechanism-blt469228de1902fff6/)
+
+## 2024-12-12
+### REST API
+- [查詢合約風險限額](../v5/market/risk-limit) [更新]
+    - 當查詢category="linear"時, API從每次返回30個symbol的數據集改為返回15各, 請使用請求參數`cursor`來翻頁
+- [提現](../v5/asset/withdraw) [更新]
+    - 接口頻率從1次每秒提升到5次每秒
+
+## 2024-12-09
+### REST API
+- [查詢統一帳戶可劃轉餘額](../v5/account/unified-trans-amnt) [新增]
+    - 新增接口用於查詢統一帳戶下某個幣種的可劃轉餘額
+
+## 2024-12-04
+### REST API
+- [查詢代理用戶列表](../v5/affiliate/affiliate-user-list) [新增]
+    - 對於Affiliate用戶，您可以使用該介面查詢用戶清單信息
+
+## 2024-11-19
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 對於category=`spot`, 新增響應字段 `stTag`
+
+## 2024-11-14
+### REST API
+- [查詢多空比](../v5/market/long-short-ratio) [更新]
+    - 新增入參 `startTime`, `endTime`, 用戶通過篩選時間範圍來查詢歷史數據
+
+## 2024-10-30
+### REST API
+- [查詢抵押品信息](../v5/account/collateral-info) [更新]
+    - 新增響應字段 `otherBorrowAmount`
+
+## 2024-10-15
+### Websocket API
+- 新增websocket域名`stream.bybit-tr.com` 給到帳戶創建自 "www.bybit-tr.com" 站點的用戶, 對於這些用戶, 您可以開始使用該域名進行
+[websocket交易服務](../v5/websocket/trade/guideline).
+
+## 2024-10-11
+### REST API
+- [質押借貸](../v5/crypto-loan/collateral-coin) API發佈到主網
+
+## 2024-09-29
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應字段 `closedPnl`
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - 新增響應字段 `execPnl`
+
+## 2024-09-12
+### REST API
+- [查詢代金券參數](../v5/broker/reward/voucher) [新增]
+    - 新增卡券接口給到經紀商客戶
+- [發放代金券](../v5/broker/reward/issue-voucher) [新增]
+    - 新增卡券接口給到經紀商客戶
+- [查詢已發放代金券](../v5/broker/reward/get-issue-voucher) [新增]
+    - 新增卡券接口給到經紀商客戶
+
+## 2024-08-29
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 經典帳戶支持查詢過去2年的現貨訂單數據
+    - 支持使用`startTime` 和 `endTime`
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 經典帳戶支持查詢過去2年的現貨成交數據
+    - 支持使用`startTime` 和 `endTime`
+- [查詢升級前訂單紀錄](../v5/pre-upgrade/order-list) [更新]
+    - 支持使用`startTime` 和 `endTime`
+- [查詢升級前成交紀錄](../v5/pre-upgrade/execution) [更新]
+    - 支持使用`startTime` 和 `endTime`
+
+## 20234-08-13
+### REST API
+- [查詢借貸訂單信息](../v5/otc/loan-info) [更新]
+    - 新增響應參數 `reserveToken`, `reserveQuantity`
+
+## 2024-08-07
+### REST API
+- [提交報價](../v5/asset/convert/apply-quote) [更新]
+    - 新增兩個入參, 主要適用於API broker用戶, `paramType`, `paramValue`
+- [查詢兌換歷史](../v5/asset/convert/get-convert-history) [更新]
+    - 在extInfo對象裡新增兩個出參`paramType`, `paramValue`
+
+## 2024-08-06
+### REST API
+- [模擬交易](../v5/demo#獲取模擬資金接口) [模擬交易]
+    - 新增參數`adjustType`, 用於選擇是增加還是減去模擬資金
+
+## 2024-07-30
+### Websocket API
+- [個人成交 (Fast)](../v5/websocket/private/fast-execution) [更新]
+    - 新增響應字段 `isMaker`
+    - 支持現貨成交推送
+
+## 2024-07-25
+### REST API
+- [查詢借貸歷史利率](../v5/spot-margin-uta/historical-interest) [新增]
+    - 新增接口用於查詢槓桿交易的歷史借貸利率
+
+## 2024-07-09
+### Websocket API
+- [個人成交 (Fast)](../v5/websocket/private/fast-execution) [更新]
+    - 新增分類topic, `execution.fast.linear`, `execution.fast.inverse`
+
+## 2024-07-04
+### REST API
+- 新功能: open api支持加密貨幣資產的兌換
+    - [查詢兌換幣種列表](../v5/asset/convert/convert-coin-list) [新增]
+    - [提交報價](../v5/asset/convert/apply-quote) [新增]
+    - [確認報價](../v5/asset/convert/confirm-quote) [新增]
+    - [查詢報價單狀態](../v5/asset/convert/get-convert-result) [新增]
+    - [查詢兌換歷史](../v5/asset/convert/get-convert-history) [新增]
+
+## 2024-07-03
+### REST API
+- [查詢經紀商返佣信息](../v5/broker/exchange-broker/exchange-earning) [更新]
+    - 請求參數 `bizType` 新增枚舉值 "CONVERT"
+    - 響應參數 `bizType` 新增枚舉值 "CONVERT"
+    - 新增響應參數 `convert`
+- [查詢經紀商主帳戶信息](../v5/broker/exchange-broker/account-info) [更新]
+    - 新增響應參數 `convert`
+
+## 2024-07-01
+### REST API
+- [接入指南](../v5/guide#鑒權認證) [更新]
+    - 為了合規, 對於土耳其地區的用戶新增了open api域名
+
+## 2024-06-27
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 盤前永續交易: 新增響應字段 `isPreListing`, `preListingInfo`, `curAuctionPhase`, `phases`, `startTime`, `endTime`, `auctionFeeInfo`, `auctionFeeRate`, `takerFeeRate`, `makerFeeRate`
+    - 當category="inverse" 或者 "linear", 請求參數 `status` 支援 `Closed`, `Delivering`, `PreLaunch`
+    - 當category=linear&status=PreLaunch, 您可以查詢到盤前永續合約
+- [查詢最新行情信息](../v5/market/tickers) [更新]
+    - 盤前永續交易: 新增響應參數 `preOpenPrice`, `preQty`, `curPreListingPhase`
+- 針對盤前永續交易, 新增相關錯誤碼
+    - `110095`: You cannot create, modify or cancel Pre-Market Perpetual orders during the Call Auction.
+    - `110096`: Pre-Market Perpetual Trading does not support Portfolio Margin mode.
+    - `110097`: Non-UTA users cannot access Pre-Market Perpetual Trading. To place, modify or cancel Pre-Market Perpetual orders, please upgrade your Standard Account to UTA.
+    - `110098`: Only Good-Till-Canceled (GTC) orders are supported during Call Auction.
+    - `110099`: You cannot create TP/SL orders during the Call Auction for Pre-Market Perpetuals.
+    - `110100`: You cannot place, modify, or cancel Pre-Market Perpetual orders when you are in Demo Trading.
+    - `3777029`: You currently have orders for pre-market trading that can’t be bind UIDs
+    - `3200419`: Unable to switch to Portfolio margin due to active pre-market Perpetual orders and positions
+
+### Websocket API
+- [行情](../v5/websocket/public/ticker) [更新]
+    - 盤前永續交易: 新增響應參數 `preOpenPrice`, `preQty`, `curPreListingPhase`
+
+## 2024-06-18
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - `marketUnit`字段支持UTA現貨創建tpslOrder和StopOrder
+- [批量創建委託單](../v5/order/batch-place) [更新]
+    - `marketUnit`字段支持UTA現貨創建tpslOrder和StopOrder 
+
+## 2024-06-18
+### REST API
+- [設置斷線保護時間](../v5/order/dcp) [更新]
+    - 新增`product`入參, 支持`DERIVATIVES`, `SPOT` 和 `OPTIONS`
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - 廢棄字段 `dcpStatus`, `timeWindow`
+- [查詢DCP配置](../v5/account/dcp-info) [新增]
+    - 新增查詢DCP配置的接口
+
+### Websocket API
+- [DCP](../v5/websocket/private/dcp) [更新]
+    - 廢棄原本的topic名稱 `dcp`
+    - 新增topic名稱 `dcp.future`, `dcp.spot`, `dcp.option`
+
+## 2024-06-14
+### Websocket API
+- [個人成交 (Fast)](../v5/websocket/private/fast-execution) [更新]
+    - Maker成交也會吐出`orderLinkId`字段, 但是值總是`""`
+
+
+## 2024-06-13
+### REST API
+- [查詢經紀商返佣信息](../v5/broker/exchange-broker/exchange-earning)
+    - 從支援查詢過去6個月變更成查詢過去1個月
+
+## 2024-06-06
+### REST API
+- [查詢代理用戶信息](../v5/affiliate/affiliate-info) [更新]
+    - 新增響應字段 `KycLevel`
+
+### Websocket API
+- [個人成交 (Fast)](../v5/websocket/private/fast-execution) [新增]
+    - 上線更低延遲的成交推送
+
+## 2024-06-04
+### REST API
+- [Order Book (深度)](../v5/market/orderbook) [更新]
+    - 現貨新增響應字段`cts`, 與推送裡的200檔的"cts"對齊
+
+## 2024-05-30
+### REST API
+- [Order Book (深度)](../v5/market/orderbook) [更新]
+    - 期貨新增響應字段`cts`, 與推送裡的500檔的"cts"對齊
+
+## 2024-05-09
+### REST API
+- [查詢合約風險限額](../v5/market/risk-limit) [更新]
+    - 當查詢category="linear"時, API每次返回30個symbol的數據集, 請使用請求參數`cursor`來翻頁
+    - 新增響應字段`nextPageCursor`
+- [提現](../v5/asset/withdraw) [更新]
+    - 新增請求參數`beneficiary`, `vaspEntityId`, `beneficiaryName`, 僅用於kyc為韓國的用戶在提現時需要填寫travel rule信息
+- [查詢交易所列表](../v5/asset/withdraw/vasp-list) [新增]
+    - 新增接口給到kyc=韓國的用戶來查詢提現目標交易所的信息
+- [劃轉 (單帳號內)](../v5/asset/transfer/create-inter-transfer) [更新]
+    - 新增響應字段`status`, 如果遇到PENDING, 請調用查詢接口確認最終狀態
+- [萬能劃轉](../v5/asset/transfer/unitransfer) [更新]
+    - 新增響應字段`status`, 如果遇到PENDING, 請調用查詢接口確認最終狀態
+
+## 2024-05-06
+### Websocket API
+- [Websocket Trade Guideline](../v5/websocket/trade/guideline) [更新]
+    - Websocket 下單功能於 UTC 時間 2024 年 5 月 6 日上午 8 點正式推出。
+
+## 2024-04-25
+### REST API
+- [交易日誌 (統一帳戶)](../v5/account/transaction-log) [更新]
+    - 新增交易類型枚舉值`ADL`
+- [交易日誌 (經典帳戶)](../v5/abandon/contract-transaction-log) [新增]
+    - 新增接口用於查詢經典帳戶的合約錢包, 以及統一帳戶下反向合約錢包的交易日誌
+- [查詢保險基金](../v5/market/insurance) [更新]
+    - 新增響應字段 `symbols`
+
+## 2024-04-23
+### REST API
+- [查詢劃轉紀錄 (單帳號內)](../v5/asset/transfer/inter-transfer-list) [更新]
+    - 當`startTime` & `endTime`都不傳入時, API默認返回過去30天的數據
+- [查詢萬能劃轉紀錄](../v5/asset/transfer/inter-transfer-list) [更新]
+    - 當`startTime` & `endTime`都不傳入時, API默認返回過去30天的數據
+
+### Websocket API
+- [Websocket下單指南](../v5/websocket/trade/guideline#請求參數-1) [更新]
+    - 創建/修改/撤銷訂單請求參數從 `headers` to `header`
+
+## 2024-04-15
+### REST API
+- [模擬交易](../v5/demo#獲取模擬資金接口) [模擬交易]
+    - 獲取模擬資金接口更新
+
+## 2024-04-11
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [期貨]
+    - 新增響應字段 `minNotionalValue`
+
+## 2024-04-03
+### REST API
+- [查詢經紀商的子帳號充值紀錄](..) [新增]
+    - 新增接口給到經紀商查詢子帳戶的充值紀錄
+- [模擬盤交易上線支持Open API](../v5/demo)
+
+## 2024-04-01
+### REST API
+- [查詢子帳戶UID列表 (無限制)](../v5/user/page-subuid) [新增]
+    - 新增查詢子帳戶的接口, 該接口支持翻頁
+- [查詢子帳戶UID列表 (限制)](../v5/user/subuid-list) [更新]
+    - 增加將返回上限, 至多返回10k子帳戶
+
+### Websocket API
+- [Websocket下單指南](../v5/websocket/trade/guideline#url) [更新]
+    - URL使用`wss`作為前綴
+
+## 2024-03-28
+### Websocket API
+- [Websocket下單指南](../v5/websocket/trade/guideline#請求參數-1) [更新]
+    - 創建/修改/撤銷訂單請求新增必傳頭參數`X-BAPI-TIMESTAMP`
+
+## 2024-03-22
+- [接入指南](../v5/guide#鑒權認證) [更新]
+    - 為了合規, 對於荷蘭用戶以及香港用戶分別新增了對應的域名
+- [劃轉 (單帳號內)](../v5/asset/transfer/create-inter-transfer) [更新]
+    - 接口頻率從20次/分提升至60次/分
+
+## 2024-03-21
+- [Order Book (深度)](../v5/market/orderbook) [更新]
+    - 期貨支持到500檔位, limit可以支持到500
+    - 期貨, 響應字段 `u`與推送ob的500檔對齊
+
+## 2024-03-13
+### REST API
+- [設置充值帳戶](../v5/asset/deposit/set-deposit-acct) [更新]
+    - 經典帳戶: `OPTION`(USDC合約錢包) 不再支持被設置為入金錢包
+- [查詢公告](../v5/announcement) [更新]
+    - 新增響應字段 `publishTime`
+
+## 2024-03-12
+### REST API
+- [設置風險限額](../v5/abandon/set-risk-limit) [廢棄]
+    - 由於自動設置risk limit功能已上線, 該接口被廢棄
+
+## 2024-03-11
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - UTA(現貨, 正向合約以及期權)在查詢**完全取消**單時, 僅支持查詢過去24小時的紀錄
+
+## 2024-03-06
+### REST API
+- [批量創建委託單](../v5/order/batch-place) [更新]
+    - 支持現貨交易(UTA, UTA Pro)
+- [批量修改委託單](../v5/order/batch-amend) [更新]
+    - 支持現貨交易(UTA, UTA Pro)
+- [批量撤銷委託單](../v5/order/batch-cancel) [更新]
+    - 支持現貨交易(UTA, UTA Pro)
+
+## 2024-03-05
+### REST API
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - USDC合約: 新增響應字段 `sessionAvgPrice` for USDC contracts
+    - 永續、交割以及期權: 新增響應字段 `curRealisedPnl`
+    - 期權: `cumRealisedPnl`該字段廢棄, 總是`""`
+    - 期權: 新增響應字段 `delta`, `vega`, `theta`, `gamma`
+
+### Websocket API
+- [持倉](../v5/websocket/private/position) [UPDATE]
+    - USDC合約: 新增響應字段 `sessionAvgPrice` for USDC contracts
+    - 永續、交割以及期權: 新增響應字段 `curRealisedPnl`
+    - 期權: `cumRealisedPnl`該字段廢棄, 總是`""`
+    - 期權: 新增響應字段 `delta`, `vega`, `theta`, `gamma`
+
+## 2024-03-04
+### REST API
+- [查詢平台最近成交歷史](../v5/market/recent-trade)
+    - 期權: 新增響應字段, `mP`, `iP`, `mIv`, `iv`
+
+### Websocket API
+- [平台成交](../v5/websocket/public/trade)
+    - 期權: 新增響應字段, `mP`, `iP`, `mIv`, `iv`
+
+## 2024-03-01
+### REST API
+- 由於餘幣寶服務遷入活期理財, 餘幣報接口廢棄
+    - [查詢可存入幣種信息](../v5/abandon/coin-info)
+    - [存入資金](../v5/abandon/deposit)
+    - [贖回資金](../v5/abandon/redeem)
+    - [撤銷贖回](../v5/abandon/cancel-redeem)
+    - [查詢訂單歷史](../v5/abandon/order-record)
+    - [查詢余幣寶帳戶信息](../v5/abandon/account-info)
+
+## 2024-02-29
+### REST API
+- [查詢利息記錄](../v5/account/borrow-history) [更新]
+    - 單次查詢時, `startTime` & `endTime`被限制為30天時間長度
+    - 支持最多2年的數據查詢
+- [查詢交割紀錄](../v5/asset/delivery) [更新]
+    - 新增查詢參數 `startTime` & `endTime`, 並且單次查詢時，以30天為時間長度
+    - 支持最多2年的數據查詢
+- [查詢USDC結算紀錄](../v5/asset/settlement) [更新]
+    - 新增查詢參數 `startTime` & `endTime`, 並且單次查詢時，以30天為時間長度
+    - 支持最多2年的數據查詢
+- [Order Book (深度)](../v5/market/orderbook) [更新]
+    - 期貨和現貨新增響應字段`seq`
+
+## 2024-02-28
+### REST API
+- [查詢提現紀錄](../v5/asset/withdraw/withdraw-record) [更新]
+    - 新增提現狀態枚舉值 `MoreInformationRequired`
+
+## 2024-02-21
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [期貨]
+    - 新增響應字段 `maxMktOrderQty`
+    - `postOnlyMaxOrderQty` 無意義, 直接使用`maxOrderQty`作為限價和PostOnly單的最大訂單數量
+
+## 2024-02-06
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [期貨]
+    - 新增響應字段 `upperFundingRate` 和 `lowerFundingRate`
+
+## 2024-02-05
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 統一帳戶(linear, spot, option)不再支持查詢活動態訂單
+    - 新增錯誤碼, "181017, OrderStatus must be final status"
+
+## 2024-01-18
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [現貨]
+    - 新增響應字段 `riskParameters`, `limitParameter`, `marketParameter`
+
+## 2024-01-16
+### REST API
+- [查詢提現紀錄](../v5/asset/withdraw/withdraw-record) [更新]
+    - 新增查詢參數 `txID`
+    - 平台內部轉帳的交易返回 `txID`
+- [查詢充值記錄 (平台转账)](../v5/asset/deposit/internal-deposit-record) [更新]
+    - 新增查詢參數 `txID`
+    - 新增返回參數 `txID`
+
+## 2024-01-15
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 統一帳戶現貨交易能夠使用`takeProfit`, `stopLoss`, `tpLimitPrice`, `slLimitPrice`, `tpOrderType`, `slOrderType` 給限價單設置止盈止損
+- [修改委託單](../v5/order/amend-order) [更新]
+    - 統一帳戶現貨交易支持修改`takeProfit`, `stopLoss`, `tpLimitPrice`, `slLimitPrice`如果原始訂單上有相關屬性
+- [撤銷所有訂單](../v5/order/cancel-all) [更新]
+    - `orderFilter`字段新增枚舉值"OcoOrder", "BidirectionalTpslOrder". 對於"BidirectionalTpslOrder", 您只能撤銷全部Untriggered狀態的雙向止盈止損訂單
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - `orderFilter`字段新增枚舉值"BidirectionalTpslOrder"
+    - `stopOrderType`字段新增枚舉值"BidirectionalTpslOrder"
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - `orderFilter`字段新增枚舉值"BidirectionalTpslOrder"
+    - `stopOrderType`字段新增枚舉值"BidirectionalTpslOrder"
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - `stopOrderType`字段新增枚舉值"BidirectionalTpslOrder"
+
+## 2024-01-11
+### REST API
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - 新增交易類型`FLEXIBLE_STAKING_SUBSCRIPTION`, `FLEXIBLE_STAKING_REDEMPTION`, `FIXED_STAKING_SUBSCRIPTION`
+
+## 2024-01-09
+### REST API
+- [批量設置抵押品幣種](../v5/account/batch-set-collateral) [新增]
+    - 新增接口用於統一帳戶內批量設置幣種的抵押屬性
+
+## 2024-01-08
+### REST API
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 新增響應字段`feeCurrency`, 用於統一帳戶現貨交易的手續費幣種
+
+## 2024-01-02
+### REST API
+- [移倉](../v5/position/move-position) [新增]
+    - 新增接口用於在母子或者子子帳戶之間移動倉位
+- [查詢移倉歷史](../v5/position/move-position-history) [新增]
+    - 新增接口用於查詢移倉激勵
+- [查詢開關狀態和倍數](../v5/spot-margin-uta/status) [更新]
+    - 新增響應參數 `effectiveLeverage`.
+- 新增劃轉接口的錯誤碼:
+
+|新錯誤碼 | 消息 |
+|:------|:------|
+| 131231 |Transfers into this account are not supported 限制劃入這個帳戶|
+| 131232 |Transfers out this account are not supported 限制劃出這個帳戶|
+
+## 2023-12-28
+### REST API
+- [查詢借貸訂單信息](../v5/otc/loan-info) [更新]
+    - 新增響應參數 `deferredLiquidationLine`, `deferredLiquidationTime`
+- [查詢風險率](../v5/otc/ltv-convert) [更新]
+    - 新增響應參數 `rst`
+- [查詢產品信息](../v5/otc/margin-product-info) [更新]
+    - 新增響應參數 `deferredLiquidationLine`, `deferredLiquidationTime`
+
+## 2023-12-22
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 新增請求參數`marketUnit`, 值可以是`baseCoin`, `quoteCoin`. 它用於在創建現貨市價單時, 選擇`qty`的單位(僅限統一帳戶)
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 新增響應參數 `marketUnit`
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增響應參數 `marketUnit`
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應參數 `marketUnit`
+
+## 2023-12-20
+### REST API
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - `smpGroup`字段廢棄, 請使用[查詢SMP組ID](../v5/account/smp-group)
+
+## 2023-12-14
+### Websocket API
+- [深度](../v5/websocket/public/orderbook) [更新]
+    - 新增字段`cts`
+
+## 2023-12-12
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增響應字段 `createType`
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 新增響應字段 `createType`
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 新增響應字段 `createType`
+- [查詢SMP組ID](../v5/account/smp-group) [新增]
+    - 新增接口用於查詢SMP組ID
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應字段 `createType`
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - 新增響應字段 `createType`
+
+## 2023-12-07
+### REST API
+- [一鍵還款](../v5/account/repay-liability) [新增]
+    - 新增接口用於一鍵償還統一帳戶下的欠款
+
+## 2023-12-04
+### REST API
+- [查詢經紀商返佣](../v5/abandon/earning) [廢棄]
+    - 廢棄, 請使用[查詢經紀商返佣信息](../v5/broker/exchange-broker/exchange-earning)
+- [查詢經紀商返佣信息](../v5/broker/exchange-broker/exchange-earning) [新增]
+    - 新增查詢接口, 替代原有接口
+- [查詢經紀商主帳戶信息](../v5/broker/exchange-broker/account-info) [新增]
+    - 新增接口
+
+## 2023-11-16
+### REST API
+- [設置現貨對衝](../v5/account/set-spot-hedge) [新增]
+    - 新增接口, 用於開啟或關閉組合保證金模式下的現貨對衝功能
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 新增響應字段 `spotHedgingQty`
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - 新增響應字段 `spotHedgingStatus`
+
+### Websocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 新增響應字段 `spotHedgingQty`
+
+## 2023-11-14
+### REST API
+- [提現](../v5/asset/withdraw) [更新]
+    - 接口頻率從10次/分鐘變更為1次/秒
+
+## 2023-11-09
+### REST API
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 經典帳戶現貨支持使用`orderFilter`="OcoOrder"
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+    - 經典帳戶現貨支持使用`orderFilter`="OcoOrder"
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+- [查詢平倉盈虧](../v5/position/close-pnl) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+    - 經典帳戶的數據改為用`updatedTime`排序
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+- [查詢升級前訂單紀錄](../v5/pre-upgrade/order-list) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+- [查詢升級前成交紀錄](../v5/pre-upgrade/execution) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+- [查詢升級前平倉盈虧](../v5/pre-upgrade/close-pnl) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+    - 經典帳戶的數據改為用`updatedTime`排序
+- [查詢升級前交易日誌](../v5/pre-upgrade/transaction-log) [更新]
+    - 修改`startTime` 和 `endTime`入參的規則
+- [查詢子帳戶的所有API Key信息](../v5/user/list-sub-apikeys) [新增]
+    - 新增接口用於支持母帳戶來查詢某個子帳戶的所有API Key信息
+
+## 2023-11-08
+### REST API
+- [綁定/解綁UID](../v5/otc/bind-uid) [新增]
+    - 新增接口, 用於自行綁定或解綁場外借貸產品的UID
+
+## 2023-11-02
+### REST API
+- [修改委託單](../v5/order/amend-order) [更新]
+    - 新增請求參數`tpslMode`
+- [批量修改委託單](../v5/order/batch-amend) [更新]
+    - 新增請求參數`tpslMode`
+- [查詢用戶可用額度 (現貨)](../v5/order/spot-borrow-quota) [更新]
+    - 新增響應字段 `spotMaxTradeQty`, `spotMaxTradeAmount`
+- [提現](../v5/asset/withdraw) [更新]
+    - `forceChain`參數新增枚舉值 `2`, 可支持輸入Bybit UID來進行完成平台內的劃轉操作
+- [刪除子帳戶](../v5/user/rm-subuid) [新增]
+    - 新增接口支持刪除子帳戶
+
+## 2023-11-01
+### REST API
+- [修改委託單](../v5/order/amend-order) [更新]
+  - 支持現貨訂單改單, category可傳入`spot`
+
+## 2023-10-26
+### REST API
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 統一帳戶 現貨: `stopOrderType`, `""` 表示普通訂單, `tpslOrder` 表示止盈止損單, `Stop` 表示條件單, `OcoOrder` 表示OCO訂單
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 統一帳戶 現貨: 新增響應字段 `ocoTriggerBy`, 並且它的值可以是 `OcoTriggerByUnknown`, `OcoTriggerByTp`, `OcoTriggerBySl`
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 統一帳戶 現貨: 新增響應字段 `ocoTriggerBy`, 並且它的值可以是 `OcoTriggerByUnknown`, `OcoTriggerByTp`, `OcoTriggerBySl`
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 統一帳戶 現貨: 新增響應字段 `ocoTriggerBy`, 並且它的值可以是 `OcoTriggerByUnknown`, `OcoTriggerByTp`, `OcoTriggerBySl`
+
+## 2023-10-25
+### REST API
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 新增響應字段 `isReduceOnly`, `mmrSysUpdatedTime`, `leverageSysUpdatedTime`
+- [確認新的風險限額](../v5/position/confirm-mmr) [新增]
+    - 新增接口, 用於在主動調整完風險水位後, 觸發接口來讓系統移除只減倉限制
+
+### Websocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - 新增響應字段 `isReduceOnly`, `mmrSysUpdatedTime`, `leverageSysUpdatedTime`
+
+## 2023-10-17
+### REST API
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - 新增響應字段 `kycLevel`, `kycRegion`
+- [查詢利息記錄](../v5/account/borrow-history) [更新]
+    - 新增響應字段 `borrowAmount`, `unrealisedLoss`, `freeBorrowedAmount`
+
+## 2023-10-09
+### Websocket API
+- [深度](../v5/websocket/public/orderbook) [現貨]
+    - 新增200檔位的深度數據, 推送頻率為200ms
+
+## 2023-09-28
+### REST API
+- [查詢多空比](../v5/market/long-short-ratio) [新增]
+    - 新增行情接口用於查詢多空比
+
+## 2023-09-25
+### REST API
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - `stopOrderType`新增枚舉值 `OcoOrder`, 用於表示現貨OCO訂單 (僅統一帳戶)
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - `stopOrderType`新增枚舉值 `OcoOrder`, 用於表示現貨OCO訂單 (僅統一帳戶)
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - `execType`新增枚舉值 `MovePosition`, 用於表示移動倉位時的成交 (僅統一帳戶)
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - `type`新增枚舉值`TRANSFER_IN_INS_LOAN`, `TRANSFER_OUT_INS_LOAN` (僅統一帳戶)
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - `type`新增枚舉值`SPOT_REPAYMENT_SELL`, `SPOT_REPAYMENT_BUY` (僅統一帳戶)
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - `stopOrderType`新增枚舉值 `OcoOrder`, 用於表示現貨OCO訂單 (僅統一帳戶)
+
+## 2023-09-21
+### REST API
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 新增響應字段 `seq`
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 新增響應字段 `seq`
+- [查詢抵押品信息](../v5/account/collateral-info) [更新]
+    - 新增`freeBorrowAmount`字段, 表示借款總額中免息部分的借款金額
+    - 新增`freeBorrowingLimit`字段, 表示免息借款額上限。若未結虧損部分超過該上限，則將全額計息。
+    - 廢棄`freeBorrowingAmount`字段：字段值已遷移到`freeBorrowingLimit`
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - 新增響應字段 `seq`
+    - 能夠訂閱指定業務線
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - 新增響應字段 `seq`
+    - 能夠訂閱指定業務線
+- [訂單](../v5/websocket/private/order) [更新]
+    - 能夠訂閱指定業務線
+
+## 2023-09-18
+### REST API
+- [新建子帳戶的API Key](../v5/user/create-subuid-apikey) [更新]
+    - 請求參數`ips`字段實際上是字符串類型, 但原有的數組類型依然可以使用.
+    - 請求參數`Derivatives`字段已經廢棄, 系統會自動識別帳戶類型來決定是否添加統一帳戶權限
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - 請求參數`ips`字段實際上是字符串類型, 但原有的數組類型依然可以使用.
+    - 請求參數`Derivatives`字段已經廢棄, 系統會自動識別帳戶類型來決定是否添加統一帳戶權限
+- [修改子帳戶的API Key設置](../v5/user/modify-sub-apikey) [更新]
+    - 新增請求字段`apikey`, 用於母帳戶管理子帳戶的key
+    - 請求參數`ips`字段實際上是字符串類型, 但原有的數組類型依然可以使用.
+    - 請求參數`Derivatives`字段已經廢棄, 系統會自動識別帳戶類型來決定是否添加統一帳戶權限
+- [刪除子帳戶的API Key](../v5/user/rm-sub-apikey) [更新]
+    - 新增請求字段`apikey`, 用於母帳戶刪除子帳戶的key
+
+## 2023-09-14
+### REST API
+- [查詢產品信息](../v5/otc/margin-product-info) [更新]
+    - 新增響應字段 `spotMarginTrading`
+    - 可以使用api key和secret來查詢該接口, 如果符合資格, 則會查詢到私有數據
+- [查詢保證金幣種信息](../v5/otc/margin-coin-convert-info) [更新]
+    - 可以使用api key和secret來查詢該接口, 如果符合資格, 則會查詢到私有數據
+- [查詢借貸訂單信息](../v5/otc/loan-info) [更新]
+    - 新增響應字段 `spotMarginTrading`
+    - `parentUid`的業務含義發生變化. 現在表示綁定了場外借貸產品的uid
+- [查詢風險率](../v5/otc/ltv-convert) [更新]
+    - `parentUid`的業務含義發生變化. 現在表示綁定了場外借貸產品的uid
+
+## 2023-09-07
+### REST API
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 支持僅category=inverse查詢, `/v5/order/realtime?category=inverse`, 獲取反向合約所有活動單
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 支持僅category=inverse查詢, `/v5/position/list?category=inverse`, 獲取反向合約所有持有倉位
+    - `symbol`參數支持傳入多個反向合約幣對
+
+## 2023-09-04
+### REST API
+- [批量創建委託單](../v5/order/batch-place) [更新]
+    - UTA Pro: 支持USDT永續、USDC永續、USDC交割合約的批量下單
+- [批量修改委託單](../v5/order/batch-amend) [更新]
+    - UTA Pro: 支持USDT永續、USDC永續、USDC交割合約的批量改單
+- [批量撤銷委託單](../v5/order/batch-cancel) [更新]
+    - UTA Pro: 支持USDT永續、USDC永續、USDC交割合約的批量撤單
+
+## 2023-08-31
+### REST API
+- [撤銷所有訂單](../v5/order/cancel-all) [更新]
+    - 新增可選請求參數 `stopOrderType`
+    - 字段*orderFilter*的枚舉值 `Order` 和 `StopOrder` 支持linear和inverse的產品類型
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增響應字段`depositType`, 表示該筆充值的類型, 如觸發了每日充值限額或者充值異常, 可以在網站上處理那些無法充值成功的資產
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增響應字段`depositType`, 表示該筆充值的類型, 如觸發了每日充值限額或者充值異常, 可以在網站上處理那些無法充值成功的資產
+
+## 2023-08-30
+### REST API
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - 新增響應字段 `parentUid`
+
+## 2023-08-25
+### REST API
+- [配置互相劃轉的子帳號](../v5/abandon/enable-unitransfer-subuid) [廢棄]
+    - 由於業務邏輯的更新, 該接口廢棄
+
+## 2023-08-24
+### REST API
+- [查詢不同VIP的槓桿數據](../v5/spot-margin-uta/vip-margin) [新增]
+    -  新增查詢接口, 用於查詢不同VIP等級的槓桿數據 (統一帳戶)
+- [全倉槓桿開關](../v5/spot-margin-uta/switch-mode) [更新]
+    - 調整錯誤碼
+
+|舊錯誤碼 |新錯誤碼 | 消息 |
+|:----- |:------|:------|
+|~~110075~~ |182021 |Cannot enable spot margin while in isolated margin mode. Please switch to cross margin mode or portfolio margin mode to trade spot with margin.|
+
+## 2023-08-22
+### REST API
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - 新增響應字段`id`, 表示每條交易日誌的唯一id
+- [查詢開關狀態和倍數](../v5/spot-margin-uta/status) [新增]
+    - 新增接口查詢統一帳戶下槓桿交易的開關狀態和當前槓桿倍數
+
+## 2023-08-17
+### REST API
+- [查詢充值紀錄 (鏈上)](../v5/asset/deposit/deposit-record) [更新]
+    - 新增響應字段`batchReleaseLimit`, 表示每日該幣鏈的充值限額, "-1"表示無限制
+- [查詢子帳號的充值紀錄 (鏈上)](../v5/asset/deposit/sub-deposit-record) [更新]
+    - 新增響應字段`batchReleaseLimit`, 表示每日該幣鏈的充值限額, "-1"表示無限制
+- [查詢主帳號充值地址](../v5/asset/deposit/master-deposit-addr) [更新]
+    - 新增響應字段`batchReleaseLimit`, 表示每日該幣鏈的充值限額, "-1"表示無限制
+- [查詢子帳號充值地址](../v5/asset/deposit/sub-deposit-addr) [更新]
+    - 新增響應字段`batchReleaseLimit`, 表示每日該幣鏈的充值限額, "-1"表示無限制
+
+## 2023-08-11
+### REST API
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - `availableToBorrow` 總是返回`""` 因為母子共享借貸上限
+- [查詢抵押品信息](../v5/account/collateral-info) [更新]
+    - 新增響應字段 `borrowUsageRate`
+    - `availableToBorrow`展示的是母子共享借貸下的剩餘可借餘額
+
+### Websocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - `availableToBorrow` 總是返回`""` 因為母子共享借貸上限
+
+## 2023-08-10
+### REST API
+- [設置抵押品幣種](../v5/account/set-collateral) [新增]
+    - 新增接口用於統一帳戶內選擇開啟或者關閉抵押幣種
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - 新增響應字段 `isMasterTrader`來說明該帳戶是否為帶單帳戶
+
+## 2023-08-08
+### REST API
+- [升級統一保證金賬戶](../v5/account/upgrade-unified-account) [更新]
+    - 支持升級至UTA Pro
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - "unifiedMarginStatus"新增枚舉值`4`, 用於表示UTA Pro
+
+## 2023-08-07
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 現貨支持條件單, orderFilter新增枚舉值 `StopOrder`, 用於下單
+- [撤銷委託單](../v5/order/cancel-order) [更新]
+    - 現貨支持條件單, orderFilter新增枚舉值 `StopOrder`, 用於撤單
+- [撤銷所有訂單](../v5/order/cancel-all) [更新]
+    - 現貨支持條件單, orderFilter新增枚舉值 `StopOrder`
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 現貨支持條件單, orderFilter新增枚舉值 `StopOrder`, stopOrderType字段復用`Stop`, 同時表示現貨條件單類型
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 現貨支持條件單, orderFilter新增枚舉值 `StopOrder`, stopOrderType字段復用`Stop`, 同時表示現貨條件單類型
+
+### Websocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - stopOrderType字段復用`Stop`, 同時表示現貨條件單類型
+    - 新增響應字段`feeCurrency`, 用於表示現貨交易的手續費幣種
+    - 經典帳戶下的現貨交易, `updatedTime`不再是空字符串
+
+## 2023-07-31
+### REST API
+- [查詢持倉 (實時)](../v5/position)
+    - 調整 `liqPrice` 賦值邏輯. 僅當[minPrice](../v5/market/instrument) < liqPrice < [maxPrice](../v5/market/instrument)時有值, 否則總是`""`
+- [查詢抵押品信息](../v5/account/collateral-info)
+    - 新增響應字段 `collateralSwitch`
+- [查詢錢包餘額](../v5/account/wallet-balance)
+    - 新增響應字段 `collateralSwitch`
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position)
+    - 調整 `liqPrice` 賦值邏輯. 僅當[minPrice](../v5/market/instrument) < liqPrice < [maxPrice](../v5/market/instrument)時有值, 否則總是`""`
+- [錢包](../v5/websocket/private/wallet)
+    - 新增響應字段 `collateralSwitch`
+
+## 2023-07-24
+### REST API
+- [查詢產品信息](../v5/otc/margin-product-info)
+    - 新增響應字段`USDTPerpetualOpenLine`, `USDCContractOpenLine`, `USDCOptionsOpenLine`, `USDTPerpetualCloseLine`,
+    `USDCContractCloseLine`, `USDCOptionsCloseLine`, `USDCContractSymbols`, `USDCOptionsSymbols`, `marginLeverage`,
+    `USDTPerpetualLeverage`, `symbol`, `leverage`, `USDCContractLeverage`
+- [查詢借貸訂單信息](../v5/otc/loan-info)
+    - 新增響應字段`USDTPerpetualOpenLine`, `USDCContractOpenLine`, `USDCOptionsOpenLine`, `USDTPerpetualCloseLine`,
+    `USDCContractCloseLine`, `USDCOptionsCloseLine`, `USDCContractSymbols`, `USDCOptionsSymbols`, `marginLeverage`,
+    `USDTPerpetualLeverage`, `symbol`, `leverage`, `USDCContractLeverage`
+- [查詢賬戶單個幣種余額](../v5/asset/balance/account-coin-balance)
+    - 新增請求參數: `toAccountType`, `toMemberId`, `withLtvTransferSafeAmount`
+    - 新增響應字段: `ltvTransferSafeAmount`
+- 新增錯誤碼適配UTA帳戶支持場外借貸的交易限制場景
+
+|新增錯誤碼 |描述|
+|:------|:------|
+|30133 |USDT永續: 當交易對不在白名單內|
+|30134 |USDT合約: 當交易對不在白名單內|
+|30135 |USDT永續: 當設置的槓桿大於機構借貸規定的|
+|30136 |USDC合約: 當設置的槓桿大於機構借貸規定的|
+|3200316 |期權: 限制交易|
+|3200317 |期權: 限制買入|
+|170709 |現貨: 當交易對不在白名單內 |
+|170215 |現貨: 限制買入|
+|170216 |現貨: 全倉槓桿倍數超過機構借貸規定的|
+|170220 |現貨: 限制交易|
+
+## 2023-07-13
+### REST API
+- [查詢子帳戶UID列表](../v5/user/subuid-list)
+    - 新增返回字段`accountMode`, 用於識別子帳戶的帳戶類型
+- [查詢市場價格K線數據](../v5/market/kline)
+    - 將最大限額從200提升到1000
+- [查詢標記價格K線數據](../v5/market/mark-kline)
+    - 將最大限額從200提升到1000
+- [查詢指數價格K線數據](../v5/market/index-kline)
+    - 將最大限額從200提升到1000
+- [查詢溢價指數價格K線數據](../v5/market/premium-index-kline)
+    - 將最大限額從200提升到1000
+
+## 2023-07-04
+### REST API
+- [Bybit服務器時間](../v5/market/time)
+    - 新增服務器時間查詢接口
+- [設置斷線保護時間](../v5/order/dcp) [Option]
+    - 擴展可配置的斷線保護時間範圍從[10, 300] 變成 [3, 300] 秒
+
+## 2023-06-29
+### WebSocket API
+- [斷線保護](../v5/websocket/private/dcp) [期權]
+    - 新增 DCP 訂閱
+
+## 2023-06-26
+### WebSocket API
+- [深度](../v5/websocket/public/orderbook) [現貨]
+    - 將50檔位的頻率從100ms提升到20ms
+
+## 2023-06-24
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - category=linear時, 新增響應字段 `copyTrading`來表示該交易對在不同帳戶模式下是否支持帶單交易
+
+## 2023-06-15
+### REST API
+- [查詢升級前交易日誌](../v5/pre-upgrade/transaction-log) [新增]
+    - 新增接口用於查詢升級到統一帳戶之前發生在USDC合約錢包裡的交易日誌
+- [查詢升級前交割紀錄](../v5/pre-upgrade/delivery) [新增]
+    - 新增接口用於查詢升級到統一帳戶之前發生的期權交割紀錄
+- [查詢升級前USDC結算紀錄](../v5/pre-upgrade/settlement) [新增]
+    - 新增接口用於查詢升級到統一帳戶之前發生的USDC永續交割紀錄
+- [新建子帳戶](../v5/user/create-subuid) [更新]
+    - 支持創建UTA子帳戶
+- [修改母帳戶的API Key設置](../v5/user/modify-master-apikey) [更新]
+    - "permissions"字段變成非必傳字段
+- [修改子帳戶的API Key設置](../v5/user/modify-sub-apikey) [更新]
+    - "permissions"字段變成非必傳字段
+- [ 查詢帳戶支持的錢包類型](../v5/user/wallet-type) [新增]
+    - 新增接口用於查詢帳戶支持的錢包類型
+
+## 2023-06-14
+### REST API
+- [查詢經紀商返佣金](../v5/abandon/earning) [新增]
+    - 全新接口用於經紀商查詢返佣
+
+## 2023-06-08
+### REST API
+- [查詢手續費率](../v5/account/fee-rate) [更新]
+    - 支持查詢USDC永續和USDC交割手續費率
+
+## 2023-06-07
+### REST API
+- [提現](../v5/asset/withdraw) [更新]
+    - 新增請求參數 `feeType`, 支持選擇手續費內扣還是外扣
+
+## 2023-06-02
+### REST API
+- [查詢代理用戶信息](../v5/affiliate/affiliate-info) [新增]
+    - 新增接口用於代理商查詢用戶的一些基本信息
+
+## 2023-06-01
+### REST API
+- [設置保證金模式](../v5/account/set-margin-mode) [更新]
+    - UTA帳戶支持逐倉保證金模式 `ISOLATED_MARGIN`
+- [切換持倉模式](../v5/position/position-mode) [更新]
+    - UTA帳戶下當是帳戶維度的全倉保證金或者逐倉保證金模式時，支持USDT永續雙向持倉
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 新增響應字段 `positionBalance`
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - "marginTrade"字段新增枚舉值 - `ISOLATED_MARGIN`
+- [設置自動追加保證金](../v5/position/auto-add-margin) [更新]
+    - 統一帳戶下category參數新增枚舉值 `linear`
+- [手動增加或減少保證金](../v5/position/manual-add-margin) [新增]
+    - 全新接口, 用於手動增加或減少保證金
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - 新增響應參數字段 `positionBalance`
+
+## 2023-05-30
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - category=spot時, 新增響應字段 `marginTrading`來表示該交易對在不同帳戶模式下是否支持槓桿交易
+
+## 2023-05-23
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 針對新版止盈止損, 新增請求參數 `tpslMode`, `tpLimitPrice`, `slLimitPrice`, `tpOrderType`, `slOrderType`
+- [修改委託單](../v5/order/amend-order) [更新]
+    - 針對新版止盈止損, 新增請求參數 `tpLimitPrice`, `slLimitPrice`
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 針對新版止盈止損, 新增響應參數 `tpslMode`, `tpLimitPrice`, `slLimitPrice`
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 針對新版止盈止損, 新增響應參數 `tpslMode`, `tpLimitPrice`, `slLimitPrice`
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - `tpslMode` 字段從倉位數據中廢棄
+- [設置止盈止損](../v5/position/trading-stop) [更新]
+    - 針對新版止盈止損, 新增請求參數 `tpslMode`, `tpLimitPrice`, `slLimitPrice`, `tpOrderType`, `slOrderType`
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - `tpslMode` 字段從倉位數據中廢棄
+- [訂單](../v5/websocket/private/order) [更新]
+    - 針對新版止盈止損, 新增響應參數 `tpslMode`, `tpLimitPrice`, `slLimitPrice`
+
+## 2023-05-10
+### REST API
+- [設置風險限額](../v5/abandon/set-risk-limit) [更新]
+    - 調整錯誤碼
+
+|老錯誤碼 |新錯誤碼 | 消息 |
+|:----- |:------|:------|
+|~~10001~~ |110075 |RiskId is not modified |
+
+## 2023-05-05
+### REST API
+- [查詢保證金幣種信息 階梯折算率](../v5/otc/margin-coin-convert-info) [新增]
+    - 新增接口 查詢風險率 (階梯折算率)
+- [查詢風險率 階梯折算率](../v5/otc/ltv-convert) [新增]
+    - 新增接口 查詢風險率 (階梯折算率)
+
+## 2023-05-04
+### REST API
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 對於普通帳戶查詢期貨時，`symbol` 不再是必傳字段
+- [查詢平倉盈虧](../v5/position/close-pnl) [更新]
+    - 對於普通帳戶查詢期貨時，`symbol` 不再是必傳字段
+
+## 2023-04-20
+### REST API
+- [創建委託單](../v5/order/create-order) [更新]
+    - 新增請求參數 `smpType` 來選擇自成交執行類型
+- [查詢實時委託單](../v5/order/open-order) [更新]
+    - 新增響應參數 `smpType`, `smpOrderId`, `smpGroup`
+    - 新增cancelType枚舉`cancelBySmp`
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增響應參數 `smpType`, `smpOrderId`, `smpGroup`
+    - 新增cancelType枚舉`cancelBySmp`
+- [查詢賬戶配置](../v5/account/account-info) [更新]
+    - 新增響應參數 `dcpStatus`, `timeWindow`, `smpGroup`
+
+### WebSocket API
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應參數 `smpType`, `smpOrderId`, `smpGroup`
+    - 新增cancelType枚舉`cancelBySmp`
+
+## 2023-04-06
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 新增請求參數 `status` 來篩選對應狀態的交易對
+
+## 2023-04-04
+### REST API
+- [查詢歷史訂單](../v5/order/order-list) [更新]
+    - 新增請求參數 `startTime` `endTime`,目前僅對UTA模式有效
+    - 新增響應字段 `placeType`, 供期權訂單使用
+- [查詢成交紀錄](../v5/order/execution) [更新]
+    - 新增響應字段 `closedSize`
+- [查詢持倉 (實時)](../v5/position) [更新]
+    - 新增響應字段`adlRankIndicator`
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position) [更新]
+    - 新增響應字段`adlRankIndicator`
+    - UTA帳戶的推送新增字段`category`
+- [訂單](../v5/websocket/private/order) [更新]
+    - 新增響應字段 `placeType`, 供期權訂單使用
+- [個人成交](../v5/websocket/private/execution) [更新]
+    - 新增響應字段 `closedSize`
+
+## 2023-03-24
+### REST API
+- [查詢手續費率](../v5/account/fee-rate) [更新]
+    - 支持查詢現貨手續費率
+
+## 2023-03-23
+### REST API
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 新增返回字段 `accountLTV`
+- [新建子帳戶的API Key](../v5/user/create-subuid-apikey) [更新]
+    - 錢包下新增權限項`SubMemberTransferList`
+- [萬能劃轉](../v5/asset/transfer/unitransfer) [更新]
+    - 支持使用子帳號api key調用
+- [查詢萬能劃轉記錄](../v5/asset/transfer/unitransfer-list) [更新]
+    - 支持使用子帳號api key查詢本帳號下相關劃轉紀錄
+
+
+### WebSocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 新增返回字段 `accountLTV`
+
+## 2023-03-22
+### REST API
+- [查詢公告](../v5/announcement) [新增]
+    - 新增接口用戶查詢Bybit公告
+
+## 2023-03-15
+### REST API
+- [查詢帳戶單個幣種餘額](../v5/asset/balance/account-coin-balance) [更新]
+    - 新增請求字段`withTransferSafeAmount` 和響應字段 `transferSafeAmount`
+
+## 2023-03-10
+### REST API
+- [查詢可交易產品的規格信息](../v5/market/instrument) [更新]
+    - 統一現貨、期貨和期權的交易對狀態枚舉值。統一使用`Trading`, `Closed`, `Settling`, `PreLaunch`, `Deliverying`
+    - 移除期權響應體中多餘的字段`category`
+- [查詢手續費率](../v5/account/fee-rate) [更新]
+    - 支持查詢期權的手續費率
+
+## 2023-03-09
+### REST API
+- [全倉槓桿設置](../v5/spot-margin-uta/set-leverage) [更新]
+    - UTA用戶支持10倍全倉槓桿交易
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 更新前: 普通帳戶調用接口, accountType=UNIFIED時, 返回錯誤碼和錯誤信息.<br/>更新後: 普通帳戶調用接口, accountType=UNIFIED時, 返回**http code 400**
+
+## 2023-02-28
+### REST API
+- [IP限頻](../v5/rate-limit#ip限頻) [更新]
+    - 由於切換到CloundFront, 因此IP規則做了適當調整
+- [查詢錢包餘額](../v5/account/wallet-balance) [更新]
+    - 新增響應字段 `bonus`
+- [交易日誌](../v5/account/transaction-log) [更新]
+    - 新增響應字段 `bonusChange`
+- [查詢幣種信息](../v5/asset/coin-info) [更新]
+    - 新增響應字段 `withdrawPercentageFee`
+- [新建子帳戶](../v5/user/create-subuid) [更新]
+    - 新增請求參數 `password`
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - 新增響應字段 `isMaster`
+- [查詢延遲提幣凍結金額](../v5/asset/balance/delay-amount) [新增]
+    - 全新接口用於查詢由於風險暫時無法提取的金額
+- [查詢充值記錄 (平台转账)](../v5/asset/deposit/internal-deposit-record) [新增]
+    - 全新接口用於查詢Bybit平台內充值紀錄
+
+### WebSocket API
+- [錢包](../v5/websocket/private/wallet) [更新]
+    - 新增推送字段 `bonus`
+
+## 2023-02-20
+### REST API
+- [設置充值帳戶](../v5/asset/deposit/set-deposit-acct) [新增]
+    - 您可以設置充值後自動劃入的帳戶
+- [查詢API Key相關信息](../v5/user/apikey-info) [更新]
+    - 新增返回字段: `rsaPublicKey`
+- [創建萬能劃轉](../v5/asset/transfer/unitransfer) [更新]
+    - 修改接口頻率從 20次/分鐘 至 1次/秒
+- [查詢萬能劃轉紀錄](../v5/asset/transfer/unitransfer-list) [更新]
+    - 修改接口頻率從 60次/分鐘 至 2次/秒
+
+## 2023-02-15
+### REST API
+- [用戶](../v5/user/create-subuid) [新增]
+    - 增加一組用戶API Key管理的接口
+
+## 2023-02-14
+### REST API
+- [查詢手續費率 (期貨)](../v5/account/fee-rate) [新增]
+    - 查詢期貨的交易手續費率
+- [提現](../v5/asset/withdraw) [更新]
+    - 支持選擇出金帳戶
+    - 默認出金錢包是現貨錢包
+
+| 入参 | 是否必需 | 類型 | 說明|
+|:----- |:-------|:-----|------ |
+|accountType|false|string |設置出金帳戶. <ul><li>`SPOT`：走現貨錢包出金 (默認)</li><li>`FUND`：走資金錢包出金</li></ul>|
+
+## 2023-02-09
+### REST API
+- [查詢賬戶所有幣種余額](../v5/asset/balance/all-balance) [新增]
+    - 單個請求查詢到指定帳戶的所有幣種餘額
+- [設置斷線保護時間](../v5/order/dcp) [新增]
+    - 給期權交易配置斷線保護時間
+- [设置市商保護](../v5/account/set-mmp) [新增]
+    - 給期權訂單配置做市商保護
+- [重置市商保護凍結](../v5/account/reset-mmp) [新增]
+    - 重置做市商保護凍結
+- [查詢市商保護配置信息](../v5/account/get-mmp-state) [新增]
+    - 查詢做市商保護當前信息
+
+## 2023-01-19
+### REST API
+- [設置保證金模式](../v5/account/set-margin-mode)
+    - USDT合約納入組合保證金模式
+- [查詢持倉 (實時)](../v5/position)
+    - 組合保證金模式下, `positionIM`, `positionMM`, `leverage`, `riskLimitValue` 返回 "", `riskId` 返回 0
+- [查詢錢包餘額](../v5/account/wallet-balance)
+    - 組合保證金模式下, `totalOrderIM`, `totalPositionIM`, `totoalPositionMM` 返回 ""
+
+### WebSocket API
+- [持倉](../v5/websocket/private/position)
+    - 組合保證金模式下, `positionIM`, `positionMM`, `leverage`, `riskLimitValue` 返回 "", `riskId` 返回 0
+- [錢包](../v5/websocket/private/wallet)
+    - 組合保證金模式下, `totalOrderIM`, `totalPositionIM`, `totoalPositionMM` 返回 ""
+
+## 2023-01-16
+### REST API
+- [查詢最新行情信息](../v5/market/tickers) [現貨]
+    - `usdIndexPrice` 已經添加到響應體中. 該字段表示為USD指數價格, 可以為空。
+
+### WebSocket API
+- [行情](../v5/websocket/public/ticker) [現貨]
+    - `usdIndexPrice` 已經添加到推送中. 該字段表示為USD指數價格, 可以為空。
+- [深度](../v5/websocket/public/orderbook) [正向合約以及反向合約]
+    - 增加500檔的推送，頻率為100ms
+
+## 2023-01-09
+### WebSocket API
+- [行情](../v5/websocket/public/ticker) [正向合約以及反向合約]
+    - `nextFundingTime` 從日期 `2023-01-05T08:00:00Z` 變動為UTC時間戳(毫秒) `1672905600000`
+    - `predicatedFundingRate` 從消息中移除
+��

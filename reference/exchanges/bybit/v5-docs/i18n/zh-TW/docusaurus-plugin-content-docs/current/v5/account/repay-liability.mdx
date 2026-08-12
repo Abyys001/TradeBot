@@ -1,0 +1,118 @@
+---
+title: 一鍵還款
+sidebar_label: 一鍵還款
+sidebar_position: 23
+---
+您可以通過該接口手動還清統一帳戶中的借款
+> 權限: USDC合約
+
+:::warning
+本接口不支持還款手工借貸負債。如嘗試使用本接口還款手工借貸，將返回以下錯誤：
+```json
+{
+    "retCode": 182120,
+    "retMsg": "Please use the repay and no-convert-repay API."
+}
+```
+請使用 [手工還款](/docs/zh-TW/v5/account/repay)（`/v5/account/repay`）或 [無損手工還款](/docs/zh-TW/v5/account/no-convert-repay)（`/v5/account/no-convert-repay`）接口進行還款。
+:::
+
+:::info
+1. 自2026年3月17日起開始灰度，2026年3月24日全量發布，BYUSDT 可用於還款
+2. MNT 暫時不會被用於還款, 亦不支援通過貨幣轉換還款(convert-repay)來償還 MNT 負債. 不過, 您仍可使用 [無損手工還款](/docs/zh-TW/v5/account/no-convert-repay)以現有餘額償還 MNT 借款
+3. 自2026年2月10日08:00 UTC起，UTA貸款人工還款機制將進行更新，採用抵押品費率或債務幣種費率中較高者計算代幣轉換還款手續費，並引入單筆代幣轉換限額30萬美元（代幣兌換總額必須少於 30 萬美元等值金額），以加強穩定性和風險控制。詳情請參閱【UTA貸款人工還款更新】(https://announcements.bybit.com/article/uta-loan-manual-repayment-update-bltbef3f1ad72a8295d/)
+:::
+
+### HTTP 請求
+<APIEndpoint method="POST" url="/v5/account/quick-repayment" />
+
+### 請求參數
+| 參數 | 是否必需 | 類型 | 說明|
+|:----- |:-------|:-----|------ |
+|coin |false |string |有負債的幣種<ul><li>指定幣種: 則僅還清指定幣種的負債</li><li>不指定: 還清所有有負債的幣種</li></ul>|
+
+### 響應參數
+| 參數 | 類型 | 說明|
+|:----- |:-----|----- |
+|list |array |Object|
+|> coin |string |用於償還借款的兌出幣種<ul><li>用於還款的幣種是基於這個[接口](../spot-margin-uta/vip-margin)中的`liquidationOrder`字段 </li></ul>|
+|> repaymentQty |string |兌出幣種數量|
+
+
+### 請求示例
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/account/quick-repayment HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1701848610019
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 22
+
+{
+    "coin": "USDT"
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+const { RestClientV5 } = require('bybit-api');
+
+const client = new RestClientV5({
+  testnet: true,
+  key: 'xxxxxxxxxxxxxxxxxx',
+  secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+});
+
+client
+  .repayLiability({
+    coin: 'USDT',
+  })
+  .then((response) => {
+    console.log(response);
+  })
+  .catch((error) => {
+    console.error(error);
+  });
+```
+
+</TabItem>
+</Tabs>
+
+### 響應示例
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "SUCCESS",
+    "result": {
+        "list": [
+            {
+                "coin": "BTC",
+                "repaymentQty": "0.10549670"
+            },
+            {
+                "coin": "ETH",
+                "repaymentQty": "2.27768114"
+            }
+        ]
+    },
+    "retExtInfo": {},
+    "time": 1701848610941
+}
+```

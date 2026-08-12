@@ -1,0 +1,84 @@
+---
+title: Manual Borrow
+sidebar_label: Manual Borrow
+sidebar_position: 5
+---
+
+:::info
+Borrowing via OpenAPI endpoint supports variable rate borrowing only.
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/account/borrow" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|coin |**true** |string |coin name, uppercase only|
+|amount |**true** |string |Borrow amount|
+
+### Response Parameters
+| Parameter | Type | Comments|
+|:----- |:-----|----- |
+|result |array |Object |
+|> coin |string |coin name, uppercase only|
+|> amount |string |Borrow amount|
+
+### Request Example
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/account/borrow HTTP/1.1
+Host: api.bybit.com
+X-BAPI-SIGN: XXXXX
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1675842997277
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+
+{
+    "coin":"BTC",
+    "amount":"0.01"
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.borrow(
+    coin="BTC",
+    amount="0.01"
+))
+```
+
+</TabItem>
+<TabItem value="Node" label="Node.js">
+
+```n4js
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "success",
+    "result": {
+        "coin": "BTC",
+        "amount": "0.01"
+    },
+    "retExtInfo": {},
+    "time": 1756197991955
+}
+```

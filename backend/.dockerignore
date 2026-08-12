@@ -1,0 +1,13 @@
+# The host virtualenv is built against the host Python and must not be copied
+# into the image, which installs its own from requirements.
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+db.sqlite3
+staticfiles
+*.log
+.env
+.env.*

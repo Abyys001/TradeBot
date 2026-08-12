@@ -1,0 +1,241 @@
+---
+title: Modify Master API Key
+sidebar_label: Modify Master API Key
+sidebar_position: 6
+---
+Modify the settings of master api key. Use the api key pending to be modified to call the endpoint. Use **master user's api key** **only**.
+
+:::tip
+The API key must have one of the below permissions in order to call this endpoint..
+* master API key: "Account Transfer", "Subaccount Transfer", "Withdrawal"
+* For Read_Write apikey, adding or deleting FiatP2P, FiatBitPay, and FiatConvertBroker is prohibited.
+:::
+
+:::info
+Only the api key that calls this interface can be modified
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/user/update-api" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|readOnly |false |integer |`0` (default): Read and Write. `1`: Read only |
+|permissions |false |Object |Tick the types of permission. Don't send this param if you don't want to change the permission|
+|> ContractTrade |false |array |Contract Trade. ["Order","Position"] |
+|> Spot |false |array |Spot Trade. ["SpotTrade"] |
+|> Wallet |false |array |Wallet. ["AccountTransfer","SubMemberTransfer"] |
+|> Options |false |array |USDC Contract. ["OptionsTrade"]|
+|> Exchange |false |array |Convert. ["ExchangeHistory"] |
+|> Earn |false |array |Earn product. ["Earn"]|
+|> FiatP2P |false |array |P2P ["FiatP2POrder", "Advertising"] |
+|> FiatBitPay |false |array |Bybit Pay ["FaitPayOrder"] |
+|> FiatConvertBroker |false |array |Fiat convert ["FiatConvertBrokerOrder"] |
+|> BitCard |false|array |Bybit card permission, ["BitCard"]|
+|> ByXPost |false|array |Community post permission, ["ByXPost"]|
+|> Affiliate |false |array |Affiliate permission. ["Affiliate"] <ul><li>This permission is only useful for affiliate</li><li>If you need this permission, make sure you remove all other permissions</li></ul> |
+|> Derivatives |false |array |["DerivativesTrade"]|
+|> BlockTrade |false |array |["BlockTrade"] |
+
+### Response Parameters
+| Parameter | Type | Comments|
+|:----- |:-----|----- |
+|id |string |Unique id. Internal used|
+|note |string |The remark |
+|apiKey |string |Api key |
+|readOnly |integer |`0`: Read and Write. `1`: Read only |
+|secret |string |Always `""` |
+|permissions |Object |The types of permission |
+|> ContractTrade |array |Permisson of contract trade |
+|> Spot |array |Permisson of spot |
+|> Wallet |array |Permisson of wallet |
+|> Options |array |Permission of USDC Contract. It supports trade option and usdc perpetual. |
+|> Derivatives |array |Permission of Unified account |
+|> BlockTrade |array |Permission of blocktrade|
+|> Exchange |array |Permission of convert |
+|> Earn |array |Permission of earn |
+|> Affiliate |array |Affiliate permission|
+|> FiatP2P |array |Permission of P2P|
+|> FiatBitPay |array |Permission of Bybit pay|
+|> FiatConvertBroker |array |Permission of fiat convert|
+|> NFT |array |**Deprecated**, always `[]`|
+|> CopyTrading |array |**Deprecated**, always `[]`|
+|ips |array |IP bound|
+
+### Request Example
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/user/update-api HTTP/1.1
+Host: api.bybit.com
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1676431264739
+X-BAPI-RECV-WINDOW: 5000
+X-BAPI-SIGN: XXXXXX
+Content-Type: application/json
+
+{
+    "readOnly": null,
+    "permissions": {
+            "ContractTrade": [
+                "Order",
+                "Position"
+            ],
+            "Spot": [
+                "SpotTrade"
+            ],
+            "Wallet": [
+                "AccountTransfer",
+                "SubMemberTransfer"
+            ],
+            "Options": [
+                "OptionsTrade"
+            ],
+            "CopyTrading": [
+                "CopyTrading"
+            ],
+            "BlockTrade": [],
+            "Exchange": [
+                "ExchangeHistory"
+            ],
+            "NFT": [
+                "NFTQueryProductList"
+            ]
+        }
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.modify_master_api_key(
+    permissions={
+            "ContractTrade": [
+                "Order",
+                "Position"
+            ],
+            "Spot": [
+                "SpotTrade"
+            ],
+            "Wallet": [
+                "AccountTransfer",
+                "SubMemberTransfer"
+            ],
+            "Options": [
+                "OptionsTrade"
+            ],
+            "Derivatives": [
+                "DerivativesTrade"
+            ],
+            "CopyTrading": [
+                "CopyTrading"
+            ],
+            "BlockTrade": [],
+            "Exchange": [
+                "ExchangeHistory"
+            ],
+            "NFT": [
+                "NFTQueryProductList"
+            ]
+        }
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+const { RestClientV5 } = require('bybit-api');
+
+const client = new RestClientV5({
+  testnet: true,
+  key: 'xxxxxxxxxxxxxxxxxx',
+  secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+});
+
+client
+  .updateMasterApiKey({
+    permissions: {
+      ContractTrade: ['Order', 'Position'],
+      Spot: ['SpotTrade'],
+      Wallet: ['AccountTransfer', 'SubMemberTransfer'],
+      Options: ['OptionsTrade'],
+      Derivatives: ['DerivativesTrade'],
+      CopyTrading: ['CopyTrading'],
+      BlockTrade: [],
+      Exchange: ['ExchangeHistory'],
+      NFT: ['NFTQueryProductList'],
+    },
+  })
+  .then((response) => {
+    console.log(response);
+  })
+  .catch((error) => {
+    console.error(error);
+  });
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "",
+    "result": {
+        "id": "13770661",
+        "note": "xxxxx",
+        "apiKey": "xxxxx",
+        "readOnly": 0,
+        "secret": "",
+        "permissions": {
+            "ContractTrade": [
+                "Order",
+                "Position"
+            ],
+            "Spot": [
+                "SpotTrade"
+            ],
+            "Wallet": [
+                "AccountTransfer",
+                "SubMemberTransfer"
+            ],
+            "Options": [
+                "OptionsTrade"
+            ],
+            "Derivatives": [
+                "DerivativesTrade"
+            ],
+            "CopyTrading": [
+                "CopyTrading"
+            ],
+            "BlockTrade": [],
+            "Exchange": [
+                "ExchangeHistory"
+            ],
+            "Earn": [],
+            "NFT": [
+                "NFTQueryProductList"
+            ]
+        },
+        "ips": [
+            "*"
+        ]
+    },
+    "retExtInfo": {},
+    "time": 1676431265427
+}
+```

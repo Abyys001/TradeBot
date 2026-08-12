@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-walletmanager}
+      POSTGRES_USER: ${POSTGRES_USER:-walletmanager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-walletmanager}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    command: >
+      sh -c "python manage.py migrate &&
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+    env_file: [.env]
+    environment:
+      # These override .env deliberately. ./run.sh rewrites .env for a local
+      # SQLite run, and without pinning them here the compose stack would
+      # quietly use SQLite and an in-memory channel layer instead of the
+      # Postgres and Redis it just started.
+      USE_SQLITE: "false"
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      # The panel proxies API calls, so requests arrive with Host: backend.
+      # Without it here Django answers 400 DisallowedHost and the panel sees a
+      # bare 502 from its own proxy.
+      DJANGO_ALLOWED_HOSTS: backend,localhost,127.0.0.1
+    ports: ["8000:8000"]
+    volumes: ["./backend:/app"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  frontend:
+    build: ./frontend
+    command: npm run dev -- --host 0.0.0.0
+    environment:
+      # Server-side proxy targets. The browser only ever talks to the panel's
+      # own origin, so it never needs to resolve these Docker hostnames — and a
+      # system HTTP/SOCKS proxy on the host cannot swallow the API calls.
+      NUXT_API_PROXY_TARGET: http://backend:8000/api
+      NUXT_WS_PROXY_TARGET: http://backend:8000
+    ports: ["3000:3000"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on: [backend]
+
+volumes:
+  pgdata:

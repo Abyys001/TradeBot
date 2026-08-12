@@ -1,0 +1,225 @@
+---
+title: 查詢代理用戶列表
+sidebar_label: 查詢代理用戶列表
+sidebar_position: 1
+---
+
+要使用此接口，您应该有一个代理商账户，并且在创建 API 密钥时仅勾选“代理商”权限。<br/>
+代理商网站: https://affiliates.bybit.com
+
+:::tip
+* 僅支持使用母帳戶uid
+* 若要查詢該接口, api key僅能擁有代理商權限, 若擁有任何其他權限想, 請移除
+:::
+
+### HTTP 請求
+<APIEndpoint method="GET" url="/v5/affiliate/aff-user-list" />
+
+### 請求參數
+| 參數 | 是否必需 | 類型 | 說明|
+|:----- |:-------|:-----|------ |
+|size |false |integer |每頁數量限制. [`0`, `100`]. 默認: `0`|
+|cursor |false |string |游標，用於翻頁|
+|needDeposit |false |boolean |`true`: 返回入金信息; `false`(默認): 不返回入金信息|
+|need30 |false |boolean |`true`: 返回最近30天交易信息; `false`(default): 不返回最近30天交易信息|
+|need365 |false |boolean |`true`: 返回最近365天交易信息; `false`(default): 不返回最近365天交易信息|
+|startDate |false |string | 查詢時段開始日期，格式為 `YYYY-MM-DD`|
+|endDate |false |string | 查詢時段結束日期，格式為 `YYYY-MM-DD`|
+
+### 返回參數
+| 參數 | 類型 | 說明|
+|:----- |:-----|----- |
+|list |array |Object |
+|> userId |string |帳戶uid |
+|> registerTime |string |用戶註冊時間|
+|> source |string |用戶註冊來源，來自哪个Referrer Code |
+|> remarks |string |備註|
+|> isKyc |boolean |KYC是否完成|
+|> takerVol30Day |string |過去30天的吃單交易量, T+1更新. 單位: USDT. 所有下方交易量相關的字段, 包含了期貨、期權和現貨的交易量 |
+|> makerVol30Day |string |過去30天的掛單交易量, T+1更新. 單位: USDT |
+|> tradeVol30Day |string |過去30天的總交易量, T+1更新. 單位: USDT |
+|> depositAmount30Day |string |過去30天的入金金額. 單位: USDT |
+|> takerVol365Day |string |過去一年的吃單交易量, T+1更新. 單位: USDT |
+|> makerVol365Day |string |過去一年的掛單交易量, T+1更新. 單位: USDT |
+|> tradeVol365Day |string |過去一年的總交易量, T+1更新. 單位: USDT |
+|> depositAmount365Day |string |過去一年的總入金金額. 單位: USDT |
+|> takerVol |string |在 [`startDate`, `endDate`] 區間內的吃單成交量 (USDT)，於 T + 1 更新，包含衍生品、期權與現貨成交量 |
+|> makerVol |string |在 [`startDate`, `endDate`] 區間內的掛單成交量 (USDT)，於 T + 1 更新，包含衍生品、期權與現貨成交量 |
+|> tradeVol |string |在 [`startDate`, `endDate`] 區間內的總成交量 (USDT)，於 T + 1 更新，包含衍生品、期權與現貨成交量 |
+|> startDate |string |查詢時段開始日期 |
+|> endDate |string |查詢時段結束日期 |
+|> tradfiTradeVol |string |當輸入參數中包含 `startDate` 和 `endDate` 時, 返回`startDate` 和 `endDate` 之間tradfi 交易量（USDT）|
+|> tradfiTradeVol30Day |string |過去 30 天的 tradfi 交易量（USDT）。如果輸入參數包含 `startDate` 和 `endDate`，則傳回 0。|
+|> tradfiTradeVol365Day |string |過去一年的 tradfi 交易量（USDT）。如果輸入參數包含 `startDate` 和 `endDate`，則傳回 0。|
+|> commissionsVol |json |當輸入參數中包含 `startDate` 和 `endDate` 時, 返回`startDate` 和 `endDate` 之間的佣金|
+|> commissions30Day |json |過去 30 天內的佣金|
+|> commissions365Day |json |過去一年內的佣金|
+|nextPageCursor |string |游標，用於翻頁 |
+
+---
+
+### 請求示例
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+GET /v5/affiliate/aff-user-list?cursor=0&size=2&need365=true&need30=true&needDeposit=true&startDate=2025-10-21&endDate=2025-10-22 HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1685596324209
+X-BAPI-RECV-WINDOW: 5000
+X-BAPI-SIGN: xxxxxx
+Content-Type: application/json
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.get_affiliate_user_list(
+    cursor="0",
+    size="2",
+    need365=True,
+    need30=True,
+    needDeposit=True,
+    startDate="2025-10-21",
+    endDate="2025-10-22",
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+const { RestClientV5 } = require('bybit-api');
+
+const client = new RestClientV5({
+  testnet: true,
+  key: 'xxxxxxxxxxxxxxxxxx',
+  secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+});
+
+client
+  .getAffiliateUserInfo({ size: 2 })
+  .then((response) => {
+    console.log(response);
+  })
+  .catch((error) => {
+    console.error(error);
+  });
+```
+
+</TabItem>
+</Tabs>
+
+### 響應示例
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "",
+    "result": {
+        "list": [
+            {
+                "userId": "103895898",
+                "registerTime": "2024-10-29",
+                "source": "Default",
+                "remarks": "",
+                "isKyc": true,
+                "takerVol30Day": "12861.362976",
+                "makerVol30Day": "262.60865",
+                "tradeVol30Day": "13123.971626",
+                "depositAmount30Day": "",
+                "takerVol365Day": "208971.63737375",
+                "makerVol365Day": "33392.64275",
+                "tradeVol365Day": "242364.28012375",
+                "depositAmount365Day": "",
+                "takerVol": "194231.4175",
+                "makerVol": "32886.108",
+                "tradeVol": "227117.5255",
+                "startDate": "2025-08-21",
+                "endDate": "2025-10-22",
+                "tradfiTradeVol": "0",
+                "tradfiTradeVol30Day": "0",
+                "tradfiTradeVol365Day": "0",
+                "commissions30Day": {
+                    "BTC": "0",
+                    "ETH": "0",
+                    "MNT": "0.0621748",
+                    "USDC": "0",
+                    "USDT": "2.64288011"
+                },
+                "commissionsVol": {
+                    "BTC": "0",
+                    "ETH": "0",
+                    "MNT": "0",
+                    "USDC": "0",
+                    "USDT": "0.00835765"
+                },
+                "commissions365Day": {
+                    "BTC": "0.00000002",
+                    "ETH": "0.00000063",
+                    "MNT": "0.1210605",
+                    "USDC": "0.13462624",
+                    "USDT": "2.79509816"
+                }
+            },
+            {
+                "userId": "1547321",
+                "registerTime": "2023-06-28",
+                "source": "Default",
+                "remarks": "",
+                "isKyc": false,
+                "takerVol30Day": "",
+                "makerVol30Day": "",
+                "tradeVol30Day": "",
+                "depositAmount30Day": "",
+                "takerVol365Day": "147664.35398115",
+                "makerVol365Day": "74696.351",
+                "tradeVol365Day": "222360.70498115",
+                "depositAmount365Day": "",
+                "takerVol": "30936.86124",
+                "makerVol": "36.032",
+                "tradeVol": "30972.89324",
+                "startDate": "2025-08-21",
+                "endDate": "2025-10-22",
+                "tradfiTradeVol": "0",
+                "tradfiTradeVol30Day": "0",
+                "tradfiTradeVol365Day": "0",
+                "commissions30Day": {
+                    "BTC": "0",
+                    "ETH": "0",
+                    "MNT": "0",
+                    "USDC": "0",
+                    "USDT": "0"
+                },
+                "commissionsVol": {
+                    "BTC": "0",
+                    "ETH": "0",
+                    "MNT": "2.35583601",
+                    "USDC": "0",
+                    "USDT": "3.1648939"
+                },
+                "commissions365Day": {
+                    "BTC": "0",
+                    "ETH": "0",
+                    "MNT": "8.90403178",
+                    "USDC": "0",
+                    "USDT": "23.89337689"
+                }
+            }
+        ],
+        "nextPageCursor": "16197"
+    },
+    "retExtInfo": {},
+    "time": 1733205472513
+}
+```

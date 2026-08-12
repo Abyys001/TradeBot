@@ -1,0 +1,13 @@
+{
+  // Nuxt generates the real configuration — paths, auto-import types, module
+  // augmentations — into .nuxt/tsconfig.json on `nuxt prepare`. This file only
+  // has to exist and point at it, but without it `nuxt typecheck` cannot run at
+  // all, which is why nothing here was ever type-checked.
+  "extends": "./.nuxt/tsconfig.json",
+  // nuxt.config.ts runs in Node and reads process.env; it is type-checked under
+  // .nuxt/tsconfig.server.json, which has the Node globals. Left in the browser
+  // project it only produces bogus "Cannot find name 'process'".
+  // Nothing else may be excluded here — .nuxt holds the generated auto-import
+  // declarations, and dropping it makes every composable look undefined.
+  "exclude": ["nuxt.config.ts"]
+}

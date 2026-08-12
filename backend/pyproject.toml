@@ -1,0 +1,21 @@
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Django writes these; reformatting them creates pointless migration churn.
+extend-exclude = ["**/migrations/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Decimal defaults are immutable, so B008's mutable-default rationale does not
+# apply — and D("1000") is far clearer at the call site than a module constant.
+"apps/exchanges/paper.py" = ["B008"]
+"apps/trading/sltp.py" = ["B008"]

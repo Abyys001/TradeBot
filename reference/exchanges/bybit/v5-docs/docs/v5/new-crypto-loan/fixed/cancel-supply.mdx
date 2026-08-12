@@ -1,0 +1,77 @@
+---
+title: Cancel Supply Order
+sidebar_label: Cancel Supply Order
+sidebar_position: 6
+---
+> Permission: "Spot trade"<br/>
+> UID rate limit: 1 req / second
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/crypto-loan-fixed/supply-order-cancel" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|orderId |**true** |string |Order ID of fixed supply order|
+|refundedAccount |false |string|Account to receive the refund. `0`: Funding Account; `1`: EasyEarn. Default: `0`|
+
+### Response Parameters
+None
+
+### Request Example
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/crypto-loan-fixed/supply-order-cancel HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: XXXXXX
+X-BAPI-TIMESTAMP: 1752652612736
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 26
+
+{
+    "orderId": "13577"
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.cancel_lending_order_fixed_crypto_loan(
+    orderId="13577",
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "ok",
+    "result": {},
+    "retExtInfo": {},
+    "time": 1752652613638
+}
+```

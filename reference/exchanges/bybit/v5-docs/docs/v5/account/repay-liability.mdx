@@ -1,0 +1,126 @@
+---
+title: Repay Liability
+sidebar_label: Repay Liability
+sidebar_position: 21
+---
+You can manually repay the liabilities of Unified account
+> **Permission**: USDC Contracts<br/>
+
+:::warning
+This API does not support repaying manual borrow liabilities. If you attempt to do so, the following error will be returned:
+```json
+{
+    "retCode": 182120,
+    "retMsg": "Please use the repay and no-convert-repay API."
+}
+```
+Please use [Manual Repay](/docs/v5/account/repay) (`/v5/account/repay`) or [Manual Repay Without Asset Conversion](/docs/v5/account/no-convert-repay) (`/v5/account/no-convert-repay`) to repay manual borrow liabilities.
+:::
+
+:::info
+1. Starting Mar 17, 2026 (gradual rollout, fully released on Mar 24, 2026), BYUSDT can be used for repayment.
+2. MNT will temporarily not be used for repayment, and repaying MNT liabilities through convert-repay is not supported. However, you may still use [Manual Repay Without Asset Conversion](/docs/v5/account/no-convert-repay) to repay MNT using your existing balance.
+3. Starting Feb 10, 2026 at 08:00 UTC, UTA Loan manual repayments will be updated to calculate coin-conversion repayment fees using the higher of the collateral or debt asset fee rate and introduce a per-transaction coin-conversion limit of USD 300,000 (Total coin-conversion amount must less than 300,000 USD equivalent) to strengthen stability and risk controls. Please refer to [UTA Loan manual repayment update](https://announcements.bybit.com/article/uta-loan-manual-repayment-update-bltbef3f1ad72a8295d/) 
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/account/quick-repayment" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|coin |false |string |The coin with liability, uppercase only <ul><li>Input the specific coin: repay the liability of this coin in particular</li><li>No coin specified: repay the liability of all coins</li></ul>|
+
+### Response Parameters
+| Parameter | Type | Comments|
+|:----- |:-----|----- |
+|list |array |Object|
+|> coin |string |Coin used for repayment <ul><li>The order of currencies used to repay liability is based on `liquidationOrder` from [this endpoint](../spot-margin-uta/vip-margin)</li></ul>|
+|> repaymentQty |string |Repayment qty|
+
+
+### Request Example
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/account/quick-repayment HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1701848610019
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 22
+
+{
+    "coin": "USDT"
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.repay_liability(
+    coin="USDT"
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+const { RestClientV5 } = require('bybit-api');
+
+const client = new RestClientV5({
+  testnet: true,
+  key: 'xxxxxxxxxxxxxxxxxx',
+  secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+});
+
+client
+  .repayLiability({
+    coin: 'USDT',
+  })
+  .then((response) => {
+    console.log(response);
+  })
+  .catch((error) => {
+    console.error(error);
+  });
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "SUCCESS",
+    "result": {
+        "list": [
+            {
+                "coin": "BTC",
+                "repaymentQty": "0.10549670"
+            },
+            {
+                "coin": "ETH",
+                "repaymentQty": "2.27768114"
+            }
+        ]
+    },
+    "retExtInfo": {},
+    "time": 1701848610941
+}
+```

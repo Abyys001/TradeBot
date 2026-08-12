@@ -1,0 +1,331 @@
+/* Fonts are bundled, not fetched from a CDN — the panel must work offline and
+   on a machine behind a proxy. */
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+/* Vazirmatn covers the Arabic script that Inter / Space Grotesk / JetBrains
+   Mono do not. It sits at the tail of every stack in tailwind.config.ts, so
+   Latin characters keep their fonts and Persian text resolves to Vazirmatn —
+   no [lang='fa'] overrides anywhere. */
+@import '@fontsource/vazirmatn/400.css';
+@import '@fontsource/vazirmatn/500.css';
+@import '@fontsource/vazirmatn/600.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   Theme tokens.
+
+   Values are `R G B` triplets, not hex, so Tailwind's `/opacity` modifiers
+   compose (`bg-signal/10`). Dark is the default because the panel is stared at
+   for hours; light exists because it is sometimes shown on a projector or read
+   in daylight, and a screenshot of a near-black UI is unreadable on paper.
+
+   The light steps are chosen against a white surface, not derived by inverting
+   the dark ones — an automatic flip washes out cyan and amber to the point that
+   the failure colour stops reading as a failure.
+--------------------------------------------------------------------------- */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-base: 7 9 12;
+  --c-panel: 14 17 22;
+  --c-raised: 21 26 33;
+  --c-sunken: 4 5 8;
+  --c-line: 30 36 45;
+  --c-line-strong: 42 50 64;
+
+  --c-ink: 232 236 242;
+  --c-ink-muted: 152 162 179;
+  --c-ink-faint: 98 108 124;
+  --c-ink-invert: 7 9 12;
+
+  --c-brand: 124 156 255;
+  --c-brand-dim: 42 56 110;
+
+  --c-long: 59 201 216;
+  --c-long-dim: 22 84 92;
+
+  --c-short: 255 107 129;
+  --c-short-dim: 105 40 51;
+
+  --c-signal: 240 160 32;
+  --c-signal-dim: 92 62 15;
+
+  --c-ok: 74 222 128;
+  --c-ok-dim: 25 82 47;
+
+  /* Chart surface — read by useChartAdapter so the candles follow the theme. */
+  --c-chart-grid: 26 31 39;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --c-base: 246 247 250;
+  --c-panel: 255 255 255;
+  --c-raised: 240 243 247;
+  --c-sunken: 249 250 252;
+  --c-line: 224 228 235;
+  --c-line-strong: 200 207 218;
+
+  --c-ink: 15 19 26;
+  --c-ink-muted: 82 92 108;
+  --c-ink-faint: 128 138 154;
+  --c-ink-invert: 255 255 255;
+
+  --c-brand: 47 92 219;
+  --c-brand-dim: 205 218 250;
+
+  --c-long: 9 132 144;
+  --c-long-dim: 190 233 236;
+
+  --c-short: 205 40 66;
+  --c-short-dim: 250 213 219;
+
+  --c-signal: 166 96 0;
+  --c-signal-dim: 250 231 200;
+
+  --c-ok: 21 128 61;
+  --c-ok-dim: 205 240 216;
+
+  --c-chart-grid: 231 235 241;
+}
+
+@layer base {
+  html {
+    @apply bg-base text-ink font-sans antialiased;
+    -webkit-tap-highlight-color: transparent;
+    /* Small phones are 320px wide. Anything that would push past the viewport
+       has to scroll inside its own container instead of scrolling the page
+       sideways — a trading panel that slides horizontally under your thumb
+       while you reach for "close" is a hazard, not a cosmetic problem. */
+    overflow-x: hidden;
+    /* iOS zooms the page when a control smaller than 16px is focused, then
+       leaves it zoomed. Locking the text size keeps 12px labels legible
+       without that. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* Safe-area padding matters on a phone in landscape, which is exactly how
+       someone checks an open position away from the desk. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    @apply overflow-x-hidden;
+  }
+
+  /* Nothing may be wider than the screen by accident: long symbols, error
+     strings from an exchange, and pasted API keys are all unbounded text. */
+  img,
+  svg,
+  video,
+  canvas,
+  table {
+    max-width: 100%;
+  }
+
+  /* Keyboard focus must stay obvious: this UI moves real money and the admin
+     may well drive it from the keyboard mid-trade. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand/70 ring-offset-2 ring-offset-base;
+  }
+
+  ::selection {
+    @apply bg-brand/30;
+  }
+
+  /* Scrollbars: visible enough to grab, quiet enough to ignore. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-line-strong)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    @apply bg-line-strong rounded-full border-[3px] border-solid border-transparent bg-clip-content;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Tabular numerals everywhere a number can change. A price that reflows
+     while ticking cannot be read at a glance. */
+  .num {
+    @apply font-mono;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .display {
+    @apply font-display font-medium tracking-tight;
+  }
+
+  .label {
+    @apply text-tick uppercase tracking-wider text-ink-faint;
+  }
+
+  .panel {
+    @apply bg-panel border border-line rounded-panel;
+  }
+
+  .field {
+    @apply w-full bg-sunken border border-line rounded-lg px-3 py-2 num text-sm text-ink
+           transition-colors placeholder:text-ink-faint
+           focus:outline-none focus:border-brand focus:ring-1 focus:ring-brand/40
+           disabled:opacity-50;
+  }
+
+  /* iOS Safari zooms into any focused control under 16px and does not zoom back
+     out. On a touch screen the fields take the 16px; a mouse-driven desktop
+     keeps the denser 14px. */
+  @media (pointer: coarse) {
+    .field {
+      font-size: 16px;
+    }
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium
+           whitespace-nowrap transition-all duration-150 ease-out
+           disabled:opacity-40 disabled:pointer-events-none;
+    /* 44px is the smallest target a thumb hits reliably; the dense variant
+       below opts out only where a mouse is the assumed input. */
+    min-height: 2.5rem;
+    @apply px-3.5;
+  }
+
+  .btn-sm {
+    @apply min-h-0 h-8 px-2.5 text-xs;
+  }
+
+  .btn-primary {
+    @apply btn bg-ink text-ink-invert hover:opacity-90 active:opacity-80;
+  }
+
+  .btn-brand {
+    @apply btn bg-brand text-white hover:brightness-110 active:brightness-95;
+  }
+
+  .btn-ghost {
+    @apply btn border border-line text-ink-muted
+           hover:text-ink hover:border-line-strong hover:bg-raised;
+  }
+
+  .btn-quiet {
+    @apply btn text-ink-muted hover:text-ink hover:bg-raised;
+  }
+
+  .btn-danger {
+    @apply btn border border-short/40 text-short hover:bg-short/10 hover:border-short/70;
+  }
+
+  /* Row actions carry their meaning in colour *and* in the icon: pausing an
+     account is amber like every other "this account is not trading" state,
+     resuming is the same green as a healthy status, verifying borrows the
+     brand. A row of identical grey ghost buttons made the destructive one look
+     exactly like the harmless one. */
+  .btn-warn {
+    @apply btn border border-signal/40 text-signal hover:bg-signal/10 hover:border-signal/70;
+  }
+
+  .btn-ok {
+    @apply btn border border-ok/40 text-ok hover:bg-ok/10 hover:border-ok/70;
+  }
+
+  .btn-info {
+    @apply btn border border-brand/40 text-brand hover:bg-brand/10 hover:border-brand/70;
+  }
+
+  /* Square icon-only variant, so a three-button action group is three equal
+     squares rather than three widths decided by their tooltips. */
+  .btn-icon {
+    @apply w-8 h-8 min-h-0 p-0;
+  }
+
+  /* Reserved for failure only — see the token note in tailwind.config.ts. */
+  .alert {
+    @apply border border-signal/50 bg-signal/[0.08] rounded-lg text-signal;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-tick
+           uppercase tracking-wider;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-raised;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, rgb(var(--c-line-strong) / 0.35), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+}
+
+@layer utilities {
+  /* Hides a scrollbar on a deliberately swipeable strip (mobile tab rails),
+     where a visible bar would eat the row height. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .stack-x-safe {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+}
+
+/* Page transition. Deliberately short — anything slower puts a delay between
+   pressing a nav item and seeing the page on a panel used mid-trade. */
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity 0.14s ease-out,
+    transform 0.14s ease-out;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.page-leave-to {
+  opacity: 0;
+}
+
+/* RTL: logical properties do the layout work, but the chart and numeric columns
+   stay LTR — a mirrored price ladder is a bug, not a translation. */
+[dir='rtl'] .num,
+[dir='rtl'] .chart-surface {
+  direction: ltr;
+}
+
+/* An icon that means "forward" has to point the other way in RTL. Marking it
+   once here beats a conditional class at every call site. */
+[dir='rtl'] .flip-rtl {
+  transform: scaleX(-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

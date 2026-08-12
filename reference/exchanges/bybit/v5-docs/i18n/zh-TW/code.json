@@ -1,0 +1,214 @@
+{
+  "homepage.hero.title": {
+    "message": "Bybit API 文檔",
+    "description": "Homepage hero title"
+  },
+  "homepage.hero.subtitle": {
+    "message": "使用 Bybit 統一的 V5 API 建構強大的交易應用程式。透過單一整合即可存取現貨、衍生品與期權市場。",
+    "description": "Homepage hero subtitle"
+  },
+  "homepage.hero.cta.primary": {
+    "message": "開始使用",
+    "description": "Homepage primary CTA button"
+  },
+  "homepage.hero.cta.secondary": {
+    "message": "API Explorer",
+    "description": "Homepage secondary CTA button"
+  },
+  "homepage.hero.meta.1": {
+    "message": "REST + WebSocket",
+    "description": "Homepage meta tag 1"
+  },
+  "homepage.hero.meta.2": {
+    "message": "統一帳戶",
+    "description": "Homepage meta tag 2"
+  },
+  "homepage.hero.meta.3": {
+    "message": "實時數據",
+    "description": "Homepage meta tag 3"
+  },
+  "homepage.feature.unified.title": {
+    "message": "統一 V5 API",
+    "description": "Legacy feature title"
+  },
+  "homepage.feature.unified.desc": {
+    "message": "Bybit V5 API 將現貨、衍生品和期權整合到一致的介面中，提供流暢且可靠的整合體驗。",
+    "description": "Legacy feature description"
+  },
+  "homepage.feature.unified.link": {
+    "message": "閱讀指南",
+    "description": "Legacy feature link"
+  },
+  "homepage.feature.mechanics.title": {
+    "message": "了解交易所機制",
+    "description": "Legacy feature title"
+  },
+  "homepage.feature.mechanics.desc": {
+    "message": "深入了解訂單類型、保證金模式、結算規則及市場微結構，全面發揮 API 的最大效益。",
+    "description": "Legacy feature description"
+  },
+  "homepage.feature.mechanics.link": {
+    "message": "幫助中心",
+    "description": "Legacy feature link"
+  },
+  "homepage.feature.data.title": {
+    "message": "歷史市場資料",
+    "description": "Legacy feature title"
+  },
+  "homepage.feature.data.desc": {
+    "message": "取得 CSV 格式的公開 OHLCV 與逐筆成交資料，快速回測策略並建立量化模型。",
+    "description": "Legacy feature description"
+  },
+  "homepage.feature.data.link": {
+    "message": "下載資料",
+    "description": "Legacy feature link"
+  },
+  "homepage.section.eyebrow": {
+    "message": "開發者工具",
+    "description": "Homepage section eyebrow"
+  },
+  "homepage.section.title": {
+    "message": "選擇最適合你的 Bybit 開發路徑",
+    "description": "Homepage section title"
+  },
+  "homepage.section.desc": {
+    "message": "可以從官方 API 出發、串接 AI 工具，或直接選用符合你技術棧的 SDK。",
+    "description": "Homepage section description"
+  },
+  "homepage.card.mcp.title": {
+    "message": "MCP 工具",
+    "description": "MCP card title"
+  },
+  "homepage.card.mcp.eyebrow": {
+    "message": "即將推出",
+    "description": "MCP card eyebrow"
+  },
+  "homepage.card.mcp.desc": {
+    "message": "透過官方 MCP 伺服器將 AI Agent 直接連接至 Bybit，用於交易流程、市場上下文以及更高效率的工具化整合。",
+    "description": "MCP card description"
+  },
+  "homepage.card.cli.title": {
+    "message": "CLI",
+    "description": "CLI card title"
+  },
+  "homepage.card.cli.desc": {
+    "message": "透過官方 CLI 直接在終端機中交易與管理 Bybit 帳戶，適用於腳本化、自動化以及快速的命令列工作流。",
+    "description": "CLI card description"
+  },
+  "homepage.card.cli.link": {
+    "message": "查看文檔",
+    "description": "CLI card link"
+  },
+  "homepage.card.cli.tag.1": {
+    "message": "命令列",
+    "description": "CLI card tag 1"
+  },
+  "homepage.card.cli.tag.2": {
+    "message": "自動化",
+    "description": "CLI card tag 2"
+  },
+  "homepage.card.cli.tag.3": {
+    "message": "腳本化",
+    "description": "CLI card tag 3"
+  },
+  "homepage.card.mcp.link": {
+    "message": "查看文檔",
+    "description": "MCP card link"
+  },
+  "homepage.card.mcp.tag.1": {
+    "message": "AI Agents",
+    "description": "MCP card tag 1"
+  },
+  "homepage.card.mcp.tag.2": {
+    "message": "MCP",
+    "description": "MCP card tag 2"
+  },
+  "homepage.card.mcp.tag.3": {
+    "message": "工具接入",
+    "description": "MCP card tag 3"
+  },
+  "homepage.card.unified.title": {
+    "message": "統一 V5 API",
+    "description": "Unified card title"
+  },
+  "homepage.card.unified.desc": {
+    "message": "透過 Bybit 核心 REST 與 WebSocket 介面，以一致的整合層存取現貨、衍生品與期權市場。",
+    "description": "Unified card description"
+  },
+  "homepage.card.unified.link": {
+    "message": "閱讀指南",
+    "description": "Unified card link"
+  },
+  "homepage.card.unified.tag.1": {
+    "message": "REST + WebSocket",
+    "description": "Unified card tag 1"
+  },
+  "homepage.card.unified.tag.2": {
+    "message": "現貨 / 衍生品",
+    "description": "Unified card tag 2"
+  },
+  "homepage.card.unified.tag.3": {
+    "message": "可用於生產",
+    "description": "Unified card tag 3"
+  },
+  "homepage.card.skills.title": {
+    "message": "Skills",
+    "description": "Skills card title"
+  },
+  "homepage.card.skills.desc": {
+    "message": "安裝 Bybit 官方 skills，協助 AI 開發 agent 更快理解接口模式、常見流程與交易所特有工作流。",
+    "description": "Skills card description"
+  },
+  "homepage.card.skills.link": {
+    "message": "查看 Skills",
+    "description": "Skills card link"
+  },
+  "homepage.card.skills.tag.1": {
+    "message": "Agent-ready",
+    "description": "Skills card tag 1"
+  },
+  "homepage.card.skills.tag.2": {
+    "message": "流程模板",
+    "description": "Skills card tag 2"
+  },
+  "homepage.card.skills.tag.3": {
+    "message": "快速上手",
+    "description": "Skills card tag 3"
+  },
+  "homepage.card.sdks.title": {
+    "message": "SDKs",
+    "description": "SDKs card title"
+  },
+  "homepage.card.sdks.desc": {
+    "message": "使用官方 SDK（支持 Python、TypeScript、Java、Go 和 .NET），享受型別安全的客戶端與語言原生整合，快速開始開發。",
+    "description": "SDKs card description"
+  },
+  "homepage.card.sdks.link": {
+    "message": "pybit 快速入門",
+    "description": "SDKs card link"
+  },
+  "homepage.card.mechanics.title": {
+    "message": "了解交易所機制",
+    "description": "Mechanics card title"
+  },
+  "homepage.card.mechanics.desc": {
+    "message": "在將交易邏輯投入生產前，先了解訂單類型、保證金模式、結算規則及市場結構。",
+    "description": "Mechanics card description"
+  },
+  "homepage.card.mechanics.link": {
+    "message": "幫助中心",
+    "description": "Mechanics card link"
+  },
+  "homepage.card.data.title": {
+    "message": "歷史市場數據",
+    "description": "Data card title"
+  },
+  "homepage.card.data.desc": {
+    "message": "下載 CSV 格式的公開 OHLCV 與成交歷史數據，用於回測、研究及量化模型開發。",
+    "description": "Data card description"
+  },
+  "homepage.card.data.link": {
+    "message": "下載資料",
+    "description": "Data card link"
+  }
+}

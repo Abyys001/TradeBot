@@ -1,0 +1,90 @@
+---
+title: Collateral Repayment
+sidebar_label: Collateral Repayment
+sidebar_position: 3
+---
+
+> Permission: "Spot trade"<br/>
+> UID rate limit: 1 req / second
+
+:::info
+* Pay interest first, then repay the principal.
+* There are limits on the repayment amount in a single transaction. Please read this [announcement](https://announcements.bybit.com/article/crypto-loan-manual-repayment-update-bltde33509ddde5e8fd/) before repaying with collateral
+* When repaying with collateral, Bybit will charge a repayment fee. The applicable fee rate is the higher of the repayment fee rates for the collateral asset and the debt asset.
+You can call this endpoint: [View fee rates by asset](https://www.bybit.com/x-api/spot/api/fixed-loan/v1/coin-config) to get "reapyFee" where "pledgeEnable" = 1 for coins' repayment fee rates 
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/crypto-loan-flexible/repay-collateral" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|loanCurrency |**true** |string |Loan coin name|
+|collateralCoin |**true** |string |Collateral currencies: Use commas to separate multiple collateral currencies|
+|amount |**true** |string |Repay amount|
+
+### Response Parameters
+None
+
+### Request Example
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/crypto-loan-flexible/repay-collateral HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: XXXXXX
+X-BAPI-TIMESTAMP: 1752569628364
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 52
+
+{
+  "loanCurrency": "USDT",
+  "amount": "500",
+  "collateralCoin":"BTC"
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.collateral_repayment_flexible_crypto_loan(
+    loanCurrency="USDT",
+    amount="500",
+    collateralCoin="BTC",
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "ok",
+    "result": {},
+    "retExtInfo": {},
+    "time": 1756971550401
+}
+```

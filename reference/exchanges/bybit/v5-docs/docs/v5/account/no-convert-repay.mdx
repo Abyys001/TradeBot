@@ -1,0 +1,99 @@
+---
+title: Manual Repay Without Asset Conversion
+sidebar_label: Manual Repay Without Asset Conversion
+sidebar_position: 5.5
+---
+
+:::info
+* When `coin` is provided and `amount` is provided, the following validation applies based on `repaymentType`:
+  * `ALL`: request is rejected if `amount` exceeds total liability
+  * `FIXED`: request is rejected if `amount` exceeds fixed-rate liability
+  * `FLEXIBLE`: request is rejected if `amount` exceeds floating-rate liability
+* When `coin` is provided and `amount` is not, repayment uses the spot available balance of that coin:
+  * `FLEXIBLE`: repays floating-rate liability of that coin only
+  * `FIXED`: repays fixed-rate liability of that coin only
+  * `ALL`: repays all liabilities of that coin (floating-rate first, then fixed-rate)
+:::
+
+:::note important
+1. When repaying, system will only use the spot available balance of the debt currency. Users can perform a manual repay without converting their other assets.
+2. To check the spot available amount to repay, you can call this API: [Get Available Amount to Repay](../spot-margin-uta/repayment-available-amount)
+3. Repayment is prohibited between 04:00 and 05:30 per hour. Interest is calculated based on the BorrowAmount at 05:00 per hour.
+4. System repays floating-rate liabilities first, followed by fixed-rate
+5. Starting Mar 17, 2026 (gradual rollout, fully released on Mar 24, 2026), BYUSDT can be used for repayment.
+6. API response behavior based on `repaymentType`: `FIXED`: asynchronous; `FLEXIBLE`: synchronous; `ALL`: asynchronous
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/account/no-convert-repay" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|coin |**true** |string |coin name, uppercase only|
+|amount |false |string |Repay amount. If `coin` is not passed in input parameter, `amount` can not be passed in input parameter|
+|repaymentType |false |string |Repayment type. `ALL`: repay both fixed-rate and floating-rate liabilities, repaying floating-rate first; `FIXED`: repay fixed-rate liabilities only; `FLEXIBLE`: repay floating-rate liabilities only. Default: `FLEXIBLE`|
+
+### Response Parameters
+| Parameter | Type | Comments|
+|:----- |:-----|----- |
+|result |array |Object |
+|> resultStatus |string |<ul><li>`P`: Processing</li><li>`SU`: Success</li><li>`FA`: Failed</li></ul>|
+
+### Request Example
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/account/no-convert-repay HTTP/1.1
+Host: api.bybit.com
+X-BAPI-SIGN: XXXXX
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1675842997277
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+
+{
+    "coin":"BTC",
+    "amount":"0.01"
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.set_no_convert_repay(
+    coin="BTC",
+    amount="0.01"
+))
+```
+
+</TabItem>
+<TabItem value="Node" label="Node.js">
+
+```n4js
+```
+
+</TabItem>
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "success",
+    "result": {
+        "resultStatus": "P"
+    },
+    "retExtInfo": {},
+    "time": 1756295680801
+}
+```

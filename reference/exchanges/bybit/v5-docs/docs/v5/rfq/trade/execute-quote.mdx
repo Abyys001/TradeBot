@@ -1,0 +1,90 @@
+---
+title: Execute Quote
+sidebar_label: Execute Quote
+sidebar_position: 5
+---
+Execute quote – only for the creator of the RFQ. **Up to 50 requests** per second.
+:::info
+This endpoint is asynchronous. You must check the <a href="/docs/v5/rfq/trade/trade-list">Get Trade History</a> endpoint or listen to the <a href="/docs/v5/rfq/websocket/private/transaction">Execution</a> WebSocket topic to confirm if the execution was successful.
+:::
+
+### HTTP Request
+<APIEndpoint method="POST" url="/v5/rfq/execute-quote" />
+
+### Request Parameters
+| Parameter | Required | Type | Comments|
+|:----- |:-------|:-----|------ |
+|rfqId |**true** |string |Inquiry ID|
+|quoteId |**true** |string |Quote ID|
+|quoteSide |**true** |string |The direction of the quote is `Buy` or `Sell` . When the direction of the quote is `Buy` , for the maker, the execution direction is the same as the direction in legs, and for the taker, it is opposite. Conversely, the same applies|
+|isHedge |false |boolean |Whether to simultaneously execute the hedge leg in the RFQ. The execution direction is determined by `quoteSide`. Default: `false`|
+
+### Response Parameters
+| Parameter | Type | Comments|
+|:----- |:-----|----- |
+|result |object ||
+|> rfqId |string |Inquiry ID |
+|>rfqLinkId |string ||
+|> quoteId |string |Quote ID |
+|> status |string |Order status: <ul><li>`PendingFill`: Order has been sent to the matching engine but not yet filled.</li><li>`Failed`: Order failed</li></ul> |
+
+### Request Example
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/rfq/execute-quote HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: XXXXXX
+X-BAPI-TIMESTAMP: 1744083949347
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 115
+
+ {
+  "rfqId":"1754364447601610516653123084412812",
+  "quoteId": "111",
+  "quoteSide":"Buy"
+}
+```
+
+</TabItem>
+
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.execute_quote(
+    rfqId="1754364447601610516653123084412812",
+    quoteId="111",
+    quoteSide="Buy"
+))
+```
+
+</TabItem>
+
+</Tabs>
+
+### Response Example
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "OK",
+    "result": {
+        "rfqId": "175740700350925204128457980089654",
+        "rfqLinkId": "",
+        "quoteId": "1757407015586174663206671159484665",
+        "status": "PendingFill"
+    },
+    "retExtInfo": {},
+    "time": 1757407058177
+}
+```

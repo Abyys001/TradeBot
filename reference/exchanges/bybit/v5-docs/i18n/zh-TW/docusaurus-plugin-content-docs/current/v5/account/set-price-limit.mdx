@@ -1,0 +1,103 @@
+---
+title: 設置限價單行為
+sidebar_label: 設置限價單行為
+sidebar_position: 22
+---
+您可以設定當限價單價格超過最高買價或最低賣價時，系統的行為方式。
+您可以使用[查詢交易行為設置](/docs/zh-TW/v5/account/get-user-setting-config#)接口查詢限價單行為
+
+現貨
+* **最高買入價格**: *Min[Max(指數價格, 指數價格 × (1 + y%) + 2分鐘平均溢價), 指數價格 × (1 + z%)]*
+* **最低賣出價格**: *Max[Min(指數價格, 指數價格 × (1 - y%) + 2分鐘平均溢價), 指數價格 × (1 - z%)]*
+
+合約
+* **最高買入價格** = *min(標記價格 × (1 + Y), max(指數價格, 標記價格 × (1 + X) + α × max(0, Premium_avg)))*
+* **最低賣出價格** = *max(標記價格 × (1 - Y), min(指數價格, 標記價格 × (1 - X) + α × min(0, Premium_avg)))*
+
+其中：
+* **Premium_avg**：過去 30 秒訂單簿溢價的平均值，每秒計算一次：*avg((最優賣價 + 最優買價) / 2 − 標記價格)*
+* **α**：溢價均值的加權因子，預設值為 `1`，Bybit 可能根據市場情況動態調整此參數。
+
+:::info 預設設定
+*	現貨:
+**modifyEnable = false.** 若下單價格超出限制範圍，系統將拒絕該請求 <br/>
+對應<a href="https://bybit-exchange.github.io/docs/v5/account/get-user-setting-config">Get Limit Price Behaviour</a>接口返回值：**lpaSpot = false , lpaPerp = true**
+
+*	合約:
+**modifyEnable = true.** 若下單價格超出限制範圍，系統會自動將價格調整至允許的最近邊界（即最高買價或最低賣價）。 <br/>
+對應<a href="https://bybit-exchange.github.io/docs/v5/account/get-user-setting-config">Get Limit Price Behaviour</a>接口返回值：**lpaSpot = true , lpaPerp = false**
+
+*   設定 `linear` 或 `inverse` 會對整個**合約**生效<br/>
+:::
+
+### HTTP 請求
+<APIEndpoint method="POST" url="/v5/account/set-limit-px-action" />
+
+### 請求參數
+| 參數 | 類型 | 說明| 默認值 |
+|:----- |:-------|:-----|------ |
+|category |**true** |string |`linear`, `inverse`, `spot`|
+|modifyEnable |**true** |boolean |`true`: 允許系統自動修改價格<br/>`false`: 拒絕請求|
+
+### 響應參數
+無
+
+### 請求示例
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+POST /v5/account/set-limit-px-action HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-SIGN: XXXXXX
+X-BAPI-API-KEY: XXXXXX
+X-BAPI-TIMESTAMP: 1753255927950
+X-BAPI-RECV-WINDOW: 5000
+Content-Type: application/json
+Content-Length: 52
+
+{
+    "category": "spot",
+    "modifyEnable": true
+}
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.set_limit_price_action(
+    category="spot",
+    modifyEnable=True,
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+
+```
+
+</TabItem>
+</Tabs>
+
+### 響應示例
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "success",
+    "result": {},
+    "retExtInfo": {},
+    "time": 1753255927952
+}
+```

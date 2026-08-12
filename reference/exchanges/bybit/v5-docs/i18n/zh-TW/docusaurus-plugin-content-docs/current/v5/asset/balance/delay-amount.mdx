@@ -1,0 +1,125 @@
+---
+title: 查詢可提現金額
+sidebar_label: 查詢可提現金額
+sidebar_position: 15
+---
+:::info
+**如何會導致部分資金被要求延遲提幣？**
+* **鏈上充值**: 鏈上區塊確認數未達到該幣種風險高度數時，部分資金將被凍結一段時間，直至解凍；具體風險高度數可查看 [查詢幣種信息](../coin-info#) 的返回值 `safeConfirmNumber`
+* **買幣**: 若存在風險, 則一定時間內被凍結, 無法提幣
+
+**在極端市場波動期間, 此介面可能會出現延遲增加或資料傳遞暫時延遲的情況**
+:::
+
+### HTTP 請求
+<APIEndpoint method="GET" url="/v5/asset/withdraw/withdrawable-amount" />
+
+### 請求參數
+| 參數 | 是否必需 | 類型 | 說明|
+|:----- |:-------|:-----|------ |
+|coin |**true** |string |幣種名稱|
+
+### 響應參數
+| 參數 | 類型 | 說明|
+|:----- |:-----|----- |
+|limitAmountUsd|string |延遲提幣凍結金額 (USD) |
+|withdrawableAmount|Object | |
+|> SPOT|Object|現貨錢包, 若該錢包被移除, 則不會返回該對象 |
+|>> coin|string |幣種名稱 |
+|>> withdrawableAmount|string|可提現金額 |
+|>> availableBalance|string|可用餘額 |
+|> FUND|Object|資金錢包 |
+|>> coin|string |幣種名稱 |
+|>> withdrawableAmount|string|可提現金額|
+|>> availableBalance|string|可用餘額|
+|> UTA|Object|Unified錢包 |
+|>> coin|string |幣種名稱 |
+|>> withdrawableAmount|string|可提現金額|
+|>> availableBalance|string|可用餘額|
+|> EARN|Object|理財帳戶, 如果幣種不支持從理財帳戶出金, 則不返回|
+|>> coin|string |幣種 |
+|>> withdrawableAmount|string|可提現金額|
+|>> availableBalance|string|可用餘額|
+
+### 請求示例
+
+<Tabs groupId="programming-languages">
+<TabItem value="http" label="HTTP">
+
+```http
+GET /v5/asset/withdraw/withdrawable-amount?coin=USDT HTTP/1.1
+Host: api-testnet.bybit.com
+X-BAPI-API-KEY: xxxxxxxxxxxxxxxxxx
+X-BAPI-TIMESTAMP: 1677565621998
+X-BAPI-RECV-WINDOW: 50000
+X-BAPI-SIGN: XXXXXX
+```
+
+</TabItem>
+<TabItem value="python" label="Python">
+
+```python
+from pybit.unified_trading import HTTP
+session = HTTP(
+    testnet=True,
+    api_key="xxxxxxxxxxxxxxxxxx",
+    api_secret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+)
+print(session.get_withdrawable_amount(
+    coin="USDT",
+))
+```
+
+</TabItem>
+
+<TabItem value="Node" label="Node.js">
+
+```n4js
+const { RestClientV5 } = require('bybit-api');
+
+const client = new RestClientV5({
+  testnet: true,
+  key: 'xxxxxxxxxxxxxxxxxx',
+  secret: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+});
+
+client
+  .getWithdrawableAmount({
+    coin: 'USDT',
+  })
+  .then((response) => {
+    console.log(response);
+  })
+  .catch((error) => {
+    console.error(error);
+  });
+```
+
+</TabItem>
+</Tabs>
+
+### 響應示例
+
+```json
+{
+    "retCode": 0,
+    "retMsg": "success",
+    "result": {
+        "limitAmountUsd": "595051.7",
+        "withdrawableAmount": {
+            "FUND": {
+                "coin": "USDT",
+                "withdrawableAmount": "155805.847",
+                "availableBalance": "155805.847"
+            },
+            "UTA": {
+                "coin": "USDT",
+                "withdrawableAmount": "498751.0882",
+                "availableBalance": "498751.0882"
+            }
+        }
+    },
+    "retExtInfo": {},
+    "time": 1754009688289
+}
+```

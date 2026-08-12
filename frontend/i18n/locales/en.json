@@ -1,0 +1,560 @@
+{
+  "app": {
+    "name": "WalletManager CopyTrader",
+    "short": "CopyTrader"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "accounts": "Accounts",
+    "history": "History",
+    "risk": "Risk",
+    "settings": "Settings",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "signedInAs": "Signed in as",
+    "primary": "Main navigation",
+    "openMenu": "Open menu",
+    "more": "More",
+    "collapse": "Collapse",
+    "chart": "Chart",
+    "expand": "Expand menu"
+  },
+  "common": {
+    "loading": "Loading…",
+    "live": "Live",
+    "connecting": "Connecting",
+    "offline": "Offline",
+    "close": "Close",
+    "cancel": "Cancel",
+    "optional": "optional",
+    "reveal": "Show or hide",
+    "reload": "Reload",
+    "yes": "Yes",
+    "no": "No",
+    "on": "On",
+    "off": "Off"
+  },
+  "theme": {
+    "toLight": "Switch to light",
+    "toDark": "Switch to dark"
+  },
+  "time": {
+    "justNow": "just now",
+    "minutes": "{n}m ago",
+    "hours": "{n}h ago",
+    "days": "{n}d ago"
+  },
+  "side": {
+    "long": "Long",
+    "short": "Short"
+  },
+  "market": {
+    "futures": "Perpetual",
+    "spot": "Spot"
+  },
+  "policy": {
+    "stopAllActive": "Routing halted",
+    "stopAll": "Stop all",
+    "stopAllHint": "Halt new order routing on every connected account, immediately.",
+    "stopAllLocked": "STOP_ALL is pinned on by the server environment. It cannot be cleared from the panel.",
+    "resume": "Resume routing",
+    "resumeHint": "Routing is halted. Click to resume.",
+    "resumeTitle": "Resume routing?",
+    "resumeBody": "New orders will fan out to every active account again. Check the exchanges and balances first.",
+    "haltedBecause": "Halted: {reason}"
+  },
+  "notifications": {
+    "orderFailed": "Order failed",
+    "dismiss": "Dismiss",
+    "dismissAll": "Dismiss all",
+    "show": "Show",
+    "hide": "Hide",
+    "region": "Failed orders",
+    "title": "Failed orders",
+    "pending": "{n} failed order(s) awaiting dismissal",
+    "none": "No failed orders",
+    "noneBody": "A leg that fails on any of your {n} active accounts appears here and stays until you dismiss it.",
+    "persistNote": "Nothing here expires on its own — spec §4. Dismissing is recorded on the server, so it stays dismissed after a reload.",
+    "viewAccount": "Open accounts",
+    "unknownAccount": "Unknown account"
+  },
+  "terminal": {
+    "pane": {
+      "chart": "Chart",
+      "ticket": "Order",
+      "accounts": "Routing"
+    },
+    "routingTo": "Routing to",
+    "notional": "notional",
+    "placeholderData": "Sample prices",
+    "placeholderHint": "No exchange price feed is reachable, so these candles are synthetic. The chart and its drag interaction work, but the prices are not real.",
+    "searchSymbol": "Search a pair",
+    "pressEnterToUse": "Press Enter to use {symbol}",
+    "change24h": "24h",
+    "interval": "Timeframe",
+    "sourceHint": "Live prices from {source}.",
+    "inTrade": "In this trade",
+    "detail": {
+      "positions": "Positions",
+      "fanout": "Fan-out"
+    },
+    "dragHint": "Drag the SL and TP lines to move them",
+    "dragHintLimit": "Drag the LIMIT, SL and TP lines to move them"
+  },
+  "ticket": {
+    "symbol": "Pair",
+    "market": "Market",
+    "limit": "Limit",
+    "limitPrice": "Limit price",
+    "leverage": "Leverage",
+    "liqDistance": "Liquidation {pct}% from entry",
+    "sltpBasis": "SL/TP measured as",
+    "sl": "Stop loss %",
+    "tp": "Take profit %",
+    "riskLabel": "Risk on the account",
+    "rewardLabel": "Reward on the account",
+    "rr": "Risk / reward",
+    "slBeyondLiquidation": "This stop sits at or beyond the liquidation price. It can never trigger — the position liquidates first.",
+    "sizingNote": "Each account commits 99% of its own USDT balance. Sizes differ; leverage and SL/TP percentages do not. An account below the exchange minimum is skipped, never rounded up.",
+    "submitSide": "{side} · send to {n} accounts",
+    "sending": "Sending to all accounts…",
+    "haltedNote": "Routing is halted platform-wide. Closing an open position still works.",
+    "noAccounts": "No account can take this order. Connect one, or resume a paused one.",
+    "useMark": "Mark",
+    "totalMargin": "Total margin",
+    "totalNotional": "Total notional",
+    "alreadyOpen": "A trade is already open. Each account commits 99% of its balance, so only one runs at a time — close it first."
+  },
+  "position": {
+    "entry": "Entry",
+    "liquidation": "Liquidation",
+    "leverage": "Leverage",
+    "close": "Close position",
+    "closing": "Closing…",
+    "editedFrom": "Last edited from {source}",
+    "source": {
+      "ticket": "the order ticket",
+      "chart": "the chart",
+      "position": "this row"
+    },
+    "pushing": "Pushing to all accounts…",
+    "pnl": "Unrealised PnL",
+    "mark": "Mark",
+    "size": "Size",
+    "margin": "Margin",
+    "reference": "Reference",
+    "accounts": "Accounts",
+    "failedShort": "failed",
+    "unprotected": "{n} filled leg(s) carry no stop. Amend the SL/TP or close them.",
+    "noStop": "No stop",
+    "notFilled": "Not filled",
+    "flatTitle": "No open position",
+    "flatBody": "Send an order and every account's own position appears here, marked to the live price.",
+    "confirmCloseTitle": "Close on every account?",
+    "confirmCloseBody": "This market-closes {symbol} on all {n} accounts holding it, at once. It cannot be undone."
+  },
+  "fanout": {
+    "title": "Last fan-out",
+    "overBudget": "This exceeded the one-second budget in spec §4.",
+    "counts": "{ok} filled · {failed} failed",
+    "noneTitle": "Nothing routed yet",
+    "noneBody": "The timing of the last fan-out against the one-second budget in spec §4 shows here."
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "updated": "Balances updated {when}",
+    "trade": "Trade",
+    "manage": "Manage",
+    "viewAll": "View all",
+    "openPosition": "Open position",
+    "account": "Account",
+    "exchange": "Exchange",
+    "margin": "Margin",
+    "qty": "Quantity",
+    "entry": "Entry",
+    "dispatch": "Dispatch",
+    "sl": "SL",
+    "tp": "TP",
+    "committed": "Committed",
+    "skipped": "{n} accounts skipped",
+    "noPositionTitle": "No position open",
+    "noPositionBody": "When you send an order it fans out to every eligible account and the legs appear here.",
+    "openTerminal": "Open the terminal",
+    "recentTrades": "Recent trades",
+    "legsFilled": "{filled}/{total} filled",
+    "fanoutTitle": "Time to reach every account",
+    "noTradesTitle": "No trades yet",
+    "noTradesBody": "Your first order will show up here with its per-account result.",
+    "capital": "Capital by account",
+    "capitalHint": "Each account trades its own balance",
+    "noBalance": "no balance",
+    "notUsdt": "Not USDT — reported, not traded",
+    "noAccountsTitle": "No accounts connected",
+    "noAccountsBody": "Connect a trade-only API key to start routing orders.",
+    "latency": "Fan-out time",
+    "latencyHint": "Every account reached, per trade",
+    "latencyCaption": "Most recent trades, oldest first. The dashed line is the one-second budget in spec §4.",
+    "budget": "1s budget",
+    "breaches": "{n} over budget",
+    "worst": "worst {ms}ms",
+    "noLatencyTitle": "Nothing measured yet",
+    "noLatencyBody": "Fan-out time is recorded on every order, amendment and close.",
+    "realised": "Realised result",
+    "realisedHint": "Closed legs only",
+    "noPnlTitle": "Nothing closed yet",
+    "noPnlBody": "Only closed legs count here — an open position's paper gain is not a result.",
+    "socketOffline": "The live channel is disconnected. Figures on this page are from the last successful load and may be stale.",
+    "kpi": {
+      "capital": "Capital",
+      "capitalSub": "across {n} tradeable accounts",
+      "accounts": "Accounts active",
+      "accountsSub": "on {n} exchanges",
+      "position": "Position",
+      "flat": "Flat",
+      "flatSub": "no open trade",
+      "legs": "legs",
+      "fanout": "Last fan-out",
+      "overBudget": "over the 1s budget",
+      "withinBudget": "within the 1s budget",
+      "noTrades": "no trades yet"
+    }
+  },
+  "alerts": {
+    "title": "Needs you",
+    "count": "{n} open",
+    "clear": "All clear",
+    "emptyTitle": "Nothing needs you",
+    "emptyBody": "No failed orders, unverified keys or unprotected positions.",
+    "viewPolicy": "View policy",
+    "openTerminal": "Terminal",
+    "reviewAccounts": "Review",
+    "unknownError": "unknown error",
+    "stopAll": {
+      "title": "Routing is halted platform-wide",
+      "body": "New orders are refused while STOP_ALL is set. Closing an open position still works."
+    },
+    "failures": {
+      "title": "{n} failed orders not dismissed",
+      "body": "Latest — {account}: {message}"
+    },
+    "unprotected": {
+      "title": "{n} filled legs have no stop attached",
+      "body": "These positions are live with no floor under them: {accounts}"
+    },
+    "unverified": {
+      "title": "{n} keys not verified as trade-only",
+      "body": "The exchange exposes no permission endpoint, so withdrawal rights could not be ruled out: {accounts}"
+    },
+    "nonUsdt": {
+      "title": "{n} accounts are not denominated in USDT",
+      "body": "They are reported rather than traded: {accounts}"
+    },
+    "errored": {
+      "title": "{n} accounts are in an error state"
+    }
+  },
+  "risk": {
+    "title": "What does a percentage cost?",
+    "intro": "The same SL percentage means two very different things depending on what it measures. Both readings are shown below for the same inputs, so the choice can be made against numbers. This answers Q5a in questions.md.",
+    "balance": "Account balance",
+    "leverage": "Leverage",
+    "entry": "Entry price",
+    "side": "Side",
+    "slPct": "Stop loss %",
+    "tpPct": "Take profit %",
+    "position": "Resulting position",
+    "margin": "Margin (99%)",
+    "notional": "Notional",
+    "qty": "Quantity",
+    "liquidation": "Liquidation price",
+    "liqDistance": "Distance to liquidation",
+    "headline": "Read as a percentage of price, this stop costs {multiple}× what it costs read as a percentage of margin. The multiple is the leverage.",
+    "basis": {
+      "price": "Percent of price",
+      "margin": "Percent of margin"
+    },
+    "basisHint": {
+      "price": "The number is a move in the underlying price. A 2% stop means price moves 2%.",
+      "margin": "The number is a fraction of the money committed. A 2% stop means losing 2% of margin, which at 10x is a 0.2% price move."
+    },
+    "inForce": "In force",
+    "priceMove": "Price move",
+    "stopPrice": "Stop triggers at",
+    "tpPrice": "Take profit at",
+    "lossAtStop": "Loss if stopped",
+    "lossPct": "Loss as % of account",
+    "profitAtTp": "Profit at take profit",
+    "unreachable": "This stop sits at or beyond liquidation. It can never trigger — the position liquidates first.",
+    "footnote": "Liquidation is simplified: it ignores maintenance margin, fees and funding, so the real liquidation price is slightly closer to entry than shown."
+  },
+  "accounts": {
+    "title": "Connected accounts",
+    "subtitle": "Each one is an isolated connection with its own credentials, rate limit and deadline.",
+    "label": "Account",
+    "labelPlaceholder": "e.g. Partner A — Bybit",
+    "exchange": "Exchange",
+    "balance": "Balance",
+    "status": "Status",
+    "actions": "Actions",
+    "testnet": "testnet",
+    "pause": "Pause",
+    "resume": "Resume",
+    "verify": "Verify key",
+    "empty": "No accounts connected yet.",
+    "emptyBody": "Connect a trade-only API key and it joins from the next trade — never one already in progress.",
+    "emptyFilter": "Nothing matches this filter.",
+    "withdrawalUnverified": "withdrawal unverified",
+    "nonUsdtTitle": "Not denominated in USDT",
+    "nonUsdtBody": "These accounts hold a non-USDT balance and are reported rather than traded: {list}",
+    "state": {
+      "active": "Active",
+      "paused": "Paused",
+      "error": "Error"
+    },
+    "filter": {
+      "all": "All",
+      "active": "Active",
+      "paused": "Paused",
+      "attention": "Needs attention"
+    },
+    "stat": {
+      "tradeable": "Tradeable capital",
+      "tradeableSub": "across {n} accounts",
+      "active": "Active",
+      "exchanges": "on {n} exchanges",
+      "unverified": "Unverified keys",
+      "unverifiedSub": "trade-only scope not proven",
+      "nonUsdt": "Non-USDT",
+      "nonUsdtSub": "reported, not traded"
+    },
+    "connect": "Connect account",
+    "connecting": "Connecting…",
+    "apiKey": "API key",
+    "apiSecret": "API secret",
+    "passphrase": "API passphrase",
+    "agentKey": "Agent wallet private key",
+    "agentKeyHint": "The agent key signs orders and cannot move funds. Never paste your main wallet key.",
+    "masterAddress": "Master account address",
+    "masterAddressHint": "Queries must use the master address — the agent address returns nothing.",
+    "useTestnet": "Use testnet",
+    "useTestnetHint": "Orders go to the exchange's test environment with no real capital at risk.",
+    "noTestnet": "This exchange has no test environment.",
+    "withdrawalWarning": "The key must be trade-only. It is verified on connect and refused outright if it can withdraw. Keys are encrypted before storage and are never sent back to the browser.",
+    "delete": "Delete",
+    "deleteTitle": "Delete this connection?",
+    "refresh": "Refresh balances",
+    "refreshing": "Refreshing…",
+    "confirmDelete": "Delete {label}? The stored credential cannot be recovered, and the account stops receiving orders immediately."
+  },
+  "history": {
+    "title": "Trade history",
+    "subtitle": "Every action, per account: what filled, what was skipped, and what it made.",
+    "empty": "No trades yet.",
+    "emptyBody": "Send an order from the terminal and it appears here with a row per account.",
+    "emptyFilter": "No trades match this filter.",
+    "all": "All",
+    "allAccounts": "All accounts",
+    "filterAccount": "Filter by account",
+    "open": "Open",
+    "exit": "Exit",
+    "pnl": "PnL",
+    "note": "Note",
+    "fanout": "fan-out {ms}ms",
+    "unprotected": "no SL/TP attached",
+    "stat": {
+      "pnl": "Realised PnL",
+      "pnlSub": "over {n} legs",
+      "trades": "Trades",
+      "tradesSub": "{n} failed legs",
+      "winRate": "Win rate",
+      "winRateSub": "{wins} of {n} scored legs",
+      "breaches": "Over budget",
+      "breachesSub": "fan-outs past 1s"
+    }
+  },
+  "settings": {
+    "title": "Settings in force",
+    "subtitle": "Every open question in questions.md is a setting with both branches built. This is which branch is live — change it in .env, not here.",
+    "policy": "Trading policy",
+    "policyHint": "Read-only. These come from the server's environment.",
+    "stopAllTitle": "Routing is halted",
+    "stopAllBody": "STOP_ALL is set: new orders are refused platform-wide. Closing an open position is unaffected.",
+    "exchanges": "Exchange coverage",
+    "exchangesHint": "Adapters are written from the vendored docs; none has been run against a live exchange yet.",
+    "exchange": "Exchange",
+    "markets": "Markets",
+    "testnet": "Testnet",
+    "capabilities": "Capabilities",
+    "nativeAmend": "native SL/TP amend",
+    "walletAuth": "wallet auth",
+    "perKeyLimits": "per-key limits",
+    "appearance": "Appearance",
+    "darkMode": "Dark theme",
+    "darkModeHint": "Stored in a cookie so the panel renders in the right theme before the page loads.",
+    "keys": {
+      "sltp_basis": {
+        "label": "SL/TP basis",
+        "hint": "Whether a typed percentage is a move in price or a fraction of the margin committed."
+      },
+      "sltp_reference": {
+        "label": "SL/TP reference price",
+        "hint": "Which fill the percentage is measured from: the admin's own, or each account's."
+      },
+      "sltp_amend_strategy": {
+        "label": "Amend strategy",
+        "hint": "How a mid-trade SL/TP change is applied where the exchange has no native amend."
+      },
+      "sltp_failure_policy": {
+        "label": "Stop-attach failure policy",
+        "hint": "What happens to a leg that fills but whose stop could not be attached."
+      },
+      "balance_fraction": {
+        "label": "Balance committed",
+        "hint": "Share of each account's own USDT used as margin. Rounded down to the exchange step, never up."
+      },
+      "reject_sl_beyond_liquidation": {
+        "label": "Refuse stops past liquidation",
+        "hint": "Blocks an order whose stop could never trigger because the position liquidates first."
+      },
+      "fanout_timeout_seconds": {
+        "label": "Per-leg deadline",
+        "hint": "One slow exchange cannot hold up the others past this."
+      },
+      "leverage_range": {
+        "label": "Leverage range",
+        "hint": "Identical across every account on any given trade."
+      }
+    },
+    "stopAllReadyTitle": "Routing is live",
+    "stopAllReadyBody": "Orders fan out to every active account. Stop all halts new routing platform-wide; closing and amending open positions keeps working.",
+    "routingLive": "Routing live",
+    "readOnly": "Read-only",
+    "connection": "Connection & data",
+    "connectionHint": "What this panel is talking to right now.",
+    "appearanceHint": "Stored in this browser, not on the server.",
+    "language": "Language",
+    "languageHint": "English is the source language; Persian is a full translation with RTL layout.",
+    "noTestnet": "No testnet",
+    "group": {
+      "sizing": "Position sizing",
+      "sizingHint": "How much of each account goes into a trade (spec §5).",
+      "sltp": "Stop loss & take profit",
+      "sltpHint": "How SL/TP percentages are read, applied and repaired.",
+      "execution": "Execution",
+      "executionHint": "The fan-out's timing guarantees (spec §4)."
+    },
+    "diag": {
+      "socket": "Live channel",
+      "latency": "Latency",
+      "feed": "Price feed"
+    },
+    "diagHint": {
+      "socket": "WebSocket to the execution engine. Order routing still works over REST while it is down.",
+      "latency": "Round trip to the engine. It comes out of the same one-second budget as the fan-out.",
+      "feed": "Where chart prices come from. 'Sample prices' means no exchange was reachable and the series is synthetic."
+    }
+  },
+  "login": {
+    "title": "Sign in",
+    "lede": "The panel routes real orders, so it is staff-only.",
+    "username": "Username",
+    "password": "Password",
+    "signIn": "Sign in",
+    "signingIn": "Signing in…",
+    "note": "No account yet? Create one on the server:"
+  },
+  "landing": {
+    "eyebrow": "Order routing for multiple accounts",
+    "h1": {
+      "line1": "You trade once.",
+      "line2": "Every account",
+      "line3": "follows in a second."
+    },
+    "lede": "Entry, stop, target, close — each one goes out to every connected account at the same moment, sized to that account's own balance. When one exchange fails, the rest still fill and you get told which one didn't.",
+    "cta": {
+      "dashboard": "Open the dashboard",
+      "signIn": "Sign in",
+      "risk": "What a percentage costs",
+      "accounts": "Connect an account"
+    },
+    "stat": {
+      "accounts": "Connected accounts",
+      "exchanges": "Exchanges",
+      "lastFanout": "Last fan-out",
+      "lastSymbol": "Last pair"
+    },
+    "diagram": {
+      "real": "Your last trade, leg by leg",
+      "demo": "Illustration — connect an account to see your own",
+      "origin": "your trade",
+      "failed": "failed — needs you",
+      "failedShort": "failed"
+    },
+    "truths": {
+      "isolation": {
+        "term": "One failure stays one failure",
+        "body": "Every account gets its own connection, its own rate limit and its own deadline. An exchange going down costs that account the trade and nobody else."
+      },
+      "sizing": {
+        "term": "Sized to each balance",
+        "body": "Every account commits 99% of its own USDT. A $50 account and a $5,000 account take the same leverage and the same stop percentage, at very different dollar sizes."
+      },
+      "stops": {
+        "term": "Stops move everywhere at once",
+        "body": "Drag the stop on the chart, edit it in the ticket, or change it on the position row — all three push the same amendment to every account."
+      }
+    },
+    "how": {
+      "title": "How it goes",
+      "connect": {
+        "term": "Connect trade-only keys",
+        "body": "Each account is verified on connect and refused outright if the key can withdraw. Keys are encrypted at rest and never returned to the browser."
+      },
+      "trade": {
+        "term": "Trade once",
+        "body": "One ticket sets side, leverage and the stop and target percentages. The engine sizes each account from its own balance and dispatches every leg concurrently."
+      },
+      "watch": {
+        "term": "Watch it land",
+        "body": "Per-leg results arrive as they happen. A failed leg raises a notice that stays on screen until you dismiss it — no toast that disappears while you look away."
+      }
+    },
+    "coverage": {
+      "title": "Eight exchanges behind one interface",
+      "body": "Every exchange implements the same adapter, so capability differences — native versus emulated stops, per-symbol versus per-account leverage — are handled behind the seam rather than in trading logic. Adapters are written from vendored documentation and unit-tested; none has yet been run against a live exchange, so verify on testnet before committing real capital."
+    },
+    "security": {
+      "title": "It holds live trading credentials",
+      "body": "Keys are encrypted at rest with rotatable Fernet keys, never logged, never included in an API response, and verified as non-withdrawable at connect time wherever the exchange exposes a permission endpoint. Where it cannot be proven, the account is flagged rather than silently trusted."
+    },
+    "footerNote": "Order routing and execution. Not an exchange, not a signal service."
+  },
+  "connection": {
+    "pingHint": "Round trip to the engine: {ms}ms ({quality})",
+    "good": "good",
+    "fair": "fair",
+    "poor": "poor"
+  },
+  "watchlist": {
+    "title": "Watchlist",
+    "add": "Add",
+    "edit": "Edit",
+    "done": "Done",
+    "remove": "Remove {symbol}",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "placeholder": "e.g. AVAXUSDT",
+    "invalid": "That does not look like a pair — letters and digits only, e.g. AVAXUSDT.",
+    "alreadyThere": "{symbol} is already on the list.",
+    "full": "The list holds {n} pairs. Remove one first.",
+    "empty": "Nothing on the list.",
+    "restore": "Restore defaults",
+    "openHint": "Load {symbol} on the chart"
+  },
+  "toast": {
+    "opened": "Order sent to {n} account(s)",
+    "amended": "SL/TP updated on {n} account(s)",
+    "closed": "Position closed on {n} account(s)",
+    "detail": "{ms}ms · {failed} failed"
+  }
+}
