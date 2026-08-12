@@ -348,15 +348,27 @@ async def route_close(*, trade: Trade) -> FanOutResult:
     return result
 
 
-async def refresh_balances() -> list[dict]:
+#: Minimum spacing between real balance fan-outs, in seconds. Every open panel
+#: polls (spec §6 wants balances current, not current-when-clicked); without
+#: this, five tabs would mean five times the exchange traffic for the same
+#: numbers. A caller inside the window gets the stored rows instead.
+BALANCE_REFRESH_INTERVAL = 20
+_BALANCE_GUARD_KEY = "trading:balances:refreshed_at"
+
+
+async def refresh_balances(*, force: bool = False) -> list[dict]:
     """Spec §6: the admin sees every account's balance at all times.
 
     Runs the same isolated-leg pattern as trading: a dead exchange delays only
-    its own row.
+    its own row. Results are pushed to every open panel over the WebSocket, so
+    one poll updates every screen rather than each tab asking separately.
     """
     from apps.engine.fanout import fan_out
 
-    accounts = await eligible_accounts()
+    if not force and not await sync_to_async(_claim_refresh_slot)():
+        return await sync_to_async(_stored_balances)()
+
+    accounts = await eligible_accounts_for_balances()
     adapters = _adapters(accounts)
 
     def make(adapter: ExchangeAdapter):
@@ -374,7 +386,45 @@ async def refresh_balances() -> list[dict]:
     finally:
         await _close_all(adapters)
 
-    return await _save_balances(result)
+    rows = await _save_balances(result)
+    # The consumer has carried a `balances` event since day one and nothing
+    # ever sent one. This is what makes a second screen agree with the first.
+    await _broadcast("balances", rows)
+    return rows
+
+
+def _claim_refresh_slot() -> bool:
+    """True when this caller may hit the exchanges, False when one just did."""
+    from django.core.cache import cache
+
+    # add() is atomic: exactly one caller wins the window, the rest read stored.
+    return cache.add(_BALANCE_GUARD_KEY, True, BALANCE_REFRESH_INTERVAL)
+
+
+def _stored_balances() -> list[dict]:
+    """Last known balances, without asking any exchange."""
+    return [
+        {
+            "id": account.id,
+            "label": account.label,
+            "balance": str(account.last_balance or ""),
+            "asset": account.last_balance_asset,
+            "error": account.last_error,
+            "at": account.last_balance_at.isoformat() if account.last_balance_at else None,
+        }
+        for account in ConnectedAccount.objects.all()
+    ]
+
+
+@sync_to_async
+def eligible_accounts_for_balances() -> list[ConnectedAccount]:
+    """Every connected account, paused ones included.
+
+    Deliberately not ``eligible_accounts``: spec §6 asks for the balance of
+    *every* connected account at all times, and a paused account is exactly the
+    one whose balance the admin is about to check before resuming it.
+    """
+    return list(ConnectedAccount.objects.exclude(status=AccountStatus.ERROR))
 
 
 @sync_to_async

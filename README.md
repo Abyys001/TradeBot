@@ -8,7 +8,8 @@ account fully isolated from the others.
 > **Status:** working end to end — order routing, all 8 exchange adapters,
 > live chart with draggable order lines, mark-to-market PnL, watchlist,
 > emergency halt, per-account history, installable bilingual panel.
-> Every section of the spec is implemented. 117 backend tests pass.
+> Every section of the spec is implemented — see the clause-by-clause
+> conformance table. 119 backend tests pass.
 > **No adapter has been run against a live exchange yet** — see
 > [`docs/adapters.md`](docs/adapters.md) before connecting real capital.
 
@@ -29,6 +30,7 @@ cannot stop its own containers — see [`docs/running.md`](docs/running.md).
 | `frontend/` | Nuxt 3 + TypeScript + Tailwind + Pinia, EN/FA |
 | [`questions.md`](questions.md) | Decisions taken + what is still open (Q5, Q10, Q11, Q12) |
 | [`docs/spec/platform-spec.md`](docs/spec/platform-spec.md) | Authoritative requirements |
+| [`docs/spec/conformance.md`](docs/spec/conformance.md) | Every spec clause → where it is implemented → the test that proves it |
 | [`docs/exchanges/coverage.md`](docs/exchanges/coverage.md) | All 8 exchanges: build order, testnet, blockers |
 | [`docs/running.md`](docs/running.md) | How to run it, and the snap-Docker gotcha |
 | [`docs/adapters.md`](docs/adapters.md) | Per-exchange status, caveats, go-live checklist |

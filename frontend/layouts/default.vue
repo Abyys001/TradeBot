@@ -32,11 +32,16 @@ watch(
 onMounted(async () => {
   live.connect()
   await accounts.ensure()
+  // Spec §6: balances must be current at all times, not current-when-clicked.
+  accounts.startAutoRefresh()
   await notifications.hydrate()
   trading.loadPolicy()
 })
 
-onBeforeUnmount(() => live.disconnect())
+onBeforeUnmount(() => {
+  live.disconnect()
+  accounts.stopAutoRefresh()
+})
 </script>
 
 <template>

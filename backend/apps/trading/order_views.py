@@ -165,8 +165,15 @@ async def close_position(request: HttpRequest, pk: int) -> JsonResponse:
 @require_POST
 @admin_required
 async def refresh_balances_view(request: HttpRequest) -> JsonResponse:
-    """Spec §6: refresh every connected account's balance."""
-    return JsonResponse({"accounts": await refresh_balances()})
+    """Spec §6: refresh every connected account's balance.
+
+    The panel calls this on a timer as well as from the button, so by default
+    it is rate-limited server-side (see ``refresh_balances``). ``{"force":true}``
+    — what the button sends — skips the guard, because a human asking for fresh
+    numbers should get them.
+    """
+    force = bool(_body(request).get("force"))
+    return JsonResponse({"accounts": await refresh_balances(force=force)})
 
 
 @sync_to_async

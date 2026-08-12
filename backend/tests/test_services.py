@@ -16,7 +16,7 @@ from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Noti
 from apps.core.money import D
 from apps.exchanges.base import MarketType, OrderType, Side
 from apps.trading.models import Trade, TradeLeg, TradeStatus
-from apps.trading.services import eligible_accounts, route_close, route_open
+from apps.trading.services import eligible_accounts, refresh_balances, route_close, route_open
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -170,6 +170,36 @@ async def test_the_fanout_duration_is_recorded_for_audit():
     assert result.within_budget(1.0)
     legs = await sync_to_async(lambda: list(trade.legs.all()))()
     assert all(leg.dispatch_ms is not None for leg in legs)
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_balance_refresh_covers_paused_accounts():
+    """Spec §6 says *every* connected account, and a paused one is exactly the
+    account whose balance you check before deciding to resume it."""
+    await make_account("live-one")
+    await make_account("paused-one", status=AccountStatus.PAUSED)
+
+    rows = await refresh_balances(force=True)
+
+    assert {row["label"] for row in rows} == {"live-one", "paused-one"}
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_background_refresh_is_rate_limited_but_still_answers():
+    """Five open panels must not mean five fan-outs to every exchange."""
+    account = await make_account("partner-a")
+
+    first = await refresh_balances()
+    second = await refresh_balances()
+
+    assert [row["label"] for row in first] == ["partner-a"]
+    # The second caller is inside the window: same account, no exchange call.
+    assert [row["label"] for row in second] == ["partner-a"]
+    assert second[0]["id"] == account.id
+
+    # A human pressing refresh is never rate-limited.
+    forced = await refresh_balances(force=True)
+    assert [row["label"] for row in forced] == ["partner-a"]
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

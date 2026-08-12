@@ -181,6 +181,9 @@ export const useLiveStore = defineStore('live', {
           reason: payload.reason ?? '',
         })
       } else if (payload.type === 'balances') {
+        // One panel's refresh updates every open panel, which is what makes
+        // "the balance of every account at all times" (spec §6) true on a
+        // second screen that nobody is clicking.
         for (const row of payload.accounts ?? []) {
           this.balances[row.id] = {
             balance: String(row.balance ?? row.last_balance ?? ''),

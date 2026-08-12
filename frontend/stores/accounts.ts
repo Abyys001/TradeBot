@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
 
+/** Module-level so the loop survives component churn but never runs twice. */
+let balanceTimer: ReturnType<typeof setInterval> | null = null
+
 /**
  * Connected accounts, loaded once and shared.
  *
@@ -87,10 +90,10 @@ export const useAccountsStore = defineStore('accounts', {
     },
 
     /** Ask every exchange for a fresh balance, then re-read (spec §6). */
-    async refresh() {
+    async refresh(force = true) {
       this.refreshing = true
       try {
-        await useApi().refreshBalances()
+        await useApi().refreshBalances(force)
         await this.load()
       } catch (e: any) {
         this.error = errorMessage(e)
@@ -99,13 +102,40 @@ export const useAccountsStore = defineStore('accounts', {
       }
     },
 
-    applyLiveBalances(map: Record<number, { balance: string; asset: string }>) {
+    /**
+     * Spec §6: "the admin must be able to see the current balance of every
+     * connected account at all times."
+     *
+     * A number that only updates when someone remembers to press a button is
+     * not current, so the panel keeps them fresh by itself. The request is
+     * rate-limited on the server, so several open tabs still produce one
+     * fan-out, and the result is pushed to all of them over the WebSocket.
+     */
+    startAutoRefresh(intervalMs = 45000) {
+      if (balanceTimer || import.meta.server) return
+      balanceTimer = setInterval(() => {
+        // Nothing to refresh on a hidden tab, and a phone in a pocket should
+        // not be waking the exchanges every 45 seconds.
+        if (document.visibilityState !== 'visible') return
+        this.refresh(false)
+      }, intervalMs)
+    },
+
+    stopAutoRefresh() {
+      if (balanceTimer) clearInterval(balanceTimer)
+      balanceTimer = null
+    },
+
+    applyLiveBalances(map: Record<number, { balance: string; asset: string; at?: number }>) {
       for (const account of this.items) {
         const live = map[account.id]
         if (!live) continue
         account.last_balance = live.balance
         account.last_balance_asset = live.asset
+        // Timestamp too, or the row shows a fresh figure under a stale "4h ago".
+        account.last_balance_at = new Date(live.at ?? Date.now()).toISOString()
       }
+      this.loadedAt = Date.now()
     },
 
     async setPaused(account: Account, paused: boolean) {

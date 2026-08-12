@@ -329,6 +329,13 @@ const diagnostics = computed(() => [
       <p class="sr-only">{{ theme }}</p>
     </UiCard>
 
+    <!-- Spec §11. Not legal advice and not a disclaimer to bury: this platform
+         routes other people's capital, and the person operating it should meet
+         that sentence somewhere other than a markdown file. -->
+    <p class="text-xs text-ink-faint leading-relaxed px-1 pb-2">
+      {{ t('settings.legalNote') }}
+    </p>
+
     <UiModal v-model="confirmResume" :title="t('policy.resumeTitle')" size="sm">
       <p class="text-sm leading-relaxed">{{ t('policy.resumeBody') }}</p>
       <template #footer>

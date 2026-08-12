@@ -344,7 +344,8 @@
     "deleteTitle": "Delete this connection?",
     "refresh": "Refresh balances",
     "refreshing": "Refreshing…",
-    "confirmDelete": "Delete {label}? The stored credential cannot be recovered, and the account stops receiving orders immediately."
+    "confirmDelete": "Delete {label}? The stored credential cannot be recovered, and the account stops receiving orders immediately.",
+    "neverFetched": "Never fetched"
   },
   "history": {
     "title": "Trade history",
@@ -452,7 +453,8 @@
       "socket": "WebSocket to the execution engine. Order routing still works over REST while it is down.",
       "latency": "Round trip to the engine. It comes out of the same one-second budget as the fan-out.",
       "feed": "Where chart prices come from. 'Sample prices' means no exchange was reachable and the series is synthetic."
-    }
+    },
+    "legalNote": "This platform routes real trades for other people's capital. Depending on your jurisdiction and how any fee or profit share is structured, that can require registration or a licence (spec §11). Confirm with a qualified professional before connecting real partner accounts."
   },
   "login": {
     "title": "Sign in",

@@ -44,6 +44,24 @@ const filterOptions = computed(() => [
 
 const STATUS_TONE = { active: 'ok', paused: 'neutral', error: 'short' } as const
 
+/**
+ * Older than three refresh cycles. The panel refreshes every 45s, so anything
+ * past ~2.5 minutes means the exchange is not answering — which is a fact about
+ * that account, not a rendering detail.
+ */
+const STALE_AFTER_MS = 150_000
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  clock = setInterval(() => (now.value = Date.now()), 15000)
+})
+onBeforeUnmount(() => clock && clearInterval(clock))
+
+function isStale(account: Account) {
+  if (!account.last_balance_at) return true
+  return now.value - new Date(account.last_balance_at).getTime() > STALE_AFTER_MS
+}
+
 async function run(account: Account, fn: () => Promise<unknown>) {
   busy.value = account.id
   actionError.value = ''
@@ -174,9 +192,17 @@ async function confirmDelete() {
                 <td class="text-end py-3 whitespace-nowrap">
                   <span class="num">{{ money(account.last_balance) }}</span>
                   <span class="text-ink-faint text-xs ms-1">{{ account.last_balance_asset || '—' }}</span>
-                  <p v-if="account.last_balance_at" class="text-[0.65rem] text-ink-faint">
+                  <!-- Spec §6 wants a *current* balance. When it is not, say so
+                       in amber rather than letting a five-hour-old figure read
+                       as live because it is rendered in the same grey. -->
+                  <p
+                    v-if="account.last_balance_at"
+                    class="text-[0.65rem]"
+                    :class="isStale(account) ? 'text-signal' : 'text-ink-faint'"
+                  >
                     {{ since(account.last_balance_at) }}
                   </p>
+                  <p v-else class="text-[0.65rem] text-signal">{{ t('accounts.neverFetched') }}</p>
                 </td>
                 <td class="ps-4 py-3">
                   <div class="flex flex-wrap items-center gap-1.5">

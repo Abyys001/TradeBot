@@ -14,7 +14,7 @@ encryption, staff-gated order routing, per-account trade history, the WebSocket
 channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines.
-**117 backend tests pass, `ruff` clean, Nuxt build clean.**
+**119 backend tests pass, `ruff` clean, Nuxt build clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -52,6 +52,7 @@ backend/    Django 5 + DRF + Channels, apps/ under it, config/ project root
 frontend/   Nuxt 3 + TS + Tailwind + Pinia + i18n
 docs/
   spec/platform-spec.md              authoritative requirements (§ numbering used everywhere)
+  spec/conformance.md                every clause -> where it lives -> the test that proves it
   spec/exchange_list.original.txt    admin's raw exchange list, verbatim
   exchanges/coverage.md              exchange matrix + per-exchange capability checklist
   frontend/tradingview.md            chart setup: Lightweight Charts now, Charting Library later

@@ -57,8 +57,16 @@ export function useApi() {
     resume: (id: number) =>
       request<Account>(`/accounts/accounts/${id}/resume/`, { method: 'POST' }),
     remove: (id: number) => request<void>(`/accounts/accounts/${id}/`, { method: 'DELETE' }),
-    refreshBalances: () =>
-      request<{ accounts: unknown[] }>('/trading/balances/refresh/', { method: 'POST' }),
+    /**
+     * `force` is what the button sends: a human asking for fresh numbers gets
+     * them. The background poll leaves it off and is rate-limited server-side,
+     * so N open tabs do not mean N fan-outs to every exchange.
+     */
+    refreshBalances: (force = false) =>
+      request<{ accounts: unknown[] }>('/trading/balances/refresh/', {
+        method: 'POST',
+        body: { force },
+      }),
 
     // --- notifications (spec §4) ---
     notifications: () => request<ApiNotification[]>('/accounts/notifications/?active=true'),
