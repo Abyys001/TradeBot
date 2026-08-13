@@ -52,7 +52,7 @@ async function resume() {
 
     <button
       v-else
-      class="btn-sm btn border border-signal/60 bg-signal/10 text-signal"
+      class="btn-sm btn border border-signal/60 bg-signal-dim text-signal"
       :disabled="trading.haltPending || trading.haltLocked"
       :title="trading.haltLocked ? t('policy.stopAllLocked') : t('policy.resumeHint')"
       @click="confirmResume = true"

@@ -15,8 +15,8 @@ withDefaults(defineProps<{ options: Option[]; size?: 'sm' | 'md'; block?: boolea
 })
 
 const TONE: Record<string, string> = {
-  long: 'bg-long/10 text-long border-long/60',
-  short: 'bg-short/10 text-short border-short/60',
+  long: 'bg-long-dim text-long border-long/60',
+  short: 'bg-short-dim text-short border-short/60',
   default: 'bg-raised text-ink border-line-strong',
 }
 </script>

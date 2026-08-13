@@ -140,13 +140,20 @@ class HyperliquidAdapter(ExchangeAdapter):
                 "hyperliquid: could not read the account state. Check that the "
                 "master address is correct and the agent wallet is approved."
             )
-        # Spec §7 cannot be enforced from the API here: the docs do not state
-        # whether an agent wallet can sign withdrawals. questions.md Q11 tracks
-        # verifying this on testnet before real funds are connected.
+        # The state read proves the agent is approved for this master account.
+        # It proves nothing about withdrawal rights: the docs do not state
+        # whether an agent wallet can sign a withdrawal (questions.md Q11).
+        # Returning normally would mark the account "§7 verified" off a check
+        # that never ran, so report the gap — the account connects, flagged.
         logger.warning(
             "hyperliquid: agent-wallet withdrawal rights are unverified (questions.md Q11); "
             "account %s connected without a spec §7 permission check",
             self.account_address,
+        )
+        raise NotSupported(
+            "hyperliquid: the agent wallet is approved, but whether an agent can "
+            "sign withdrawals is not documented (questions.md Q11), so §7 cannot "
+            "be proven. Verify on testnet before connecting real capital."
         )
 
     async def get_balance(self, asset: str = "USDT") -> Balance:

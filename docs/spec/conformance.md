@@ -6,7 +6,7 @@ can be *checked* rather than taken on faith.
 
 Status key: **✅ done** · **⚠️ done, with a caveat you must read** · **➖ not required for v1**
 
-Test commands: `cd backend && .venv/bin/python -m pytest` (179 tests) ·
+Test commands: `cd backend && .venv/bin/python -m pytest` (183 tests) ·
 `npx nuxi typecheck` · `npm run build` in `frontend/`.
 
 ---
@@ -75,7 +75,7 @@ pair or timeframe resets the view to the newest candle.
 
 | Requirement | Where | Evidence | Status |
 |---|---|---|---|
-| Keys must be non-withdrawable | `verify_credentials()` per adapter; a withdrawable key is **refused and the row deleted** (`accounts/views.py`). Re-checked on `verify` **and on `resume`** — a key that gained withdrawal rights while paused does not come back. `ConnectedAccount.clean()` refuses to activate an account whose check never ran (`withdrawal_checked_at`) | `tests/test_adapters.py`, `tests/test_accounts_api.py` | ⚠️ only Bybit, OKX, Binance and KuCoin publish key permissions; on the other four the account is flagged "unverified" in the panel rather than silently passed. Binance and KuCoin keep that endpoint on their **spot** host, so a futures-only Binance key cannot reach it and is flagged, not refused. Hyperliquid agent-wallet rights still unverified (Q11) |
+| Keys must be non-withdrawable | `verify_credentials()` per adapter; a withdrawable key is **refused and the row deleted** (`accounts/views.py`). Re-checked on `verify` **and on `resume`** — a key that gained withdrawal rights while paused does not come back. `ConnectedAccount.clean()` refuses to activate an account whose check never ran (`withdrawal_checked_at`) | `tests/test_adapters.py`, `tests/test_accounts_api.py` | ⚠️ only Bybit, OKX, Binance and KuCoin publish key permissions; on the other four the adapter raises `NotSupported` after proving the key authenticates, so the account connects **paused and flagged "withdrawal unverified"** rather than silently passed — one Resume click activates it, on the admin's word that they checked the exchange dashboard. Binance and KuCoin keep that endpoint on their **spot** host, so a futures-only Binance key cannot reach it and is flagged, not refused. Hyperliquid agent-wallet rights still unverified (Q11) |
 | Keys encrypted at rest, never in responses | `apps/core/crypto.py` (Fernet + rotation); serializers never expose them | `tests/test_crypto.py` | ✅ |
 | Security first-class | Staff-gated routing endpoints, CSRF, no secrets in logs | `tests/test_auth.py` | ✅ |
 | Emergency "stop all" | `apps/trading/killswitch.py`, `components/app/StopAll.vue` in every top bar | `tests/test_killswitch.py` (10 cases) | ✅ env pin cannot be cleared from the panel; **both** closing *and* amending SL/TP keep working while halted (Q14), each with a test |
@@ -120,7 +120,13 @@ before connecting real partner capital.
 3. **Hyperliquid agent-wallet withdrawal rights** unverified (Q11).
 4. **TradingView Charting Library** pending their approval; Lightweight Charts
    is in place behind the same seam.
-5. **Market data reachability** depends on the deployment's egress. Where no
+5. **The symbol picker is a curated list of ten**, not the exchanges' own
+   catalogues (`trading.market_views.SYMBOLS`), and the chart is served live on
+   every request with no stored history. `ExchangeSymbol`, `StoredCandle` and
+   `MarketDataSync` in `trading/models.py` are the tables shaped for that
+   feature; **no code reads or writes them yet**, and their docstrings say so.
+   Neither the catalogue nor stored history is a spec §3 requirement.
+6. **Market data reachability** depends on the deployment's egress. Where no
    provider is reachable the API returns 503 and the panel shows an explicit
    "no price feed" state — there is no synthetic series, and with no price
    nothing sizes an order (Q13, amended 13 Aug 2026).

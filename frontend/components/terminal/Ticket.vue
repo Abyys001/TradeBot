@@ -196,7 +196,7 @@ function useMarketPrice() {
             :key="preset"
             class="num flex-1 text-[0.65rem] py-0.5 rounded-md border border-line
                    text-ink-muted hover:text-short hover:border-short/50 transition-colors"
-            :class="order.slPct === preset ? 'text-short border-short/60 bg-short/10' : ''"
+            :class="order.slPct === preset ? 'text-short border-short/60 bg-short-dim' : ''"
             @click="order.setSL(preset, 'ticket')"
           >
             {{ preset }}%
@@ -217,7 +217,7 @@ function useMarketPrice() {
             :key="preset"
             class="num flex-1 text-[0.65rem] py-0.5 rounded-md border border-line
                    text-ink-muted hover:text-long hover:border-long/50 transition-colors"
-            :class="order.tpPct === preset ? 'text-long border-long/60 bg-long/10' : ''"
+            :class="order.tpPct === preset ? 'text-long border-long/60 bg-long-dim' : ''"
             @click="order.setTP(preset, 'ticket')"
           >
             {{ preset }}%

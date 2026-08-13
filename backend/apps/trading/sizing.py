@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from django.conf import settings
 
-from apps.core.money import D, floor_to_step
+from apps.core.money import D, floor_to_step, human
 from apps.exchanges.base import Balance, MarketType, SymbolRules
 
 
@@ -74,17 +74,19 @@ def size_order(
     # Never round up past the authorised fraction (spec §5): rounding down can
     # push a marginal account below the exchange minimum, and that is correct —
     # it sits out with a notification rather than over-committing.
+    share = human(balance_fraction() * Decimal("100"), min_dp=0)
     if qty < rules.min_qty:
         raise SizingRejection(
-            f"99% of {balance.available} USDT at {effective_leverage}x buys at most "
-            f"{raw_qty} {rules.symbol}, below the exchange minimum {rules.min_qty}",
+            f"{share}% of {human(balance.available)} USDT at {effective_leverage}x "
+            f"buys at most {human(raw_qty)} {rules.symbol}, below the exchange "
+            f"minimum {human(rules.min_qty)}",
             code="below_min_qty",
         )
     if qty * price < rules.min_notional:
         raise SizingRejection(
-            f"99% of {balance.available} USDT at {effective_leverage}x reaches only "
-            f"{qty * price} USDT of notional, below the exchange minimum "
-            f"{rules.min_notional}",
+            f"{share}% of {human(balance.available)} USDT at {effective_leverage}x "
+            f"reaches only {human(qty * price)} USDT of notional, below the exchange "
+            f"minimum {human(rules.min_notional)}",
             code="below_min_notional",
         )
 

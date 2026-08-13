@@ -18,6 +18,7 @@ from rest_framework.response import Response
 
 from apps.core.money import D
 from apps.exchanges.base import MarketType, Side
+from apps.exchanges.catalogue import catalogue_sources, start_sync, sync_state
 from apps.exchanges.marketdata import (
     DEFAULT_LIMIT,
     INTERVALS,
@@ -27,7 +28,7 @@ from apps.exchanges.marketdata import (
     normalise_interval,
     normalise_market,
 )
-from apps.trading.models import Trade, TradeStatus
+from apps.trading.models import ExchangeSymbol, Trade, TradeStatus
 
 #: Returned when no exchange is reachable. 503, not 200-with-a-number: the panel
 #: has to be able to tell "no feed" from "a price", and every price it draws has
@@ -39,21 +40,11 @@ FEED_DOWN = 503
 #: hundred outbound calls.
 MAX_WATCHLIST = 30
 
-#: Symbols offered in the terminal's picker. A curated list rather than the
-#: exchange's full catalogue: every connected account must be able to trade the
-#: pair, and the intersection of ten exchanges is small and stable.
-SYMBOLS = [
-    {"symbol": "BTCUSDT", "base": "BTC", "quote": "USDT"},
-    {"symbol": "ETHUSDT", "base": "ETH", "quote": "USDT"},
-    {"symbol": "SOLUSDT", "base": "SOL", "quote": "USDT"},
-    {"symbol": "BNBUSDT", "base": "BNB", "quote": "USDT"},
-    {"symbol": "XRPUSDT", "base": "XRP", "quote": "USDT"},
-    {"symbol": "DOGEUSDT", "base": "DOGE", "quote": "USDT"},
-    {"symbol": "ADAUSDT", "base": "ADA", "quote": "USDT"},
-    {"symbol": "AVAXUSDT", "base": "AVAX", "quote": "USDT"},
-    {"symbol": "LINKUSDT", "base": "LINK", "quote": "USDT"},
-    {"symbol": "TONUSDT", "base": "TON", "quote": "USDT"},
-]
+#: Returned when nothing has been downloaded yet. Not 200-with-a-list: the
+#: picker used to offer ten pairs this platform had simply asserted were
+#: tradeable. There is no catalogue until an exchange has been asked for one,
+#: and no exchange can be asked without a connected account's API key.
+NO_CATALOGUE = 409
 
 
 @api_view(["GET"])
@@ -68,12 +59,18 @@ def candles(request):
         interval = normalise_interval(request.query_params.get("interval"))
         market = normalise_market(request.query_params.get("market"))
         limit = int(request.query_params.get("limit") or DEFAULT_LIMIT)
+        # `end` (UNIX seconds) asks for the window before that moment — how the
+        # chart pans back into the downloaded year.
+        raw_end = request.query_params.get("end")
+        end = int(raw_end) if raw_end else None
     except (ValueError, TypeError) as exc:
         return Response({"detail": str(exc)}, status=400)
 
     symbol = (request.query_params.get("symbol") or "BTCUSDT").upper()
     try:
-        payload = get_candles(symbol=symbol, interval=interval, market=market, limit=limit)
+        payload = get_candles(
+            symbol=symbol, interval=interval, market=market, limit=limit, end=end
+        )
     except MarketDataError as exc:
         return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
     return Response(payload)
@@ -126,7 +123,99 @@ def tickers(request):
 
 @api_view(["GET"])
 def symbols(request):
-    return Response({"symbols": SYMBOLS, "intervals": list(INTERVALS)})
+    """Every pair the connected exchanges list, as they list them.
+
+    The union across exchanges, so nothing an admin could trade is hidden. Each
+    row carries which venues have it — a pair only one exchange lists will skip
+    the other accounts at sizing time, and the picker can say so up front.
+
+    With nothing downloaded this answers 409 rather than a list: connect an
+    account and its API key, and the catalogue arrives with it.
+    """
+    try:
+        market = normalise_market(request.query_params.get("market"))
+    except ValueError as exc:
+        return Response({"detail": str(exc)}, status=400)
+
+    rows = (
+        ExchangeSymbol.objects.filter(market=market.value, active=True)
+        .values("symbol", "base", "quote", "exchange", "volume_24h")
+        .order_by("symbol")
+    )
+
+    merged: dict[str, dict] = {}
+    for row in rows:
+        entry = merged.setdefault(
+            row["symbol"],
+            {
+                "symbol": row["symbol"],
+                "base": row["base"],
+                "quote": row["quote"],
+                "exchanges": [],
+                "volume_24h": None,
+            },
+        )
+        entry["exchanges"].append(row["exchange"])
+        volume = row["volume_24h"]
+        if volume is not None:
+            current = entry["volume_24h"]
+            entry["volume_24h"] = _s(volume if current is None else max(D(current), volume))
+
+    if not merged:
+        return Response(
+            {
+                "detail": (
+                    "No exchange has been asked for its pairs yet. Connect the "
+                    "first account with its API key — the pair list and price "
+                    "feed are downloaded from that exchange."
+                ),
+                "needs_account": True,
+                "symbols": [],
+                "intervals": list(INTERVALS),
+                "sync": sync_state(),
+            },
+            status=NO_CATALOGUE,
+        )
+
+    # Busiest first: what a chart is opened on, with the long tail behind it.
+    ordered = sorted(
+        merged.values(),
+        key=lambda row: (-D(row["volume_24h"] or "0"), row["symbol"]),
+    )
+    return Response(
+        {
+            "symbols": ordered,
+            "intervals": list(INTERVALS),
+            "market": market.value,
+            "needs_account": False,
+            "sync": sync_state(),
+        }
+    )
+
+
+@api_view(["GET", "POST"])
+def market_sync(request):
+    """Progress of the pair/history download — the bar on the accounts page.
+
+    POST starts one (staff only, like every other write here). GET is the poll
+    the bar runs on, and is readable by any signed-in admin.
+    """
+    if request.method == "POST":
+        if not request.user.is_staff:
+            return Response({"detail": "staff only"}, status=403)
+        if not catalogue_sources():
+            return Response(
+                {
+                    "detail": (
+                        "Connect an account first: the pairs and their history "
+                        "are downloaded from the exchange that account is on."
+                    ),
+                    "needs_account": True,
+                },
+                status=NO_CATALOGUE,
+            )
+        start_sync(request.data.get("exchange", "") or "", force=bool(request.data.get("force")))
+    return Response(sync_state())
 
 
 @api_view(["GET"])

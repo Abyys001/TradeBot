@@ -41,3 +41,29 @@ def quantize_price(price: Decimal, tick: Decimal) -> Decimal:
 
 def pct(value: Decimal, percent: Decimal) -> Decimal:
     return value * percent / Decimal("100")
+
+
+def human(value, *, min_dp: int = 1, sig: int = 4) -> str:
+    """A decimal a person can read: one place, and more only when one would lie.
+
+    Stored money is 8dp and a division is 28 — both true and both unreadable in
+    a sentence ("99% of 10.00000000 USDT ... 0.0000990000 BTCUSDT"). This keeps
+    ``sig`` significant digits, never fewer than ``min_dp`` decimals, and drops
+    the zeros that carry no information::
+
+        10        -> "10.0"      49.5   -> "49.5"
+        0.000099  -> "0.000099"  0.001  -> "0.001"
+
+    Always rounds **down**, like every other size in this codebase: a rejection
+    notice that rounds a size up reads as if the account nearly qualified.
+    """
+    number = D(value)
+    if number == 0:
+        return f"{ZERO:.{min_dp}f}" if min_dp else "0"
+    places = max(min_dp, sig - 1 - number.adjusted())
+    text = f"{number.quantize(Decimal(1).scaleb(-places), rounding=ROUND_DOWN):f}"
+    if "." not in text:
+        return text
+    whole, _, fraction = text.rstrip("0").partition(".")
+    fraction = fraction.ljust(min_dp, "0")
+    return f"{whole}.{fraction}" if fraction else whole

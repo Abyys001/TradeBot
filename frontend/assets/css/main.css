@@ -30,9 +30,32 @@
    for hours; light exists because it is sometimes shown on a projector or read
    in daylight, and a screenshot of a near-black UI is unreadable on paper.
 
-   The light steps are chosen against a white surface, not derived by inverting
-   the dark ones — an automatic flip washes out cyan and amber to the point that
-   the failure colour stops reading as a failure.
+   The light steps are chosen against a tinted paper ground, not derived by
+   inverting the dark ones — an automatic flip washes out cyan and amber to the
+   point that the failure colour stops reading as a failure.
+
+   Two rules the light theme lives or dies by, learned the hard way:
+
+   1. **The ground is not white.** In the dark theme the panels are *lighter*
+      than the page; flipping that means the page must go *darker* than the
+      panels, or every surface collapses into one white field with hairlines
+      floating on it. `base` is a tinted slate, `panel` sits above it, `raised`
+      and `sunken` step back down. Four distinct steps, in the same order as
+      dark, so no component has to know which theme it is in.
+   2. **Nothing is at full luminance.** A trading panel is stared at for hours;
+      a 100%-white card under a bright monitor is what makes eyes ache. `panel`
+      tops out at 252/253/255 and the ground sits ~20 steps below it, which is
+      enough separation to read without needing shadows to do the work.
+
+   Roles beyond the surfaces:
+
+     *-dim   a *flat tint surface* for that role — the fill behind a selected
+             short/long chip, an amber failure band, a highlighted watchlist
+             row. Tuned per theme rather than expressed as `bg-short/10`,
+             because one alpha cannot serve both: 10% rose over near-black is
+             a clear tint, and over near-white it is nothing at all.
+     scrim   the modal backdrop. Black at 60% is right over a black page and
+             looks like a power cut over a light one.
 --------------------------------------------------------------------------- */
 :root,
 [data-theme='dark'] {
@@ -51,55 +74,87 @@
   --c-ink-invert: 7 9 12;
 
   --c-brand: 124 156 255;
-  --c-brand-dim: 42 56 110;
+  --c-brand-dim: 25 32 56;
 
   --c-long: 59 201 216;
-  --c-long-dim: 22 84 92;
+  --c-long-dim: 14 42 47;
 
   --c-short: 255 107 129;
-  --c-short-dim: 105 40 51;
+  --c-short-dim: 51 22 29;
 
   --c-signal: 240 160 32;
-  --c-signal-dim: 92 62 15;
+  --c-signal-dim: 48 34 12;
 
   --c-ok: 74 222 128;
-  --c-ok-dim: 25 82 47;
+  --c-ok-dim: 17 44 29;
 
   /* Chart surface — read by useChartAdapter so the candles follow the theme. */
   --c-chart-grid: 26 31 39;
+
+  --c-scrim: 0 0 0;
+  --scrim-a: 0.6;
+
+  /* Depth: a hairline plus a soft lift, never a heavy drop — a dark UI with
+     strong shadows reads as muddy. */
+  --shadow-lift: 0 1px 2px rgb(0 0 0 / 0.28), 0 8px 24px -12px rgb(0 0 0 / 0.45);
+  --shadow-pop: 0 12px 40px -12px rgb(0 0 0 / 0.55);
+  --shadow-panel: none;
 }
 
 [data-theme='light'] {
   color-scheme: light;
 
-  --c-base: 246 247 250;
-  --c-panel: 255 255 255;
-  --c-raised: 240 243 247;
-  --c-sunken: 249 250 252;
-  --c-line: 224 228 235;
-  --c-line-strong: 200 207 218;
+  /* Ground → panel → raised → sunken, same order as dark. `base` carries a
+     slight blue-slate cast that matches the brand; a neutral grey next to a
+     blue accent reads as dirty white. */
+  --c-base: 233 237 244;
+  --c-panel: 252 253 255;
+  --c-raised: 240 244 250;
+  --c-sunken: 235 239 246;
+  --c-line: 213 220 232;
+  --c-line-strong: 181 191 209;
 
-  --c-ink: 15 19 26;
-  --c-ink-muted: 82 92 108;
-  --c-ink-faint: 128 138 154;
+  /* Ink stops short of black: pure #000 on near-white is the highest-contrast
+     pairing a screen can produce, and it shimmers on thin type. */
+  --c-ink: 16 23 38;
+  --c-ink-muted: 82 94 115;
+  /* Every ink and accent step below clears 4.5:1 against `base`, not just
+     against `panel` — labels and coloured text sit on the page ground as often
+     as inside a card, and the ground is the harder background of the two. */
+  --c-ink-faint: 96 107 127;
   --c-ink-invert: 255 255 255;
 
-  --c-brand: 47 92 219;
-  --c-brand-dim: 205 218 250;
+  /* The accents are darkened versions of the dark theme's hues, not the same
+     values: the dark theme's cyan and amber are chosen to glow on near-black
+     and turn into highlighter pen on paper. Each one also works as a *fill*
+     under white text, which the long/short submit button relies on
+     (`bg-long text-ink-invert`). */
+  --c-brand: 42 82 208;
+  --c-brand-dim: 226 233 253;
 
-  --c-long: 9 132 144;
-  --c-long-dim: 190 233 236;
+  --c-long: 0 116 130;
+  --c-long-dim: 224 243 246;
 
-  --c-short: 205 40 66;
-  --c-short-dim: 250 213 219;
+  --c-short: 202 34 62;
+  --c-short-dim: 253 226 231;
 
-  --c-signal: 166 96 0;
-  --c-signal-dim: 250 231 200;
+  --c-signal: 156 86 0;
+  --c-signal-dim: 253 239 216;
 
-  --c-ok: 21 128 61;
-  --c-ok-dim: 205 240 216;
+  --c-ok: 20 122 60;
+  --c-ok-dim: 219 243 227;
 
-  --c-chart-grid: 231 235 241;
+  --c-chart-grid: 222 228 238;
+
+  --c-scrim: 18 26 44;
+  --scrim-a: 0.42;
+
+  /* Shadows are tinted with the ground's navy rather than neutral black: grey
+     shadows on a cool page look like smudges. Lower alpha, wider spread —
+     on light, elevation comes mostly from the border. */
+  --shadow-lift: 0 1px 2px rgb(16 24 48 / 0.06), 0 10px 24px -12px rgb(16 24 48 / 0.2);
+  --shadow-pop: 0 4px 12px -4px rgb(16 24 48 / 0.1), 0 24px 48px -16px rgb(16 24 48 / 0.28);
+  --shadow-panel: 0 1px 2px rgb(16 24 48 / 0.04);
 }
 
 @layer base {
@@ -193,6 +248,15 @@
 
   .panel {
     @apply bg-panel border border-line rounded-panel;
+    /* Light theme only: a whisper of elevation so a card reads as a card on a
+       tinted ground. Dark resolves this to `none` — see the token block. */
+    box-shadow: var(--shadow-panel);
+  }
+
+  /* Modal / drawer backdrop. Themed, because black at 60% over a light page
+     reads as a power cut rather than a dimmed background. */
+  .scrim {
+    background: rgb(var(--c-scrim) / var(--scrim-a));
   }
 
   .field {
@@ -243,7 +307,7 @@
   }
 
   .btn-danger {
-    @apply btn border border-short/40 text-short hover:bg-short/10 hover:border-short/70;
+    @apply btn border border-short/40 text-short hover:bg-short-dim hover:border-short/70;
   }
 
   /* Row actions carry their meaning in colour *and* in the icon: pausing an
@@ -252,15 +316,15 @@
      brand. A row of identical grey ghost buttons made the destructive one look
      exactly like the harmless one. */
   .btn-warn {
-    @apply btn border border-signal/40 text-signal hover:bg-signal/10 hover:border-signal/70;
+    @apply btn border border-signal/40 text-signal hover:bg-signal-dim hover:border-signal/70;
   }
 
   .btn-ok {
-    @apply btn border border-ok/40 text-ok hover:bg-ok/10 hover:border-ok/70;
+    @apply btn border border-ok/40 text-ok hover:bg-ok-dim hover:border-ok/70;
   }
 
   .btn-info {
-    @apply btn border border-brand/40 text-brand hover:bg-brand/10 hover:border-brand/70;
+    @apply btn border border-brand/40 text-brand hover:bg-brand-dim hover:border-brand/70;
   }
 
   /* Square icon-only variant, so a three-button action group is three equal
@@ -271,7 +335,7 @@
 
   /* Reserved for failure only — see the token note in tailwind.config.ts. */
   .alert {
-    @apply border border-signal/50 bg-signal/[0.08] rounded-lg text-signal;
+    @apply border border-signal/50 bg-signal-dim rounded-lg text-signal;
   }
 
   .chip {

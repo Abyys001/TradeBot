@@ -88,9 +88,17 @@ class GateioAdapter(RestAdapter):
     # --- interface ---------------------------------------------------------
 
     async def verify_credentials(self) -> None:
-        # Gate does not expose key permissions via APIv4, so spec §7 cannot be
-        # proven here — the admin confirms it when creating the key.
+        # The call proves the credential authenticates and can reach futures.
         await self.request("GET", f"/api/v4/futures/{SETTLE}/accounts")
+        # It proves nothing about withdrawal rights: Gate exposes no
+        # key-permission endpoint on APIv4. Returning normally here would mark
+        # the account "§7 verified" on the strength of a check that never ran,
+        # so say so instead — verify_account turns this into a flagged account.
+        raise NotSupported(
+            "gateio: the key authenticates, but Gate exposes no key-permission "
+            "endpoint, so withdrawal rights cannot be checked. Confirm in the "
+            "Gate.io dashboard that the key is trade-only."
+        )
 
     async def get_balance(self, asset: str = "USDT") -> Balance:
         data = await self.request("GET", f"/api/v4/futures/{SETTLE}/accounts")

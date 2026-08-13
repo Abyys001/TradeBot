@@ -71,8 +71,13 @@ class ConnectedAccount(models.Model):
     last_balance_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
 
-    # Spec §6: a newly connected account joins from the *next* trade, never an
-    # open one. Set when connected/resumed; the engine filters on it.
+    # Spec §6: when this account became eligible to join a trade. Set on
+    # connect and moved forward on resume, so the panel and the audit trail can
+    # answer "since when". It is *not* what enforces the rule — enforcement is
+    # leg-based in ``trading.services.eligible_accounts``: an amend or close
+    # only reaches accounts already holding a filled leg of that trade, so an
+    # account that connected or resumed later has nothing to join. That is the
+    # stricter test of the two, and the one with tests behind it.
     eligible_from = models.DateTimeField(auto_now_add=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -126,9 +131,9 @@ class ConnectedAccount(models.Model):
         """Spec §7: no real account routes orders unchecked.
 
         The guard is on ``withdrawal_checked_at``, not on
-        ``withdrawal_check_passed``. Only Bybit, OKX and Binance publish key
-        permissions at all; requiring a *passed* check would make the other
-        five exchanges unusable, which is not what §7 asks. What §7 asks is
+        ``withdrawal_check_passed``. Only Bybit, OKX, Binance and KuCoin publish
+        key permissions at all; requiring a *passed* check would make the other
+        four exchanges unusable, which is not what §7 asks. What §7 asks is
         that the check is run and a proven-withdrawable key is refused — the
         refusal happens in ``accounts.views.verify_account``, and this makes
         sure no path skips the call and activates an unchecked credential.

@@ -21,7 +21,7 @@ const onLogin = computed(() => route.path === localePath('/login'))
       <div class="max-w-6xl mx-auto h-14 flex items-center gap-3 px-4">
         <NuxtLink :to="localePath('/')" class="flex items-center gap-2.5 min-w-0">
           <span
-            class="w-8 h-8 rounded-lg bg-brand/15 border border-brand/30 grid place-items-center text-brand shrink-0"
+            class="w-8 h-8 rounded-lg bg-brand-dim border border-brand/30 grid place-items-center text-brand shrink-0"
           >
             <UiIcon name="bolt" :size="16" />
           </span>

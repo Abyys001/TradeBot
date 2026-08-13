@@ -185,8 +185,8 @@ const changeTone = (value: number | null) =>
             : 'px-3 py-1.5',
           row.symbol === market.symbol && onChartPage
             ? full
-              ? 'border-brand/50 bg-brand/[0.07]'
-              : 'bg-brand/[0.07]'
+              ? 'border-brand/50 bg-brand-dim'
+              : 'bg-brand-dim'
             : full
               ? ''
               : 'hover:bg-raised/60',

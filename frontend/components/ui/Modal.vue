@@ -69,7 +69,7 @@ onBeforeUnmount(() => {
     >
       <div
         v-if="open"
-        class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
+        class="fixed inset-0 z-[100] scrim backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"

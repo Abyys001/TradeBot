@@ -39,7 +39,7 @@ const row = computed(() =>
         :title="t('app.name')"
       >
         <span
-          class="w-8 h-8 rounded-lg bg-brand/15 border border-brand/30 grid place-items-center
+          class="w-8 h-8 rounded-lg bg-brand-dim border border-brand/30 grid place-items-center
                  text-brand shrink-0 group-hover:bg-brand/25 transition-colors"
         >
           <UiIcon name="bolt" :size="16" />
@@ -60,7 +60,7 @@ const row = computed(() =>
         :class="[
           row,
           isActive(item)
-            ? 'bg-brand/10 text-brand'
+            ? 'bg-brand-dim text-brand'
             : 'text-ink-muted hover:text-ink hover:bg-raised',
         ]"
       >
@@ -77,7 +77,7 @@ const row = computed(() =>
         <span v-if="!ui.sidebarCollapsed" class="truncate">{{ item.label }}</span>
         <span
           v-if="item.badge"
-          class="num text-[0.65rem] rounded-full bg-signal/20 text-signal leading-none"
+          class="num text-[0.65rem] rounded-full bg-signal-dim text-signal leading-none"
           :class="
             ui.sidebarCollapsed
               ? 'absolute -top-0.5 -end-0.5 min-w-[1rem] h-4 px-1 grid place-items-center'

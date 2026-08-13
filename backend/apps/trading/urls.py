@@ -1,7 +1,14 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from apps.trading.market_views import candles, positions, symbols, ticker, tickers
+from apps.trading.market_views import (
+    candles,
+    market_sync,
+    positions,
+    symbols,
+    ticker,
+    tickers,
+)
 from apps.trading.order_views import (
     amend_position,
     close_position,
@@ -27,6 +34,7 @@ urlpatterns = [
     path("market/ticker/", ticker, name="market-ticker"),
     path("market/tickers/", tickers, name="market-tickers"),
     path("market/symbols/", symbols, name="market-symbols"),
+    path("market/sync/", market_sync, name="market-sync"),
     path("positions/", positions, name="positions"),
     *router.urls,
 ]

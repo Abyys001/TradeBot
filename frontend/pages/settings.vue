@@ -127,12 +127,12 @@ const diagnostics = computed(() => [
     <!-- 1. Spec §7 kill switch -->
     <section
       class="panel p-4 sm:p-5"
-      :class="trading.halted ? 'border-signal/50 bg-signal/[0.05]' : ''"
+      :class="trading.halted ? 'border-signal/50 bg-signal-dim' : ''"
     >
       <div class="flex flex-wrap items-start gap-4">
         <span
           class="w-10 h-10 rounded-xl grid place-items-center shrink-0"
-          :class="trading.halted ? 'bg-signal/15 text-signal' : 'bg-raised text-ink-faint'"
+          :class="trading.halted ? 'bg-signal-dim text-signal' : 'bg-raised text-ink-faint'"
         >
           <UiIcon name="alert" :size="18" />
         </span>

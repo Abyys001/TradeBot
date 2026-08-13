@@ -384,6 +384,26 @@ async def test_kucoin_converts_contracts_back_to_base_units():
 # --- Gate.io ----------------------------------------------------------------
 
 
+async def test_gateio_does_not_pretend_to_check_permissions():
+    """Spec §7: an unprovable check must report itself, never pass silently.
+
+    Gate publishes no key-permission endpoint on APIv4. The call still runs —
+    it proves the credential authenticates — but the account must come back
+    flagged, not marked verified.
+    """
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return json_response({"available": "100", "total": "100"})
+
+    adapter = GateioAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    with pytest.raises(NotSupported, match="cannot be checked"):
+        await adapter.verify_credentials()
+    assert calls == ["/api/v4/futures/usdt/accounts"], "the auth check must still run"
+    await adapter.close()
+
+
 async def test_gateio_signature_uses_sha512_over_the_five_line_prehash():
     captured: dict = {}
 
@@ -684,6 +704,21 @@ async def test_kucoin_lists_untriggered_stop_orders():
 
 
 # --- LBank ------------------------------------------------------------------
+
+
+async def test_lbank_does_not_pretend_to_check_permissions():
+    """Spec §7: LBank publishes no key-permission endpoint — say so."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return json_response({"result": True, "data": []})
+
+    adapter = LbankAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    with pytest.raises(NotSupported, match="cannot be checked"):
+        await adapter.verify_credentials()
+    assert calls == ["/v2/supplement/user_info.do"], "the auth check must still run"
+    await adapter.close()
 
 
 async def test_lbank_futures_is_refused_with_an_explanation():
@@ -1220,3 +1255,57 @@ async def test_kucoin_refuses_an_inverse_contract():
     )
     with pytest.raises(NotSupported):
         await adapter.get_symbol_rules("XBTUSDM", MarketType.FUTURES)
+
+
+# --- Hyperliquid ------------------------------------------------------------
+
+
+class _StubSdk:
+    """Stands in for the Hyperliquid SDK's Info/Exchange objects.
+
+    ``_call`` only builds the real SDK when ``_exchange`` is None, so assigning
+    both attributes keeps the test off the network and out of eth_account.
+    """
+
+    def __init__(self, state: dict) -> None:
+        self._state = state
+        self.calls: list[tuple] = []
+
+    def user_state(self, address: str) -> dict:
+        self.calls.append(("user_state", address))
+        return self._state
+
+
+def _hyperliquid(state: dict) -> tuple:
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32,
+        account_address="0xabc",
+        testnet=True,
+    )
+    stub = _StubSdk(state)
+    adapter._exchange = stub
+    adapter._info = stub
+    return adapter, stub
+
+
+async def test_hyperliquid_does_not_pretend_to_check_permissions():
+    """Spec §7 / Q11: agent-wallet withdrawal rights are undocumented.
+
+    The state read still runs — it proves the agent is approved for the master
+    account — but the account must come back flagged, not marked verified.
+    """
+    adapter, stub = _hyperliquid({"marginSummary": {"accountValue": "1000"}})
+    with pytest.raises(NotSupported, match="Q11"):
+        await adapter.verify_credentials()
+    assert stub.calls == [("user_state", "0xabc")], "the approval check must still run"
+
+
+async def test_hyperliquid_rejects_an_unreadable_account_as_an_auth_error():
+    """An unreadable account is a broken credential, not an unprovable check."""
+    from apps.exchanges.base import AuthError
+
+    adapter, _ = _hyperliquid({"nothing": True})
+    with pytest.raises(AuthError):
+        await adapter.verify_credentials()

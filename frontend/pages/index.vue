@@ -141,7 +141,7 @@ const EXCHANGES = [
       <div class="max-w-6xl mx-auto px-4 py-12 sm:py-16 grid md:grid-cols-3 gap-8 md:gap-10">
         <div v-for="truth in truths" :key="truth.key">
           <span
-            class="w-9 h-9 rounded-lg grid place-items-center bg-brand/10 border border-brand/25 text-brand"
+            class="w-9 h-9 rounded-lg grid place-items-center bg-brand-dim border border-brand/25 text-brand"
           >
             <UiIcon :name="truth.icon" :size="17" />
           </span>
@@ -194,7 +194,7 @@ const EXCHANGES = [
     <section class="border-t border-line">
       <div class="max-w-6xl mx-auto px-4 py-12 sm:py-16 flex flex-col sm:flex-row gap-6 sm:gap-10">
         <span
-          class="w-10 h-10 shrink-0 rounded-lg grid place-items-center bg-ok/10 border border-ok/25 text-ok"
+          class="w-10 h-10 shrink-0 rounded-lg grid place-items-center bg-ok-dim border border-ok/25 text-ok"
         >
           <UiIcon name="shield" :size="19" />
         </span>

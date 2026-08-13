@@ -216,11 +216,27 @@ MARKET_DATA = {
     # marketdata.resolve_proxy. Set explicitly where the exchange is only
     # reachable through a proxy.
     "PROXY": os.getenv("MARKET_DATA_PROXY", ""),
+    # Fallbacks *behind* the connected exchanges. The venue an account is on is
+    # always tried first (see marketdata._configured_providers), so these only
+    # matter before the first connect or when that exchange is unreachable.
     "PROVIDERS": [
         p.strip()
         for p in os.getenv("MARKET_DATA_PROVIDERS", "binance,bybit").split(",")
         if p.strip()
     ],
+    # --- history download (accounts page progress bar) ---------------------
+    # Every timeframe the chart offers, for the busiest pairs, one year back.
+    # A year of 1m bars is ~525k rows per pair: dial these down where storage
+    # or first-connect time matters more than intraday scrollback.
+    "BACKFILL_INTERVALS": [
+        i.strip()
+        for i in os.getenv("BACKFILL_INTERVALS", "1m,5m,15m,1h,4h,1d").split(",")
+        if i.strip()
+    ],
+    "BACKFILL_PAIRS": int(os.getenv("BACKFILL_PAIRS", "50")),
+    "BACKFILL_DAYS": int(os.getenv("BACKFILL_DAYS", "365")),
+    # Start the download by itself when the first account connects.
+    "AUTO_SYNC": False if RUNNING_TESTS else env_bool("MARKET_DATA_AUTO_SYNC", True),
 }
 
 LOGGING = {

@@ -30,7 +30,7 @@ useHead({
   meta: [
     // Colours the browser chrome on mobile; a light bar over a black panel is
     // the most visible seam there is.
-    { name: 'theme-color', content: () => (theme.value === 'light' ? '#f6f7fa' : '#07090c') },
+    { name: 'theme-color', content: () => (theme.value === 'light' ? '#e9edf4' : '#07090c') },
     { name: 'description', content: () => t('landing.lede') },
   ],
 })

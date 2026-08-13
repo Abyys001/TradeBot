@@ -128,9 +128,16 @@ class LbankAdapter(RestAdapter):
     # --- interface ---------------------------------------------------------
 
     async def verify_credentials(self) -> None:
-        # LBank exposes no key-permission endpoint, so spec §7 cannot be proven
-        # from the API — the admin confirms it when creating the key.
+        # The call proves the credential authenticates.
         await self.request("POST", "/v2/supplement/user_info.do")
+        # It proves nothing about withdrawal rights: LBank exposes no
+        # key-permission endpoint. Returning normally would mark the account
+        # "§7 verified" off a check that never ran, so report the gap instead.
+        raise NotSupported(
+            "lbank: the key authenticates, but LBank exposes no key-permission "
+            "endpoint, so withdrawal rights cannot be checked. Confirm in the "
+            "LBank dashboard that the key is trade-only."
+        )
 
     async def get_balance(self, asset: str = "USDT") -> Balance:
         data = await self.request("POST", "/v2/supplement/user_info.do")

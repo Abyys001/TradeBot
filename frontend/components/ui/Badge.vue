@@ -13,11 +13,11 @@ withDefaults(
 
 const TONE = {
   neutral: 'border-line text-ink-muted bg-raised',
-  ok: 'border-ok/40 text-ok bg-ok/10',
-  signal: 'border-signal/50 text-signal bg-signal/10',
-  short: 'border-short/40 text-short bg-short/10',
-  long: 'border-long/40 text-long bg-long/10',
-  brand: 'border-brand/40 text-brand bg-brand/10',
+  ok: 'border-ok/40 text-ok bg-ok-dim',
+  signal: 'border-signal/50 text-signal bg-signal-dim',
+  short: 'border-short/40 text-short bg-short-dim',
+  long: 'border-long/40 text-long bg-long-dim',
+  brand: 'border-brand/40 text-brand bg-brand-dim',
 }
 </script>
 

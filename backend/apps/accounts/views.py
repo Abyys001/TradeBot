@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -47,6 +48,29 @@ def verify_account(account: ConnectedAccount) -> tuple[bool, str]:
     except AdapterError as exc:
         return False, str(exc)
     return True, ""
+
+
+def after_connect(account: ConnectedAccount) -> None:
+    """Start downloading that exchange's pairs and history (see catalogue.py).
+
+    This is the moment the platform first *has* an exchange to ask. The panel's
+    pair list and price feed both come from here, so a connect is what turns an
+    empty picker into a real one — and the accounts page shows the download's
+    progress rather than leaving the admin guessing.
+    """
+    from django.core.cache import cache
+
+    from apps.exchanges.catalogue import start_sync
+
+    # The feed picks its provider from the connected exchanges; that lookup is
+    # cached, and a new account must not wait out the TTL to be quoted from.
+    cache.delete("md:connected")
+    if not settings.MARKET_DATA.get("AUTO_SYNC"):
+        return
+    try:
+        start_sync()
+    except Exception:  # noqa: BLE001 - a download must never fail a connect
+        logger.exception("could not start the market data download")
 
 
 def _record_check(account: ConnectedAccount, *, passed: bool, note: str) -> None:
@@ -100,6 +124,7 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
             account.withdrawal_check_passed = True
             account.withdrawal_checked_at = timezone.now()
             account.save(update_fields=["withdrawal_check_passed", "withdrawal_checked_at"])
+            after_connect(account)
             return
 
         try:
@@ -115,6 +140,7 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
         account.status = AccountStatus.ACTIVE if passed else AccountStatus.PAUSED
         account.full_clean()
         account.save(update_fields=["status"])
+        after_connect(account)
 
     @action(detail=True, methods=["post"])
     def verify(self, request, pk=None):

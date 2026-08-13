@@ -147,7 +147,7 @@ const alerts = computed<Alert[]>(() => {
     </ul>
 
     <div v-else class="px-4 py-5 flex items-center gap-3">
-      <span class="w-8 h-8 rounded-full grid place-items-center bg-ok/10 text-ok border border-ok/30">
+      <span class="w-8 h-8 rounded-full grid place-items-center bg-ok-dim text-ok border border-ok/30">
         <UiIcon name="check" :size="15" />
       </span>
       <div>

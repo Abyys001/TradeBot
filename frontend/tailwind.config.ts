@@ -20,6 +20,11 @@ import type { Config } from 'tailwindcss'
  *                 liquidation, unprotected positions, budget breaches. If amber
  *                 appears anywhere decorative, the reservation is broken.
  *   ok            confirmation of a healthy state, nothing else.
+ *
+ * Each role carries a `dim` companion: the flat tinted *surface* for that role
+ * (selected short chip, amber failure band, highlighted row). It is a token
+ * rather than `bg-short/10` because no single alpha works in both themes —
+ * 10% rose over near-black is a tint, over near-white it is nothing.
  */
 export default <Partial<Config>>{
   theme: {
@@ -99,10 +104,11 @@ export default <Partial<Config>>{
         panel: '0.75rem',
       },
       boxShadow: {
-        // Depth comes from a hairline plus a soft lift, never a heavy drop —
-        // a dark UI with strong shadows reads as muddy.
-        lift: '0 1px 2px rgb(0 0 0 / 0.28), 0 8px 24px -12px rgb(0 0 0 / 0.45)',
-        pop: '0 12px 40px -12px rgb(0 0 0 / 0.55)',
+        // Themed, like the colours: neutral black at dark-theme strength turns
+        // into a grey smudge on a light page. The values live beside the colour
+        // tokens in main.css so a theme is one block to read.
+        lift: 'var(--shadow-lift)',
+        pop: 'var(--shadow-pop)',
       },
       transitionTimingFunction: {
         out: 'cubic-bezier(0.2, 0.7, 0.3, 1)',

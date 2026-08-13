@@ -131,7 +131,7 @@ const tone = (value: string | number | null) =>
       <!-- Spec §5: an account below the exchange minimum is skipped, never
            rounded up. Naming which ones is the difference between a rule and
            a silent omission. -->
-      <div v-if="skipped.length" class="px-4 py-3 border-t border-line bg-signal/[0.04]">
+      <div v-if="skipped.length" class="px-4 py-3 border-t border-line bg-signal-dim">
         <p class="label text-signal">{{ t('dashboard.skipped', { n: skipped.length }) }}</p>
         <ul class="mt-1.5 space-y-1">
           <li v-for="leg in skipped" :key="leg.id" class="text-xs text-ink-muted">

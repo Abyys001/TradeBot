@@ -39,7 +39,7 @@ async function signOut() {
     >
       <div
         v-if="ui.drawerOpen"
-        class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        class="fixed inset-0 z-50 scrim backdrop-blur-sm"
         @click.self="ui.closeDrawer()"
       >
         <nav
@@ -49,7 +49,7 @@ async function signOut() {
         >
           <div class="h-14 flex items-center gap-2.5 px-4 border-b border-line">
             <span
-              class="w-8 h-8 rounded-lg bg-brand/15 border border-brand/30 grid place-items-center text-brand"
+              class="w-8 h-8 rounded-lg bg-brand-dim border border-brand/30 grid place-items-center text-brand"
             >
               <UiIcon name="bolt" :size="16" />
             </span>
@@ -67,7 +67,7 @@ async function signOut() {
               class="flex items-center gap-3 rounded-lg px-3 h-11 text-sm transition-colors"
               :class="
                 isActive(item)
-                  ? 'bg-brand/10 text-brand'
+                  ? 'bg-brand-dim text-brand'
                   : 'text-ink-muted hover:text-ink hover:bg-raised'
               "
             >
@@ -75,7 +75,7 @@ async function signOut() {
               <span>{{ item.label }}</span>
               <span
                 v-if="item.badge"
-                class="num ms-auto text-[0.65rem] rounded-full bg-signal/20 text-signal px-1.5 py-0.5"
+                class="num ms-auto text-[0.65rem] rounded-full bg-signal-dim text-signal px-1.5 py-0.5"
               >
                 {{ item.badge }}
               </span>
