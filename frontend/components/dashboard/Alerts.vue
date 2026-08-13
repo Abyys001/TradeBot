@@ -72,19 +72,6 @@ const alerts = computed<Alert[]>(() => {
     })
   }
 
-  if (accounts.unverified.length) {
-    list.push({
-      key: 'unverified',
-      tone: 'signal',
-      title: t('alerts.unverified.title', { n: accounts.unverified.length }),
-      body: t('alerts.unverified.body', {
-        accounts: accounts.unverified.map((a) => a.label).join(', '),
-      }),
-      to: localePath('/accounts'),
-      action: t('alerts.reviewAccounts'),
-    })
-  }
-
   if (accounts.nonUsdt.length) {
     list.push({
       key: 'non-usdt',

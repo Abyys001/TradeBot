@@ -31,8 +31,12 @@ export const useAccountsStore = defineStore('accounts', {
     paused: (s) => s.items.filter((a) => a.status === 'paused'),
     failing: (s) => s.items.filter((a) => a.status === 'error'),
 
-    /** Spec §7: an account whose key was never proven trade-only is flagged. */
-    unverified: (s) => s.items.filter((a) => !a.withdrawal_check_passed),
+    // No `unverified` getter. Spec §7 enforcement is unchanged and lives in the
+    // backend — a key that *proves* withdrawal rights is still refused at
+    // connect time — but four exchanges (Hyperliquid, LBank, Gate, Toobit)
+    // publish no permission endpoint at all, so the flag could never be cleared
+    // on them. A permanent warning nobody can act on is alarm fatigue, and the
+    // admin confirmed every connected key is already trade-only.
 
     /**
      * Only USDT balances are summed. Q4: an account denominated in something

@@ -219,9 +219,14 @@ MARKET_DATA = {
     # Fallbacks *behind* the connected exchanges. The venue an account is on is
     # always tried first (see marketdata._configured_providers), so these only
     # matter before the first connect or when that exchange is unreachable.
+    #
+    # Hyperliquid leads: it is the flagged-important venue, so when the feed has
+    # to fall back it should still quote the exchange the admin actually trades
+    # rather than dropping to Binance/Bybit for a chart that is then compared
+    # against Hyperliquid fills.
     "PROVIDERS": [
         p.strip()
-        for p in os.getenv("MARKET_DATA_PROVIDERS", "binance,bybit").split(",")
+        for p in os.getenv("MARKET_DATA_PROVIDERS", "hyperliquid,binance,bybit").split(",")
         if p.strip()
     ],
     # --- history download (accounts page progress bar) ---------------------

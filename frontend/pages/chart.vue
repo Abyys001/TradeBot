@@ -37,7 +37,7 @@ const chartEl = ref<HTMLElement | null>(null)
 let chart: ChartAdapter | null = null
 
 /** Which detail panel sits under the chart on a wide screen. */
-const detail = ref<'positions' | 'fanout'>('positions')
+const detail = ref<'positions' | 'fanout' | 'history'>('positions')
 
 const paneOptions = computed(() => [
   { value: 'chart', label: t('terminal.pane.chart') },
@@ -45,9 +45,13 @@ const paneOptions = computed(() => [
   { value: 'accounts', label: t('terminal.pane.accounts') },
 ])
 
+// Spec §8's trade log sits beside the open position rather than only on its own
+// page: "what did the last entry on this pair do" is asked while sizing the
+// next one, and answering it elsewhere costs the chart.
 const detailOptions = computed(() => [
   { value: 'positions', label: t('terminal.detail.positions') },
   { value: 'fanout', label: t('terminal.detail.fanout') },
+  { value: 'history', label: t('terminal.detail.history') },
 ])
 
 /**
@@ -211,15 +215,12 @@ function syncPosition() {
   order.liquidationPrice =
     order.side === 'long' ? price * (1 - 1 / order.leverage) : price * (1 + 1 / order.leverage)
 
-  // Flat, with a market order working: the "entry" is just the live price,
-  // which the axis already shows. Drawing it as a third line through the same
-  // band as SL and TP added nothing and cost a clean grab on the two lines that
-  // are actually being set. The ticket still shows the number.
-  if (!positions.hasPosition && !entryDraggable.value) {
-    chart?.clearPosition()
-    return
-  }
-
+  // Entry is drawn in every state, including flat with a market order working.
+  // It used to be hidden there on the grounds that the axis already shows the
+  // live price, but spec §3 asks for entry, SL and TP *on the chart* — and the
+  // admin reads the three together to judge a trade, so leaving one to the axis
+  // made the picture incomplete. A fixed entry never competes for a grab:
+  // `lineNear` only considers it while `entryDraggable` is true.
   chart?.showPosition({
     entry: price,
     liquidation: positions.hasPosition ? order.liquidationPrice : null,
@@ -321,6 +322,7 @@ function syncChartLines() {
         </div>
         <div class="overflow-y-auto min-h-0">
           <TerminalPositionsTable v-if="detail === 'positions'" />
+          <TerminalRecentTrades v-else-if="detail === 'history'" />
           <div v-else class="p-4">
             <TerminalFanOutSummary v-if="trading.lastResult" :result="trading.lastResult" />
             <UiEmpty v-else icon="bolt" :title="t('fanout.noneTitle')" :body="t('fanout.noneBody')" />

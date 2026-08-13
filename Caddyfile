@@ -10,7 +10,28 @@
 {$SITE_DOMAIN} {
 	encode gzip
 
-	# Everything — pages, /api/**, /ws/**, /_nuxt/** — goes to the built Nuxt
-	# server, which itself proxies /api and /ws to the Django backend.
-	reverse_proxy frontend:3000
+	# The live channel goes straight to Channels, *not* through Nuxt.
+	#
+	# nitro cannot proxy a WebSocket: `routeRules[].proxy` is an h3
+	# `proxyRequest`, which forwards the HTTP request and drops the `Upgrade`
+	# handshake, and its dev server hands upgrades to the nitro worker rather
+	# than to devProxy. Pointing /ws at the panel therefore left the socket
+	# permanently "connecting" — and with no pong, both latency readings on
+	# Settings → Connection & data stayed blank.
+	#
+	# Caddy forwards the upgrade unchanged, so the browser keeps deriving a
+	# same-origin wss://<domain>/ws/trading/ and never needs to reach :8000.
+	#
+	# `handle` blocks rather than matchers on one directive: they are mutually
+	# exclusive and evaluated top-down, so the split cannot be reordered by
+	# Caddy's directive sorting.
+	handle /ws/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else — pages, /api/**, /_nuxt/** — goes to the built Nuxt
+	# server, which itself proxies /api to the Django backend.
+	handle {
+		reverse_proxy frontend:3000
+	}
 }

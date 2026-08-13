@@ -30,11 +30,15 @@ export default defineNuxtConfig({
     },
   },
 
-  // The WebSocket rides the same origin as everything else. nitro forwards the
-  // upgrade to Channels, so the browser never needs to reach :8000 directly.
-  routeRules: {
-    '/ws/**': { proxy: `${process.env.NUXT_WS_PROXY_TARGET || 'http://localhost:8000'}/ws/**` },
-  },
+  // No /ws route rule on purpose. `routeRules[].proxy` is an h3 `proxyRequest`,
+  // which forwards the HTTP request and drops the `Upgrade` handshake, and the
+  // nitro dev server hands upgrades to its worker rather than to devProxy —
+  // so nitro cannot carry a WebSocket at all. Routing /ws here looked correct
+  // and left the socket stuck on "connecting" with both latency readings blank.
+  //
+  // The upgrade is terminated one layer out instead: Caddy in production
+  // (Caddyfile), and NUXT_PUBLIC_WS_BASE straight to the backend port in dev
+  // (docker-compose.yml, run.sh, .env.example).
 
   app: {
     head: {

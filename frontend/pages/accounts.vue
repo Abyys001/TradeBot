@@ -26,7 +26,7 @@ const filtered = computed(() => {
   if (filter.value === 'paused') return rows.filter((a) => a.status === 'paused')
   if (filter.value === 'attention') {
     return rows.filter(
-      (a) => a.status === 'error' || !a.withdrawal_check_passed || (a.last_balance_asset && !a.balance_is_usdt),
+      (a) => a.status === 'error' || (a.last_balance_asset && !a.balance_is_usdt),
     )
   }
   return rows
@@ -38,7 +38,7 @@ const filterOptions = computed(() => [
   { value: 'paused', label: `${t('accounts.filter.paused')} ${accounts.paused.length}` },
   {
     value: 'attention',
-    label: `${t('accounts.filter.attention')} ${accounts.unverified.length + accounts.failing.length}`,
+    label: `${t('accounts.filter.attention')} ${accounts.failing.length}`,
   },
 ])
 
@@ -110,7 +110,7 @@ async function confirmDelete() {
     </div>
 
     <!-- Totals worth seeing before any single row. -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
       <UiStat
         :label="t('accounts.stat.tradeable')"
         :value="`$${money(accounts.tradeableUsdt)}`"
@@ -123,14 +123,6 @@ async function confirmDelete() {
         :value="`${accounts.active.length}/${accounts.items.length}`"
         :sub="t('accounts.stat.exchanges', { n: accounts.exchangeCount })"
         icon="accounts"
-        :loading="accounts.initial"
-      />
-      <UiStat
-        :label="t('accounts.stat.unverified')"
-        :value="accounts.unverified.length"
-        :sub="t('accounts.stat.unverifiedSub')"
-        icon="shield"
-        :tone="accounts.unverified.length ? 'signal' : 'ok'"
         :loading="accounts.initial"
       />
       <UiStat
@@ -209,9 +201,6 @@ async function confirmDelete() {
                     <UiBadge :tone="STATUS_TONE[account.status]" dot>
                       {{ t(`accounts.state.${account.status}`) }}
                     </UiBadge>
-                    <UiBadge v-if="!account.withdrawal_check_passed" tone="signal">
-                      {{ t('accounts.withdrawalUnverified') }}
-                    </UiBadge>
                     <UiBadge v-if="account.last_balance_asset && !account.balance_is_usdt" tone="signal">
                       {{ account.last_balance_asset }}
                     </UiBadge>
@@ -285,9 +274,6 @@ async function confirmDelete() {
                 {{ t(`accounts.state.${account.status}`) }}
               </UiBadge>
               <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
-              <UiBadge v-if="!account.withdrawal_check_passed" tone="signal">
-                {{ t('accounts.withdrawalUnverified') }}
-              </UiBadge>
             </div>
 
             <p v-if="account.last_error" class="text-xs text-signal">{{ account.last_error }}</p>

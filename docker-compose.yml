@@ -46,11 +46,16 @@ services:
     build: ./frontend
     command: npm run dev -- --host 0.0.0.0
     environment:
-      # Server-side proxy targets. The browser only ever talks to the panel's
-      # own origin, so it never needs to resolve these Docker hostnames — and a
-      # system HTTP/SOCKS proxy on the host cannot swallow the API calls.
+      # Server-side proxy target. REST goes through the panel's own origin, so
+      # the browser never needs to resolve this Docker hostname — and a system
+      # HTTP/SOCKS proxy on the host cannot swallow the API calls.
       NUXT_API_PROXY_TARGET: http://backend:8000/api
-      NUXT_WS_PROXY_TARGET: http://backend:8000
+      # The WebSocket is the exception: nitro forwards HTTP but drops the
+      # `Upgrade` handshake, so a same-origin /ws never connects. The browser
+      # dials the published backend port directly instead — the same thing
+      # ./run.sh and .env.example already do for the non-Docker path. In prod
+      # this is Caddy's job (see Caddyfile) and the var stays unset.
+      NUXT_PUBLIC_WS_BASE: ws://localhost:8000/ws
     ports: ["3000:3000"]
     volumes:
       - ./frontend:/app

@@ -101,10 +101,17 @@
     "inTrade": "In this trade",
     "detail": {
       "positions": "Positions",
-      "fanout": "Fan-out"
+      "fanout": "Fan-out",
+      "history": "History"
     },
     "dragHint": "Drag the SL and TP lines to move them",
-    "dragHintLimit": "Drag the LIMIT, SL and TP lines to move them"
+    "dragHintLimit": "Drag the LIMIT, SL and TP lines to move them",
+    "recent": {
+      "side": "Side",
+      "opened": "Opened",
+      "accounts": "Accounts",
+      "stillOpen": "open"
+    }
   },
   "ticket": {
     "symbol": "Pair",
@@ -246,10 +253,6 @@
       "title": "{n} filled legs have no stop attached",
       "body": "These positions are live with no floor under them: {accounts}"
     },
-    "unverified": {
-      "title": "{n} keys not verified as trade-only",
-      "body": "The exchange exposes no permission endpoint, so withdrawal rights could not be ruled out: {accounts}"
-    },
     "nonUsdt": {
       "title": "{n} accounts are not denominated in USDT",
       "body": "They are reported rather than traded: {accounts}"
@@ -308,7 +311,6 @@
     "empty": "No accounts connected yet.",
     "emptyBody": "Connect a trade-only API key and it joins from the next trade — never one already in progress.",
     "emptyFilter": "Nothing matches this filter.",
-    "withdrawalUnverified": "withdrawal unverified",
     "nonUsdtTitle": "Not denominated in USDT",
     "nonUsdtBody": "These accounts hold a non-USDT balance and are reported rather than traded: {list}",
     "state": {
@@ -327,8 +329,6 @@
       "tradeableSub": "across {n} accounts",
       "active": "Active",
       "exchanges": "on {n} exchanges",
-      "unverified": "Unverified keys",
-      "unverifiedSub": "trade-only scope not proven",
       "nonUsdt": "Non-USDT",
       "nonUsdtSub": "reported, not traded"
     },

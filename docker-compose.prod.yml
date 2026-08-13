@@ -56,17 +56,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
-      args:
-        # Baked into the nitro routeRules at build time — nitro does not re-read
-        # it from the environment at runtime. The panel then forwards /ws
-        # upgrades to the backend over the Docker network.
-        NUXT_WS_PROXY_TARGET: http://backend:8000
     environment:
       # apiProxyTarget is read at runtime (server-side config), so it lives here.
       NUXT_API_PROXY_TARGET: http://backend:8000/api
       # NUXT_PUBLIC_WS_BASE is deliberately unset: the panel derives a
-      # same-origin wss:// URL from location.host, which is exactly right
-      # behind Caddy. Setting it would hardcode the domain into the bundle.
+      # same-origin wss:// URL from location.host, and Caddy routes /ws past
+      # this service to Channels (nitro cannot forward an upgrade). Setting it
+      # would hardcode the domain into the bundle.
     expose: ["3000"]
     depends_on: [backend]
     restart: unless-stopped
@@ -79,7 +75,9 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on: [frontend]
+    # backend as well as frontend: Caddy terminates /ws itself and forwards it
+    # to Channels, so it now has two upstreams rather than one.
+    depends_on: [frontend, backend]
     restart: unless-stopped
 
 volumes:

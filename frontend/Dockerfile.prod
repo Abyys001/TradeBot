@@ -9,13 +9,10 @@ RUN npm ci
 
 COPY . .
 
-# The /ws routeRules proxy in nuxt.config.ts is evaluated at build time, so the
-# backend target must be known here (docker-compose.prod.yml passes it via
-# build args). NUXT_PUBLIC_WS_BASE stays unset: the panel derives a
-# same-origin wss:// URL at runtime instead of baking a hostname in.
-ARG NUXT_WS_PROXY_TARGET=http://backend:8000
-ENV NUXT_WS_PROXY_TARGET=$NUXT_WS_PROXY_TARGET
-
+# Nothing about the WebSocket is baked in here. nitro cannot proxy an upgrade
+# (see nuxt.config.ts), so Caddy routes /ws straight to Channels and the panel
+# derives a same-origin wss:// URL at runtime. NUXT_PUBLIC_WS_BASE stays unset
+# rather than baking a hostname into the bundle.
 ENV NODE_ENV=production
 RUN npm run build
 
