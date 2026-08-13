@@ -199,9 +199,32 @@ class GateioAdapter(RestAdapter):
             raw=data,
         )
 
+    async def list_conditional_orders(self, symbol: str) -> list[str]:
+        """Open price-triggered orders on this contract (Q5d snapshot)."""
+        data = await self.request(
+            "GET",
+            f"/api/v4/futures/{SETTLE}/price_orders",
+            params={"status": "open", "contract": self._contract(symbol)},
+        )
+        rows = data if isinstance(data, list) else []
+        return [str(row["id"]) for row in rows if row.get("id") is not None]
+
+    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        for order_id in order_ids:
+            try:
+                await self.request(
+                    "DELETE", f"/api/v4/futures/{SETTLE}/price_orders/{order_id}"
+                )
+            except AdapterError as exc:
+                # Already triggered or cancelled between snapshot and cancel.
+                if "not found" not in str(exc).lower():
+                    raise
+
     async def set_sltp(
         self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
     ) -> None:
+        """Places new price-triggered orders. Cancelling what they replace is
+        the Q5d strategy's job (``executor.apply_sltp``), not this method's."""
         contract = self._contract(symbol)
         position = await self.get_position(symbol)
         if position is None:

@@ -1,0 +1,135 @@
+# API FUNCTION TEMPLATE
+
+
+def test_add_deposit_address_v3_req(self):
+    """
+        add_deposit_address_v3
+        Add Deposit Address (V3)
+        /api/v3/deposit-address/create
+    """
+
+    builder = AddDepositAddressV3ReqBuilder()
+    builder.set_currency(?).set_chain(?).set_to(?).set_amount(?)
+    req = builder.build()
+    try:
+        resp = self.api.add_deposit_address_v3(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_deposit_address_v3_req(self):
+    """
+        get_deposit_address_v3
+        Get Deposit Address (V3)
+        /api/v3/deposit-addresses
+    """
+
+    builder = GetDepositAddressV3ReqBuilder()
+    builder.set_currency(?).set_amount(?).set_chain(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_deposit_address_v3(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_deposit_history_req(self):
+    """
+        get_deposit_history
+        Get Deposit History
+        /api/v1/deposits
+    """
+
+    builder = GetDepositHistoryReqBuilder()
+    builder.set_currency(?).set_status(?).set_start_at(?).set_end_at(?).set_current_page(?).set_page_size(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_deposit_history(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_deposit_address_v2_req(self):
+    """
+        get_deposit_address_v2
+        Get Deposit Addresses (V2)
+        /api/v2/deposit-addresses
+    """
+
+    builder = GetDepositAddressV2ReqBuilder()
+    builder.set_currency(?).set_chain(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_deposit_address_v2(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_deposit_address_v1_req(self):
+    """
+        get_deposit_address_v1
+        Get Deposit Addresses - V1
+        /api/v1/deposit-addresses
+    """
+
+    builder = GetDepositAddressV1ReqBuilder()
+    builder.set_currency(?).set_chain(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_deposit_address_v1(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_deposit_history_old_req(self):
+    """
+        get_deposit_history_old
+        Get Deposit History - Old
+        /api/v1/hist-deposits
+    """
+
+    builder = GetDepositHistoryOldReqBuilder()
+    builder.set_currency(?).set_status(?).set_start_at(?).set_end_at(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_deposit_history_old(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_add_deposit_address_v1_req(self):
+    """
+        add_deposit_address_v1
+        Add Deposit Address - V1
+        /api/v1/deposit-addresses
+    """
+
+    builder = AddDepositAddressV1ReqBuilder()
+    builder.set_currency(?).set_chain(?).set_to(?)
+    req = builder.build()
+    try:
+        resp = self.api.add_deposit_address_v1(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e

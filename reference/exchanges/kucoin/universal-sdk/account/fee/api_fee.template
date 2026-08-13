@@ -1,0 +1,59 @@
+# API FUNCTION TEMPLATE
+
+
+def test_get_basic_fee_req(self):
+    """
+        get_basic_fee
+        Get Basic Fee - Spot/Margin
+        /api/v1/base-fee
+    """
+
+    builder = GetBasicFeeReqBuilder()
+    builder.set_currency_type(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_basic_fee(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_actual_fee_req(self):
+    """
+        get_spot_actual_fee
+        Get Actual Fee - Spot/Margin
+        /api/v1/trade-fees
+    """
+
+    builder = GetSpotActualFeeReqBuilder()
+    builder.set_symbols(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_spot_actual_fee(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_futures_actual_fee_req(self):
+    """
+        get_futures_actual_fee
+        Get Actual Fee - Futures
+        /api/v1/trade-fees
+    """
+
+    builder = GetFuturesActualFeeReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_futures_actual_fee(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e

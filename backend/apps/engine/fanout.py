@@ -100,7 +100,7 @@ async def _run_leg(
             account_id=account_id,
             ok=False,
             error=str(exc),
-            error_code=getattr(exc, "code", type(exc).__name__),
+            error_code=getattr(exc, "code", None) or type(exc).__name__,
             duration_ms=elapsed,
         )
     return LegResult(

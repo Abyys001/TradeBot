@@ -3,15 +3,13 @@ import { defineStore } from 'pinia'
 /**
  * The price feed behind the chart and the position panel (spec §3).
  *
- * One store, one poll loop, one copy of "what is BTC worth right now". Before
- * this the terminal drew a synthetic random walk and nothing on the page could
- * tell the admin what the market was actually doing — so no position could show
- * a live PnL either.
+ * One store, one poll loop, one copy of "what is BTC worth right now".
  *
- * `live` is carried all the way from the backend: false means no exchange was
- * reachable and the series is synthetic. Every surface that draws this data has
- * to render that flag. An unlabelled fake price series on a trading screen is
- * how someone reads a number that was never real.
+ * **Every number here came from an exchange.** The backend has no synthetic
+ * source: when no provider answers it returns 503 and this store raises
+ * `feedDown` instead of drawing anything. The last real candles stay on screen,
+ * greyed and labelled — but nothing invents a bar, and `stale` stops the panel
+ * presenting an old price as current.
  *
  * The polling cadence is deliberately modest — this is a chart, not the order
  * path. Nothing here shares a budget with the 1-second fan-out.
@@ -52,11 +50,19 @@ export const useMarketStore = defineStore('market', {
     price: null as number | null,
     changePct: null as number | null,
 
-    /** False while the feed is synthetic — surfaced as a badge, never hidden. */
+    /** True once real exchange data has arrived. Never true for anything else. */
     live: false,
     source: '',
+    /** Measured engine→exchange round trip in ms. Null = nothing timed lately. */
+    providerMs: null as number | null,
     loading: false,
     error: '',
+    /**
+     * Set when the API answered "no exchange reachable" (503). Distinct from
+     * `error`: this is the honest empty state the panel renders instead of a
+     * chart, not a transient request failure to retry quietly.
+     */
+    feedDown: false,
     lastTickAt: null as number | null,
     /**
      * Ticked on every poll *attempt*, successful or not. `stale` needs a
@@ -80,6 +86,16 @@ export const useMarketStore = defineStore('market', {
     },
 
     intervalSeconds: (s) => INTERVAL_SECONDS[s.interval],
+
+    /**
+     * Identifies *which series* is on screen, as opposed to how fresh it is.
+     *
+     * The chart uses this to decide whether a repaint is a new instrument
+     * (snap the view back) or the same one refreshed (leave the view exactly
+     * where the admin put it). Without the distinction, every 15-second poll
+     * yanked the chart back to the newest candle mid-inspection.
+     */
+    seriesKey: (s) => `${s.symbol}|${s.interval}|${s.market}`,
 
     /** Stale means the poll loop stopped answering; the panel greys the price. */
     stale: (s) => s.lastTickAt !== null && s.clock - s.lastTickAt > TICKER_POLL_MS * 4,
@@ -115,9 +131,19 @@ export const useMarketStore = defineStore('market', {
         }))
         this.live = feed.live
         this.source = feed.source
+        this.providerMs = feed.provider_ms ?? this.providerMs
         this.error = ''
+        this.feedDown = false
         this.revision++
       } catch (e: any) {
+        // 503 is the backend saying no exchange answered. It is not a transient
+        // glitch to retry silently: the panel has to stop claiming the chart is
+        // current, and it must not draw a bar nobody quoted.
+        if (statusOf(e) === 503) {
+          this.feedDown = true
+          this.live = false
+          this.source = ''
+        }
         this.error = errorMessage(e)
       } finally {
         this.loading = false
@@ -132,10 +158,19 @@ export const useMarketStore = defineStore('market', {
         this.changePct = quote.change_pct === null ? null : Number(quote.change_pct)
         this.live = quote.live
         this.source = quote.source
+        this.providerMs = quote.provider_ms ?? this.providerMs
         this.lastTickAt = Date.now()
         this.error = ''
+        this.feedDown = false
         this.applyTick(this.price)
       } catch (e: any) {
+        // The last real price stays on screen but `stale` greys it within a few
+        // seconds. What must never happen is a *new* price appearing from
+        // anywhere but an exchange, so nothing is written here.
+        if (statusOf(e) === 503) {
+          this.feedDown = true
+          this.live = false
+        }
         this.error = errorMessage(e)
       } finally {
         this.clock = Date.now()

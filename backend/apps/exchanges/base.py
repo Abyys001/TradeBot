@@ -110,6 +110,13 @@ class AdapterError(Exception):
 
     retryable = False
 
+    def __init__(self, message: str = "", *, code: str | None = None) -> None:
+        super().__init__(message)
+        # Optional machine-readable code, carried through the fan-out to the
+        # notification ("below_min_qty" vs "timeout" vs "exchange broke"). When
+        # absent the fan-out falls back to the exception's class name.
+        self.code = code
+
 
 class AuthError(AdapterError):
     """Credentials rejected, expired, or lacking permission."""
@@ -198,12 +205,36 @@ class ExchangeAdapter(abc.ABC):
         stop_loss: Decimal | None,
         take_profit: Decimal | None,
     ) -> None:
-        """Attach or replace SL/TP on the open position.
+        """Place SL/TP for the open position.
 
-        Adapters where ``capabilities.native_sltp_amend`` is False must honour
-        the configured amend strategy (Q5d) rather than blindly cancelling
-        first — a gap here means an unprotected leveraged position.
+        Adapters where ``capabilities.native_sltp_amend`` is True replace the
+        existing protection in place, and this is the whole operation.
+
+        Everywhere else SL/TP are ordinary reduce-only conditional orders and
+        this call only *places* them — it must not cancel anything. Sequencing
+        the old orders out is the Q5d amend strategy and lives in one place,
+        ``apps.engine.executor.apply_sltp``, which drives the two methods
+        below. Never call ``set_sltp`` directly on an amend path.
         """
+
+    async def list_conditional_orders(self, symbol: str) -> list[str]:
+        """Ids of the live reduce-only SL/TP orders on ``symbol``.
+
+        Snapshotted before new protection is placed so the Q5d strategy can
+        cancel exactly the orders that were already there. The default is
+        empty, which makes the strategy a no-op: correct for adapters that
+        amend in place, and honest for one that cannot enumerate its orders.
+        """
+        return []
+
+    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        """Cancel the given orders. Ids come from ``list_conditional_orders``.
+
+        Must tolerate an id that has already triggered or been cancelled — a
+        stop that fired between the snapshot and this call is a race, not an
+        error, and raising here would fail an amend that actually succeeded.
+        """
+        return None
 
     @abc.abstractmethod
     async def get_position(self, symbol: str) -> Position | None: ...

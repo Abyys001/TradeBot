@@ -1,0 +1,135 @@
+# API FUNCTION TEMPLATE
+
+
+def test_get_withdrawal_quotas_req(self):
+    """
+        get_withdrawal_quotas
+        Get Withdrawal Quotas
+        /api/v1/withdrawals/quotas
+    """
+
+    builder = GetWithdrawalQuotasReqBuilder()
+    builder.set_currency(?).set_chain(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_withdrawal_quotas(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_withdrawal_v3_req(self):
+    """
+        withdrawal_v3
+        Withdraw (V3)
+        /api/v3/withdrawals
+    """
+
+    builder = WithdrawalV3ReqBuilder()
+    builder.set_currency(?).set_chain(?).set_amount(?).set_memo(?).set_is_inner(?).set_remark(?).set_fee_deduct_type(?).set_to_address(?).set_withdraw_type(?)
+    req = builder.build()
+    try:
+        resp = self.api.withdrawal_v3(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_cancel_withdrawal_req(self):
+    """
+        cancel_withdrawal
+        Cancel Withdrawal
+        /api/v1/withdrawals/{withdrawalId}
+    """
+
+    builder = CancelWithdrawalReqBuilder()
+    builder.set_withdrawal_id(?)
+    req = builder.build()
+    try:
+        resp = self.api.cancel_withdrawal(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_withdrawal_history_req(self):
+    """
+        get_withdrawal_history
+        Get Withdrawal History
+        /api/v1/withdrawals
+    """
+
+    builder = GetWithdrawalHistoryReqBuilder()
+    builder.set_currency(?).set_status(?).set_start_at(?).set_end_at(?).set_current_page(?).set_page_size(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_withdrawal_history(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_withdrawal_history_by_id_req(self):
+    """
+        get_withdrawal_history_by_id
+        Get Withdrawal History By ID
+        /api/v1/withdrawals/{withdrawalId}
+    """
+
+    builder = GetWithdrawalHistoryByIdReqBuilder()
+    builder.set_withdrawal_id(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_withdrawal_history_by_id(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_withdrawal_history_old_req(self):
+    """
+        get_withdrawal_history_old
+        Get Withdrawal History - Old
+        /api/v1/hist-withdrawals
+    """
+
+    builder = GetWithdrawalHistoryOldReqBuilder()
+    builder.set_currency(?).set_status(?).set_start_at(?).set_end_at(?).set_current_page(?).set_page_size(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_withdrawal_history_old(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_withdrawal_v1_req(self):
+    """
+        withdrawal_v1
+        Withdraw - V1
+        /api/v1/withdrawals
+    """
+
+    builder = WithdrawalV1ReqBuilder()
+    builder.set_currency(?).set_chain(?).set_address(?).set_amount(?).set_memo(?).set_is_inner(?).set_remark(?).set_fee_deduct_type(?)
+    req = builder.build()
+    try:
+        resp = self.api.withdrawal_v1(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e

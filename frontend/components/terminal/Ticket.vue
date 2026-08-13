@@ -272,7 +272,9 @@ function useMarketPrice() {
         <dt class="text-ink-muted">{{ t('position.mark') }}</dt>
         <dd class="num">
           {{ money(market.mark, 2) }}
-          <span v-if="!market.live" class="text-signal">{{ t('terminal.placeholderData') }}</span>
+          <!-- The last real quote, with the feed since gone. Said plainly:
+               this number is stale, not current. -->
+          <span v-if="!market.live" class="text-signal">{{ t('terminal.feedDown') }}</span>
         </dd>
       </div>
     </dl>

@@ -1,0 +1,29 @@
+# Production image: build the Nuxt bundle, then run the nitro server directly.
+# No dev server, no bind mount, no host node_modules.
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+# The /ws routeRules proxy in nuxt.config.ts is evaluated at build time, so the
+# backend target must be known here (docker-compose.prod.yml passes it via
+# build args). NUXT_PUBLIC_WS_BASE stays unset: the panel derives a
+# same-origin wss:// URL at runtime instead of baking a hostname in.
+ARG NUXT_WS_PROXY_TARGET=http://backend:8000
+ENV NUXT_WS_PROXY_TARGET=$NUXT_WS_PROXY_TARGET
+
+ENV NODE_ENV=production
+RUN npm run build
+
+FROM node:22-alpine AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+COPY --from=build /app/.output .output
+
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]

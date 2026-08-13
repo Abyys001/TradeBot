@@ -37,7 +37,6 @@ const isDemo = computed(() => !props.legs?.length)
 const W = 560
 const H = 340
 const ORIGIN = { x: 74, y: H / 2 }
-const running = ref(false)
 
 // Vertical fan on the right; the origin sits left of centre so the lines have
 // room to read as a spread rather than a starburst.
@@ -52,6 +51,18 @@ const nodes = computed(() =>
 
 const slowest = computed(() => Math.max(...legs.value.map((l) => l.ms), 1))
 
+/**
+ * The demo replay.
+ *
+ * Only this counter changes between cycles, and only the travelling strokes are
+ * keyed on it. Everything else — rails, origin, dots, labels — stays mounted
+ * for the life of the component. An earlier version toggled a `v-if` over the
+ * whole drawing to restart the animation, which blanked the figure for a frame
+ * on every cycle and read as a flash.
+ */
+const cycle = ref(0)
+const CYCLE_MS = 4200
+
 function pathFor(node: { x: number; y: number }) {
   const midX = (ORIGIN.x + node.x) / 2
   return `M ${ORIGIN.x} ${ORIGIN.y} C ${midX} ${ORIGIN.y}, ${midX} ${node.y}, ${node.x} ${node.y}`
@@ -65,13 +76,11 @@ function durationFor(ms: number) {
 let timer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  running.value = true
-  if (reduced || !isDemo.value) return
-  timer = setInterval(() => {
-    running.value = false
-    setTimeout(() => (running.value = true), 80)
-  }, 4200)
+  // Reduced motion is honoured in CSS below rather than here, so the drawing
+  // renders complete on the server too instead of waiting for hydration.
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  if (!isDemo.value) return
+  timer = setInterval(() => cycle.value++, CYCLE_MS)
 })
 
 onBeforeUnmount(() => {
@@ -88,7 +97,7 @@ onBeforeUnmount(() => {
       role="img"
       :aria-label="`One order fanning out to ${legs.length} accounts`"
     >
-      <g v-if="running" fill="none" stroke-linecap="round">
+      <g fill="none" stroke-linecap="round">
         <path
           v-for="(node, i) in nodes"
           :key="`p-${i}`"
@@ -96,16 +105,19 @@ onBeforeUnmount(() => {
           class="stroke-line-strong"
           stroke-width="1"
         />
+        <!-- The only thing that restarts. Re-keying replaces the element in the
+             same patch, so the stroke redraws without the figure ever emptying. -->
         <path
           v-for="(node, i) in nodes"
-          :key="`a-${i}`"
+          :key="`a-${i}-${cycle}`"
           :d="pathFor(node)"
+          class="fan-animated"
           :class="node.ok ? 'stroke-long' : 'stroke-signal'"
           stroke-width="1.5"
           pathLength="100"
           stroke-dasharray="100"
-          style="--dash: 100"
           :style="{
+            '--dash': 100,
             animation: `travel ${durationFor(node.ms)} cubic-bezier(0.2, 0.7, 0.3, 1) forwards`,
           }"
         />
@@ -131,11 +143,18 @@ onBeforeUnmount(() => {
       </g>
 
       <!-- accounts -->
-      <g v-if="running">
+      <g>
+        <!-- Dots and labels pop in once, on first draw. Replaying that every
+             cycle would flash the labels off, which is the thing being fixed. -->
         <g
           v-for="(node, i) in nodes"
           :key="`n-${i}`"
-          :style="{ animation: `arrive 0.28s ease-out ${durationFor(node.ms)} backwards` }"
+          class="fan-animated"
+          :style="
+            cycle === 0
+              ? { animation: `arrive 0.28s ease-out ${durationFor(node.ms)} backwards` }
+              : undefined
+          "
         >
           <circle :cx="node.x" :cy="node.y" r="4" :class="node.ok ? 'fill-long' : 'fill-signal'" />
           <text
@@ -159,14 +178,15 @@ onBeforeUnmount(() => {
     </svg>
 
     <!-- Stacked, below sm. Same data, bar length is the same dispatch time. -->
-    <ul v-if="running" class="sm:hidden space-y-2">
+    <ul class="sm:hidden space-y-2">
       <li v-for="(leg, i) in legs" :key="`m-${i}`" class="flex items-center gap-3">
         <span class="text-xs w-24 shrink-0 truncate" :class="leg.ok ? 'text-ink' : 'text-signal'">
           {{ leg.label }}
         </span>
         <span class="flex-1 h-1 rounded-full bg-raised overflow-hidden">
           <span
-            class="block h-full rounded-full origin-left"
+            :key="`b-${i}-${cycle}`"
+            class="fan-animated block h-full rounded-full origin-left"
             :class="leg.ok ? 'bg-long' : 'bg-signal'"
             :style="{
               width: `${(leg.ms / slowest) * 100}%`,
@@ -185,3 +205,16 @@ onBeforeUnmount(() => {
     </figcaption>
   </figure>
 </template>
+
+<style scoped>
+/* Handled here rather than in JS so the drawing is already whole in the server
+   render — nothing waits for hydration, so there is no first-paint flash. */
+@media (prefers-reduced-motion: reduce) {
+  .fan-animated {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+</style>

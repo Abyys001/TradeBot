@@ -25,7 +25,7 @@ from decimal import Decimal
 from typing import Any
 from urllib.parse import urlencode
 
-from apps.core.money import D
+from apps.core.money import D, floor_to_step
 from apps.exchanges.base import (
     AdapterError,
     AuthError,
@@ -62,6 +62,13 @@ class LbankAdapter(RestAdapter):
         max_leverage=1,  # spot only
         per_key_rate_limits=True,
     )
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        #: pair -> base quantity this adapter bought, so a close sells back
+        #: exactly that. Per instance: a fresh adapter falls back to the free
+        #: balance (see close_position).
+        self._filled: dict[str, Decimal] = {}
 
     @staticmethod
     def _echostr() -> str:
@@ -190,20 +197,30 @@ class LbankAdapter(RestAdapter):
         if side is Side.SHORT:
             raise NotSupported("lbank: spot cannot be shorted, and futures is unavailable")
 
-        body: dict[str, Any] = {
-            "symbol": self._pair(symbol),
-            "type": "buy_market" if order_type is OrderType.MARKET else "buy",
-            "amount": f"{qty:f}",
-        }
-        if order_type is OrderType.LIMIT:
+        body: dict[str, Any] = {"symbol": self._pair(symbol), "custom_id": ""}
+        price = limit_price
+        if order_type is OrderType.MARKET:
+            # Documented shape (api/spot.md): a market **buy** carries `price`,
+            # and it is the amount of *quote* asset to spend — not a price and
+            # not a base quantity. Sending `amount` here buys the wrong size.
+            price = await self.get_mark_price(symbol)
+            body["type"] = "buy_market"
+            body["price"] = f"{qty * price:f}"
+        else:
             if limit_price is None:
                 raise AdapterError("lbank: limit order needs a price")
+            body["type"] = "buy"
             body["price"] = f"{limit_price:f}"
+            body["amount"] = f"{qty:f}"
         if client_order_id:
             body["custom_id"] = client_order_id[:50]
+        else:
+            body.pop("custom_id")
 
         data = await self.request("POST", "/v2/supplement/create_order.do", body=body)
-        price = limit_price or await self.get_mark_price(symbol)
+        # What this leg bought, so close_position can sell exactly that back and
+        # not touch whatever else the partner holds in the base asset.
+        self._filled[self._pair(symbol)] = qty
         return OrderResult(
             order_id=str(data.get("order_id", "")),
             filled_qty=qty,
@@ -220,8 +237,47 @@ class LbankAdapter(RestAdapter):
         )
 
     async def get_position(self, symbol: str) -> Position | None:
-        # Spot has no positions; futures positions are undocumented.
+        # Spot has no position concept — the holding is just a balance, and the
+        # exchange does not report an entry price for it, so there is nothing
+        # honest to build a Position from. Futures positions are undocumented.
         return None
 
     async def close_position(self, symbol: str) -> OrderResult:
-        raise NotSupported(FUTURES_UNAVAILABLE)
+        """Sell the spot holding back at market.
+
+        Spot has no position to "close", so this sells what this adapter bought
+        (``sell_market`` takes a **base** quantity — api/spot.md). Without it a
+        spot leg was one-way: the Q5e policy would call this to flatten a leg
+        whose SL/TP could not be attached, get ``NotSupported``, and leave the
+        coins sitting there with no way out through the platform.
+
+        The quantity is capped by the free balance, and falls back to it when a
+        fresh adapter has no memory of the entry — a partner holding the same
+        asset outside the platform should know that a close sells their free
+        balance of it. LBank publishes no per-order fill lookup to do better.
+        """
+        pair = self._pair(symbol)
+        base = pair.split("_")[0].upper()
+        balance = await self.get_balance(base)
+        qty = min(self._filled.get(pair, balance.available), balance.available)
+        if qty <= 0:
+            raise AdapterError(f"lbank: no {base} balance to sell for {symbol}")
+        rules = await self.get_symbol_rules(symbol, MarketType.SPOT)
+        qty = floor_to_step(qty, rules.qty_step)
+        if qty < rules.min_qty:
+            raise AdapterError(
+                f"lbank: {qty} {base} is below the minimum sell size {rules.min_qty}"
+            )
+
+        data = await self.request(
+            "POST",
+            "/v2/supplement/create_order.do",
+            body={"symbol": pair, "type": "sell_market", "amount": f"{qty:f}"},
+        )
+        self._filled.pop(pair, None)
+        return OrderResult(
+            order_id=str(data.get("order_id", "")),
+            filled_qty=qty,
+            avg_price=await self.get_mark_price(symbol),
+            raw=data,
+        )

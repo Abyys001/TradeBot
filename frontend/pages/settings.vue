@@ -98,8 +98,18 @@ const diagnostics = computed(() => [
     tone: live.pingQuality ? PING_TONE[live.pingQuality] : ('neutral' as const),
   },
   {
+    // The hop an order actually travels. Measured on real market-data calls,
+    // blank when nothing has been measured recently — never a stand-in number.
+    key: 'exchangeLatency',
+    value:
+      live.exchangeMs === null
+        ? '—'
+        : `${Math.round(live.exchangeMs)}ms${live.exchangeName ? ` · ${live.exchangeName}` : ''}`,
+    tone: live.exchangeQuality ? PING_TONE[live.exchangeQuality] : ('neutral' as const),
+  },
+  {
     key: 'feed',
-    value: market.live ? market.source || t('common.live') : t('terminal.placeholderData'),
+    value: market.live ? market.source || t('common.live') : t('terminal.feedDown'),
     tone: market.live ? ('ok' as const) : ('signal' as const),
   },
 ])

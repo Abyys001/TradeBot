@@ -208,8 +208,10 @@ const changeTone = (value: number | null) =>
             <span class="num block truncate" :class="full ? 'text-sm' : 'text-xs'">
               {{ row.symbol.replace(/USDT$/, '') }}<span class="text-ink-faint">/USDT</span>
             </span>
+            <!-- A row nobody could quote stays on the list and says so. It is
+                 never filled in with a price from anywhere but an exchange. -->
             <span v-if="full && !row.live" class="label text-signal">
-              {{ t('terminal.placeholderData') }}
+              {{ t('terminal.noQuote') }}
             </span>
           </span>
 

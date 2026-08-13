@@ -19,8 +19,8 @@ from apps.core.money import D
 from apps.engine.fanout import StopAllActive
 from apps.exchanges.base import MarketType, OrderType, Side
 from apps.trading import killswitch
-from apps.trading.models import KillSwitch
-from apps.trading.services import route_close, route_open
+from apps.trading.models import KillSwitch, Trade, TradeStatus
+from apps.trading.services import route_amend, route_close, route_open
 
 KEY = Fernet.generate_key().decode()
 
@@ -155,3 +155,49 @@ async def test_halt_blocks_new_routing_but_not_closing():
     # The escape hatch: an open position can still be closed while halted.
     close = await route_close(trade=trade)
     assert close.all_ok
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_sltp_can_still_be_amended_while_halted():
+    """Q14 and the panel copy both promise this (G1).
+
+    ``route_amend`` used to fan out with ``respect_stop_all`` left at its
+    default, so the halt raised StopAllActive out of an endpoint that catches
+    nothing: an HTTP 500 at the exact moment the admin is trying to tighten a
+    stop on a live leveraged position.
+    """
+    await make_account("partner-a")
+    trade, result = await open_a_trade()
+    assert result.all_ok
+
+    await sync_to_async(killswitch.set_stop_all)(True, actor="boss", reason="outage")
+
+    amended = await route_amend(trade=trade, sl_pct=D("0.3"), tp_pct=D("2"))
+
+    assert amended.all_ok, [leg.error for leg in amended.failed]
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.sl_pct == D("0.3")
+
+
+@pytest.mark.django_db
+def test_the_amend_endpoint_answers_while_halted():
+    """The same thing through HTTP, because 500 was the actual symptom."""
+    client = staff_client()
+    client.post("/api/trading/stop-all/", {"on": True}, content_type="application/json")
+
+    trade = Trade.objects.create(
+        symbol="BTCUSDT",
+        side=Side.LONG.value,
+        market=MarketType.FUTURES.value,
+        leverage=10,
+        status=TradeStatus.OPEN,
+    )
+    response = client.post(
+        f"/api/trading/orders/{trade.id}/amend/",
+        {"sl_pct": "0.5", "tp_pct": "1"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200, response.content

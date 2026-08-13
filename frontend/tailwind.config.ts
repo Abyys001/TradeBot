@@ -66,9 +66,28 @@ export default <Partial<Config>>{
           dim: 'rgb(var(--c-ok-dim) / <alpha-value>)',
         },
       },
+      /* Type system — one face per role, so the custom fonts read as a
+         system rather than a mix:
+
+           display  Manrope    headings of every size (page titles, panel and
+                               card headers). Enforced at the base layer too,
+                               so no heading can slip back to the body face.
+           sans     Inter      reading text, buttons, nav, inputs. Tabular
+                               numerals ship with the face.
+           ui       DM Sans    the micro layer — table headers, field labels,
+                               timestamps, captions (.label). Designed for
+                               small on-screen sizes.
+           mono     JetBrains  numbers that can change — prices, PnL, sizes
+                               (.num), so a ticking figure never reflows.
+
+           Every stack ends in Vazirmatn: the Latin fonts carry no Arabic
+           glyphs, so Persian text resolves to it per-character with no
+           [lang='fa'] overrides anywhere.
+      */
       fontFamily: {
-        display: ['"Space Grotesk"', 'Vazirmatn', 'system-ui', 'sans-serif'],
+        display: ['"Manrope"', 'Vazirmatn', 'system-ui', 'sans-serif'],
         sans: ['Inter', 'Vazirmatn', 'system-ui', 'sans-serif'],
+        ui: ['"DM Sans"', 'Vazirmatn', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'Vazirmatn', 'ui-monospace', 'monospace'],
       },
       fontSize: {

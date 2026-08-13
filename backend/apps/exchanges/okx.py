@@ -47,7 +47,12 @@ class OkxAdapter(RestAdapter):
         has_testnet=True,
         testnet_note="OKX demo trading is enabled with the x-simulated-trading header.",
         native_sltp_on_entry=True,
-        native_sltp_amend=True,  # /api/v5/trade/amend-algos
+        # /api/v5/trade/amend-algos does exist, but this adapter does not use
+        # it: set_sltp posts a fresh OCO to /api/v5/trade/order-algo, which
+        # *stacks* on the previous one. Declaring an amend it never performs
+        # made the platform skip the Q5d cancel and leave stale stops live, so
+        # the flag now says what the code does — see list_conditional_orders.
+        native_sltp_amend=False,
         supports_reduce_only=True,
         max_leverage=10,
         per_key_rate_limits=True,
@@ -241,9 +246,45 @@ class OkxAdapter(RestAdapter):
         avg = limit_price if order_type is OrderType.LIMIT else await self.get_mark_price(symbol)
         return OrderResult(order_id=order_id, filled_qty=qty, avg_price=D(avg or 0), raw=rows)
 
+    async def list_conditional_orders(self, symbol: str) -> list[str]:
+        """Pending OCO algo orders on this instrument (Q5d snapshot).
+
+        ``ordType=oco`` matches exactly what ``set_sltp`` places, so an algo
+        order the partner set up by hand with a different type is left alone.
+        """
+        data = await self.request(
+            "GET",
+            "/api/v5/trade/orders-algo-pending",
+            params={"instId": self._inst_id(symbol, MarketType.FUTURES), "ordType": "oco"},
+        )
+        rows = data if isinstance(data, list) else []
+        return [str(row["algoId"]) for row in rows if row.get("algoId")]
+
+    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        if not order_ids:
+            return
+        inst_id = self._inst_id(symbol, MarketType.FUTURES)
+        try:
+            await self.request(
+                "POST",
+                "/api/v5/trade/cancel-algos",
+                body=[{"algoId": algo_id, "instId": inst_id} for algo_id in order_ids],
+            )
+        except AdapterError as exc:
+            # 51400 "order has been cancelled", 51603 "does not exist": the algo
+            # order triggered or went away between the snapshot and this call.
+            # OKX reports the reason in sMsg, so match the text as well.
+            text = str(exc).lower()
+            markers = ("51400", "51603", "does not exist", "has been filled", "canceled")
+            if not any(marker in text for marker in markers):
+                raise
+
     async def set_sltp(
         self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
     ) -> None:
+        """Places a **new** OCO algo order — OKX does not amend this one in
+        place. The previous OCO is cancelled by the Q5d strategy in
+        ``executor.apply_sltp``."""
         inst_id = self._inst_id(symbol, MarketType.FUTURES)
         position = await self.get_position(symbol)
         if position is None:

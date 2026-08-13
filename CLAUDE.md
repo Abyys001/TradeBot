@@ -14,7 +14,7 @@ encryption, staff-gated order routing, per-account trade history, the WebSocket
 channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines.
-**119 backend tests pass, `ruff` clean, Nuxt build clean.**
+**158 backend tests pass, `ruff` clean, Nuxt build clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -35,9 +35,12 @@ with the skipped account raising a persistent notification.
 - LBank futures is impossible to implement (Q10); the adapter raises
   `NotSupported` rather than guessing.
 - Hyperliquid agent-wallet withdrawal rights are still unverified (Q11).
-- Market data is a **public** feed (Binance → Bybit, no credentials, Q13). Where
-  no provider is reachable the API serves labelled synthetic candles and the
-  panel says "sample prices"; a synthetic price is never used to size an order.
+- Market data is a **public** feed (Binance → Bybit, no credentials, Q13).
+  **Real prices only:** where no provider is reachable the API returns 503 and
+  the panel shows "no price feed" — there is no synthetic series, and with no
+  price nothing sizes an order. `MARKET_DATA_PROXY` pins the egress proxy for
+  those calls (a shell `socks://` URL is normalised; an unusable one is dropped
+  rather than failing every call).
 - The chart is Lightweight Charts. TradingView's Charting Library swaps in
   behind the same `ChartAdapter` seam once access is granted.
 
@@ -53,6 +56,7 @@ frontend/   Nuxt 3 + TS + Tailwind + Pinia + i18n
 docs/
   spec/platform-spec.md              authoritative requirements (§ numbering used everywhere)
   spec/conformance.md                every clause -> where it lives -> the test that proves it
+  spec/gap-analysis.md               audit of where the code did *not* match the spec, and the fix for each
   spec/exchange_list.original.txt    admin's raw exchange list, verbatim
   exchanges/coverage.md              exchange matrix + per-exchange capability checklist
   frontend/tradingview.md            chart setup: Lightweight Charts now, Charting Library later
@@ -70,7 +74,7 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/engine/executor.py` | `open_trade` / `amend_sltp` / `close_trade`; Q5e failure policy lives in `_protect`. |
 | `apps/trading/sizing.py` | Spec §5 — 99% as margin, round down, skip below minimum. |
 | `apps/trading/sltp.py` | Q5a both readings; `compare_bases()` powers `/risk`. |
-| `apps/exchanges/marketdata.py` | **Public** prices (Q13). Credential-free, cached, provider fallback, synthetic last resort — never an adapter. |
+| `apps/exchanges/marketdata.py` | **Public** prices (Q13). Credential-free, cached, provider fallback, real-or-503 — never an adapter. Also times the engine→exchange round trip the top bar shows. |
 | `apps/trading/market_views.py` | Candles, ticker, and `/positions/` — legs marked to market, PnL in Decimal on this side of the wire. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
@@ -80,7 +84,7 @@ reference/                           read-only vendored exchange docs & SDKs —
 | Path | What |
 |---|---|
 | `stores/order.ts` | The working order. All three SL/TP surfaces write here, so they cannot disagree (spec §3). |
-| `stores/market.ts` | One price feed for the whole page: candles, ticker poll, and the `live` flag that drives the "sample prices" badge. |
+| `stores/market.ts` | One price feed for the whole page: candles, ticker poll, `seriesKey` (which series, so a refresh never moves the admin's view) and `feedDown`. |
 | `stores/positions.ts` | The open position per account, polled from `/positions/`. PnL is never recomputed in the browser. |
 | `stores/watchlist.ts` | The admin's pairs, in a cookie. One batched quote request feeds both watchlists. |
 | `composables/useChartAdapter.ts` | The chart seam — Lightweight Charts now, Charting Library later. Owns the draggable SL/TP/limit lines. |
@@ -94,6 +98,12 @@ reference/                           read-only vendored exchange docs & SDKs —
 cp .env.example .env          # then set CREDENTIAL_ENCRYPTION_KEYS — see the file
 docker compose up -d --build  # panel on :3000, API on :8000
 ```
+
+**Production launch** (fresh VPS, domain `maxbot.cybercina.co.uk`):
+`cp .env.production.example .env` → `docker compose -f docker-compose.prod.yml
+up -d --build`. Caddy in that stack terminates TLS (auto Let's Encrypt) and
+forwards to a *built* Nuxt bundle; the Django API is never exposed to the host.
+Runbook: `docs/deploy.md`.
 
 Without Docker: `backend/.venv` + `python manage.py migrate runserver`,
 and `npm run dev` in `frontend/`. Tests: `cd backend && .venv/bin/python -m pytest`.

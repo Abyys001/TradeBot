@@ -14,7 +14,13 @@ import pytest
 from django.test import override_settings
 
 from apps.core.money import D
-from apps.engine.executor import TradeIntent, close_trade, failure_notifications, open_trade
+from apps.engine.executor import (
+    TradeIntent,
+    amend_sltp,
+    close_trade,
+    failure_notifications,
+    open_trade,
+)
 from apps.engine.fanout import StopAllActive, fan_out
 from apps.exchanges.base import MarketType, OrderType, Side
 from apps.exchanges.paper import PaperAdapter
@@ -96,6 +102,9 @@ async def test_a_too_small_account_sits_out_and_the_rest_trade():
 
     assert {leg.account_id for leg in result.succeeded} == {1, 3}
     assert result.failed[0].account_id == 2
+    # The machine-readable code must survive the wrap in _make_open — the UI
+    # distinguishes "too small to trade" from "the exchange broke" on it.
+    assert result.failed[0].error_code == "below_min_qty"
 
 
 async def test_every_failure_produces_a_persistent_notification():
@@ -150,6 +159,189 @@ async def test_stop_all_blocks_new_orders_but_never_blocks_closing():
     )
     result = await close_trade([(1, adapter)], symbol="BTCUSDT")
     assert result.all_ok
+
+
+@override_settings(
+    TRADING={
+        **__import__("django.conf", fromlist=["settings"]).settings.TRADING,
+        "STOP_ALL": True,
+    }
+)
+async def test_stop_all_never_blocks_an_amend_either():
+    """G1 / Q14: tightening a stop on a live position is a protection action.
+
+    The panel's copy promises amends keep working while halted. Before this,
+    ``amend_sltp`` fanned out with the default ``respect_stop_all=True`` and the
+    admin got a 500 with an unhandled StopAllActive traceback.
+    """
+    adapter = PaperAdapter(balance=D("1000"))
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+
+    result = await amend_sltp(
+        [(1, adapter)],
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        admin_entry=D("100000"),
+    )
+
+    assert result.all_ok, [leg.error for leg in result.failed]
+    assert adapter.sltp != (None, None)
+
+
+# --- Q5d: SL/TP amends must not stack conditional orders (G2) ---------------
+
+
+class StackingAdapter(PaperAdapter):
+    """An exchange that cannot amend SL/TP in place — the other six.
+
+    ``set_sltp`` only ever *places*, exactly like Binance/OKX/KuCoin/Gate.io/
+    Hyperliquid, so the platform is what has to take the old orders away.
+    """
+
+    capabilities = replace(PaperAdapter.capabilities, native_sltp_amend=False)
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.live: list[str] = []
+        self.trace: list[str] = []
+        self._next = 0
+
+    async def set_sltp(self, *, symbol, stop_loss, take_profit) -> None:
+        await super().set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+        self._next += 1
+        self.live.append(f"stop-{self._next}")
+        self.trace.append("place")
+
+    async def list_conditional_orders(self, symbol: str) -> list[str]:
+        self.trace.append("list")
+        return list(self.live)
+
+    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        self.trace.append("cancel")
+        self.live = [order for order in self.live if order not in order_ids]
+
+
+async def amend(adapter, sl="0.5"):
+    return await amend_sltp(
+        [(1, adapter)],
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        leverage=10,
+        sl_pct=D(sl),
+        tp_pct=D("1"),
+        admin_entry=D("100000"),
+    )
+
+
+async def stacked_adapter() -> StackingAdapter:
+    adapter = StackingAdapter(balance=D("1000"))
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+    return adapter
+
+
+async def test_an_amend_leaves_exactly_one_pair_of_stops_alive():
+    """G2: the position must never carry the stop the admin just replaced.
+
+    Two live stops means whichever triggers first wins — possibly the old price.
+    """
+    adapter = await stacked_adapter()
+
+    for percent in ("0.5", "0.8", "1.2"):
+        assert (await amend(adapter, percent)).all_ok
+
+    assert adapter.live == ["stop-3"], f"stale stops left live: {adapter.live}"
+
+
+async def test_place_then_cancel_places_before_it_cancels():
+    """Q5d's answer: overlap on the safe side. The old stop is removed only
+    once the new one exists, so there is no unprotected moment."""
+    adapter = await stacked_adapter()
+    await amend(adapter)
+    adapter.trace.clear()
+
+    await amend(adapter)
+
+    assert adapter.trace == ["list", "place", "cancel"]
+
+
+@override_settings(
+    TRADING={
+        **__import__("django.conf", fromlist=["settings"]).settings.TRADING,
+        "SLTP_AMEND_STRATEGY": "cancel_then_place",
+    }
+)
+async def test_cancel_then_place_is_a_real_branch_not_dead_config():
+    """The other half of Q5d: the setting has to actually change behaviour."""
+    adapter = await stacked_adapter()
+    await amend(adapter)
+    adapter.trace.clear()
+
+    await amend(adapter)
+
+    assert adapter.trace == ["list", "cancel", "place"]
+    assert adapter.live == ["stop-2"]
+
+
+async def test_an_exchange_that_amends_in_place_is_left_alone():
+    """Bybit and the paper adapter replace SL/TP in one call — no cancel dance."""
+    adapter = PaperAdapter(balance=D("1000"))
+    assert adapter.capabilities.native_sltp_amend
+
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+    await amend(adapter)
+
+    assert "list_conditional_orders" not in adapter.calls
+
+
+async def test_the_first_attach_after_entry_also_clears_a_half_placed_pair():
+    """Q5e retries the attach. Without the snapshot, attempt two would stack on
+    whatever attempt one managed to place before it failed."""
+    adapter = StackingAdapter(balance=D("1000"))
+    adapter.capabilities = replace(adapter.capabilities, native_sltp_on_entry=False)
+    result = await open_trade([(1, adapter)], intent())
+
+    assert result.all_ok
+    assert len(adapter.live) == 1
+
+
+# --- Spec §4: identical leverage (G6) ---------------------------------------
+
+
+async def test_an_account_capped_below_the_asked_leverage_sits_out():
+    """Spec §4 says every account runs the same leverage. An account whose
+    exchange caps it lower cannot comply, so it is skipped with a notification
+    — the spec §5 treatment — rather than silently trading a different size."""
+    capped = PaperAdapter(balance=D("1000"))
+    capped.capabilities = replace(capped.capabilities, max_leverage=5)
+    accounts = [(1, PaperAdapter(balance=D("1000"))), (2, capped)]
+
+    result = await open_trade(accounts, intent(leverage=10))
+
+    assert [leg.account_id for leg in result.succeeded] == [1]
+    assert result.failed[0].error_code == "leverage_capped"
+    assert await capped.get_position("BTCUSDT") is None
+    assert failure_notifications(result)[0]["persistent"] is True
 
 
 async def test_an_adapter_that_raises_outside_the_contract_is_still_contained():

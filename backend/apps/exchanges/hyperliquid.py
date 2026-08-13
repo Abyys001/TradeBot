@@ -256,9 +256,41 @@ class HyperliquidAdapter(ExchangeAdapter):
         """Hyperliquid rejects prices off the tick grid (tickRejected)."""
         return floor_to_step(price, rules.price_tick)
 
+    async def list_conditional_orders(self, symbol: str) -> list[str]:
+        """Resting reduce-only trigger orders on this coin (Q5d snapshot).
+
+        ``frontendOpenOrders`` rather than ``openOrders``: only the former
+        carries ``isTrigger``/``reduceOnly``, and without those a plain resting
+        limit order the partner placed would look like protection and be
+        cancelled on the next SL/TP change.
+        """
+        coin = self._coin(symbol)
+        orders = await self._call("frontend_open_orders", self.account_address)
+        return [
+            str(order["oid"])
+            for order in orders or []
+            if order.get("coin") == coin
+            and order.get("isTrigger")
+            and order.get("reduceOnly")
+            and order.get("oid") is not None
+        ]
+
+    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        coin = self._coin(symbol)
+        for order_id in order_ids:
+            try:
+                await self._call("cancel", coin, int(order_id))
+            except (AdapterError, ValueError) as exc:
+                # "Order was never placed, already canceled, or filled" — the
+                # trigger fired between the snapshot and this call.
+                if "never placed" not in str(exc).lower():
+                    raise
+
     async def set_sltp(
         self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
     ) -> None:
+        """Places new trigger orders. Hyperliquid has no amend for these, so the
+        previous pair is cancelled by ``executor.apply_sltp`` (Q5d)."""
         coin = self._coin(symbol)
         position = await self.get_position(symbol)
         if position is None:

@@ -8,8 +8,9 @@
  * makes the chart a fourth *input* rather than only a picture.
  *
  * Everything on this page marks against one price (stores/market.ts), which is
- * what makes a live PnL possible. When no exchange is reachable the feed falls
- * back to labelled synthetic data and the header says so — see SymbolBar.
+ * what makes a live PnL possible. That price is always an exchange's: when none
+ * is reachable the page says the feed is down and draws nothing, rather than
+ * filling the gap with a series nobody quoted.
  *
  * Layout is genuinely different per size rather than a shrunk desktop:
  *
@@ -74,6 +75,7 @@ async function mountChart() {
   await chart.mount(chartEl.value)
   chart.setEntryDraggable(entryDraggable.value)
   paintSeries()
+  painted.value = market.seriesKey
 
   // Surface 2 of 3: dragging the lines on the chart.
   chart.onSLTPDrag(async (kind, price) => {
@@ -148,13 +150,21 @@ watch(
 
 // A whole new series (symbol or timeframe changed) replaces the data outright;
 // a tick only updates the last bar, which is why these are two watchers.
+//
+// The view is only ever snapped back when the *instrument* changed. The candle
+// poll refreshes this same series every 15 seconds, and resetting on that
+// yanked the chart back to the newest bar while the admin was scrolled back
+// looking at a level — repeatedly, and with no way to stop it. Panning and
+// zooming now belong to the admin; `resetView` is the button next to the chart.
+const painted = ref('')
 watch(
   () => market.revision,
   () => {
     paintSeries()
-    // Snap to the newest candle. Switching BTC → AVAX otherwise leaves the
-    // price scale where BTC was and the new candles $80k off-screen.
-    chart?.resetView()
+    if (market.seriesKey !== painted.value) {
+      painted.value = market.seriesKey
+      chart?.resetView()
+    }
     syncPosition()
     syncChartLines()
   },
@@ -170,8 +180,7 @@ watch(
 
 watch(
   () => market.mark,
-  (price) => {
-    chart?.showMark(price)
+  () => {
     syncPosition()
     // While flat the SL/TP lines hang off the live price, so they move with it.
     if (!positions.hasPosition) syncChartLines()
@@ -201,11 +210,26 @@ function syncPosition() {
   order.entryPrice = price
   order.liquidationPrice =
     order.side === 'long' ? price * (1 - 1 / order.leverage) : price * (1 + 1 / order.leverage)
+
+  // Flat, with a market order working: the "entry" is just the live price,
+  // which the axis already shows. Drawing it as a third line through the same
+  // band as SL and TP added nothing and cost a clean grab on the two lines that
+  // are actually being set. The ticket still shows the number.
+  if (!positions.hasPosition && !entryDraggable.value) {
+    chart?.clearPosition()
+    return
+  }
+
   chart?.showPosition({
     entry: price,
     liquidation: positions.hasPosition ? order.liquidationPrice : null,
     side: order.side,
   })
+}
+
+/** The admin's own "put it back" — the only thing that re-fits the view. */
+function resetView() {
+  chart?.resetView()
 }
 
 function syncChartLines() {
@@ -243,6 +267,38 @@ function syncChartLines() {
           class="absolute inset-0 grid place-items-center text-xs text-ink-muted"
         >
           {{ t('common.loading') }}
+        </div>
+
+        <!-- No exchange reachable and nothing real to draw. The panel says so
+             instead of showing a chart, because the only alternative would be
+             inventing prices. -->
+        <div
+          v-else-if="market.feedDown && !market.candles.length"
+          class="absolute inset-0 grid place-items-center p-6"
+        >
+          <div class="text-center max-w-xs">
+            <p class="text-sm font-medium text-signal">{{ t('terminal.feedDownTitle') }}</p>
+            <p class="mt-1 text-xs text-ink-muted">{{ t('terminal.feedDownBody') }}</p>
+            <button class="btn btn-ghost mt-3 text-xs" @click="market.loadCandles()">
+              {{ t('common.retry') }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Top-right corner: how long this candle has left, and the only
+             control that moves the view. Everything else on this surface is
+             the admin's own pan and zoom, which nothing else touches. -->
+        <div class="absolute top-2 end-3 flex items-center gap-1.5 z-10">
+          <TerminalCandleTimer />
+          <button
+            class="pointer-events-auto rounded-md border border-line bg-sunken/90 backdrop-blur
+                   p-1.5 text-ink-muted hover:text-ink transition-colors"
+            :title="t('terminal.resetView')"
+            :aria-label="t('terminal.resetView')"
+            @click="resetView"
+          >
+            <UiIcon name="fit" :size="14" />
+          </button>
         </div>
 
         <!-- Says what can be grabbed. The lines carry a ⇕ for the same reason:

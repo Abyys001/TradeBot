@@ -1,17 +1,19 @@
 /* Fonts are bundled, not fetched from a CDN — the panel must work offline and
    on a machine behind a proxy. */
-@import '@fontsource/space-grotesk/500.css';
-@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/manrope/500.css';
+@import '@fontsource/manrope/700.css';
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
+@import '@fontsource/dm-sans/400.css';
+@import '@fontsource/dm-sans/500.css';
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
 
-/* Vazirmatn covers the Arabic script that Inter / Space Grotesk / JetBrains
-   Mono do not. It sits at the tail of every stack in tailwind.config.ts, so
-   Latin characters keep their fonts and Persian text resolves to Vazirmatn —
-   no [lang='fa'] overrides anywhere. */
+/* Vazirmatn covers the Arabic script that the Latin fonts above do not. It
+   sits at the tail of every stack in tailwind.config.ts, so Latin characters
+   keep their fonts and Persian text resolves to Vazirmatn — no [lang='fa']
+   overrides anywhere. */
 @import '@fontsource/vazirmatn/400.css';
 @import '@fontsource/vazirmatn/500.css';
 @import '@fontsource/vazirmatn/600.css';
@@ -115,6 +117,17 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  /* The display face owns every heading on the panel — page titles, panel
+     headers, card and modal titles — whatever its size. One face per role
+     makes the custom fonts read as a system: Manrope names things, Inter
+     reads them, DM Sans labels them, JetBrains Mono numbers them. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+
   body {
     /* Safe-area padding matters on a phone in landscape, which is exactly how
        someone checks an open position away from the desk. */
@@ -173,7 +186,9 @@
   }
 
   .label {
-    @apply text-tick uppercase tracking-wider text-ink-faint;
+    /* DM Sans was designed for small on-screen text — table headers and
+       field labels live in its home territory. */
+    @apply font-ui text-tick uppercase tracking-wider text-ink-faint;
   }
 
   .panel {

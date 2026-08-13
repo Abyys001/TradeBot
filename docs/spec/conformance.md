@@ -6,7 +6,7 @@ can be *checked* rather than taken on faith.
 
 Status key: **✅ done** · **⚠️ done, with a caveat you must read** · **➖ not required for v1**
 
-Test commands: `cd backend && .venv/bin/python -m pytest` (119 tests) ·
+Test commands: `cd backend && .venv/bin/python -m pytest` (179 tests) ·
 `npx nuxi typecheck` · `npm run build` in `frontend/`.
 
 ---
@@ -43,8 +43,9 @@ pair or timeframe resets the view to the newest candle.
 
 | Requirement | Where | Evidence | Status |
 |---|---|---|---|
-| Identical leverage and SL/TP % on every account | One `TradeIntent` per fan-out; only sizing is per account | `test_open_persists_a_leg_per_account` (same leverage, 990/4950 margins) | ✅ |
+| Identical leverage and SL/TP % on every account | One `TradeIntent` per fan-out; only sizing is per account. An account whose exchange caps leverage below the admin's number **sits the trade out** (`executor._open_one`, code `leverage_capped`) instead of being silently clamped to a different leverage | `test_open_persists_a_leg_per_account`, `test_an_account_capped_below_the_asked_leverage_sits_out` | ✅ |
 | Mid-trade change propagates ≤ 1s | `fan_out(timeout=FANOUT_TIMEOUT_SECONDS)`, `route_amend` | `test_the_fanout_duration_is_recorded_for_audit` | ✅ |
+| A mid-trade change replaces the old SL/TP rather than adding to it | Q5d strategy in `executor.apply_sltp`: snapshot `list_conditional_orders`, place, then `cancel_orders`. Only Bybit and paper amend in place; the other six place conditional orders and are cancelled around | `test_an_amend_leaves_exactly_one_pair_of_stops_alive`, `test_place_then_cancel_places_before_it_cancels`, `test_cancel_then_place_is_a_real_branch_not_dead_config` | ✅ `SLTP_AMEND_STRATEGY` is live config, both branches tested |
 | Entry dispatched to all accounts within ~1s | Single `asyncio.gather`, factories so nothing starts early | `tests/test_fanout.py` timing assertions | ✅ |
 | Independent failure handling | `_run_leg` never raises; `return_exceptions=True` as a backstop | ✅ | ✅ |
 | Failed-order notification, persistent, ~190×110, no auto-expire | `Notification` model + `components/app/NotificationCenter.vue` | `test_a_failing_account_is_recorded_and_notified_not_swallowed` | ⚠️ **amended**: moved from a docked card into the top bar because it covered the chart. Nothing auto-expires; dismissal is server-side. See `questions.md` Q16 |
@@ -65,19 +66,19 @@ pair or timeframe resets the view to the newest candle.
 | Admin adds each account manually | `components/accounts/ConnectForm.vue` → `ConnectedAccountViewSet.create` | ✅ | ✅ |
 | Add button | `pages/accounts.vue` | ✅ | ✅ |
 | Per-account Pause / Resume / Delete icons | `pages/accounts.vue`, colour-coded (amber / green / red) | ✅ | ✅ |
-| No account joins a trade already in progress | `eligible_from` vs `trade.opened_at` | `test_an_account_connected_after_the_trade_does_not_join_it` | ✅ |
+| No account joins a trade already in progress | For an open trade, `eligible_accounts(trade)` returns the accounts **holding a filled, unclosed leg of it** — an account that connected or resumed later has no leg, so it cannot join | `test_an_account_connected_after_the_trade_does_not_join_it`, `test_an_account_connected_after_the_trade_still_cannot_join_an_amend` | ✅ |
 | A reconnected account waits for the next trade | `resume` sets `eligible_from = now` | `test_paused_accounts_are_excluded` | ✅ |
-| Its existing exchange position is left as-is | Nothing force-closes on pause or delete | — | ✅ |
+| Its existing exchange position is left as-is | Nothing force-closes on pause or delete. Pause stops *new* orders only: an account still holding a leg stays in the amend/close fan-out, so its position can always be re-protected or flattened through the platform | `test_pausing_an_account_does_not_strand_its_open_position` | ✅ |
 | Balance of every account visible **at all times** | 45s background refresh (`stores/accounts.ts`), rate-limited server-side, pushed to every panel over the WebSocket; stale figures marked amber | `test_balance_refresh_covers_paused_accounts`, `test_background_refresh_is_rate_limited_but_still_answers` | ✅ |
 
 ## §7 Security
 
 | Requirement | Where | Evidence | Status |
 |---|---|---|---|
-| Keys must be non-withdrawable | `verify_credentials()` per adapter; a withdrawable key is **refused and the row deleted** (`accounts/views.py`) | `tests/test_adapters.py` | ⚠️ where an exchange exposes no permission endpoint the account is flagged "unverified" in the panel rather than silently passed. Hyperliquid agent-wallet rights still unverified (Q11) |
+| Keys must be non-withdrawable | `verify_credentials()` per adapter; a withdrawable key is **refused and the row deleted** (`accounts/views.py`). Re-checked on `verify` **and on `resume`** — a key that gained withdrawal rights while paused does not come back. `ConnectedAccount.clean()` refuses to activate an account whose check never ran (`withdrawal_checked_at`) | `tests/test_adapters.py`, `tests/test_accounts_api.py` | ⚠️ only Bybit, OKX, Binance and KuCoin publish key permissions; on the other four the account is flagged "unverified" in the panel rather than silently passed. Binance and KuCoin keep that endpoint on their **spot** host, so a futures-only Binance key cannot reach it and is flagged, not refused. Hyperliquid agent-wallet rights still unverified (Q11) |
 | Keys encrypted at rest, never in responses | `apps/core/crypto.py` (Fernet + rotation); serializers never expose them | `tests/test_crypto.py` | ✅ |
 | Security first-class | Staff-gated routing endpoints, CSRF, no secrets in logs | `tests/test_auth.py` | ✅ |
-| Emergency "stop all" | `apps/trading/killswitch.py`, `components/app/StopAll.vue` in every top bar | `tests/test_killswitch.py` (8 cases) | ✅ env pin cannot be cleared from the panel; closing still works while halted |
+| Emergency "stop all" | `apps/trading/killswitch.py`, `components/app/StopAll.vue` in every top bar | `tests/test_killswitch.py` (10 cases) | ✅ env pin cannot be cleared from the panel; **both** closing *and* amending SL/TP keep working while halted (Q14), each with a test |
 
 ## §8 Trade history
 
@@ -99,7 +100,7 @@ pair or timeframe resets the view to the newest candle.
 | Exact UI/UX layout | Built; responsive down to 320px, RTL-capable, installable (Q17) |
 | Notification behaviour for **successful** trades | Transient toasts (`components/app/Toasts.vue`) — deliberately unlike failures, which never expire |
 | Self-service partner onboarding | ➖ explicitly not required for v1 |
-| Exchange-by-exchange API specifics | `docs/exchanges/coverage.md`, `docs/adapters.md`; LBank futures impossible (Q10) |
+| Exchange-by-exchange API specifics | `docs/exchanges/coverage.md`, `docs/adapters.md`; LBank futures impossible (Q10) — LBank **spot** is a full round trip: buy, and `close_position` sells back at market |
 
 ## §11 Legal note
 
@@ -120,5 +121,6 @@ before connecting real partner capital.
 4. **TradingView Charting Library** pending their approval; Lightweight Charts
    is in place behind the same seam.
 5. **Market data reachability** depends on the deployment's egress. Where no
-   provider is reachable the panel serves labelled synthetic candles, and a
-   synthetic price is never used to size an order (Q13).
+   provider is reachable the API returns 503 and the panel shows an explicit
+   "no price feed" state — there is no synthetic series, and with no price
+   nothing sizes an order (Q13, amended 13 Aug 2026).

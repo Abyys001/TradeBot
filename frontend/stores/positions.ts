@@ -49,6 +49,13 @@ export const usePositionsStore = defineStore('positions', {
       s.snapshot?.totals?.roe_pct == null ? null : Number(s.snapshot.totals.roe_pct),
     markPrice: (s) => (s.snapshot?.mark ? Number(s.snapshot.mark.price) : null),
 
+    /**
+     * Set when the server held the position but could not price it. The legs,
+     * sizes and entries are still real; every PnL field is null. An unknown PnL
+     * has to read as unknown — showing zero would look like a flat trade.
+     */
+    feedError: (s) => s.snapshot?.feed_error ?? '',
+
     byAccount: (s) => (id: number) => s.snapshot?.legs.find((leg) => leg.account === id) ?? null,
   },
 

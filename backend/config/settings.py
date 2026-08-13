@@ -36,6 +36,10 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # Serves Django's static files (the admin UI) once DEBUG=false and
+    # `collectstatic` has run — the launch command in docker-compose.prod.yml
+    # does both. Development is unaffected: runserver takes over under DEBUG.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -133,7 +137,10 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+# Absolute: with the relative "static/" the admin at /admin/ would resolve its
+# assets to /admin/static/... and whitenoise (production) and runserver (dev)
+# would both 404 them.
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -194,14 +201,21 @@ TRADING = {
 
 # --- Market data (spec §3) --------------------------------------------------
 # Public price feeds only: no credentials, no signing, never per account.
-# Providers are tried in order; when none answers the panel is served labelled
-# synthetic data rather than a broken chart. Set ENABLED=false in an air-gapped
-# deployment to skip the outbound calls entirely.
+# Providers are tried in order. When none answers the API returns 503 and the
+# panel says the feed is down — there is no synthetic fallback, because a chart
+# that invents candles is how someone reads a price that never existed. Set
+# ENABLED=false only in an air-gapped deployment, where the panel then shows no
+# prices at all rather than made-up ones.
 MARKET_DATA = {
     # Same reasoning as the database and channel layer above: the suite must
-    # never reach out to a real exchange, so tests always run on the synthetic
-    # source unless a test opts in explicitly.
+    # never reach out to a real exchange, so it is off unless a test stubs the
+    # transport and opts in explicitly.
     "ENABLED": False if RUNNING_TESTS else env_bool("MARKET_DATA_ENABLED", True),
+    # Pin the outbound proxy for price calls. Empty means "use the shell's
+    # HTTPS_PROXY/ALL_PROXY if httpx can speak it, else go direct" — see
+    # marketdata.resolve_proxy. Set explicitly where the exchange is only
+    # reachable through a proxy.
+    "PROXY": os.getenv("MARKET_DATA_PROXY", ""),
     "PROVIDERS": [
         p.strip()
         for p in os.getenv("MARKET_DATA_PROVIDERS", "binance,bybit").split(",")
@@ -216,3 +230,20 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
     "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
 }
+
+# --- Production hardening ---------------------------------------------------
+# The launch topology: Caddy terminates TLS, the Nuxt panel forwards the
+# browser's scheme and host as X-Forwarded-Proto / X-Forwarded-Host, and Django
+# is reachable only from the panel over the Docker network (no host port is
+# published). Those headers cannot be spoofed from outside, so trusting them is
+# safe here. Everything defaults OFF under DEBUG and ON in production; each can
+# be overridden explicitly from the environment.
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", not DEBUG)
+SECURE_HSTS_PRELOAD = env_bool("SECURE_HSTS_PRELOAD", not DEBUG)
+SECURE_REFERRER_POLICY = "same-origin"

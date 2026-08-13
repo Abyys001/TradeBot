@@ -1,0 +1,304 @@
+# API FUNCTION TEMPLATE
+
+
+def test_get_symbol_req(self):
+    """
+        get_symbol
+        Get Symbol
+        /api/v1/contracts/{symbol}
+    """
+
+    builder = GetSymbolReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_symbol(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_all_symbols_req(self):
+    """
+        get_all_symbols
+        Get All Symbols
+        /api/v1/contracts/active
+    """
+
+    try:
+        resp = self.api.get_all_symbols()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_ticker_req(self):
+    """
+        get_ticker
+        Get Ticker
+        /api/v1/ticker
+    """
+
+    builder = GetTickerReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_ticker(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_all_tickers_req(self):
+    """
+        get_all_tickers
+        Get All Tickers
+        /api/v1/allTickers
+    """
+
+    try:
+        resp = self.api.get_all_tickers()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_full_order_book_req(self):
+    """
+        get_full_order_book
+        Get Full OrderBook
+        /api/v1/level2/snapshot
+    """
+
+    builder = GetFullOrderBookReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_full_order_book(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_part_order_book_req(self):
+    """
+        get_part_order_book
+        Get Part OrderBook
+        /api/v1/level2/depth{size}
+    """
+
+    builder = GetPartOrderBookReqBuilder()
+    builder.set_size(?).set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_part_order_book(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_trade_history_req(self):
+    """
+        get_trade_history
+        Get Trade History
+        /api/v1/trade/history
+    """
+
+    builder = GetTradeHistoryReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_trade_history(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_klines_req(self):
+    """
+        get_klines
+        Get Klines
+        /api/v1/kline/query
+    """
+
+    builder = GetKlinesReqBuilder()
+    builder.set_symbol(?).set_granularity(?).set_from_(?).set_to(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_klines(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_mark_price_req(self):
+    """
+        get_mark_price
+        Get Mark Price
+        /api/v1/mark-price/{symbol}/current
+    """
+
+    builder = GetMarkPriceReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_mark_price(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_index_price_req(self):
+    """
+        get_spot_index_price
+        Get Spot Index Price
+        /api/v1/index/query
+    """
+
+    builder = GetSpotIndexPriceReqBuilder()
+    builder.set_symbol(?).set_start_at(?).set_end_at(?).set_reverse(?).set_offset(?).set_forward(?).set_max_count(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_spot_index_price(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_interest_rate_index_req(self):
+    """
+        get_interest_rate_index
+        Get Interest Rate Index
+        /api/v1/interest/query
+    """
+
+    builder = GetInterestRateIndexReqBuilder()
+    builder.set_symbol(?).set_start_at(?).set_end_at(?).set_reverse(?).set_offset(?).set_forward(?).set_max_count(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_interest_rate_index(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_premium_index_req(self):
+    """
+        get_premium_index
+        Get Premium Index
+        /api/v1/premium/query
+    """
+
+    builder = GetPremiumIndexReqBuilder()
+    builder.set_symbol(?).set_start_at(?).set_end_at(?).set_reverse(?).set_offset(?).set_forward(?).set_max_count(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_premium_index(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get24hr_stats_req(self):
+    """
+        get24hr_stats
+        Get 24hr stats
+        /api/v1/trade-statistics
+    """
+
+    try:
+        resp = self.api.get24hr_stats()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_server_time_req(self):
+    """
+        get_server_time
+        Get Server Time
+        /api/v1/timestamp
+    """
+
+    try:
+        resp = self.api.get_server_time()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_service_status_req(self):
+    """
+        get_service_status
+        Get Service Status
+        /api/v1/status
+    """
+
+    try:
+        resp = self.api.get_service_status()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_public_token_req(self):
+    """
+        get_public_token
+        Get Public Token - Futures
+        /api/v1/bullet-public
+    """
+
+    try:
+        resp = self.api.get_public_token()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_private_token_req(self):
+    """
+        get_private_token
+        Get Private Token - Futures
+        /api/v1/bullet-private
+    """
+
+    try:
+        resp = self.api.get_private_token()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e

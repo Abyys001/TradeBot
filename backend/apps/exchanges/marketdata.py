@@ -9,17 +9,20 @@ holds no credentials, is shared by every request, and never signs anything, so:
   - the data can be cached across accounts, which per-account adapters must not.
 
 Providers are tried in order and the first that answers wins. When none does,
-``SyntheticSource`` returns a labelled random walk — the response says
-``live: false`` and the panel renders a "placeholder data" badge from that flag.
-An unlabelled fake price series on a trading screen is how someone reads a
-number that was never real, so the flag travels with the data rather than being
-a frontend decision.
+this module **raises**. There is no synthetic fallback: a trading panel that
+draws invented candles is how someone reads a number that was never real, and
+no badge makes that safe. Callers turn the failure into an explicit "no feed"
+state — never into a price.
+
+Every real provider call is timed and the round trip is cached per provider, so
+the panel can show the engine's actual latency to the exchange rather than only
+the browser's latency to the engine.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
+import os
 import time
 from dataclasses import dataclass
 from decimal import Decimal
@@ -58,7 +61,7 @@ DEFAULT_LIMIT = 300
 
 
 class MarketDataError(Exception):
-    """No provider could answer. Callers fall back to synthetic data."""
+    """No provider could answer. There is no fallback — the caller says so."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +104,42 @@ class Ticker:
         }
 
 
+# --- latency ----------------------------------------------------------------
+#: How long a measured round trip is still worth showing. Past this the panel
+#: shows nothing rather than a number from a link that may since have died.
+RTT_TTL = 60
+
+
+def record_rtt(provider: str, ms: float) -> None:
+    """Remember the last real round trip to ``provider``, in milliseconds."""
+    if not provider:
+        return
+    cache.set(f"md:rtt:{provider}", round(ms, 1), RTT_TTL)
+
+
+def last_rtt(provider: str) -> float | None:
+    """The last measured round trip, or None when nothing recent was measured."""
+    return cache.get(f"md:rtt:{provider}") if provider else None
+
+
+def provider_latency() -> dict:
+    """Measured engine→exchange round trips, in provider preference order.
+
+    Null rather than a guess when nothing has been measured inside ``RTT_TTL``:
+    an old number from a link that has since died is worse than no number.
+    """
+    rows = [
+        {"provider": name, "ms": last_rtt(name)}
+        for name in _configured_providers()
+        if last_rtt(name) is not None
+    ]
+    return {
+        "providers": rows,
+        "provider": rows[0]["provider"] if rows else "",
+        "ms": rows[0]["ms"] if rows else None,
+    }
+
+
 class MarketDataSource(Protocol):
     name: str
 
@@ -114,17 +153,54 @@ class MarketDataSource(Protocol):
 # --- providers --------------------------------------------------------------
 
 
+def resolve_proxy() -> str | None:
+    """The proxy these calls should use, or None for a direct connection.
+
+    ``MARKET_DATA_PROXY`` pins one explicitly. Otherwise the ambient shell proxy
+    is used **only if httpx can actually speak it**, with one normalisation:
+    shells commonly export ``socks://…`` while httpx wants ``socks5://…``.
+
+    Anything left unusable is dropped and the call goes direct. This is not
+    tidiness — httpx raises on an unparseable proxy URL, and with a fallback
+    that meant every price call failing on a machine that could reach the
+    exchange perfectly well, which is the whole reason a panel ends up showing
+    numbers no exchange ever quoted.
+    """
+    pinned = settings.MARKET_DATA.get("PROXY") or ""
+    candidate = pinned or os.getenv("HTTPS_PROXY") or os.getenv("https_proxy") or ""
+    candidate = candidate or os.getenv("ALL_PROXY") or os.getenv("all_proxy") or ""
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+    if candidate.startswith("socks://"):
+        candidate = "socks5://" + candidate[len("socks://") :]
+    try:
+        httpx.Proxy(candidate)
+    except Exception as exc:  # noqa: BLE001 - an unusable proxy must not kill the feed
+        logger.warning("ignoring unusable market data proxy %r: %s", candidate, exc)
+        return None
+    return candidate
+
+
 class _HttpSource:
     """Shared transport. One short-lived client per call — this is not hot path."""
 
     name = ""
 
     def _get(self, url: str, params: dict) -> dict | list:
+        started = time.perf_counter()
         with httpx.Client(
             timeout=httpx.Timeout(HTTP_TIMEOUT),
             headers={"User-Agent": "WalletManager-CopyTrader/1.0"},
+            # Explicit rather than ambient: see resolve_proxy.
+            trust_env=False,
+            proxy=resolve_proxy(),
         ) as client:
             response = client.get(url, params=params)
+        # Timed here rather than around the whole provider call: this is the
+        # wire round trip to the exchange and nothing else. It is the number the
+        # panel shows next to the browser's own round trip to the engine.
+        record_rtt(self.name, (time.perf_counter() - started) * 1000)
         if response.status_code >= 400:
             raise MarketDataError(f"{self.name}: HTTP {response.status_code}")
         try:
@@ -251,76 +327,6 @@ class BybitPublicSource(_HttpSource):
         )
 
 
-class SyntheticSource:
-    """A deterministic random walk, used only when every real provider is down.
-
-    Deterministic on purpose: the same symbol and minute give the same series,
-    so the chart does not reshuffle itself on every poll. Callers must pass the
-    ``live: False`` flag on to the client — see the module docstring.
-    """
-
-    name = "synthetic"
-
-    _ANCHORS = {"BTC": Decimal("100000"), "ETH": Decimal("3500"), "SOL": Decimal("180")}
-
-    def _anchor(self, symbol: str) -> Decimal:
-        for prefix, price in self._ANCHORS.items():
-            if symbol.upper().startswith(prefix):
-                return price
-        # Anything else gets a stable pseudo-price derived from its name, so two
-        # different symbols do not draw the identical chart.
-        digest = hashlib.sha256(symbol.upper().encode()).digest()
-        return Decimal(int.from_bytes(digest[:2], "big") % 900 + 100)
-
-    #: The walk is always this long and callers take the tail they need, so the
-    #: last value is the same whoever asks. Without that the ticker and the last
-    #: candle disagree — and PnL is marked against the ticker, so an open
-    #: position would show an instant profit or loss that never happened.
-    _LENGTH = 500
-
-    def _walk(self, symbol: str) -> list[Decimal]:
-        price = self._anchor(symbol)
-        seed = int.from_bytes(hashlib.sha256(symbol.upper().encode()).digest()[:4], "big")
-        prices = []
-        for _ in range(self._LENGTH):
-            seed = (seed * 1103515245 + 12345) % (2**31)
-            step = (Decimal(seed % 2000) - Decimal("1000")) / Decimal("100000")
-            price = price * (Decimal("1") + step)
-            prices.append(price)
-        return prices
-
-    def candles(self, *, symbol: str, interval: str, market: MarketType, limit: int):
-        seconds = INTERVALS[interval]
-        count = min(limit, self._LENGTH)
-        # Snap to the interval grid so successive polls agree on bar boundaries.
-        last_open = (int(time.time()) // seconds) * seconds
-        closes = self._walk(symbol)[-count:]
-        candles = []
-        for i, close in enumerate(closes):
-            open_price = closes[i - 1] if i else close
-            high = max(open_price, close) * Decimal("1.001")
-            low = min(open_price, close) * Decimal("0.999")
-            candles.append(
-                Candle(
-                    time=last_open - (count - 1 - i) * seconds,
-                    open=round(open_price, 2),
-                    high=round(high, 2),
-                    low=round(low, 2),
-                    close=round(close, 2),
-                    volume=Decimal("0"),
-                )
-            )
-        return candles
-
-    def ticker(self, *, symbol: str, market: MarketType):
-        return Ticker(
-            symbol=symbol.upper(),
-            price=round(self._walk(symbol)[-1], 2),
-            change_pct=None,
-            at=int(time.time()),
-        )
-
-
 SOURCES: dict[str, type] = {
     "binance": BinancePublicSource,
     "bybit": BybitPublicSource,
@@ -344,21 +350,34 @@ def _mark_down(name: str, exc: Exception) -> None:
 
 
 def _try_providers(call, *, what: str):
-    """Run ``call(source)`` against each live provider; return (value, name)."""
-    if not settings.MARKET_DATA["ENABLED"]:
-        return None, ""
+    """Run ``call(source)`` against each live provider; return (value, name).
 
-    for name in _configured_providers():
+    Raises ``MarketDataError`` when nothing answers. There is no fallback value:
+    the only honest answer to "what is BTC worth" with every provider down is
+    "we do not know".
+    """
+    if not settings.MARKET_DATA["ENABLED"]:
+        raise MarketDataError("market data is disabled")
+
+    configured = _configured_providers()
+    if not configured:
+        raise MarketDataError("no market data provider is configured")
+
+    reasons: list[str] = []
+    for name in configured:
         if _cooling_off(name):
+            reasons.append(f"{name}: cooling off ({cache.get(f'md:down:{name}')})")
             continue
         try:
             return call(SOURCES[name]()), name
         except (MarketDataError, httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
             _mark_down(name, exc)
-        except Exception as exc:  # noqa: BLE001 - the chart must never 500
+            reasons.append(f"{name}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - one bad provider is not a 500
             _mark_down(name, exc)
+            reasons.append(f"{name}: {exc}")
             logger.exception("unexpected market data failure fetching %s", what)
-    return None, ""
+    raise MarketDataError(f"no provider could serve {what} — " + "; ".join(reasons))
 
 
 def normalise_interval(value: str | None) -> str:
@@ -382,7 +401,7 @@ def get_candles(
     market: MarketType = MarketType.FUTURES,
     limit: int = DEFAULT_LIMIT,
 ) -> dict:
-    """Candles plus provenance. Always returns data; ``live`` says whether it is real."""
+    """Real candles plus provenance, or ``MarketDataError``. Never invented data."""
     symbol = symbol.upper()
     limit = max(10, min(limit, MAX_LIMIT))
     key = f"md:candles:{symbol}:{interval}:{market.value}:{limit}"
@@ -396,23 +415,20 @@ def get_candles(
         ),
         what="candles",
     )
-    live = bool(candles)
-    if not live:
-        candles = SyntheticSource().candles(
-            symbol=symbol, interval=interval, market=market, limit=limit
-        )
-        provider = SyntheticSource.name
+    if not candles:
+        raise MarketDataError(f"{provider}: no candles for {symbol}")
 
     payload = {
         "symbol": symbol,
         "interval": interval,
         "market": market.value,
         "source": provider,
-        "live": live,
+        # Kept on the wire and always true: every payload that reaches a client
+        # came from an exchange. Nothing else can produce one any more.
+        "live": True,
+        "provider_ms": last_rtt(provider),
         "candles": [candle.as_dict() for candle in candles],
     }
-    # Synthetic data is cached briefly too, so a provider outage does not turn
-    # into a burst of pointless retries from an open chart.
     cache.set(key, payload, CANDLE_TTL)
     return payload
 
@@ -427,11 +443,12 @@ def get_ticker(*, symbol: str, market: MarketType = MarketType.FUTURES) -> dict:
     ticker, provider = _try_providers(
         lambda source: source.ticker(symbol=symbol, market=market), what="ticker"
     )
-    live = ticker is not None
-    if ticker is None:
-        ticker = SyntheticSource().ticker(symbol=symbol, market=market)
-        provider = SyntheticSource.name
-
-    payload = {**ticker.as_dict(), "market": market.value, "source": provider, "live": live}
+    payload = {
+        **ticker.as_dict(),
+        "market": market.value,
+        "source": provider,
+        "live": True,
+        "provider_ms": last_rtt(provider),
+    }
     cache.set(key, payload, TICKER_TTL)
     return payload

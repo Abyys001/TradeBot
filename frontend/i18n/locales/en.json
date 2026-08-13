@@ -29,6 +29,7 @@
     "optional": "optional",
     "reveal": "Show or hide",
     "reload": "Reload",
+    "retry": "Try again",
     "yes": "Yes",
     "no": "No",
     "on": "On",
@@ -74,7 +75,6 @@
     "pending": "{n} failed order(s) awaiting dismissal",
     "none": "No failed orders",
     "noneBody": "A leg that fails on any of your {n} active accounts appears here and stays until you dismiss it.",
-    "persistNote": "Nothing here expires on its own — spec §4. Dismissing is recorded on the server, so it stays dismissed after a reload.",
     "viewAccount": "Open accounts",
     "unknownAccount": "Unknown account"
   },
@@ -86,13 +86,18 @@
     },
     "routingTo": "Routing to",
     "notional": "notional",
-    "placeholderData": "Sample prices",
-    "placeholderHint": "No exchange price feed is reachable, so these candles are synthetic. The chart and its drag interaction work, but the prices are not real.",
+    "feedDown": "No feed",
+    "feedDownHint": "No exchange price feed is reachable. The panel shows no price rather than an invented one.",
+    "feedDownTitle": "No price feed",
+    "feedDownBody": "No exchange could be reached, so there is nothing real to chart. Nothing is drawn until a feed comes back.",
+    "noQuote": "No quote",
+    "resetView": "Reset the view to the latest candles",
+    "candleTimerHint": "Time left in the current {interval} candle",
     "searchSymbol": "Search a pair",
     "pressEnterToUse": "Press Enter to use {symbol}",
     "change24h": "24h",
     "interval": "Timeframe",
-    "sourceHint": "Live prices from {source}.",
+    "sourceHint": "Live prices from {source} — {ms}ms round trip from the engine.",
     "inTrade": "In this trade",
     "detail": {
       "positions": "Positions",
@@ -446,13 +451,15 @@
     },
     "diag": {
       "socket": "Live channel",
-      "latency": "Latency",
+      "latency": "Panel latency",
+      "exchangeLatency": "Exchange latency",
       "feed": "Price feed"
     },
     "diagHint": {
       "socket": "WebSocket to the execution engine. Order routing still works over REST while it is down.",
-      "latency": "Round trip to the engine. It comes out of the same one-second budget as the fan-out.",
-      "feed": "Where chart prices come from. 'Sample prices' means no exchange was reachable and the series is synthetic."
+      "latency": "Measured round trip from this browser to the engine. On a local network it is a millisecond, which says nothing about reaching an exchange.",
+      "exchangeLatency": "Measured round trip from the engine to the price provider — the hop an order actually travels, and the one that spends the one-second budget. Blank when nothing was measured in the last minute.",
+      "feed": "Which exchange the chart prices came from. Every price shown is an exchange's; when none is reachable the panel shows no price at all."
     },
     "legalNote": "This platform routes real trades for other people's capital. Depending on your jurisdiction and how any fee or profit share is structured, that can require registration or a licence (spec §11). Confirm with a qualified professional before connecting real partner accounts."
   },
@@ -532,7 +539,11 @@
     "footerNote": "Order routing and execution. Not an exchange, not a signal service."
   },
   "connection": {
-    "pingHint": "Round trip to the engine: {ms}ms ({quality})",
+    "link": "panel",
+    "exchange": "exchange",
+    "pingHint": "Browser to engine: {ms}ms ({quality})",
+    "exchangeHint": "Engine to {exchange}: {ms}ms ({quality})",
+    "exchangeUnmeasured": "No exchange round trip measured in the last minute.",
     "good": "good",
     "fair": "fair",
     "poor": "poor"

@@ -16,7 +16,13 @@ from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Noti
 from apps.core.money import D
 from apps.exchanges.base import MarketType, OrderType, Side
 from apps.trading.models import Trade, TradeLeg, TradeStatus
-from apps.trading.services import eligible_accounts, refresh_balances, route_close, route_open
+from apps.trading.services import (
+    eligible_accounts,
+    refresh_balances,
+    route_amend,
+    route_close,
+    route_open,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -156,6 +162,69 @@ async def test_closing_does_not_overwrite_why_an_account_sat_out():
     )()
     assert after == original
     assert "no open position" not in after
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_pausing_an_account_does_not_strand_its_open_position():
+    """G4 / spec §6: pause stops *new* orders, it does not orphan a live one.
+
+    Pausing only flipped the status, and every amend/close filtered on
+    ACTIVE — so the position could never be closed or re-protected through the
+    platform again, not even after a resume (which moves ``eligible_from``
+    past the trade).
+    """
+    account = await make_account("partner-a")
+    trade, result = await open_a_trade()
+    assert result.all_ok
+
+    await sync_to_async(
+        lambda: ConnectedAccount.objects.filter(pk=account.pk).update(
+            status=AccountStatus.PAUSED
+        )
+    )()
+
+    amended = await route_amend(trade=trade, sl_pct=D("0.3"), tp_pct=D("2"))
+    assert amended.all_ok, "a paused account's stop can no longer be moved"
+
+    closed = await route_close(trade=trade)
+    assert closed.all_ok, "a paused account's position cannot be flattened"
+
+    leg = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+    assert leg.closed_at is not None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_account_that_never_entered_is_not_asked_to_close():
+    """G7: a leg that failed to enter has nothing to close or amend.
+
+    It used to be fanned out on every subsequent action, fail with "no open
+    position" each time, and mint a fresh persistent notification per action —
+    burying the one notice that actually explained the skip.
+    """
+    await make_account("good", balance="1000")
+    await make_account("too-small", balance="0.01")
+
+    trade, _ = await open_a_trade()
+    assert await sync_to_async(Notification.objects.count)() == 1
+
+    await route_amend(trade=trade, sl_pct=D("0.3"), tp_pct=D("2"))
+    await route_close(trade=trade)
+
+    assert await sync_to_async(Notification.objects.count)() == 1, (
+        "the failed entry was re-notified on every later action"
+    )
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_account_connected_after_the_trade_still_cannot_join_an_amend():
+    """Spec §6 again, now that eligibility for an open trade is leg-based."""
+    await make_account("early")
+    trade, _ = await open_a_trade()
+    await make_account("late")
+
+    accounts = await eligible_accounts(trade)
+
+    assert {account.label for account in accounts} == {"early"}
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

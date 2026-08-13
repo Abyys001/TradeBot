@@ -48,22 +48,40 @@ logger = logging.getLogger(__name__)
 
 @sync_to_async
 def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
-    """Accounts allowed to take part right now.
+    """Accounts that take part in this action.
 
-    Spec §6: an account joins from the *next* trade after it connects or
-    resumes, never an in-flight one. ``eligible_from`` is set on both events,
-    so the filter is a single comparison against the trade's open time.
+    For a *new* entry (``trade is None``): active accounts not already holding
+    a position. Spec §5 allows one open trade per account, because each one
+    commits 99% of that account's balance. Excluding rather than refusing the
+    whole fan-out is deliberate: if one account is still winding down a
+    position, that is not a reason to keep the other nine flat.
 
-    For a *new* entry (``trade is None``) accounts already holding a position
-    are excluded as well — spec §5 allows one open trade per account, because
-    each one commits 99% of that account's balance. Excluding rather than
-    refusing the whole fan-out is deliberate: if one account is still winding
-    down a position, that is not a reason to keep the other nine flat.
+    For an amend or a close, the answer is not "who is active" but **"who is
+    actually holding a leg of this trade"** — the accounts with a filled, still
+    open leg. Three things follow from that, all of them wanted:
+
+      - Spec §6 still holds: an account that connected or resumed after this
+        trade opened has no leg in it, so it cannot join one in progress.
+      - Pausing an account no longer strands its open position. Pause stops
+        *new* orders; flattening or re-protecting what is already live at
+        leverage is a protection action, like closing while halted (Q14).
+      - An account whose entry failed is not asked to close a position it never
+        opened, so it stops minting a fresh "no open position" notification on
+        every amend and close.
     """
-    queryset = ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE)
     if trade is not None:
-        return list(queryset.filter(eligible_from__lte=trade.opened_at))
-    return list(queryset.exclude(id__in=accounts_in_open_trades()))
+        return list(
+            ConnectedAccount.objects.filter(
+                id__in=trade.legs.filter(ok=True, closed_at__isnull=True).values_list(
+                    "account_id", flat=True
+                )
+            )
+        )
+    return list(
+        ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE).exclude(
+            id__in=accounts_in_open_trades()
+        )
+    )
 
 
 def accounts_in_open_trades() -> list[int]:
@@ -231,16 +249,17 @@ def _leg_payload(result: FanOutResult) -> list[dict]:
 def _reference_price(symbol: str, market: MarketType) -> Decimal | None:
     """A price to size a market order with, from the public feed.
 
-    Returns None unless the feed is **real**. When no exchange is reachable the
-    market-data module serves a labelled synthetic series; that is fine for
-    drawing a chart and categorically not fine for deciding how much of a
-    partner's capital to commit. Adapters that can price themselves (the paper
-    adapter, or any exchange where a position already exists) still work — see
-    ``executor._mark_price``.
+    Returns None unless a real exchange answered. With no feed there is no
+    reference price at all — nothing invents one. Adapters that can price
+    themselves (the paper adapter, or any exchange where a position already
+    exists) still work; see ``executor._mark_price``.
     """
-    from apps.exchanges.marketdata import get_ticker
+    from apps.exchanges.marketdata import MarketDataError, get_ticker
 
-    quote = get_ticker(symbol=symbol, market=market)
+    try:
+        quote = get_ticker(symbol=symbol, market=market)
+    except MarketDataError:
+        return None
     if not quote.get("live"):
         return None
     try:

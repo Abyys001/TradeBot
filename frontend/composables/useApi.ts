@@ -91,7 +91,7 @@ export function useApi() {
       request<TickerQuote>(`/trading/market/ticker/?symbol=${symbol}&market=${market}`),
     /** One round trip for the whole watchlist; each quote is cached server-side. */
     tickers: (symbols: string[], market: string) =>
-      request<{ tickers: TickerQuote[] }>(
+      request<{ tickers: TickerQuote[]; unavailable: string[] }>(
         `/trading/market/tickers/?symbols=${symbols.join(',')}&market=${market}`,
       ),
     symbols: () => request<{ symbols: SymbolInfo[]; intervals: string[] }>('/trading/market/symbols/'),
@@ -129,8 +129,13 @@ export interface CandleFeed {
   interval: string
   market: string
   source: string
-  /** False means the series is synthetic. The panel must say so on screen. */
+  /**
+   * Always true on a 200: every candle came from an exchange. There is no
+   * synthetic series any more — a feed outage is a 503, not a chart.
+   */
   live: boolean
+  /** Measured engine→exchange round trip in ms, null when nothing was timed. */
+  provider_ms: number | null
   candles: ApiCandle[]
 }
 
@@ -142,6 +147,7 @@ export interface TickerQuote {
   market: string
   source: string
   live: boolean
+  provider_ms: number | null
 }
 
 export interface SymbolInfo {
@@ -184,6 +190,8 @@ export interface PositionSnapshot {
     opened_at: string
   } | null
   mark: TickerQuote | null
+  /** Non-empty when no exchange could be reached: PnL is null, not zero. */
+  feed_error?: string
   legs: PositionLeg[]
   totals: {
     accounts: number
@@ -270,6 +278,10 @@ export interface Account {
   balance_is_usdt: boolean
   is_tradeable: boolean
   withdrawal_check_passed: boolean
+  /** When the spec §7 check last ran — null means never. Separate from the
+   * verdict: five exchanges publish no permission endpoint, so "checked but
+   * unprovable" is a real state. */
+  withdrawal_checked_at: string | null
   credential_expires_at: string | null
   last_error: string
   created_at?: string

@@ -42,8 +42,8 @@ class TradeIntent:
     limit_price: Decimal | None = None
     #: Price used to size a *market* order, from the public feed. Never sent to
     #: an exchange as an order price — sizing only. The caller supplies it only
-    #: when the feed is real (see services.route_open); a synthetic price must
-    #: never decide how much of someone's capital goes into a live trade.
+    #: when a real exchange answered (see services.route_open); nothing else may
+    #: decide how much of someone's capital goes into a live trade.
     reference_price: Decimal | None = None
 
 
@@ -69,8 +69,21 @@ async def _open_one(
     balance = await adapter.get_balance()
     rules = await adapter.get_symbol_rules(intent.symbol, intent.market)
 
-    leverage = min(intent.leverage, rules.max_leverage, adapter.capabilities.max_leverage)
+    leverage = intent.leverage
     if intent.market is MarketType.FUTURES:
+        # Spec §4: leverage is identical on every account — only the dollar size
+        # differs. So a cap below what the admin asked for is a *skip* with a
+        # notification (the spec §5 treatment of an account that cannot comply),
+        # never a silent clamp: quietly trading one partner at 5x while the rest
+        # run at 10x gives them a different position for the same signal.
+        cap = min(rules.max_leverage, adapter.capabilities.max_leverage)
+        if leverage > cap:
+            raise AdapterError(
+                f"{intent.symbol} is capped at {cap}x on this account, below the "
+                f"{leverage}x this trade uses — spec §4 requires identical leverage, "
+                "so the account sits this one out",
+                code="leverage_capped",
+            )
         await adapter.set_leverage(intent.symbol, leverage)
 
     reference_price = (
@@ -144,6 +157,59 @@ async def _mark_price(adapter: ExchangeAdapter, symbol: str) -> Decimal:
     raise AdapterError(f"no reference price available for {symbol}")
 
 
+async def apply_sltp(
+    adapter: ExchangeAdapter,
+    *,
+    symbol: str,
+    stop_loss: Decimal | None,
+    take_profit: Decimal | None,
+) -> None:
+    """Place SL/TP, honouring the Q5d amend strategy.
+
+    Only Bybit and the paper adapter can truly amend in place
+    (``capabilities.native_sltp_amend``). Everywhere else SL/TP are ordinary
+    reduce-only conditional orders, so placing new ones without cancelling the
+    old ones leaves the position carrying *both*: whichever triggers first wins,
+    possibly at the price the admin just replaced. That is the failure Q5d
+    exists to prevent, so the cancel half happens here rather than in each
+    adapter — the policy is one decision for the whole platform.
+
+    Which side of the window to take is the configured strategy:
+
+    ``place_then_cancel`` (Q5d's answer, default)
+        New protection exists before the old is removed. The overlap is a
+        moment of *double* protection — safe — at the cost of a brief window
+        where a stale stop could still fire.
+    ``cancel_then_place``
+        No stale order can fire, at the cost of a moment with the position
+        unprotected. Only sane where the exchange refuses to hold two stops.
+
+    The stale set is snapshotted **before** placing, so the orders just placed
+    are never in it. Adapters that cannot list conditional orders inherit the
+    no-op default and behave exactly as before.
+    """
+    if adapter.capabilities.native_sltp_amend:
+        await adapter.set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+        return
+
+    strategy = settings.TRADING["SLTP_AMEND_STRATEGY"]
+    if strategy not in ("place_then_cancel", "cancel_then_place"):
+        raise ValueError(f"unknown SLTP_AMEND_STRATEGY: {strategy!r}")
+
+    stale = await adapter.list_conditional_orders(symbol)
+    if strategy == "cancel_then_place":
+        await adapter.cancel_orders(symbol, stale)
+        await adapter.set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+        return
+
+    await adapter.set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+    if stale:
+        # The new orders are live; the old ones are now the dangerous half.
+        # A failure here is loud: a stale stop at a replaced price is exactly
+        # what the admin thinks they just cancelled.
+        await adapter.cancel_orders(symbol, stale)
+
+
 async def _protect(
     adapter: ExchangeAdapter,
     intent: TradeIntent,
@@ -162,8 +228,8 @@ async def _protect(
 
     for attempt in range(retries + 1):
         try:
-            await adapter.set_sltp(
-                symbol=intent.symbol, stop_loss=stop_loss, take_profit=take_profit
+            await apply_sltp(
+                adapter, symbol=intent.symbol, stop_loss=stop_loss, take_profit=take_profit
             )
             return True
         except AdapterError as exc:
@@ -212,7 +278,7 @@ def _make_open(account_id, adapter, intent):
         except (SizingRejection, SLTPRejection) as exc:
             # Carry the machine-readable code up so the UI can distinguish
             # "too small to trade" from "the exchange broke".
-            raise AdapterError(str(exc)) from exc
+            raise AdapterError(str(exc), code=exc.code) from exc
 
     return op
 
@@ -227,7 +293,13 @@ async def amend_sltp(
     tp_pct: Decimal | None,
     admin_entry: Decimal,
 ) -> FanOutResult[None]:
-    """Mid-trade SL/TP change (spec §4 — must land within 1 second)."""
+    """Mid-trade SL/TP change (spec §4 — must land within 1 second).
+
+    ``respect_stop_all`` is False for the same reason as ``close_trade``: Q14
+    decided the halt stops *new* routing only. Tightening a stop on a position
+    that is already live at leverage is a protection action, and the panel's
+    own copy promises it keeps working while halted.
+    """
 
     def make(account_id, adapter):
         async def op() -> None:
@@ -237,17 +309,22 @@ async def amend_sltp(
             rules = await adapter.get_symbol_rules(symbol, MarketType.FUTURES)
             # Q5b/Q5c: which entry price the percentage is measured from.
             entry = anchor_price(admin_entry=admin_entry, own_entry=position.entry_price)
+            # The exchange's own view of this position's leverage, not the
+            # admin's requested number: the two can differ if the exchange
+            # capped it, and margin computed off the wrong one moves the stop.
+            effective_leverage = position.leverage or leverage
             risk = resolve_active(
                 side=side,
                 entry=entry,
-                leverage=leverage,
-                margin=position.size * position.entry_price / D(leverage),
+                leverage=effective_leverage,
+                margin=position.size * position.entry_price / D(effective_leverage),
                 notional=position.size * position.entry_price,
                 sl_pct=sl_pct,
                 tp_pct=tp_pct,
                 price_tick=rules.price_tick,
             )
-            await adapter.set_sltp(
+            await apply_sltp(
+                adapter,
                 symbol=symbol,
                 stop_loss=risk.stop_price,
                 take_profit=risk.take_profit_price,
@@ -255,7 +332,10 @@ async def amend_sltp(
 
         return op
 
-    return await fan_out([(aid, make(aid, ad)) for aid, ad in accounts])
+    return await fan_out(
+        [(aid, make(aid, ad)) for aid, ad in accounts],
+        respect_stop_all=False,
+    )
 
 
 async def close_trade(

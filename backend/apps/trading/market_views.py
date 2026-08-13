@@ -21,12 +21,18 @@ from apps.exchanges.base import MarketType, Side
 from apps.exchanges.marketdata import (
     DEFAULT_LIMIT,
     INTERVALS,
+    MarketDataError,
     get_candles,
     get_ticker,
     normalise_interval,
     normalise_market,
 )
 from apps.trading.models import Trade, TradeStatus
+
+#: Returned when no exchange is reachable. 503, not 200-with-a-number: the panel
+#: has to be able to tell "no feed" from "a price", and every price it draws has
+#: to have come from an exchange.
+FEED_DOWN = 503
 
 #: Cap on a single watchlist request. The list is the admin's own and lives in
 #: their browser; this only stops a hand-written URL from turning into a
@@ -54,10 +60,9 @@ SYMBOLS = [
 def candles(request):
     """OHLCV for the chart.
 
-    Always answers 200 with data: when no provider is reachable the payload is
-    synthetic and carries ``live: false``, which the panel renders as a
-    placeholder badge. A chart that 500s tells the admin nothing; a chart that
-    silently invents prices is worse than both.
+    Real exchange data or a 503. There is no placeholder series: a chart that
+    says "no feed" is honest, and one that invents candles is how someone reads
+    a price that never existed.
     """
     try:
         interval = normalise_interval(request.query_params.get("interval"))
@@ -67,7 +72,11 @@ def candles(request):
         return Response({"detail": str(exc)}, status=400)
 
     symbol = (request.query_params.get("symbol") or "BTCUSDT").upper()
-    return Response(get_candles(symbol=symbol, interval=interval, market=market, limit=limit))
+    try:
+        payload = get_candles(symbol=symbol, interval=interval, market=market, limit=limit)
+    except MarketDataError as exc:
+        return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+    return Response(payload)
 
 
 @api_view(["GET"])
@@ -77,7 +86,11 @@ def ticker(request):
     except ValueError as exc:
         return Response({"detail": str(exc)}, status=400)
     symbol = (request.query_params.get("symbol") or "BTCUSDT").upper()
-    return Response(get_ticker(symbol=symbol, market=market))
+    try:
+        payload = get_ticker(symbol=symbol, market=market)
+    except MarketDataError as exc:
+        return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+    return Response(payload)
 
 
 @api_view(["GET"])
@@ -87,6 +100,10 @@ def tickers(request):
     One request per symbol would be ten requests every few seconds from every
     open panel. Each quote is individually cached, so this loop is cheap and a
     symbol shared with the chart costs nothing at all.
+
+    A symbol nobody can quote is *omitted* rather than faked, and named in
+    ``unavailable`` so the watchlist can grey that row instead of showing a
+    price that was never real.
     """
     try:
         market = normalise_market(request.query_params.get("market"))
@@ -96,11 +113,15 @@ def tickers(request):
     raw = (request.query_params.get("symbols") or "").upper()
     wanted = [s.strip() for s in raw.split(",") if s.strip()][:MAX_WATCHLIST]
     if not wanted:
-        return Response({"tickers": []})
+        return Response({"tickers": [], "unavailable": []})
 
-    return Response(
-        {"tickers": [get_ticker(symbol=symbol, market=market) for symbol in wanted]}
-    )
+    quotes, missing = [], []
+    for symbol in wanted:
+        try:
+            quotes.append(get_ticker(symbol=symbol, market=market))
+        except MarketDataError:
+            missing.append(symbol)
+    return Response({"tickers": quotes, "unavailable": missing})
 
 
 @api_view(["GET"])
@@ -125,8 +146,16 @@ def positions(request):
         return Response({"trade": None, "legs": [], "totals": None, "mark": None})
 
     market = MarketType(trade.market)
-    quote = get_ticker(symbol=trade.symbol, market=market)
-    mark = D(quote["price"])
+    # The position itself is a fact and is reported either way; only the
+    # mark-to-market part needs a price. With no feed the sizes, entries and
+    # margins still show and every PnL field is null — an unknown PnL reads as
+    # unknown rather than as zero.
+    try:
+        quote = get_ticker(symbol=trade.symbol, market=market)
+        mark = D(quote["price"])
+        feed_error = ""
+    except MarketDataError as exc:
+        quote, mark, feed_error = None, None, str(exc)
     direction = Decimal("1") if trade.side == Side.LONG.value else Decimal("-1")
     leverage = Decimal(trade.leverage or 1)
 
@@ -161,13 +190,14 @@ def positions(request):
             )
             continue
 
-        pnl = (mark - entry) * qty * direction
+        pnl = None if mark is None else (mark - entry) * qty * direction
         margin = leg.margin or (entry * qty / leverage)
         notional = entry * qty
         # Isolated-margin approximation, the same one the ticket shows before
         # sending: the position is liquidated when the loss eats the margin.
         liq = entry * (Decimal("1") - direction / leverage)
-        total_pnl += pnl
+        if pnl is not None:
+            total_pnl += pnl
         total_margin += margin
         total_qty += qty
         rows.append(
@@ -188,9 +218,15 @@ def positions(request):
                 "liquidation_price": _s(liq),
                 "pnl": _s(pnl),
                 # Against notional: how far price has moved in our favour.
-                "pnl_pct": _s(pnl / notional * Decimal("100")) if notional else None,
+                "pnl_pct": (
+                    _s(pnl / notional * Decimal("100"))
+                    if pnl is not None and notional
+                    else None
+                ),
                 # Against margin: what the account actually gained or lost.
-                "roe_pct": _s(pnl / margin * Decimal("100")) if margin else None,
+                "roe_pct": (
+                    _s(pnl / margin * Decimal("100")) if pnl is not None and margin else None
+                ),
             }
         )
 
@@ -208,16 +244,21 @@ def positions(request):
                 "admin_entry_price": _s(trade.admin_entry_price),
                 "opened_at": trade.opened_at,
             },
-            "mark": {**quote},
+            "mark": None if quote is None else {**quote},
+            "feed_error": feed_error,
             "legs": rows,
             "totals": {
                 "accounts": sum(1 for row in rows if row["ok"]),
                 "failed": sum(1 for row in rows if not row["ok"]),
                 "qty": _s(total_qty),
                 "margin": _s(total_margin),
-                "notional": _s(total_qty * mark),
-                "pnl": _s(total_pnl),
-                "roe_pct": _s(total_pnl / total_margin * Decimal("100")) if total_margin else None,
+                "notional": None if mark is None else _s(total_qty * mark),
+                "pnl": None if mark is None else _s(total_pnl),
+                "roe_pct": (
+                    _s(total_pnl / total_margin * Decimal("100"))
+                    if mark is not None and total_margin
+                    else None
+                ),
             },
         }
     )

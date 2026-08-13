@@ -1,0 +1,16 @@
+# TLS-terminating reverse proxy for the launch stack. Caddy automatically
+# obtains and renews a Let's Encrypt certificate for the domain — no certbot,
+# no renewal cron. WebSocket upgrades pass through unchanged, which is how the
+# panel's live channel reaches Channels.
+#
+# The domain comes from SITE_DOMAIN in .env (read via {$SITE_DOMAIN}). If it is
+# unset, Caddy refuses to start — failing loudly beats silently serving the
+# wrong host on a trading panel.
+
+{$SITE_DOMAIN} {
+	encode gzip
+
+	# Everything — pages, /api/**, /ws/**, /_nuxt/** — goes to the built Nuxt
+	# server, which itself proxies /api and /ws to the Django backend.
+	reverse_proxy frontend:3000
+}

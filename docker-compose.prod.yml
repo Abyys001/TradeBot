@@ -1,0 +1,88 @@
+# Production stack for a fresh VPS. Owns ports 80/443, terminates TLS (Caddy
+# auto-provisions from Let's Encrypt for SITE_DOMAIN), and serves the panel
+# from a built Nuxt bundle instead of `nuxt dev`. No host ports are published
+# except Caddy's — backend and panel are reachable only over the Docker
+# network, so the backend is never directly addressable from outside.
+#
+#   cp .env.production.example .env      # then fill the change-me values
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Full runbook in docs/deploy.md.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-walletmanager}
+      POSTGRES_USER: ${POSTGRES_USER:-walletmanager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-walletmanager}"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+    env_file: [.env]
+    environment:
+      # Pinned for the same reason the dev compose pins them: a dev .env pasted
+      # here would otherwise quietly fall back to SQLite + in-memory channels.
+      USE_SQLITE: "false"
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    expose: ["8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        # Baked into the nitro routeRules at build time — nitro does not re-read
+        # it from the environment at runtime. The panel then forwards /ws
+        # upgrades to the backend over the Docker network.
+        NUXT_WS_PROXY_TARGET: http://backend:8000
+    environment:
+      # apiProxyTarget is read at runtime (server-side config), so it lives here.
+      NUXT_API_PROXY_TARGET: http://backend:8000/api
+      # NUXT_PUBLIC_WS_BASE is deliberately unset: the panel derives a
+      # same-origin wss:// URL from location.host, which is exactly right
+      # behind Caddy. Setting it would hardcode the domain into the bundle.
+    expose: ["3000"]
+    depends_on: [backend]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    env_file: [.env]
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [frontend]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -11,14 +11,14 @@ independently computed expected signature (`backend/tests/test_adapters.py`).
 
 | Exchange | Auth | Markets | Testnet | SL/TP | Notes |
 |---|---|---|---|---|---|
-| **Hyperliquid** | EIP-712 agent wallet | perps | ✅ | trigger orders | Official SDK, run off-thread. Q11 unverified. |
+| **Hyperliquid** | EIP-712 agent wallet | perps | ✅ | trigger orders, cancel+replace | Official SDK, run off-thread. Q11 unverified. |
 | **Bybit** | HMAC-SHA256 hex | spot + linear | ✅ | native, **amend in place** | Best fit: no cancel/replace window. |
-| **Binance** | HMAC-SHA256 hex | spot + USDⓈ-M | ✅ | conditional orders | Rate limits are per-IP as well as per-key. |
+| **Binance** | HMAC-SHA256 hex | spot + USDⓈ-M | ✅ | conditional orders, cancel+replace | Rate limits are per-IP as well as per-key. Key permissions live on the **spot** host. |
 | **Toobit** | HMAC-SHA256 hex | spot + USDT-M | ❌ | native at entry | Binance-style. No test environment (Q9). |
-| **OKX** | HMAC-SHA256 base64 | spot + swap | ✅ header | native at entry, algo orders | **Sizes in contracts** — `ctVal` conversion. |
-| **KuCoin** | HMAC-SHA256 base64 | futures only | ✅ | stop orders | Passphrase is HMAC'd too. XBT naming. |
-| **Gate.io** | HMAC-SHA512 hex | futures | ✅ | price-triggered orders | Direction is the **sign of size**. |
-| **LBank** | MD5 + HMAC-SHA256 | **spot only** | ❌ | ❌ | Futures impossible — see below. |
+| **OKX** | HMAC-SHA256 base64 | spot + swap | ✅ header | native at entry, OCO algo orders, cancel+replace | **Sizes in contracts** — `ctVal` conversion. |
+| **KuCoin** | HMAC-SHA256 base64 | futures only | ✅ | stop orders, cancel+replace | Passphrase is HMAC'd too. XBT naming. Key permissions live on the **spot** host. |
+| **Gate.io** | HMAC-SHA512 hex | futures | ✅ | price-triggered orders, cancel+replace | Direction is the **sign of size**. |
+| **LBank** | MD5 + HMAC-SHA256 | **spot only** | ❌ | ❌ | Futures impossible — see below. Spot buy/sell round trip works. |
 
 ## Per-exchange caveats worth knowing before you trade
 
@@ -29,12 +29,38 @@ the sizing layer in base units, so `apps/trading/sizing.py` stays
 exchange-agnostic. A wrong multiplier is a 10x or 100x position, so these
 conversions are unit-tested explicitly.
 
-**Spec §7 verification is not uniform.** Only Bybit and OKX expose API-key
-permissions, so only those can *prove* a key is non-withdrawable. Binance
-exposes it on the spot host only. Toobit, KuCoin, Gate.io and LBank publish no
+**Spec §7 verification is not uniform.** Bybit, OKX, Binance and KuCoin expose
+API-key permissions, so those four can *prove* a key is non-withdrawable.
+Binance exposes it on the **spot** host (`api.binance.com/sapi/v1/account/
+apiRestrictions`) while every other Binance call goes to the futures host, so
+that one request is made with an absolute URL — and a futures-only key cannot
+reach it at all, in which case the account is flagged rather than refused. The
+futures testnet has no `/sapi` namespace, so a testnet Binance account can
+never be verified from the API. KuCoin is the same shape: `GET
+/api/v1/user/api-key` lives on `api.kucoin.com`, and a `Transfer` permission is
+refused (`InnerTransfer` only moves funds between the user's own accounts and is
+not a withdrawal right). Toobit, Gate.io, Hyperliquid and LBank publish no
 permission endpoint at all — accounts on those connect **paused and flagged**
 `withdrawal rights unverified` in the panel rather than silently claiming a
 check that never happened.
+
+The check is re-run on **resume**, not just at connect: a key can gain
+withdrawal rights while an account sits paused, and resume is the moment it
+starts routing partner capital again.
+
+**Amending SL/TP does not stack orders (Q5d).** Only Bybit amends TP/SL in
+place. On the other six, SL/TP are ordinary reduce-only conditional orders, so
+`engine/executor.apply_sltp` snapshots the live ones with
+`list_conditional_orders()`, places the new pair, then cancels the snapshot.
+Per exchange that snapshot is: Binance/Toobit `openOrders` filtered to the stop
+types → `DELETE .../order`; OKX `orders-algo-pending?ordType=oco` →
+`cancel-algos`; KuCoin `stopOrders` → `DELETE /api/v1/orders/{id}`; Gate.io
+`price_orders?status=open` → `DELETE .../price_orders/{id}`; Hyperliquid
+`frontendOpenOrders` filtered to `isTrigger`+`reduceOnly` → `cancel`. Each
+filters to *this platform's* protection orders, so a working order the partner
+placed by hand is never cancelled. Every one of these paths is taken from a
+vendored doc or SDK in `reference/`; none has been run against a live exchange,
+so amend twice on testnet and count the resting orders.
 
 **Spec §2 isolation.** Every adapter instance owns its own HTTP client and rate
 limiter, and the registry never caches or shares them. The one exchange where
@@ -51,7 +77,16 @@ exhaust it. Cancels get a larger allowance, so closing always remains possible.
 the public namespace `/cfd/openApi/v1/pub` — no private order, position, or
 balance endpoints exist in any published document. Every futures method raises
 `NotSupported` with that explanation rather than guessing at an undocumented
-request shape. Spot works. Tracked as `questions.md` Q10.
+request shape. Tracked as `questions.md` Q10.
+
+**LBank spot is a round trip, and its market orders are asymmetric.** A market
+**buy** carries the *quote* amount to spend in `price`; a market **sell**
+carries the *base* quantity in `amount` (`api/spot.md`). `close_position` sells
+back what this adapter bought, capped by the free balance — a fresh adapter
+with no memory of the entry falls back to the whole free balance, so a partner
+holding that asset outside the platform should know a close sells it. Spot
+still has no SL/TP, so with the default Q5e policy a spot leg with SL/TP set
+buys and immediately sells back; leave SL/TP blank on LBank spot.
 
 ## Before going live — checklist
 
@@ -61,6 +96,10 @@ request shape. Spot works. Tracked as `questions.md` Q10.
    This is where a contract-multiplier mistake surfaces.
 3. Confirm SL/TP actually landed on the exchange, not just that the call
    returned 200.
-4. On exchanges with no permission endpoint, confirm by hand in the exchange
+4. **Amend SL/TP twice and count the open orders.** There must be exactly one
+   stop and one take-profit left, at the newest prices. Two live stops means
+   `list_conditional_orders`/`cancel_orders` did not match that exchange's
+   shapes and the position is carrying a price the admin already replaced.
+5. On exchanges with no permission endpoint, confirm by hand in the exchange
    dashboard that the key cannot withdraw.
-5. Then one live trade at minimum size before any partner capital.
+6. Then one live trade at minimum size before any partner capital.

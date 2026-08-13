@@ -57,12 +57,23 @@ candles every 15s and the ticker every 3s, with the tick folded into the current
 bar so the chart moves between fetches. Nothing here shares a budget with the
 one-second fan-out — this is a chart, not the order path.
 
-**The `live` flag is not optional.** When no provider answers, the API returns a
-deterministic synthetic series with `live: false`, and `SymbolBar.vue` renders a
-"sample prices" badge next to the price. Any future chart adapter must keep
-surfacing that flag: an unlabelled fake price series on a trading screen is how
-someone reads a number that was never real. The same rule is enforced on the
-routing side — a synthetic price is never used to size an order.
+**Every candle came from an exchange.** When no provider answers, the API
+returns 503; there is no synthetic series behind the panel. `market.feedDown`
+drives an explicit "no price feed" state and `SymbolBar.vue` says so next to the
+price. Any future chart adapter has to keep that property: a chart that invents
+bars is how someone reads a price that never existed. The same rule holds on the
+routing side — with no feed there is no reference price, so nothing sizes.
+
+**The view belongs to the admin.** Nothing pans, zooms or re-fits the chart on
+its own. `resetView()` runs when the instrument changes and when the admin
+presses the button in the chart's top-right corner — never on a data refresh,
+which is what used to yank the chart back to the newest bar every 15 seconds.
+
+**What the chart draws.** Only the lines the admin acts on: SL, TP, and a
+working limit order's entry, plus the liquidation line once a position exists.
+The live price is an axis label (`priceLineVisible: false`), and the candle
+countdown sits in the corner. Four lines inside one narrow price band is how a
+drag lands on the wrong one.
 
 ## Phase 2 — Charting Library (apply today)
 

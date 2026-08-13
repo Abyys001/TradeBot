@@ -88,3 +88,21 @@ def test_below_minimum_notional_skips_the_account():
     with pytest.raises(SizingRejection) as exc:
         size_order(balance=usdt("0.10"), price=D("100000"), leverage=1, rules=RULES)
     assert exc.value.code in {"below_min_qty", "below_min_notional"}
+
+
+def test_below_minimum_message_says_what_99_percent_can_actually_buy():
+    """The demo $10 account: 0.00099 BTC max, below the 0.001 minimum. The
+    message must explain the skip instead of reporting a size of 0.000."""
+    coarse = SymbolRules(
+        symbol="BTCUSDT",
+        price_tick=D("0.1"),
+        qty_step=D("0.001"),
+        min_qty=D("0.001"),
+        min_notional=D("5"),
+        max_leverage=10,
+    )
+    with pytest.raises(SizingRejection) as exc:
+        size_order(balance=usdt("10"), price=D("100000"), leverage=10, rules=coarse)
+    assert exc.value.code == "below_min_qty"
+    assert "0.00099" in str(exc.value)
+    assert "0.001" in str(exc.value)

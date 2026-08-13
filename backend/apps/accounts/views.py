@@ -49,6 +49,36 @@ def verify_account(account: ConnectedAccount) -> tuple[bool, str]:
     return True, ""
 
 
+def _record_check(account: ConnectedAccount, *, passed: bool, note: str) -> None:
+    """Store the outcome of a §7 check. The timestamp is what ``clean()`` gates on."""
+    account.withdrawal_check_passed = passed
+    account.last_error = note
+    account.withdrawal_checked_at = timezone.now()
+    account.save(
+        update_fields=["withdrawal_check_passed", "last_error", "withdrawal_checked_at"]
+    )
+
+
+def _refuse(account: ConnectedAccount, exc: Exception) -> None:
+    """Spec §7: a key proven withdrawable never routes an order again.
+
+    The row is kept (unlike at connect time, where nothing had been built yet)
+    so the admin can see *why* it stopped and fix the key on the exchange.
+    """
+    account.status = AccountStatus.PAUSED
+    account.withdrawal_check_passed = False
+    account.last_error = str(exc)
+    account.withdrawal_checked_at = timezone.now()
+    account.save(
+        update_fields=[
+            "status",
+            "withdrawal_check_passed",
+            "last_error",
+            "withdrawal_checked_at",
+        ]
+    )
+
+
 class ConnectedAccountViewSet(viewsets.ModelViewSet):
     """Spec §6: add, pause, resume, delete — each its own control in the UI."""
 
@@ -68,7 +98,8 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
         account = serializer.save()
         if account.exchange == Exchange.PAPER:
             account.withdrawal_check_passed = True
-            account.save(update_fields=["withdrawal_check_passed"])
+            account.withdrawal_checked_at = timezone.now()
+            account.save(update_fields=["withdrawal_check_passed", "withdrawal_checked_at"])
             return
 
         try:
@@ -80,10 +111,10 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
             account.delete()
             raise serializers.ValidationError({"detail": f"could not connect: {exc}"}) from exc
 
-        account.withdrawal_check_passed = passed
-        account.last_error = note
+        _record_check(account, passed=passed, note=note)
         account.status = AccountStatus.ACTIVE if passed else AccountStatus.PAUSED
-        account.save(update_fields=["withdrawal_check_passed", "last_error", "status"])
+        account.full_clean()
+        account.save(update_fields=["status"])
 
     @action(detail=True, methods=["post"])
     def verify(self, request, pk=None):
@@ -92,15 +123,10 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
         try:
             passed, note = verify_account(account)
         except WithdrawalPermissionError as exc:
-            account.status = AccountStatus.PAUSED
-            account.withdrawal_check_passed = False
-            account.last_error = str(exc)
-            account.save(update_fields=["status", "withdrawal_check_passed", "last_error"])
+            _refuse(account, exc)
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        account.withdrawal_check_passed = passed
-        account.last_error = note
-        account.save(update_fields=["withdrawal_check_passed", "last_error"])
+        _record_check(account, passed=passed, note=note)
         return Response(ConnectedAccountSerializer(account).data)
 
     @action(detail=True, methods=["post"])
@@ -112,11 +138,30 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def resume(self, request, pk=None):
+        """Spec §6 resume — and spec §7 re-checked on the way back in.
+
+        A key's permissions can change while the account sits paused, and this
+        is the moment it starts routing partner capital again, so the check
+        runs here too. A key that has *gained* withdrawal rights is refused:
+        the account stays paused rather than becoming active.
+        """
         account = self.get_object()
+        if account.exchange != Exchange.PAPER:
+            try:
+                passed, note = verify_account(account)
+            except WithdrawalPermissionError as exc:
+                _refuse(account, exc)
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # An unprovable check (no permission endpoint) still resumes: five
+            # of the eight exchanges publish nothing, and refusing them all
+            # would be a stricter rule than §7 states. It resumes flagged.
+            _record_check(account, passed=passed, note=note)
+
         account.status = AccountStatus.ACTIVE
         # Spec §6: a resumed account rejoins from the next trade, never an open
         # one, so its eligibility clock restarts here.
         account.eligible_from = timezone.now()
+        account.full_clean()
         account.save(update_fields=["status", "eligible_from", "updated_at"])
         return Response(ConnectedAccountSerializer(account).data)
 

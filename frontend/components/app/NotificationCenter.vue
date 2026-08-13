@@ -153,12 +153,6 @@ const localePath = useLocalePath()
             {{ t('notifications.noneBody', { n: accounts.active.length }) }}
           </p>
         </div>
-
-        <footer class="px-3 py-2 border-t border-line shrink-0">
-          <p class="text-[0.65rem] text-ink-faint leading-relaxed">
-            {{ t('notifications.persistNote') }}
-          </p>
-        </footer>
       </div>
     </Transition>
   </div>

@@ -6,8 +6,13 @@ and is what the risk endpoint uses so the choice can be made against real
 numbers rather than prose.
 
 Q5a in one line: at 10x with 99% of the account as margin, a 2% *price* stop
-loses ~20% of the account, and liquidation sits ~1% away — so the stop never
-triggers. A 2% *margin* stop is a 0.2% price move.
+loses ~20% of the account, and liquidation sits ~10% away — a 2% *margin* stop
+is a 0.2% price move, twenty times tighter for the same number in the box.
+
+(Liquidation distance is 1/leverage — 10% at 10x, 20% at 5x — and does not
+depend on how much of the account is committed as margin. An earlier version of
+this docstring said ~1%; the correction is recorded in questions.md and the
+numbers are asserted in tests/test_sltp.py.)
 """
 
 from __future__ import annotations

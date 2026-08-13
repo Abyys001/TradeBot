@@ -76,12 +76,14 @@ def size_order(
     # it sits out with a notification rather than over-committing.
     if qty < rules.min_qty:
         raise SizingRejection(
-            f"size {qty} is below the exchange minimum quantity {rules.min_qty}",
+            f"99% of {balance.available} USDT at {effective_leverage}x buys at most "
+            f"{raw_qty} {rules.symbol}, below the exchange minimum {rules.min_qty}",
             code="below_min_qty",
         )
     if qty * price < rules.min_notional:
         raise SizingRejection(
-            f"notional {qty * price} is below the exchange minimum "
+            f"99% of {balance.available} USDT at {effective_leverage}x reaches only "
+            f"{qty * price} USDT of notional, below the exchange minimum "
             f"{rules.min_notional}",
             code="below_min_notional",
         )

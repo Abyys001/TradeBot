@@ -25,6 +25,11 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
             "credential_expires_at",
             "key_fingerprint",
             "withdrawal_check_passed",
+            # When the spec §7 check last ran. Distinct from the verdict: five
+            # exchanges publish no permission endpoint, so "checked but
+            # unprovable" is a real state and the panel should be able to say
+            # *when* rather than only *whether*.
+            "withdrawal_checked_at",
             "last_balance",
             "last_balance_asset",
             "last_balance_at",

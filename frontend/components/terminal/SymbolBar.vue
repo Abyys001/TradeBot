@@ -2,10 +2,11 @@
 /**
  * The instrument header: what is being traded, at what price, from where.
  *
- * The provenance badge is not decoration. When no exchange is reachable the
- * backend serves a synthetic series, and this bar is where that is admitted —
- * in the same line as the price, not in a tooltip somewhere. A trading screen
- * that cannot say whether its price is real is worse than one showing none.
+ * The provenance badge is not decoration: it names the exchange the price on
+ * this line came from. Every price shown here came from one — there is no
+ * synthetic series behind the panel any more. When no exchange is reachable
+ * the badge says so and the number greys out, in the same line as the price
+ * rather than in a tooltip somewhere.
  */
 const { t } = useI18n()
 const market = useMarketStore()
@@ -148,13 +149,17 @@ async function submitQuery() {
         <option v-for="option in intervals" :key="option" :value="option">{{ option }}</option>
       </select>
 
-      <!-- Provenance. Amber whenever the series is not a real feed. -->
+      <!-- Provenance: which exchange quoted this, or that none did. -->
       <UiBadge
         :tone="market.live ? 'neutral' : 'signal'"
-        :title="market.live ? t('terminal.sourceHint', { source: market.source }) : t('terminal.placeholderHint')"
+        :title="
+          market.live
+            ? t('terminal.sourceHint', { source: market.source, ms: Math.round(market.providerMs ?? 0) })
+            : t('terminal.feedDownHint')
+        "
       >
         <span class="hidden md:inline">
-          {{ market.live ? market.source : t('terminal.placeholderData') }}
+          {{ market.live ? market.source : t('terminal.feedDown') }}
         </span>
         <span class="md:hidden">{{ market.live ? '●' : '○' }}</span>
       </UiBadge>

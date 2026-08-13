@@ -10,6 +10,17 @@
  * chart follows the light/dark switch. `applyTheme()` re-reads them, because
  * Lightweight Charts caches its options and will otherwise keep painting the
  * dark grid on a white page.
+ *
+ * **What is drawn, and what deliberately is not.** The chart carries the lines
+ * the admin *acts on*: SL, TP, and a working limit order's entry. The live
+ * price is an axis label, and a filled position's entry line only appears once
+ * there is a position to have an entry. Everything else — the price readout,
+ * the countdown, provenance — lives in the bars around the chart. Four lines
+ * inside one narrow price band is how a drag lands on the wrong one.
+ *
+ * The view is the admin's. Nothing here scrolls, zooms or re-fits the chart on
+ * its own; `resetView()` runs when the instrument changes and when the admin
+ * asks for it, and never on a data refresh.
  */
 import {
   createChart,
@@ -31,8 +42,6 @@ export interface ChartAdapter {
   appendCandle(bar: Bar): void
   showPosition(p: { entry: number; liquidation: number | null; side: 'long' | 'short' }): void
   showSLTP(sl: number | null, tp: number | null): void
-  /** The live mark. Distinct from entry: one is where we got in, one is now. */
-  showMark(price: number | null): void
   clearPosition(): void
   onSLTPDrag(cb: (kind: DragKind, price: number) => void): void
   /**
@@ -60,7 +69,6 @@ function palette() {
     short: tokenColor('--c-short', '#FF6B81'),
     entry: tokenColor('--c-ink-muted', '#8B94A3'),
     liquidation: tokenColor('--c-signal', '#F0A020'),
-    mark: tokenColor('--c-brand', '#5B8DEF'),
     grid: tokenColor('--c-chart-grid', '#1E232B'),
     text: tokenColor('--c-ink-muted', '#8B94A3'),
   }
@@ -69,7 +77,7 @@ function palette() {
 export class LightweightChartAdapter implements ChartAdapter {
   private chart: IChartApi | null = null
   private series: ISeriesApi<'Candlestick'> | null = null
-  private lines: Partial<Record<'sl' | 'tp' | 'entry' | 'liq' | 'mark', IPriceLine>> = {}
+  private lines: Partial<Record<'sl' | 'tp' | 'entry' | 'liq', IPriceLine>> = {}
   private dragCb: ((kind: DragKind, price: number) => void) | null = null
   private dragging: DragKind | null = null
   private hovered: DragKind | null = null
@@ -106,6 +114,12 @@ export class LightweightChartAdapter implements ChartAdapter {
       wickUpColor: this.colors.long,
       wickDownColor: this.colors.short,
       borderVisible: false,
+      // The live price belongs on the axis, not stretched across the chart.
+      // Its horizontal line used to sit among SL, TP and entry — four lines
+      // competing for the same band of pixels, and the two that matter are the
+      // two you drag. The axis label says the same thing and gets out of the way.
+      lastValueVisible: true,
+      priceLineVisible: false,
     })
     this.attachDragHandlers()
   }
@@ -165,19 +179,6 @@ export class LightweightChartAdapter implements ChartAdapter {
         lineStyle: 1,
       })
     }
-  }
-
-  showMark(price: number | null) {
-    if (price === null) {
-      this.remove('mark')
-      return
-    }
-    this.replace('mark', {
-      price,
-      color: this.colors.mark,
-      title: 'mark',
-      lineStyle: 3,
-    })
   }
 
   clearPosition() {

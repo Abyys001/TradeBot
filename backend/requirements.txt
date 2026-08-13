@@ -9,5 +9,17 @@ psycopg[binary]==3.2.3
 redis==5.2.1
 celery==5.4.0
 httpx==0.28.1
+# SOCKS support for httpx. Needed where the exchange is only reachable through
+# a socks proxy (MARKET_DATA_PROXY / ALL_PROXY); without it httpx cannot open
+# such a connection at all, and the price feed simply has no data.
+socksio==1.0.0
+# Private user-data streams (fills, liquidations) on the exchange adapters.
+# httpx cannot speak WebSocket, and channels' server-side stack is not a client.
+# Imported lazily inside stream_events, so a missing wheel degrades to a clear
+# NotSupported rather than breaking adapter import.
+websockets==14.2
 python-dotenv==1.0.1
 hyperliquid-python-sdk==0.24.0
+# Serves Django's own static files (the admin UI) in production — Django
+# refuses to serve them itself when DEBUG=false. Dev (runserver) is unaffected.
+whitenoise==6.8.2

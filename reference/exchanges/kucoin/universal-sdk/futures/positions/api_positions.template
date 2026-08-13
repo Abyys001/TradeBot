@@ -1,0 +1,306 @@
+# API FUNCTION TEMPLATE
+
+
+def test_get_margin_mode_req(self):
+    """
+        get_margin_mode
+        Get Margin Mode
+        /api/v2/position/getMarginMode
+    """
+
+    builder = GetMarginModeReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_margin_mode(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_switch_margin_mode_req(self):
+    """
+        switch_margin_mode
+        Switch Margin Mode
+        /api/v2/position/changeMarginMode
+    """
+
+    builder = SwitchMarginModeReqBuilder()
+    builder.set_symbol(?).set_margin_mode(?)
+    req = builder.build()
+    try:
+        resp = self.api.switch_margin_mode(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_batch_switch_margin_mode_req(self):
+    """
+        batch_switch_margin_mode
+        Batch Switch Margin Mode
+        /api/v2/position/batchChangeMarginMode
+    """
+
+    builder = BatchSwitchMarginModeReqBuilder()
+    builder.set_margin_mode(?).set_symbols(?)
+    req = builder.build()
+    try:
+        resp = self.api.batch_switch_margin_mode(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_max_open_size_req(self):
+    """
+        get_max_open_size
+        Get Max Open Size
+        /api/v2/getMaxOpenSize
+    """
+
+    builder = GetMaxOpenSizeReqBuilder()
+    builder.set_symbol(?).set_price(?).set_leverage(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_max_open_size(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_position_details_req(self):
+    """
+        get_position_details
+        Get Position Details
+        /api/v1/position
+    """
+
+    builder = GetPositionDetailsReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_position_details(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_position_list_req(self):
+    """
+        get_position_list
+        Get Position List
+        /api/v1/positions
+    """
+
+    builder = GetPositionListReqBuilder()
+    builder.set_currency(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_position_list(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_positions_history_req(self):
+    """
+        get_positions_history
+        Get Positions History
+        /api/v1/history-positions
+    """
+
+    builder = GetPositionsHistoryReqBuilder()
+    builder.set_symbol(?).set_from_(?).set_to(?).set_limit(?).set_page_id(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_positions_history(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_max_withdraw_margin_req(self):
+    """
+        get_max_withdraw_margin
+        Get Max Withdraw Margin
+        /api/v1/margin/maxWithdrawMargin
+    """
+
+    builder = GetMaxWithdrawMarginReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_max_withdraw_margin(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_cross_margin_leverage_req(self):
+    """
+        get_cross_margin_leverage
+        Get Cross Margin Leverage
+        /api/v2/getCrossUserLeverage
+    """
+
+    builder = GetCrossMarginLeverageReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_cross_margin_leverage(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_modify_margin_leverage_req(self):
+    """
+        modify_margin_leverage
+        Modify Cross Margin Leverage
+        /api/v2/changeCrossUserLeverage
+    """
+
+    builder = ModifyMarginLeverageReqBuilder()
+    builder.set_symbol(?).set_leverage(?)
+    req = builder.build()
+    try:
+        resp = self.api.modify_margin_leverage(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_add_isolated_margin_req(self):
+    """
+        add_isolated_margin
+        Add Isolated Margin
+        /api/v1/position/margin/deposit-margin
+    """
+
+    builder = AddIsolatedMarginReqBuilder()
+    builder.set_symbol(?).set_margin(?).set_biz_no(?)
+    req = builder.build()
+    try:
+        resp = self.api.add_isolated_margin(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_remove_isolated_margin_req(self):
+    """
+        remove_isolated_margin
+        Remove Isolated Margin
+        /api/v1/margin/withdrawMargin
+    """
+
+    builder = RemoveIsolatedMarginReqBuilder()
+    builder.set_symbol(?).set_withdraw_amount(?)
+    req = builder.build()
+    try:
+        resp = self.api.remove_isolated_margin(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_cross_margin_risk_limit_req(self):
+    """
+        get_cross_margin_risk_limit
+        Get Cross Margin Risk Limit
+        /api/v2/batchGetCrossOrderLimit
+    """
+
+    builder = GetCrossMarginRiskLimitReqBuilder()
+    builder.set_symbol(?).set_total_margin(?).set_leverage(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_cross_margin_risk_limit(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_isolated_margin_risk_limit_req(self):
+    """
+        get_isolated_margin_risk_limit
+        Get Isolated Margin Risk Limit
+        /api/v1/contracts/risk-limit/{symbol}
+    """
+
+    builder = GetIsolatedMarginRiskLimitReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_isolated_margin_risk_limit(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_modify_isolated_margin_risk_limt_req(self):
+    """
+        modify_isolated_margin_risk_limt
+        Modify Isolated Margin Risk Limit
+        /api/v1/position/risk-limit-level/change
+    """
+
+    builder = ModifyIsolatedMarginRiskLimtReqBuilder()
+    builder.set_symbol(?).set_level(?)
+    req = builder.build()
+    try:
+        resp = self.api.modify_isolated_margin_risk_limt(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_modify_auto_deposit_status_req(self):
+    """
+        modify_auto_deposit_status
+        Modify Isolated Margin Auto-Deposit Status
+        /api/v1/position/margin/auto-deposit-status
+    """
+
+    builder = ModifyAutoDepositStatusReqBuilder()
+    builder.set_symbol(?).set_status(?)
+    req = builder.build()
+    try:
+        resp = self.api.modify_auto_deposit_status(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e

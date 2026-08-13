@@ -1,0 +1,275 @@
+# API FUNCTION TEMPLATE
+
+
+def test_get_account_info_req(self):
+    """
+        get_account_info
+        Get Account Summary Info
+        /api/v2/user-info
+    """
+
+    try:
+        resp = self.api.get_account_info()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_apikey_info_req(self):
+    """
+        get_apikey_info
+        Get Apikey Info
+        /api/v1/user/api-key
+    """
+
+    try:
+        resp = self.api.get_apikey_info()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_account_type_req(self):
+    """
+        get_spot_account_type
+        Get Account Type - Spot 
+        /api/v1/hf/accounts/opened
+    """
+
+    try:
+        resp = self.api.get_spot_account_type()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_account_list_req(self):
+    """
+        get_spot_account_list
+        Get Account List - Spot
+        /api/v1/accounts
+    """
+
+    builder = GetSpotAccountListReqBuilder()
+    builder.set_currency(?).set_type(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_spot_account_list(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_account_detail_req(self):
+    """
+        get_spot_account_detail
+        Get Account Detail - Spot
+        /api/v1/accounts/{accountId}
+    """
+
+    builder = GetSpotAccountDetailReqBuilder()
+    builder.set_account_id(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_spot_account_detail(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_cross_margin_account_req(self):
+    """
+        get_cross_margin_account
+        Get Account - Cross Margin
+        /api/v3/margin/accounts
+    """
+
+    builder = GetCrossMarginAccountReqBuilder()
+    builder.set_quote_currency(?).set_query_type(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_cross_margin_account(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_isolated_margin_account_req(self):
+    """
+        get_isolated_margin_account
+        Get Account - Isolated Margin
+        /api/v3/isolated/accounts
+    """
+
+    builder = GetIsolatedMarginAccountReqBuilder()
+    builder.set_symbol(?).set_quote_currency(?).set_query_type(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_isolated_margin_account(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_futures_account_req(self):
+    """
+        get_futures_account
+        Get Account - Futures
+        /api/v1/account-overview
+    """
+
+    builder = GetFuturesAccountReqBuilder()
+    builder.set_currency(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_futures_account(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_ledger_req(self):
+    """
+        get_spot_ledger
+        Get Account Ledgers - Spot/Margin
+        /api/v1/accounts/ledgers
+    """
+
+    builder = GetSpotLedgerReqBuilder()
+    builder.set_currency(?).set_direction(?).set_biz_type(?).set_start_at(?).set_end_at(?).set_current_page(?).set_page_size(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_spot_ledger(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_spot_hf_ledger_req(self):
+    """
+        get_spot_hf_ledger
+        Get Account Ledgers - Trade_hf
+        /api/v1/hf/accounts/ledgers
+    """
+
+    builder = GetSpotHfLedgerReqBuilder()
+    builder.set_currency(?).set_direction(?).set_biz_type(?).set_last_id(?).set_limit(?).set_start_at(?).set_end_at(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_spot_hf_ledger(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_margin_hf_ledger_req(self):
+    """
+        get_margin_hf_ledger
+        Get Account Ledgers - Margin_hf
+        /api/v3/hf/margin/account/ledgers
+    """
+
+    builder = GetMarginHfLedgerReqBuilder()
+    builder.set_currency(?).set_direction(?).set_biz_type(?).set_last_id(?).set_limit(?).set_start_at(?).set_end_at(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_margin_hf_ledger(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_futures_ledger_req(self):
+    """
+        get_futures_ledger
+        Get Account Ledgers - Futures
+        /api/v1/transaction-history
+    """
+
+    builder = GetFuturesLedgerReqBuilder()
+    builder.set_currency(?).set_type(?).set_offset(?).set_forward(?).set_max_count(?).set_start_at(?).set_end_at(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_futures_ledger(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_margin_account_detail_req(self):
+    """
+        get_margin_account_detail
+        Get Account Detail - Margin
+        /api/v1/margin/account
+    """
+
+    try:
+        resp = self.api.get_margin_account_detail()
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_isolated_margin_account_list_v1_req(self):
+    """
+        get_isolated_margin_account_list_v1
+        Get Account List - Isolated Margin - V1
+        /api/v1/isolated/accounts
+    """
+
+    builder = GetIsolatedMarginAccountListV1ReqBuilder()
+    builder.set_balance_currency(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_isolated_margin_account_list_v1(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e
+
+def test_get_isolated_margin_account_detail_v1_req(self):
+    """
+        get_isolated_margin_account_detail_v1
+        Get Account Detail - Isolated Margin - V1
+        /api/v1/isolated/account/{symbol}
+    """
+
+    builder = GetIsolatedMarginAccountDetailV1ReqBuilder()
+    builder.set_symbol(?)
+    req = builder.build()
+    try:
+        resp = self.api.get_isolated_margin_account_detail_v1(req)
+        print("code: ", resp.common_response.code)
+        print("msg: ", resp.common_response.message)
+        print("data: ", resp.to_json())
+    except Exception as e:
+        print("error: ", e)
+        raise e

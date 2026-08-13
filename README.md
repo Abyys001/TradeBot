@@ -9,7 +9,7 @@ account fully isolated from the others.
 > live chart with draggable order lines, mark-to-market PnL, watchlist,
 > emergency halt, per-account history, installable bilingual panel.
 > Every section of the spec is implemented — see the clause-by-clause
-> conformance table. 119 backend tests pass.
+> conformance table. 158 backend tests pass.
 > **No adapter has been run against a live exchange yet** — see
 > [`docs/adapters.md`](docs/adapters.md) before connecting real capital.
 
@@ -20,6 +20,10 @@ account fully isolated from the others.
 
 Docker also works (`docker compose up -d --build`), but snap-packaged Docker
 cannot stop its own containers — see [`docs/running.md`](docs/running.md).
+
+**Launch to production:** a self-contained stack for a fresh VPS lives in
+[`docker-compose.prod.yml`](docker-compose.prod.yml) (Caddy auto-TLS, built
+Nuxt bundle, no exposed backend). Runbook in [`docs/deploy.md`](docs/deploy.md).
 
 ## Where things are
 

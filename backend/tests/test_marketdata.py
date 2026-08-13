@@ -1,9 +1,10 @@
 """Market data (spec §3) — the chart feed and the marked-to-market position.
 
 The suite never reaches a real exchange (``MARKET_DATA.ENABLED`` is False under
-pytest), so these tests pin the two things that must hold regardless of who is
-serving the data: fake data is always *labelled* as fake, and PnL arithmetic
-stays in Decimal.
+pytest); a test that wants prices stubs the HTTP transport with ``stub_feed``.
+
+What these pin: no price ever reaches a client unless an exchange produced it,
+a feed outage is an outage rather than a number, and PnL stays in Decimal.
 """
 
 from __future__ import annotations
@@ -23,8 +24,10 @@ from apps.exchanges.base import MarketType
 from apps.exchanges.marketdata import (
     BinancePublicSource,
     BybitPublicSource,
+    MarketDataError,
     get_candles,
     get_ticker,
+    provider_latency,
 )
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 
@@ -38,43 +41,56 @@ def user_client() -> Client:
     return client
 
 
-# --- fallback labelling -----------------------------------------------------
+def stub_feed(monkeypatch, *, price: str = "100.5", rtt_ms: float = 42.0):
+    """Answer like Binance without a socket, and enable the provider.
+
+    Returns the ``override_settings`` context manager, so a test reads:
+    ``with stub_feed(monkeypatch): ...``
+    """
+
+    def fake_get(self, url, params):
+        marketdata.record_rtt(self.name, rtt_ms)
+        if "klines" in url:
+            limit = int(params.get("limit") or 20)
+            base = 1700000000000
+            return [
+                [base + i * 60000, price, price, price, price, "1"] for i in range(limit)
+            ]
+        return {"lastPrice": price, "priceChangePercent": "1.25"}
+
+    monkeypatch.setattr(marketdata._HttpSource, "_get", fake_get)
+    return override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]})
 
 
-def test_offline_candles_are_labelled_not_live():
-    payload = get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=50)
-    assert payload["live"] is False
-    assert payload["source"] == "synthetic"
-    assert len(payload["candles"]) == 50
+# --- no feed means no price -------------------------------------------------
 
 
-def test_offline_ticker_is_labelled_not_live():
-    assert get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)["live"] is False
+def test_candles_raise_when_no_provider_answers():
+    """Nothing invents a series. The caller has to deal with the outage."""
+    with pytest.raises(MarketDataError):
+        get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=50)
 
 
-def test_synthetic_series_is_stable_for_a_symbol():
-    """Two polls a second apart must not redraw the whole chart."""
-    first = get_candles(symbol="ETHUSDT", interval="1m", market=MarketType.FUTURES, limit=30)
-    marketdata.cache.clear()
-    second = get_candles(symbol="ETHUSDT", interval="1m", market=MarketType.FUTURES, limit=30)
-    assert [c["c"] for c in first["candles"]] == [c["c"] for c in second["candles"]]
+def test_ticker_raises_when_no_provider_answers():
+    with pytest.raises(MarketDataError):
+        get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
 
 
-def test_different_symbols_do_not_draw_the_same_chart():
-    a = get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
-    b = get_candles(symbol="LINKUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
-    assert [c["c"] for c in a["candles"]] != [c["c"] for c in b["candles"]]
+def test_a_served_payload_is_always_real(monkeypatch):
+    with stub_feed(monkeypatch):
+        payload = get_candles(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20
+        )
+    assert payload["live"] is True
+    assert payload["source"] == "binance"
+    assert len(payload["candles"]) == 20
 
 
-def test_synthetic_ticker_agrees_with_the_last_candle():
-    """PnL marks against the ticker; a chart that disagrees invents a profit."""
-    feed = get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=100)
-    quote = get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
-    assert D(feed["candles"][-1]["c"]) == D(quote["price"])
-
-
-def test_candles_are_oldest_first():
-    payload = get_candles(symbol="BTCUSDT", interval="5m", market=MarketType.FUTURES, limit=20)
+def test_candles_are_oldest_first(monkeypatch):
+    with stub_feed(monkeypatch):
+        payload = get_candles(
+            symbol="BTCUSDT", interval="5m", market=MarketType.FUTURES, limit=20
+        )
     times = [c["t"] for c in payload["candles"]]
     assert times == sorted(times)
 
@@ -88,13 +104,60 @@ def test_a_dead_provider_is_not_retried_on_every_request(monkeypatch):
 
     monkeypatch.setattr(marketdata._HttpSource, "_get", explode)
     with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]}):
-        first = get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
-        marketdata.cache.delete("md:candles:BTCUSDT:1m:futures:20")
-        second = get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
+        with pytest.raises(MarketDataError):
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
+        with pytest.raises(MarketDataError):
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
 
-    assert first["live"] is False and second["live"] is False
     # One attempt, then the cooldown holds it off — not one per request.
     assert len(calls) == 1
+
+
+# --- measured latency -------------------------------------------------------
+
+
+def test_provider_latency_is_measured_not_assumed(monkeypatch):
+    with stub_feed(monkeypatch, rtt_ms=37.5):
+        payload = get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        assert payload["provider_ms"] == 37.5
+        assert provider_latency() == {
+            "providers": [{"provider": "binance", "ms": 37.5}],
+            "provider": "binance",
+            "ms": 37.5,
+        }
+
+
+def test_latency_is_null_when_nothing_was_measured():
+    """An old number from a link that has since died is worse than none."""
+    assert provider_latency()["ms"] is None
+
+
+# --- outbound proxy ---------------------------------------------------------
+# These exist because an unusable proxy URL is silent and total: httpx raises on
+# every request, both providers are marked down, and the panel ends up with no
+# prices on a machine that can reach the exchange perfectly well.
+
+
+def test_a_shell_socks_proxy_is_normalised_to_one_httpx_can_speak(monkeypatch):
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+    monkeypatch.setenv("ALL_PROXY", "socks://127.0.0.1:10808/")
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"], "PROXY": ""}):
+        assert marketdata.resolve_proxy() == "socks5://127.0.0.1:10808/"
+
+
+def test_an_unusable_proxy_is_dropped_rather_than_failing_every_call(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "not a url at all")
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"], "PROXY": ""}):
+        assert marketdata.resolve_proxy() is None
+
+
+def test_a_pinned_proxy_wins_over_the_shell(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1/")
+    with override_settings(
+        MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"], "PROXY": "http://10.0.0.1:8080"}
+    ):
+        assert marketdata.resolve_proxy() == "http://10.0.0.1:8080"
 
 
 # --- provider parsing (no network) ------------------------------------------
@@ -151,23 +214,50 @@ def test_candles_endpoint_rejects_an_unknown_interval():
 
 
 @pytest.mark.django_db
-def test_tickers_endpoint_batches_the_watchlist():
-    body = user_client().get("/api/trading/market/tickers/?symbols=BTCUSDT,ETHUSDT").json()
-    assert [row["symbol"] for row in body["tickers"]] == ["BTCUSDT", "ETHUSDT"]
-    assert all(row["live"] is False for row in body["tickers"])
+def test_candles_endpoint_reports_an_outage_rather_than_inventing_a_chart():
+    response = user_client().get("/api/trading/market/candles/?symbol=BTCUSDT")
+    assert response.status_code == 503
+    assert response.json()["live"] is False
+    assert "candles" not in response.json()
 
 
 @pytest.mark.django_db
-def test_tickers_endpoint_caps_the_symbol_count():
+def test_ticker_endpoint_reports_an_outage_rather_than_inventing_a_price():
+    response = user_client().get("/api/trading/market/ticker/?symbol=BTCUSDT")
+    assert response.status_code == 503
+    assert "price" not in response.json()
+
+
+@pytest.mark.django_db
+def test_tickers_endpoint_batches_the_watchlist(monkeypatch):
+    with stub_feed(monkeypatch):
+        body = user_client().get("/api/trading/market/tickers/?symbols=BTCUSDT,ETHUSDT").json()
+    assert [row["symbol"] for row in body["tickers"]] == ["BTCUSDT", "ETHUSDT"]
+    assert all(row["live"] is True for row in body["tickers"])
+    assert body["unavailable"] == []
+
+
+@pytest.mark.django_db
+def test_tickers_endpoint_omits_a_symbol_it_cannot_quote():
+    """A row with no quote is named, never filled in with a made-up price."""
+    body = user_client().get("/api/trading/market/tickers/?symbols=BTCUSDT,ETHUSDT").json()
+    assert body["tickers"] == []
+    assert body["unavailable"] == ["BTCUSDT", "ETHUSDT"]
+
+
+@pytest.mark.django_db
+def test_tickers_endpoint_caps_the_symbol_count(monkeypatch):
     """A hand-written URL must not turn into a hundred outbound calls."""
     symbols = ",".join(f"SYM{i}USDT" for i in range(60))
-    body = user_client().get(f"/api/trading/market/tickers/?symbols={symbols}").json()
+    with stub_feed(monkeypatch):
+        body = user_client().get(f"/api/trading/market/tickers/?symbols={symbols}").json()
     assert len(body["tickers"]) == 30
 
 
 @pytest.mark.django_db
 def test_tickers_endpoint_handles_an_empty_list():
-    assert user_client().get("/api/trading/market/tickers/?symbols=").json() == {"tickers": []}
+    body = user_client().get("/api/trading/market/tickers/?symbols=").json()
+    assert body == {"tickers": [], "unavailable": []}
 
 
 @pytest.mark.django_db
@@ -178,7 +268,7 @@ def test_positions_endpoint_is_empty_when_flat():
 
 @pytest.mark.django_db
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-def test_positions_endpoint_marks_each_leg_to_market():
+def test_positions_endpoint_marks_each_leg_to_market(monkeypatch):
     account = ConnectedAccount.objects.create(
         label="partner-a",
         exchange=Exchange.PAPER,
@@ -200,14 +290,42 @@ def test_positions_endpoint_marks_each_leg_to_market():
         sltp_attached=True,
     )
 
-    body = user_client().get("/api/trading/positions/").json()
+    with stub_feed(monkeypatch, price="120"):
+        body = user_client().get("/api/trading/positions/").json()
     mark = D(body["mark"]["price"])
     leg = body["legs"][0]
 
+    assert mark == D("120")
     assert body["trade"]["id"] == trade.id
     assert D(leg["pnl"]) == (mark - D("100")) * D("0.1")
     assert D(body["totals"]["pnl"]) == D(leg["pnl"])
     assert body["totals"]["accounts"] == 1
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_positions_endpoint_reports_the_position_but_no_pnl_with_no_feed():
+    """The position is a fact; the PnL needs a price. Unknown reads as unknown."""
+    account = ConnectedAccount.objects.create(
+        label="partner-a",
+        exchange=Exchange.PAPER,
+        status=AccountStatus.ACTIVE,
+        withdrawal_check_passed=True,
+    )
+    trade = Trade.objects.create(
+        symbol="BTCUSDT", side="long", market="futures", leverage=10, status=TradeStatus.OPEN
+    )
+    TradeLeg.objects.create(
+        trade=trade, account=account, ok=True, qty=D("0.1"), entry_price=D("100"), margin=D("1")
+    )
+
+    body = user_client().get("/api/trading/positions/").json()
+
+    assert body["mark"] is None
+    assert body["feed_error"]
+    assert body["legs"][0]["entry_price"] == "100"
+    assert body["legs"][0]["pnl"] is None
+    assert body["totals"]["pnl"] is None
 
 
 @pytest.mark.django_db

@@ -14,3 +14,14 @@ export function errorMessage(e: any): string {
   }
   return e?.message ?? String(e)
 }
+
+/**
+ * HTTP status of a failed `$fetch`, whichever shape ofetch used this time.
+ *
+ * The panel treats 503 from the market endpoints as "no exchange reachable",
+ * which is a different state from a generic request failure — it is the one
+ * case where the chart must stop and say so rather than retry quietly.
+ */
+export function statusOf(e: any): number | null {
+  return e?.statusCode ?? e?.status ?? e?.response?.status ?? null
+}

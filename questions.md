@@ -101,7 +101,17 @@ orderings:
 
 *Recommendation:* place-first-then-cancel, with reduce-only set on every
 stop so a double-trigger cannot flip the position. Where an exchange supports
-true amend (Bybit, Hyperliquid), amend and skip the dance entirely.
+true amend, amend and skip the dance entirely.
+
+**Built as `SLTP_AMEND_STRATEGY` (default `place_then_cancel`), in
+`engine/executor.apply_sltp`.** The stale orders are snapshotted with
+`adapter.list_conditional_orders()` *before* the new pair is placed, so the
+cancel can never take away what was just placed. Only **Bybit** (and the paper
+adapter) truly amend in place — `POST /v5/position/trading-stop`. Hyperliquid
+does **not**, despite the earlier note here: its TP/SL are ordinary trigger
+orders and go through the same cancel. OKX has an `amend-algos` endpoint but
+this adapter does not use it, and `native_sltp_amend` now says so rather than
+claiming an amend that never happens.
 
 ### Q5e. Entry filled but SL/TP placement failed — what then?
 
@@ -141,6 +151,16 @@ You said all 8 exchanges are in v1, so pick one:
 *Recommendation:* start (1) today since it has external lead time, ship (2) in
 the meantime.
 
+**Shipped as (2), and spot is now a full round trip.** `close_position` sells
+the holding back at market (`sell_market`, sized in the base asset) instead of
+raising `NotSupported`, so the Q5e policy can actually flatten a spot leg and a
+bought position is never stranded. Note LBank's asymmetric market orders: a buy
+carries the *quote* amount to spend, a sell carries the *base* quantity. Spot
+still has no SL/TP through the documented API, so with the default Q5e policy a
+spot leg with SL/TP set will buy and immediately sell back — which is the
+policy working, not a bug, but it costs two fees. Set SL/TP to blank on LBank
+spot, or wait for (1).
+
 ## Q11. 🔴 Hyperliquid — can an API wallet withdraw?
 
 Spec §7 makes non-withdrawable credentials a hard requirement. Hyperliquid has
@@ -175,6 +195,33 @@ $49.50 and $99 are exactly 99%. But 99% of $10 is **$9.90, not $9** ($9 is 90%).
 *Assumption until you say otherwise:* flat 99%, so $9.90 — with the result then
 rounded **down** to the exchange's quantity step, never up.
 
+## Q18. 🔴 Minimum notional is guessed on OKX and Gate.io
+
+Spec §5 says an account below the exchange's minimum is **skipped** with a
+notice. That decision is only as good as the minimum it compares against.
+
+`OkxAdapter.get_symbol_rules` and `GateioAdapter.get_symbol_rules` both return a
+hardcoded `min_notional = D("5")`. Neither exchange publishes a per-symbol
+minimum notional in the instrument endpoint the adapter already calls — OKX
+enforces `minSz` (a quantity), Gate enforces a whole number of contracts — so
+the 5 is a stand-in, not a reading.
+
+It is demonstrably wrong elsewhere: Binance returns **50** for BTCUSDT, verified
+live on 2026-08-13. A small account that should have been skipped can therefore
+be sent an order the exchange rejects, and a leg fails at the exchange instead of
+being cleanly skipped by sizing.
+
+Options:
+
+- Derive the floor from what the exchange *does* publish (`minSz` × mark price
+  on OKX; `quanto_multiplier` × mark price on Gate) — correct, one extra call.
+- Keep a constant but make it per-exchange and sourced, not a shared 5.
+- Leave it and accept exchange-side rejections for tiny accounts.
+
+*Assumption until you say otherwise:* the first — but it is not implemented yet,
+so today both adapters still size against the guess. Tracked in
+`docs/exchanges/coverage.md`.
+
 ---
 
 ## Q13. Market data — where the chart's prices come from ✅ Public feed, labelled
@@ -187,20 +234,34 @@ result across all accounts. It is not an adapter and is not per account.
 
 Three rules fall out of that, and they are implemented rather than assumed:
 
-1. **Fake prices are labelled.** With no provider reachable, the API serves a
-   deterministic synthetic series with `live: false`, and the panel renders a
-   "sample prices" badge next to the price. An unlabelled fake series on a
-   trading screen is how someone reads a number that was never real.
-2. **A synthetic price never sizes a trade.** A market order has no price of its
-   own, and sizing needs one (qty = notional / price). The reference price is
-   passed to the engine *only* when the feed is live; otherwise the adapter must
-   price itself (the paper adapter does) or the leg fails loudly.
+1. **There are no fake prices.** *(Amended 13 Aug 2026 — see below.)* With no
+   provider reachable the API returns 503 and the panel says the feed is down.
+   Nothing draws a candle nobody quoted.
+2. **No price means no trade sized.** A market order has no price of its own,
+   and sizing needs one (qty = notional / price). The reference price reaches
+   the engine only when an exchange actually answered; otherwise the adapter
+   must price itself (the paper adapter does) or the leg fails loudly.
 3. **PnL is computed server-side, in Decimal.** `/api/trading/positions/` marks
    every leg to market and returns the numbers as strings. The browser renders
    them; it does not re-implement the formula in floats.
 
 Set `MARKET_DATA_ENABLED=false` for an air-gapped deployment, or reorder
 `MARKET_DATA_PROVIDERS`.
+
+**Amendment, 13 Aug 2026 — the synthetic fallback is gone.** The original answer
+allowed a labelled synthetic series so the chart still drew something. The admin
+rejected that: the panel must carry real prices only. `SyntheticSource` is
+deleted, `get_candles`/`get_ticker` raise, the endpoints answer 503, and the
+panel renders an explicit "no price feed" state.
+
+Removing it exposed why it had been firing on the development machine at all:
+`httpx` inherits the shell's `ALL_PROXY`, and a `socks://` URL — what most
+shells export — is a scheme it refuses outright, so *every* provider call failed
+on a machine that could reach Binance directly. `marketdata.resolve_proxy()`
+now normalises that to `socks5://` (with `socksio` installed), drops a proxy it
+cannot parse instead of failing the call, and takes `MARKET_DATA_PROXY` as an
+explicit override. A silent fallback had been hiding a plain configuration bug,
+which is the second argument against having one.
 
 ## Q14. Emergency halt — a control, not a redeploy ✅ Runtime switch, env can pin
 
@@ -214,6 +275,10 @@ Spec §7 recommends a "stop all" and left the shape open. Decided:
   wanted is not the moment to fill in a form.
 - Closing and amending open positions keep working while halted. A halt that
   stranded open leveraged positions would be more dangerous than what it stops.
+  (Amending only *said* so until the audit: `amend_sltp` fanned out with the
+  default `respect_stop_all=True`, so a halted amend returned HTTP 500. Both
+  paths now pass `respect_stop_all=False` and both have a test —
+  `test_sltp_can_still_be_amended_while_halted`.)
 - When the switch cannot be read at all (database down), routing is treated as
   **halted**. Failing open would route partner capital on a guess.
 

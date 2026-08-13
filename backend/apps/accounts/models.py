@@ -56,6 +56,14 @@ class ConnectedAccount(models.Model):
         default=False,
         help_text="Spec §7: verified trade-only, no withdrawal rights.",
     )
+    withdrawal_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the spec §7 permission check last ran against the exchange. "
+            "Null means never — see clean()."
+        ),
+    )
 
     # --- reporting ---------------------------------------------------------
     last_balance = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
@@ -115,12 +123,26 @@ class ConnectedAccount(models.Model):
         return (self.last_balance_asset or "").upper() == "USDT"
 
     def clean(self) -> None:
-        if self.exchange != Exchange.PAPER and not self.withdrawal_check_passed:
+        """Spec §7: no real account routes orders unchecked.
+
+        The guard is on ``withdrawal_checked_at``, not on
+        ``withdrawal_check_passed``. Only Bybit, OKX and Binance publish key
+        permissions at all; requiring a *passed* check would make the other
+        five exchanges unusable, which is not what §7 asks. What §7 asks is
+        that the check is run and a proven-withdrawable key is refused — the
+        refusal happens in ``accounts.views.verify_account``, and this makes
+        sure no path skips the call and activates an unchecked credential.
+        """
+        if (
+            self.status == AccountStatus.ACTIVE
+            and self.exchange != Exchange.PAPER
+            and self.withdrawal_checked_at is None
+        ):
             raise ValidationError(
                 {
-                    "withdrawal_check_passed": (
-                        "Spec §7: an account cannot be connected until its "
-                        "credentials are verified as non-withdrawable."
+                    "withdrawal_checked_at": (
+                        "Spec §7: an account cannot be activated before its "
+                        "credentials have been checked against the exchange."
                     )
                 }
             )

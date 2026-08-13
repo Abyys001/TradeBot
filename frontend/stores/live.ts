@@ -45,6 +45,17 @@ export const useLiveStore = defineStore('live', {
     pingMs: null as number | null,
     /** Recent samples, so a single lucky packet does not read as a fast link. */
     pingSamples: [] as number[],
+    /**
+     * The *other* half of the path: the engine's last measured round trip to
+     * the exchange, reported in the pong.
+     *
+     * Browser→engine is often a millisecond on a local network and says
+     * nothing about whether an order can reach Binance inside the spec §4
+     * budget. This is the number that does. Null when nothing has been
+     * measured recently — never a placeholder.
+     */
+    exchangeMs: null as number | null,
+    exchangeName: '',
     legResults: {} as Record<number, LegResult>,
     /** Balance snapshots pushed by the engine, keyed by account id. */
     balances: {} as Record<number, { balance: string; asset: string; at: number }>,
@@ -77,6 +88,18 @@ export const useLiveStore = defineStore('live', {
       if (value === null) return null
       if (value < 250) return 'good'
       return value < 600 ? 'fair' : 'poor'
+    },
+
+    /**
+     * Same budget logic applied to the leg that actually carries the order.
+     * A round trip to the exchange is paid twice inside the fan-out (send and
+     * acknowledge), so 150ms is already a third of the second.
+     */
+    exchangeQuality(): 'good' | 'fair' | 'poor' | null {
+      const value = this.exchangeMs
+      if (value === null) return null
+      if (value < 150) return 'good'
+      return value < 400 ? 'fair' : 'poor'
     },
   },
 
@@ -125,6 +148,8 @@ export const useLiveStore = defineStore('live', {
         // A latency reading from a dead socket is a lie, not a stale number.
         this.pingMs = null
         this.pingSamples = []
+        this.exchangeMs = null
+        this.exchangeName = ''
         pingSentAt = null
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = null
@@ -146,6 +171,9 @@ export const useLiveStore = defineStore('live', {
 
     handle(payload: any) {
       if (payload.type === 'pong') {
+        // Reported by the engine whether or not this pong was the one we timed.
+        this.exchangeMs = typeof payload.exchange_ms === 'number' ? payload.exchange_ms : null
+        this.exchangeName = payload.exchange ?? ''
         if (pingSentAt === null) return
         const rtt = Math.round(performance.now() - pingSentAt)
         pingSentAt = null
