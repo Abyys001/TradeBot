@@ -14,7 +14,7 @@ encryption, staff-gated order routing, per-account trade history, the WebSocket
 channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines.
-**158 backend tests pass, `ruff` clean, Nuxt build clean.**
+**183 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -34,8 +34,18 @@ with the skipped account raising a persistent notification.
   testnet**. Do that on testnet before any real capital.
 - LBank futures is impossible to implement (Q10); the adapter raises
   `NotSupported` rather than guessing.
-- Hyperliquid agent-wallet withdrawal rights are still unverified (Q11).
-- Market data is a **public** feed (Binance → Bybit, no credentials, Q13).
+- Hyperliquid agent-wallet withdrawal rights are still unverified (Q11). The
+  panel no longer *shows* an "unverified" state: four exchanges (Hyperliquid,
+  LBank, Gate, Toobit) publish no permission endpoint, so the flag could never
+  be cleared on them and had become a permanent warning nobody could act on.
+  Enforcement is unchanged — a key that proves withdrawal rights is still
+  refused at connect time, and `ConnectedAccount.clean()` still blocks
+  activating an unchecked credential. Do not read the missing badge as a
+  dropped check.
+- Market data is a **public** feed (no credentials, Q13). A venue you hold
+  active accounts on always quotes itself; the configured fallbacks behind that
+  are Hyperliquid → Binance → Bybit, so a fallback still prices against the
+  flagged-important exchange.
   **Real prices only:** where no provider is reachable the API returns 503 and
   the panel shows "no price feed" — there is no synthetic series, and with no
   price nothing sizes an order. `MARKET_DATA_PROXY` pins the egress proxy for
@@ -104,6 +114,14 @@ docker compose up -d --build  # panel on :3000, API on :8000
 up -d --build`. Caddy in that stack terminates TLS (auto Let's Encrypt) and
 forwards to a *built* Nuxt bundle; the Django API is never exposed to the host.
 Runbook: `docs/deploy.md`.
+
+**The WebSocket never goes through Nuxt.** nitro forwards HTTP but drops the
+`Upgrade` handshake — `routeRules[].proxy` is an h3 `proxyRequest`, and the dev
+server hands upgrades to its worker rather than to devProxy — so a same-origin
+`/ws` silently never connects and every latency reading stays blank. Caddy
+routes `/ws` straight to Channels in production; everywhere else the browser
+dials the backend port directly via `NUXT_PUBLIC_WS_BASE`. Do not "tidy" this
+back into a route rule.
 
 Without Docker: `backend/.venv` + `python manage.py migrate runserver`,
 and `npm run dev` in `frontend/`. Tests: `cd backend && .venv/bin/python -m pytest`.

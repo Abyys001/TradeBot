@@ -297,7 +297,9 @@ def run_sync(job_id: int) -> None:
             )
         except Exception as exc:  # noqa: BLE001 - one pair must not stop the run
             problems.append(f"{exchange} {symbol} {interval}: {exc}")
-            logger.warning("history download failed for %s %s %s: %s", exchange, symbol, interval, exc)
+            logger.warning(
+                "history download failed for %s %s %s: %s", exchange, symbol, interval, exc
+            )
         job.series_done += 1
         job.detail = f"{symbol} {interval}"
         job.save(update_fields=["series_done", "bars_written", "detail", "updated_at"])

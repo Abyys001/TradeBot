@@ -417,7 +417,8 @@ class GateioPublicSource(HttpSource):
     def _tickers(self, market: MarketType, contract: str = "") -> list[dict]:
         params = {"contract": contract} if contract else {}
         rows = self._get(self._path(market, "tickers"), params)
-        return [row for row in (rows if isinstance(rows, list) else [rows]) if isinstance(row, dict)]
+        listed = rows if isinstance(rows, list) else [rows]
+        return [row for row in listed if isinstance(row, dict)]
 
     def ticker(self, *, symbol, market):
         rows = self._tickers(market, self._contract(symbol))
