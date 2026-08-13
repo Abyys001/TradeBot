@@ -3,6 +3,11 @@
 The suite never reaches a real exchange (``MARKET_DATA.ENABLED`` is False under
 pytest); a test that wants prices stubs the HTTP transport with ``stub_feed``.
 
+Anything that resolves a *provider* needs ``django_db`` even when it never
+looks at a model: preference now starts from the exchanges with active
+accounts, and a failed live fetch falls back to downloaded history before it
+raises. Both read the database.
+
 What these pin: no price ever reaches a client unless an exchange produced it,
 a feed outage is an outage rather than a number, and PnL stays in Decimal.
 """
@@ -58,15 +63,21 @@ def stub_feed(monkeypatch, *, price: str = "100.5", rtt_ms: float = 42.0):
             ]
         return {"lastPrice": price, "priceChangePercent": "1.25"}
 
-    monkeypatch.setattr(marketdata._HttpSource, "_get", fake_get)
+    monkeypatch.setattr(marketdata.HttpSource, "_get", fake_get)
     return override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]})
 
 
 # --- no feed means no price -------------------------------------------------
 
 
+@pytest.mark.django_db
 def test_candles_raise_when_no_provider_answers():
-    """Nothing invents a series. The caller has to deal with the outage."""
+    """Nothing invents a series. The caller has to deal with the outage.
+
+    Needs the database because the live feed failing is not the end of the
+    story: ``get_candles`` falls back to downloaded history before giving up,
+    and only raises once that is empty too.
+    """
     with pytest.raises(MarketDataError):
         get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=50)
 
@@ -76,6 +87,7 @@ def test_ticker_raises_when_no_provider_answers():
         get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
 
 
+@pytest.mark.django_db
 def test_a_served_payload_is_always_real(monkeypatch):
     with stub_feed(monkeypatch):
         payload = get_candles(
@@ -86,6 +98,7 @@ def test_a_served_payload_is_always_real(monkeypatch):
     assert len(payload["candles"]) == 20
 
 
+@pytest.mark.django_db
 def test_candles_are_oldest_first(monkeypatch):
     with stub_feed(monkeypatch):
         payload = get_candles(
@@ -95,6 +108,7 @@ def test_candles_are_oldest_first(monkeypatch):
     assert times == sorted(times)
 
 
+@pytest.mark.django_db
 def test_a_dead_provider_is_not_retried_on_every_request(monkeypatch):
     calls = []
 
@@ -102,7 +116,7 @@ def test_a_dead_provider_is_not_retried_on_every_request(monkeypatch):
         calls.append(url)
         raise httpx.ConnectError("no route to host")
 
-    monkeypatch.setattr(marketdata._HttpSource, "_get", explode)
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
     with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]}):
         with pytest.raises(MarketDataError):
             get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
@@ -116,6 +130,7 @@ def test_a_dead_provider_is_not_retried_on_every_request(monkeypatch):
 # --- measured latency -------------------------------------------------------
 
 
+@pytest.mark.django_db
 def test_provider_latency_is_measured_not_assumed(monkeypatch):
     with stub_feed(monkeypatch, rtt_ms=37.5):
         payload = get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
@@ -127,8 +142,13 @@ def test_provider_latency_is_measured_not_assumed(monkeypatch):
         }
 
 
+@pytest.mark.django_db
 def test_latency_is_null_when_nothing_was_measured():
-    """An old number from a link that has since died is worse than none."""
+    """An old number from a link that has since died is worse than none.
+
+    Needs the database because provider preference now starts from the
+    exchanges with active accounts, not just the configured fallbacks.
+    """
     assert provider_latency()["ms"] is None
 
 
@@ -165,7 +185,7 @@ def test_a_pinned_proxy_wins_over_the_shell(monkeypatch):
 
 def test_binance_parses_klines(monkeypatch):
     rows = [[1700000000000, "100.5", "101", "99", "100.75", "12.5", 1700000059999]]
-    monkeypatch.setattr(marketdata._HttpSource, "_get", lambda self, url, params: rows)
+    monkeypatch.setattr(marketdata.HttpSource, "_get", lambda self, url, params: rows)
 
     candles = BinancePublicSource().candles(
         symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=1
@@ -184,7 +204,7 @@ def test_bybit_reverses_to_oldest_first(monkeypatch):
             ]
         },
     }
-    monkeypatch.setattr(marketdata._HttpSource, "_get", lambda self, url, params: payload)
+    monkeypatch.setattr(marketdata.HttpSource, "_get", lambda self, url, params: payload)
 
     candles = BybitPublicSource().candles(
         symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=2
@@ -194,7 +214,7 @@ def test_bybit_reverses_to_oldest_first(monkeypatch):
 
 def test_bybit_converts_the_24h_fraction_to_a_percentage(monkeypatch):
     payload = {"retCode": 0, "result": {"list": [{"lastPrice": "100", "price24hPcnt": "0.0125"}]}}
-    monkeypatch.setattr(marketdata._HttpSource, "_get", lambda self, url, params: payload)
+    monkeypatch.setattr(marketdata.HttpSource, "_get", lambda self, url, params: payload)
 
     ticker = BybitPublicSource().ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
     assert ticker.change_pct == Decimal("1.25")
