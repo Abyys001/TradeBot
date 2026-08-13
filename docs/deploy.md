@@ -5,12 +5,20 @@ Launch topology for a fresh server owning the domain. TLS is automatic.
 ```
 Browser ──(443)──> Caddy (auto Let's Encrypt, no certbot)
                         │
+                        ├── /ws/** ──────────────────────┐   (WebSocket upgrade)
+                        │                                │
                         └──> frontend (built Nuxt bundle, port 3000, internal)
-                                  │ proxies /api/** and /ws/**
+                                  │ proxies /api/**      │
                                   └──> backend (Daphne, port 8000, internal)
                                              │            │
                                       Postgres 16     Redis 7
 ```
+
+`/ws/**` bypasses the panel deliberately. nitro forwards HTTP but drops the
+`Upgrade` handshake, so a WebSocket routed through Nuxt never connects and the
+panel sits on "connecting" with both latency readings blank. Caddy hands the
+upgrade to Daphne directly; the browser still dials a same-origin
+`wss://<domain>/ws/trading/` and knows nothing about the split.
 
 Only Caddy publishes ports to the host (80/443). Backend and panel are on the
 Docker network alone, so the Django API is never directly reachable from
@@ -85,11 +93,25 @@ curl -sI http://maxbot.cybercina.co.uk | grep -i location    # https://...
 # Order routing refuses anonymous callers (401 is CORRECT):
 curl -s -o /dev/null -w '%{http_code}\n' https://maxbot.cybercina.co.uk/api/trading/orders/open/ \
   -H 'Content-Type: application/json' -d '{"symbol":"BTCUSDT","side":"long","leverage":10}'
+
+# The live channel reaches Channels and refuses a stranger (403 is CORRECT).
+# This one check proves both halves: a 403 can only come from the consumer, so
+# Caddy routed the upgrade to Daphne rather than serving it from the panel.
+# A 404, or HTML, means /ws went to Nuxt and the socket will never connect.
+curl -s -o /dev/null -w '%{http_code}\n' https://maxbot.cybercina.co.uk/ws/trading/ \
+  -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ=='
 ```
 
 Then in a browser: the panel at `/`, `/risk`, `/accounts`, `/history`, the
 Persian build at `/fa`, and — before any real capital — every exchange adapter
 on testnet per `docs/adapters.md`.
+
+**Settings → Connection & data is the live-channel smoke test.** Signed in, it
+must read `LIVE` with a panel latency in milliseconds; the exchange latency
+fills in once anything has priced. `CONNECTING` that never resolves, or blank
+latencies, means the `/ws` upgrade is not reaching Daphne — check the curl
+above before looking anywhere else.
 
 ## 6. Day-to-day operations
 
@@ -115,3 +137,13 @@ in `.env` is the un-clearable pin (spec §7).
   old keys after it, comma separated, then restarting the backend.
 - If the domain or the VPS changes, update `SITE_DOMAIN` and
   `DJANGO_ALLOWED_HOSTS` / `CORS_ALLOWED_ORIGINS` together — they must agree.
+  `DJANGO_ALLOWED_HOSTS` now also gates the WebSocket: the live channel refuses
+  any handshake whose `Origin` host is not in that list, so a domain missing
+  from it shows as a panel that loads fine but never goes `LIVE`.
+- The live channel is staff-only and same-origin-only. A WebSocket handshake is
+  exempt from CORS, so without the origin check any page the admin visited
+  could open one with their session cookie attached and stream balances,
+  positions and failures. Both guards are pinned by tests in
+  `backend/tests/test_consumer.py`; do not relax either to "make the socket
+  work" — an ungated socket hands out everything the staff-only REST endpoints
+  withhold.

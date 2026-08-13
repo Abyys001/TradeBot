@@ -30,6 +30,18 @@ def _exchange_latency() -> dict:
 
 class TradingConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self) -> None:
+        # Same gate as the REST side (`IsAdminUser`, and login itself refuses a
+        # non-staff account). This channel carries balances, open positions,
+        # per-leg failures and the halt state, so an ungated socket would hand
+        # out everything the staff-only endpoints withhold — and it used to,
+        # accepting any connection that reached it. The origin check in
+        # config.asgi is the other half; this one is what stops a *logged-out*
+        # or non-staff session.
+        user = self.scope.get("user")
+        if user is None or not user.is_authenticated or not user.is_staff:
+            await self.close(code=4403)
+            return
+
         await self.channel_layer.group_add(GROUP, self.channel_name)
         await self.accept()
         await self.send_json({"type": "connected"})

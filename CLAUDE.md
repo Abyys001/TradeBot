@@ -177,6 +177,12 @@ leverage) are declared per adapter and handled behind the interface — never wi
   connection when withdrawal rights are detected.
 - Never log request bodies containing signatures or secrets.
 - No key material in `reference/`, fixtures, tests, or scratch files.
+- The **WebSocket is staff-only and same-origin-only**, gated in
+  `TradingConsumer.connect()` and by `AllowedHostsOriginValidator` in
+  `config/asgi.py`. It carries balances, positions, per-leg failures and the
+  halt state — everything the `IsAdminUser` endpoints withhold — and a
+  handshake is exempt from CORS, so an ungated socket is readable by any page
+  the admin has open. Pinned by `tests/test_consumer.py`.
 
 **Execution (spec §4, §5)**
 
