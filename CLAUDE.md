@@ -14,7 +14,7 @@ encryption, staff-gated order routing, per-account trade history, the WebSocket
 channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines.
-**183 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
+**205 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -45,7 +45,16 @@ with the skipped account raising a persistent notification.
 - Market data is a **public** feed (no credentials, Q13). A venue you hold
   active accounts on always quotes itself; the configured fallbacks behind that
   are Hyperliquid → Binance → Bybit, so a fallback still prices against the
-  flagged-important exchange.
+  flagged-important exchange. Prices arrive **streamed** where the venue has a
+  public WebSocket and **polled** everywhere else; both are real exchange data,
+  and the panel names which is in force rather than blurring them.
+- **TradingView is not a data source and cannot become one.** The Charting
+  Library is a chart UI that consumes a datafeed you supply — it ships no
+  prices. The feeds behind tradingview.com are licensed and reachable only via
+  undocumented endpoints, so pointing the panel at them would put order sizing
+  behind something that can vanish without notice. Swapping the *chart* for the
+  Charting Library later changes nothing here: the data keeps coming from
+  `public_sources` and `public_stream`.
   **Real prices only:** where no provider is reachable the API returns 503 and
   the panel shows "no price feed" — there is no synthetic series, and with no
   price nothing sizes an order. `MARKET_DATA_PROXY` pins the egress proxy for
@@ -85,6 +94,8 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/trading/sizing.py` | Spec §5 — 99% as margin, round down, skip below minimum. |
 | `apps/trading/sltp.py` | Q5a both readings; `compare_bases()` powers `/risk`. |
 | `apps/exchanges/marketdata.py` | **Public** prices (Q13). Credential-free, cached, provider fallback, real-or-503 — never an adapter. Also times the engine→exchange round trip the top bar shows. |
+| `apps/exchanges/public_stream.py` | The **live** sibling of the above: exchange WebSockets pushing bars. Same rules — never an adapter, no credentials, Decimal in. Bybit/Hyperliquid/Binance; anything else keeps polling. |
+| `apps/trading/streamhub.py` | One upstream socket per pair, reference counted, fanned out to every panel. Runs in the ASGI process — a broker hop would add latency to the one thing meant to be immediate. |
 | `apps/trading/market_views.py` | Candles, ticker, and `/positions/` — legs marked to market, PnL in Decimal on this side of the wire. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
