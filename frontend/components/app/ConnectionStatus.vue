@@ -15,13 +15,16 @@
  * Colour follows the thresholds the store documents, and never carries the
  * meaning alone — the number and the label are always there too.
  */
-const { t } = useI18n()
+const { t, te } = useI18n()
 const live = useLiveStore()
 
 const STATUS = {
   live: { tone: 'ok', key: 'common.live' },
   connecting: { tone: 'neutral', key: 'common.connecting' },
   offline: { tone: 'signal', key: 'common.offline' },
+  // A session the engine refused is not an outage and retrying will not fix
+  // it, so it says so rather than hiding inside "offline".
+  refused: { tone: 'signal', key: 'common.refused' },
 } as const
 
 const PING_TONE = {
@@ -31,7 +34,13 @@ const PING_TONE = {
 } as const
 
 const tooltip = computed(() => {
-  if (live.status !== 'live') return t(`common.${live.status}`)
+  if (live.status !== 'live') {
+    // Say *why*, not just that it is down. "Connecting" on its own is what
+    // made a misrouted upgrade and a refused session look like the same thing.
+    const key = `connection.down.${live.statusDetail}`
+    const reason = te(key) ? t(key) : live.statusDetail
+    return `${t(`common.${live.status}`)} — ${reason}`
+  }
   const lines: string[] = []
   if (live.pingQuality) {
     lines.push(
@@ -68,7 +77,7 @@ const tooltip = computed(() => {
     <span
       v-else
       class="w-1.5 h-1.5 rounded-full shrink-0"
-      :class="live.status === 'offline' ? 'bg-signal' : 'bg-ink-faint'"
+      :class="live.status === 'connecting' ? 'bg-ink-faint' : 'bg-signal'"
     />
 
     <span class="text-tick uppercase tracking-wider hidden sm:inline text-ink-muted">

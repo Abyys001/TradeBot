@@ -23,22 +23,31 @@ export default defineNuxtConfig({
     // Server-side only: where the Nuxt server forwards /api/** to. The browser
     // never sees this, so it can be a Docker-internal hostname.
     apiProxyTarget: process.env.NUXT_API_PROXY_TARGET || 'http://localhost:8000/api',
+    // The same, for the live channel — see server/routes/ws/[...].ts.
+    wsProxyTarget: process.env.NUXT_WS_PROXY_TARGET || 'ws://localhost:8000',
     public: {
       // Same-origin on purpose — see server/api/[...path].ts.
       apiBase: '/api',
+      // Almost always empty now: the panel derives wss://<its own host>/ws/
+      // and the relay below carries it. Kept as an escape hatch for a
+      // deployment that puts Channels on a separate hostname, and ignored by
+      // stores/live.ts when it names a loopback the browser cannot reach.
       wsBase: process.env.NUXT_PUBLIC_WS_BASE || '',
     },
   },
 
-  // No /ws route rule on purpose. `routeRules[].proxy` is an h3 `proxyRequest`,
-  // which forwards the HTTP request and drops the `Upgrade` handshake, and the
-  // nitro dev server hands upgrades to its worker rather than to devProxy —
-  // so nitro cannot carry a WebSocket at all. Routing /ws here looked correct
-  // and left the socket stuck on "connecting" with both latency readings blank.
+  // Still no /ws route *rule*: `routeRules[].proxy` is an h3 `proxyRequest`,
+  // which forwards the HTTP request and drops the `Upgrade` handshake. That is
+  // what left the socket stuck on "connecting" with both latency readings blank.
   //
-  // The upgrade is terminated one layer out instead: Caddy in production
-  // (Caddyfile), and NUXT_PUBLIC_WS_BASE straight to the backend port in dev
-  // (docker-compose.yml, run.sh, .env.example).
+  // A WebSocket *handler* is a different mechanism — nitro hands upgrades to
+  // the worker, which is where server/routes/ws/[...].ts runs — so the panel
+  // now carries its own socket on its own origin, in dev and in the built
+  // server alike. Caddy still short-circuits /ws straight to Channels in the
+  // production stack; that is one hop fewer, not a different contract.
+  nitro: {
+    experimental: { websocket: true },
+  },
 
   app: {
     head: {

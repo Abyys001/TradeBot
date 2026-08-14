@@ -4,18 +4,31 @@ Plain Django **async** views rather than DRF ones: the fan-out is asyncio, and
 DRF 3.15 has no async view support, so routing through it would run the legs in
 a worker thread and serialise them — exactly what the 1-second budget cannot
 afford.
+
+The cost of leaving DRF behind is that none of its request handling applies
+here, so this module owns both halves itself:
+
+  - **CSRF is enforced** (`@csrf_protect`, not `@csrf_exempt`). These endpoints
+    authenticate by session cookie and fan a leveraged entry across every
+    connected account, so an exempt POST is one any page the admin has open can
+    make. SameSite=Lax happens to stop it in a current browser; a money
+    endpoint should not rest on a cookie default it does not set.
+  - **Every input is validated before it becomes an order.** Nothing downstream
+    re-checks: `sizing` divides by the price it is given, and `sltp` turns a
+    percentage into a stop price without asking whether the sign makes sense.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from decimal import Decimal, InvalidOperation
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
 
 from apps.core.auth import admin_required
@@ -48,29 +61,84 @@ def _optional_decimal(data: dict, key: str) -> Decimal | None:
         raise ValueError(f"{key} is not a number: {value!r}") from exc
 
 
-def _result_payload(result) -> dict:
+#: A pair as the platform names it: base + quote, letters and digits only.
+#: Anything else is refused here rather than sent to eight different exchanges
+#: to be rejected eight different ways — a leg that fails on a malformed symbol
+#: reads as an exchange problem in the notification centre, which is a lie.
+_SYMBOL = re.compile(r"^[A-Z0-9]{4,20}$")
+
+
+def _symbol(data: dict) -> str:
+    """The pair, normalised once here so every adapter sees the same string."""
+    value = str(data.get("symbol") or "").strip().upper()
+    if not _SYMBOL.match(value):
+        raise ValueError(f"symbol is not a pair: {data.get('symbol')!r}")
+    return value
+
+
+def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal | None:
+    """An SL/TP percentage, bounded.
+
+    Unbounded, these reach `sltp.resolve` and turn into a stop price: a
+    negative one puts the stop on the *profit* side of entry, where it fires
+    the instant the trade goes right, and a stop loss above 100% is a price
+    below zero. Both are typos, and a typo must not become an order.
+
+    The take-profit has no ceiling — a 250% target is a real thing to ask for.
+    """
+    value = _optional_decimal(data, key)
+    if value is None:
+        return None
+    if value <= 0:
+        raise ValueError(f"{key} must be greater than zero")
+    if ceiling is not None and value > ceiling:
+        raise ValueError(f"{key} must not exceed {ceiling:g}")
+    return value
+
+
+@sync_to_async
+def _hidden_ids_for(user) -> set[int]:
+    """Account ids this caller must not be told took part."""
+    from apps.accounts.visibility import hidden_ids_for
+
+    return hidden_ids_for(user)
+
+
+def _result_payload(result, hidden: set[int]) -> dict:
+    """The fan-out result as the *caller* is allowed to see it.
+
+    ``total_ms`` is the real wall clock of the whole fan-out and stays whole:
+    the legs run concurrently, so it is the slowest leg's time, not a sum, and
+    it carries no per-account information. The per-leg lists are the part that
+    names accounts, and those are filtered.
+    """
+    succeeded = [
+        {"account_id": leg.account_id, "ms": round(leg.duration_ms, 1)}
+        for leg in result.succeeded
+        if leg.account_id not in hidden
+    ]
+    # Spec §4: each of these is also persisted as a notification that stays
+    # until the admin dismisses it — and that notification is filtered too, both
+    # over the WebSocket and on /notifications/.
+    failed = [
+        {
+            "account_id": leg.account_id,
+            "error": leg.error,
+            "code": leg.error_code,
+            "ms": round(leg.duration_ms, 1),
+        }
+        for leg in result.failed
+        if leg.account_id not in hidden
+    ]
     return {
         "total_ms": round(result.total_ms, 1),
         "within_budget": result.within_budget(),
-        "succeeded": [
-            {"account_id": leg.account_id, "ms": round(leg.duration_ms, 1)}
-            for leg in result.succeeded
-        ],
-        # Spec §4: each of these is also persisted as a notification that stays
-        # until the admin dismisses it.
-        "failed": [
-            {
-                "account_id": leg.account_id,
-                "error": leg.error,
-                "code": leg.error_code,
-                "ms": round(leg.duration_ms, 1),
-            }
-            for leg in result.failed
-        ],
+        "succeeded": succeeded,
+        "failed": failed,
     }
 
 
-@csrf_exempt
+@csrf_protect
 @require_POST
 @admin_required
 async def open_position(request: HttpRequest) -> JsonResponse:
@@ -87,21 +155,28 @@ async def open_position(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"detail": f"leverage must be between {low} and {high}"}, status=400)
 
     try:
+        symbol = _symbol(data)
         side = Side(data.get("side", "long"))
         market = MarketType(data.get("market", "futures"))
         order_type = OrderType(data.get("order_type", "market"))
-        sl_pct = _optional_decimal(data, "sl_pct")
-        tp_pct = _optional_decimal(data, "tp_pct")
+        # A stop loss past 100% is a price below zero; a take profit past it is
+        # just an ambitious target, so only the stop is capped.
+        sl_pct = _percent(data, "sl_pct", ceiling=Decimal("100"))
+        tp_pct = _percent(data, "tp_pct", ceiling=None)
         limit_price = _optional_decimal(data, "limit_price")
     except (ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
 
     if order_type is OrderType.LIMIT and limit_price is None:
         return JsonResponse({"detail": "a limit order needs limit_price"}, status=400)
+    if limit_price is not None and limit_price <= 0:
+        # Sizing divides by this price. Zero or negative is a division by zero
+        # or a negative quantity, neither of which should reach an adapter.
+        return JsonResponse({"detail": "limit_price must be greater than zero"}, status=400)
 
     try:
         trade, result = await route_open(
-            symbol=str(data.get("symbol", "BTCUSDT")),
+            symbol=symbol,
             side=side,
             market=market,
             order_type=order_type,
@@ -125,10 +200,11 @@ async def open_position(request: HttpRequest) -> JsonResponse:
             status=409,
         )
 
-    return JsonResponse({"trade_id": trade.id, **_result_payload(result)})
+    hidden = await _hidden_ids_for(await request.auser())
+    return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
 
 
-@csrf_exempt
+@csrf_protect
 @require_POST
 @admin_required
 async def amend_position(request: HttpRequest, pk: int) -> JsonResponse:
@@ -139,16 +215,17 @@ async def amend_position(request: HttpRequest, pk: int) -> JsonResponse:
 
     data = _body(request)
     try:
-        sl_pct = _optional_decimal(data, "sl_pct")
-        tp_pct = _optional_decimal(data, "tp_pct")
+        sl_pct = _percent(data, "sl_pct", ceiling=Decimal("100"))
+        tp_pct = _percent(data, "tp_pct", ceiling=None)
     except (ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
 
     result = await route_amend(trade=trade, sl_pct=sl_pct, tp_pct=tp_pct)
-    return JsonResponse({"trade_id": trade.id, **_result_payload(result)})
+    hidden = await _hidden_ids_for(await request.auser())
+    return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
 
 
-@csrf_exempt
+@csrf_protect
 @require_POST
 @admin_required
 async def close_position(request: HttpRequest, pk: int) -> JsonResponse:
@@ -158,10 +235,11 @@ async def close_position(request: HttpRequest, pk: int) -> JsonResponse:
         return JsonResponse({"detail": "no open trade with that id"}, status=404)
 
     result = await route_close(trade=trade)
-    return JsonResponse({"trade_id": trade.id, **_result_payload(result)})
+    hidden = await _hidden_ids_for(await request.auser())
+    return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
 
 
-@csrf_exempt
+@csrf_protect
 @require_POST
 @admin_required
 async def refresh_balances_view(request: HttpRequest) -> JsonResponse:
@@ -173,7 +251,14 @@ async def refresh_balances_view(request: HttpRequest) -> JsonResponse:
     numbers should get them.
     """
     force = bool(_body(request).get("force"))
-    return JsonResponse({"accounts": await refresh_balances(force=force)})
+    rows = await refresh_balances(force=force)
+    # The fan-out itself still polls every account, hidden ones included —
+    # spec §6 wants their balances current too, and the viewer's panel reads
+    # them from the same push. Only this caller's copy is trimmed.
+    hidden = await _hidden_ids_for(await request.auser())
+    return JsonResponse(
+        {"accounts": [row for row in rows if row.get("id") not in hidden]}
+    )
 
 
 @sync_to_async

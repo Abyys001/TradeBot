@@ -75,12 +75,28 @@ export const useOrderStore = defineStore('order', {
   },
 
   actions: {
+    /**
+     * Every SL/TP write lands here, so the sanity check lives here too.
+     *
+     * A percentage at or below zero is not a stop — it sits at entry or on the
+     * *profit* side of it, where it fires the moment the trade goes right. The
+     * ticket cannot produce one by typing (`Number(x) || null` swallows a zero)
+     * but a chart drag can: pull the stop line across entry and the computed
+     * move goes negative. Clearing it is the honest outcome; silently flipping
+     * the sign would place a stop the admin did not ask for. The server refuses
+     * the same values, so an unclamped drag would otherwise be a 400 at the
+     * moment of sending rather than a line that visibly refuses to be dragged
+     * there.
+     *
+     * The stop is also capped at 100%: past it the stop price is below zero.
+     * The target is not — a 250% take profit is a real thing to ask for.
+     */
     setSL(pct: number | null, from: EditSource) {
-      this.slPct = pct
+      this.slPct = pct === null || !(pct > 0) ? null : Math.min(pct, 100)
       this.touch(from)
     },
     setTP(pct: number | null, from: EditSource) {
-      this.tpPct = pct
+      this.tpPct = pct === null || !(pct > 0) ? null : pct
       this.touch(from)
     },
     touch(from: EditSource) {

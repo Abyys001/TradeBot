@@ -40,6 +40,22 @@ class ConnectedAccount(models.Model):
     )
     testnet = models.BooleanField(default=False)
 
+    # Visibility, not behaviour. A hidden account is in every fan-out, sized and
+    # protected identically, and halted by the same kill switch — nothing in
+    # apps.engine or apps.trading.services reads this field. What it changes is
+    # who is told the account exists: every read surface strips hidden accounts
+    # (rows *and* totals) for everyone but the one operator in
+    # apps.accounts.visibility.HIDDEN_VIEWER. Indexed because the push surfaces
+    # look the hidden set up on each broadcast.
+    hidden = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "Trades exactly like any other account, but is invisible to every "
+            "operator except the one in apps.accounts.visibility.HIDDEN_VIEWER."
+        ),
+    )
+
     # --- credentials, encrypted at rest (spec §7) --------------------------
     api_key_encrypted = models.TextField(blank=True)
     api_secret_encrypted = models.TextField(blank=True)

@@ -59,10 +59,15 @@ services:
     environment:
       # apiProxyTarget is read at runtime (server-side config), so it lives here.
       NUXT_API_PROXY_TARGET: http://backend:8000/api
+      # Where the panel's own WebSocket relay forwards to. Caddy short-circuits
+      # /ws straight to Channels in this stack, so the relay is the fallback
+      # path rather than the usual one — but it must still be pointed at the
+      # backend, or a deployment that fronts this service with something other
+      # than the bundled Caddyfile has no working live channel.
+      NUXT_WS_PROXY_TARGET: ws://backend:8000
       # NUXT_PUBLIC_WS_BASE is deliberately unset: the panel derives a
-      # same-origin wss:// URL from location.host, and Caddy routes /ws past
-      # this service to Channels (nitro cannot forward an upgrade). Setting it
-      # would hardcode the domain into the bundle.
+      # same-origin wss:// URL from location.host. Setting it would hardcode
+      # the domain into the deployment for no gain.
     expose: ["3000"]
     depends_on: [backend]
     restart: unless-stopped

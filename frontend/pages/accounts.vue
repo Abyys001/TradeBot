@@ -175,6 +175,12 @@ async function confirmDelete() {
                   <div class="flex items-center gap-2 min-w-0">
                     <span class="truncate font-medium">{{ account.label }}</span>
                     <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
+                    <!-- Only ever rendered for the one operator who can see the
+                         account at all: no other session receives the row. -->
+                    <UiBadge v-if="account.hidden" tone="signal">
+                      <UiIcon name="eyeOff" :size="12" />
+                      {{ t('accounts.hidden') }}
+                    </UiBadge>
                   </div>
                   <p v-if="account.last_error" class="text-xs text-signal mt-0.5 truncate max-w-xs">
                     {{ account.last_error }}
@@ -274,6 +280,10 @@ async function confirmDelete() {
                 {{ t(`accounts.state.${account.status}`) }}
               </UiBadge>
               <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
+              <UiBadge v-if="account.hidden" tone="signal">
+                <UiIcon name="eyeOff" :size="12" />
+                {{ t('accounts.hidden') }}
+              </UiBadge>
             </div>
 
             <p v-if="account.last_error" class="text-xs text-signal">{{ account.last_error }}</p>

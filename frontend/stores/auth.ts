@@ -4,6 +4,14 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     username: '' as string,
     isStaff: false,
+    /**
+     * Told to us by the server, never inferred from the username in the browser.
+     * It only decides whether the hidden toggle and the hidden badge render;
+     * the accounts, balances, positions, history and socket frames a session
+     * receives are filtered server-side, so this being wrong shows or omits a
+     * checkbox and reveals nothing.
+     */
+    canSeeHidden: false,
     authenticated: false,
     checked: false,
     error: '',
@@ -18,6 +26,7 @@ export const useAuthStore = defineStore('auth', {
         this.authenticated = user.authenticated
         this.username = user.username ?? ''
         this.isStaff = user.is_staff ?? false
+        this.canSeeHidden = user.can_see_hidden ?? false
       } catch {
         this.authenticated = false
       } finally {
@@ -35,6 +44,7 @@ export const useAuthStore = defineStore('auth', {
         this.authenticated = true
         this.username = user.username ?? ''
         this.isStaff = user.is_staff ?? false
+        this.canSeeHidden = user.can_see_hidden ?? false
         return true
       } catch (e: any) {
         // A rejected credential and an unreachable backend are different

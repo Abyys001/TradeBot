@@ -3,6 +3,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from apps.accounts.models import ConnectedAccount, Notification
+from apps.accounts.visibility import can_see_hidden
 
 
 class ConnectedAccountSerializer(serializers.ModelSerializer):
@@ -21,6 +22,12 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
             "exchange_label",
             "status",
             "testnet",
+            # Safe to expose: the queryset behind every read surface is already
+            # narrowed by ``visibility.visible_accounts``, so a payload that
+            # carries hidden=true only ever reaches the one viewer who is
+            # allowed to know the account exists. It is here so that viewer's
+            # panel can badge the row rather than guess.
+            "hidden",
             "wallet_address",
             "credential_expires_at",
             "key_fingerprint",
@@ -55,12 +62,33 @@ class ConnectedAccountCreateSerializer(serializers.ModelSerializer):
             "label",
             "exchange",
             "testnet",
+            "hidden",
             "wallet_address",
             "credential_expires_at",
             "api_key",
             "api_secret",
             "api_passphrase",
         ]
+
+    def validate_hidden(self, value: bool) -> bool:
+        """Only the one viewer may mark an account hidden, or unmark one.
+
+        Both directions are gated. Setting it is obvious; clearing it matters
+        just as much, because an account that could be un-hidden by anyone else
+        is an account anyone else can reveal. In practice a non-viewer can never
+        reach a hidden row at all — ``get_queryset`` filters it out and
+        ``get_object`` 404s — so this is the second lock on the same door,
+        covering the create path where there is no object to filter yet.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if can_see_hidden(user):
+            return value
+        if value or (self.instance is not None and self.instance.hidden):
+            raise serializers.ValidationError(
+                "You are not allowed to change this account's visibility."
+            )
+        return value
 
     def create(self, validated_data: dict) -> ConnectedAccount:
         credentials = {

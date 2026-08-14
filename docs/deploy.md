@@ -14,11 +14,18 @@ Browser ──(443)──> Caddy (auto Let's Encrypt, no certbot)
                                       Postgres 16     Redis 7
 ```
 
-`/ws/**` bypasses the panel deliberately. nitro forwards HTTP but drops the
-`Upgrade` handshake, so a WebSocket routed through Nuxt never connects and the
-panel sits on "connecting" with both latency readings blank. Caddy hands the
-upgrade to Daphne directly; the browser still dials a same-origin
-`wss://<domain>/ws/trading/` and knows nothing about the split.
+`/ws/**` bypasses the panel here as an optimisation, not a requirement. Caddy
+hands the upgrade to Daphne directly, one hop fewer; the browser dials a
+same-origin `wss://<domain>/ws/trading/` and knows nothing about the split. If
+you front this stack with something other than the bundled `Caddyfile`, the
+panel serves `/ws` itself (`frontend/server/routes/ws/[...].ts` relays it to
+`NUXT_WS_PROXY_TARGET`) — so any proxy that forwards an `Upgrade` header to the
+panel works without extra routing.
+
+What still cannot carry it is a nitro **route rule**: `routeRules[].proxy` is
+an h3 `proxyRequest`, which forwards the HTTP request and drops the upgrade.
+That is the failure this section exists to prevent — the socket sits on
+"connecting" and both latency readings stay blank.
 
 Only Caddy publishes ports to the host (80/443). Backend and panel are on the
 Docker network alone, so the Django API is never directly reachable from
@@ -90,7 +97,8 @@ migrate step.
 curl -sI https://maxbot.cybercina.co.uk | head -1            # 200
 # HTTP redirects to HTTPS:
 curl -sI http://maxbot.cybercina.co.uk | grep -i location    # https://...
-# Order routing refuses anonymous callers (401 is CORRECT):
+# Order routing refuses a stranger (403 is CORRECT — the CSRF check runs
+# first, so a caller with no panel session never even reaches the auth gate):
 curl -s -o /dev/null -w '%{http_code}\n' https://maxbot.cybercina.co.uk/api/trading/orders/open/ \
   -H 'Content-Type: application/json' -d '{"symbol":"BTCUSDT","side":"long","leverage":10}'
 
@@ -108,10 +116,18 @@ Persian build at `/fa`, and — before any real capital — every exchange adapt
 on testnet per `docs/adapters.md`.
 
 **Settings → Connection & data is the live-channel smoke test.** Signed in, it
-must read `LIVE` with a panel latency in milliseconds; the exchange latency
-fills in once anything has priced. `CONNECTING` that never resolves, or blank
-latencies, means the `/ws` upgrade is not reaching Daphne — check the curl
-above before looking anywhere else.
+must read `LIVE` with a panel latency in milliseconds, and an exchange latency
+within about half a minute — the engine probes that itself now rather than
+waiting for the chart to poll something.
+
+Anything else names its own cause rather than sitting on `CONNECTING`:
+
+| Reads | Means |
+|---|---|
+| `CONNECTING`, briefly | Handshake in flight. It resolves or becomes one of the below. |
+| `OFFLINE · …did not complete the handshake` | The upgrade never reached Daphne. Check the `/ws/trading/` curl above; if you are not using the bundled Caddyfile, check your proxy forwards `Upgrade` to the panel. |
+| `REFUSED · staff-only` | The socket reached the engine and the engine turned the session down. Sign in as a staff account. |
+| `OFFLINE · engine answered …` | Reached the engine, which failed. `docker compose logs backend`. |
 
 ## 6. Day-to-day operations
 

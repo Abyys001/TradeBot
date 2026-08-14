@@ -15,6 +15,7 @@ from apps.accounts.serializers import (
     ConnectedAccountSerializer,
     NotificationSerializer,
 )
+from apps.accounts.visibility import can_see_hidden, visible_accounts
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
 from apps.exchanges.registry import build_adapter
 
@@ -107,6 +108,16 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
     """Spec §6: add, pause, resume, delete — each its own control in the UI."""
 
     queryset = ConnectedAccount.objects.all()
+
+    def get_queryset(self):
+        """One chokepoint for hidden accounts across this whole viewset.
+
+        list, retrieve, balances, pause, resume, verify and destroy all route
+        through here, so a hidden account is not merely absent from the list —
+        it 404s on every detail route for anyone who is not the viewer. Nothing
+        below this line has to remember the rule.
+        """
+        return visible_accounts(self.request.user, ConnectedAccount.objects.all())
 
     def get_serializer_class(self):
         if self.action in {"create", "update", "partial_update"}:
@@ -215,6 +226,11 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = Notification.objects.all()
+        if not can_see_hidden(self.request.user):
+            # A failure notice names its account. ``exclude`` rather than
+            # ``filter(account__hidden=False)`` because ``account`` is nullable
+            # and a notification with no account belongs to everyone.
+            queryset = queryset.exclude(account__hidden=True)
         if self.request.query_params.get("active") == "true":
             queryset = queryset.filter(dismissed_at__isnull=True)
         return queryset

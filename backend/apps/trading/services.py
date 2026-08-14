@@ -245,6 +245,11 @@ def _leg_payload(result: FanOutResult) -> list[dict]:
 # --- pricing ----------------------------------------------------------------
 
 
+async def _no_price() -> None:
+    """Stand-in so the gather above has two awaitables in both branches."""
+    return None
+
+
 @sync_to_async
 def _reference_price(symbol: str, market: MarketType) -> Decimal | None:
     """A price to size a market order with, from the public feed.
@@ -288,7 +293,15 @@ async def route_open(
     if await sync_to_async(killswitch.is_on)():
         raise StopAllActive("STOP_ALL is on — no orders are being routed")
 
-    accounts = await eligible_accounts()
+    # The account list is a database read and the reference price is a network
+    # call to the public feed; neither needs the other. Run in sequence they
+    # were a full exchange round trip spent *before* the fan-out started, which
+    # comes straight out of the §4 budget — on a cache miss that was most of it.
+    accounts, reference_price = await asyncio.gather(
+        eligible_accounts(),
+        # A limit order carries its own price, so there is nothing to look up.
+        _reference_price(symbol, market) if limit_price is None else _no_price(),
+    )
     if not accounts:
         # No trade row: an empty "open" trade would sit in the history and in
         # the positions panel forever, looking like a position nobody holds.
@@ -304,7 +317,7 @@ async def route_open(
         sl_pct=sl_pct,
         tp_pct=tp_pct,
         limit_price=limit_price,
-        reference_price=None if limit_price else await _reference_price(symbol, market),
+        reference_price=reference_price,
     )
     try:
         result = await open_trade(adapters, intent)

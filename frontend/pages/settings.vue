@@ -19,7 +19,7 @@
  * The previous version was one flat list of key/value rows with no grouping and
  * no live state at all, which is why it read as a dump rather than a page.
  */
-const { t } = useI18n()
+const { t, te } = useI18n()
 const api = useApi()
 const trading = useTradingStore()
 const live = useLiveStore()
@@ -86,10 +86,21 @@ const groups = computed(() => {
 
 const PING_TONE = { good: 'ok', fair: 'signal', poor: 'short' } as const
 
+const socketReason = computed(() => {
+  const key = `connection.down.${live.statusDetail}`
+  return te(key) ? t(key) : live.statusDetail
+})
+
 const diagnostics = computed(() => [
   {
     key: 'socket',
-    value: t(`common.${live.status}`),
+    // Never the bare state. "Connecting" alone was the same word for a
+    // handshake in flight, an upgrade the proxy never forwarded, and a session
+    // the engine refused — three different fixes shown identically.
+    value:
+      live.status === 'live'
+        ? t('common.live')
+        : `${t(`common.${live.status}`)} · ${socketReason.value}`,
     tone: live.status === 'live' ? ('ok' as const) : ('signal' as const),
   },
   {

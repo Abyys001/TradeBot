@@ -207,6 +207,13 @@ export interface PositionSnapshot {
 export interface SessionUser {
   username?: string
   is_staff?: boolean
+  /**
+   * Whether this operator may see hidden accounts. Drives the hidden toggle and
+   * the hidden badge, and nothing else — the server filters every payload
+   * regardless, so a client that flips this to true still receives no hidden
+   * account to render.
+   */
+  can_see_hidden?: boolean
   authenticated: boolean
 }
 
@@ -270,6 +277,12 @@ export interface Account {
   exchange_label: string
   status: 'active' | 'paused' | 'error'
   testnet: boolean
+  /**
+   * Trades like any other account; visible only to the one operator allowed to
+   * see it. Never true on a row anyone else receives — the server strips those
+   * rows out entirely rather than sending them with a flag to respect.
+   */
+  hidden?: boolean
   wallet_address?: string
   key_fingerprint?: string
   last_balance: string | null

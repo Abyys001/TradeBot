@@ -5,15 +5,17 @@ from decimal import Decimal
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
+from django.db.models import Prefetch
 from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 
+from apps.accounts.visibility import can_see_hidden, visible_accounts
 from apps.core.money import D
 from apps.exchanges.base import Side
 from apps.trading import killswitch
-from apps.trading.models import Trade
+from apps.trading.models import Trade, TradeLeg
 from apps.trading.serializers import TradeSerializer
 from apps.trading.sizing import balance_fraction
 from apps.trading.sltp import compare_bases, liquidation_price
@@ -26,9 +28,38 @@ class TradeViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TradeSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        """History, with hidden accounts' legs removed for everyone but the viewer.
+
+        Three things happen here, and all three are needed:
+
+        1. The *legs* are prefetched through a filtered queryset, so a trade the
+           reader is allowed to see still never carries a hidden account's row,
+           fill price, or PnL.
+        2. A trade whose every leg is hidden disappears entirely. Otherwise a
+           lone entry with no legs in the history would announce that a trade was
+           routed to accounts the reader cannot see.
+        3. ``?account=`` is resolved against the *visible* accounts first. Doing
+           it as another ``.filter()`` on the multi-valued ``legs`` relation
+           would spawn a second join, and a trade that had both a visible leg and
+           the probed hidden leg would come back — turning the filter into an
+           existence oracle for hidden account ids.
+        """
+        user = self.request.user
+        sees_hidden = can_see_hidden(user)
+
+        legs = TradeLeg.objects.all() if sees_hidden else TradeLeg.objects.filter(
+            account__hidden=False
+        )
+        queryset = Trade.objects.prefetch_related(
+            Prefetch("legs", queryset=legs.select_related("account"))
+        )
+        if not sees_hidden:
+            queryset = queryset.filter(legs__account__hidden=False).distinct()
+
         account_id = self.request.query_params.get("account")
         if account_id:
+            if not visible_accounts(user).filter(id=account_id).exists():
+                return queryset.none()
             queryset = queryset.filter(legs__account_id=account_id).distinct()
         return queryset
 

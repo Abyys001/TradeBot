@@ -229,6 +229,25 @@ MARKET_DATA = {
         for p in os.getenv("MARKET_DATA_PROVIDERS", "hyperliquid,binance,bybit").split(",")
         if p.strip()
     ],
+    # Pin the feed to exactly one venue, overriding both the connected-exchange
+    # preference and the fallback list above.
+    #
+    # The default arrangement quotes whichever exchange the accounts sit on,
+    # which means the chart can silently change venue when an account is added.
+    # For a desk that reads Hyperliquid's book and sizes against it, that is a
+    # correctness problem rather than a convenience: a Binance mark compared
+    # against a Hyperliquid fill is a different number. Pinning makes the venue
+    # a deployment decision, and the panel keeps naming it in the feed badge.
+    #
+    # There is no fallback under a pin — that is the point. A pinned venue that
+    # cannot answer returns 503 and the panel says "no price feed", exactly as
+    # it does when every provider is down. Note Hyperliquid is perpetuals only,
+    # so pinning it leaves the spot chart with no feed.
+    #
+    # Hyperliquid by default because it is the flagged-important venue and the
+    # one this desk reads. Set MARKET_DATA_PIN empty to restore the
+    # connected-exchange-first behaviour with the fallbacks above.
+    "PIN": os.getenv("MARKET_DATA_PIN", "hyperliquid").strip(),
     # --- history download (accounts page progress bar) ---------------------
     # Every timeframe the chart offers, for the busiest pairs, one year back.
     # A year of 1m bars is ~525k rows per pair: dial these down where storage

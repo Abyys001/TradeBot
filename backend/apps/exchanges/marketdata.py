@@ -86,6 +86,8 @@ __all__ = [
     "last_rtt",
     "normalise_interval",
     "normalise_market",
+    "pinned_provider",
+    "probe_latency",
     "provider_latency",
     "record_rtt",
     "resolve_proxy",
@@ -110,6 +112,49 @@ def provider_latency() -> dict:
         "provider": rows[0]["provider"] if rows else "",
         "ms": rows[0]["ms"] if rows else None,
     }
+
+
+#: A probe runs at most this often, however many panels ask. The reading only
+#: has to be fresher than ``RTT_TTL`` for the top bar to stay populated.
+PROBE_EVERY = 25
+#: What the probe asks for: the pair every venue here lists, and the smallest
+#: window the feed will serve.
+#:
+#: Small on purpose. The reading is presented as the hop an order travels, so
+#: it has to be a round trip and not a download — Hyperliquid's ticker call
+#: returns the whole perp universe and timed at 1.25s against a venue whose
+#: actual round trip is a fraction of that, which would have read as blowing
+#: the spec §4 budget on a link that meets it comfortably.
+PROBE_SYMBOL = "BTCUSDT"
+PROBE_LIMIT = 10
+
+
+def probe_latency() -> dict:
+    """Measure the engine→exchange round trip if nothing recent exists.
+
+    The readout used to be a by-product of whatever the panel happened to be
+    polling. That broke in exactly the case it mattered: once bars stream over
+    a WebSocket the REST polls drop to one every two minutes, ``RTT_TTL``
+    expires, and "Exchange latency" goes blank on a deployment where everything
+    is working. A settings page that never opens the chart never measured
+    anything at all.
+
+    So the engine measures it itself — one real ticker call, debounced across
+    every connected panel, and only when the cached reading has gone stale.
+    Still a real round trip to a real venue; never a synthesised number.
+    """
+    current = provider_latency()
+    if current["ms"] is not None:
+        return current
+    # `add` is atomic on both cache backends: whichever panel wins runs the one
+    # probe and the rest fall through to whatever is cached.
+    if not cache.add("md:rtt:probe", 1, PROBE_EVERY):
+        return current
+    try:
+        get_candles(symbol=PROBE_SYMBOL, interval="1m", limit=PROBE_LIMIT)
+    except MarketDataError as exc:
+        logger.info("latency probe found no provider: %s", exc)
+    return provider_latency()
 
 
 # --- resolution -------------------------------------------------------------
@@ -140,8 +185,32 @@ def connected_exchanges() -> list[str]:
     return names
 
 
+def pinned_provider() -> str:
+    """The one venue the feed is pinned to, or "" when it follows the accounts.
+
+    Returns "" for a pin naming an exchange with no public source rather than
+    failing every price call — a typo in `.env` must not take the chart down.
+    """
+    name = settings.MARKET_DATA.get("PIN", "").strip()
+    if not name:
+        return ""
+    if name not in SOURCES:
+        logger.warning("MARKET_DATA_PIN=%r has no public source; ignoring", name)
+        return ""
+    return name
+
+
 def _configured_providers() -> list[str]:
-    """Connected exchanges first, then the configured public fallbacks."""
+    """Connected exchanges first, then the configured public fallbacks.
+
+    Unless the feed is pinned, in which case that venue is the whole list. A
+    pin with a fallback behind it would still let the chart change venue, which
+    is the thing the pin exists to prevent.
+    """
+    pin = pinned_provider()
+    if pin:
+        return [pin]
+
     ordered = list(connected_exchanges())
     for name in settings.MARKET_DATA["PROVIDERS"]:
         name = name.strip()

@@ -50,12 +50,14 @@ services:
       # the browser never needs to resolve this Docker hostname — and a system
       # HTTP/SOCKS proxy on the host cannot swallow the API calls.
       NUXT_API_PROXY_TARGET: http://backend:8000/api
-      # The WebSocket is the exception: nitro forwards HTTP but drops the
-      # `Upgrade` handshake, so a same-origin /ws never connects. The browser
-      # dials the published backend port directly instead — the same thing
-      # ./run.sh and .env.example already do for the non-Docker path. In prod
-      # this is Caddy's job (see Caddyfile) and the var stays unset.
-      NUXT_PUBLIC_WS_BASE: ws://localhost:8000/ws
+      # The live channel now goes the same way. It used to be the exception —
+      # the browser dialled ws://localhost:8000 directly, because a route rule
+      # cannot forward an upgrade — and that is precisely what broke the moment
+      # the panel was opened from anywhere but the machine running it. A nitro
+      # WebSocket handler (frontend/server/routes/ws/[...].ts) does carry the
+      # upgrade, so the browser derives /ws from its own origin and this is the
+      # server-side hop it is relayed to.
+      NUXT_WS_PROXY_TARGET: ws://backend:8000
     ports: ["3000:3000"]
     volumes:
       - ./frontend:/app

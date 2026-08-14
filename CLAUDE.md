@@ -42,12 +42,18 @@ with the skipped account raising a persistent notification.
   refused at connect time, and `ConnectedAccount.clean()` still blocks
   activating an unchecked credential. Do not read the missing badge as a
   dropped check.
-- Market data is a **public** feed (no credentials, Q13). A venue you hold
-  active accounts on always quotes itself; the configured fallbacks behind that
-  are Hyperliquid → Binance → Bybit, so a fallback still prices against the
-  flagged-important exchange. Prices arrive **streamed** where the venue has a
-  public WebSocket and **polled** everywhere else; both are real exchange data,
-  and the panel names which is in force rather than blurring them.
+- Market data is a **public** feed (no credentials, Q13). It is **pinned to
+  Hyperliquid** by default (`MARKET_DATA_PIN`): one venue, no hand-off, so the
+  chart cannot change exchange behind the admin's back when an account is
+  connected elsewhere — a Binance mark compared against a Hyperliquid fill is a
+  different number and sizing reads it. A pinned venue that cannot answer is a
+  503 and "no price feed", never a quiet fallback. Note Hyperliquid is
+  perpetuals only, so the spot chart has no feed under the pin. Clear
+  `MARKET_DATA_PIN` to restore the old behaviour: the venue an account sits on
+  quotes itself, with `MARKET_DATA_PROVIDERS` (Hyperliquid → Binance → Bybit)
+  behind it. Prices arrive **streamed** where the venue has a public WebSocket
+  and **polled** everywhere else; both are real exchange data, and the panel
+  names which is in force rather than blurring them.
 - **TradingView is not a data source and cannot become one.** The Charting
   Library is a chart UI that consumes a datafeed you supply — it ships no
   prices. The feeds behind tradingview.com are licensed and reachable only via
@@ -98,6 +104,7 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/trading/streamhub.py` | One upstream socket per pair, reference counted, fanned out to every panel. Runs in the ASGI process — a broker hop would add latency to the one thing meant to be immediate. |
 | `apps/trading/market_views.py` | Candles, ticker, and `/positions/` — legs marked to market, PnL in Decimal on this side of the wire. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
+| `apps/accounts/visibility.py` | **Who may see a hidden account.** One hardcoded username. Read-side only — nothing in `engine/` or `services.py` may import it. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -126,13 +133,23 @@ up -d --build`. Caddy in that stack terminates TLS (auto Let's Encrypt) and
 forwards to a *built* Nuxt bundle; the Django API is never exposed to the host.
 Runbook: `docs/deploy.md`.
 
-**The WebSocket never goes through Nuxt.** nitro forwards HTTP but drops the
-`Upgrade` handshake — `routeRules[].proxy` is an h3 `proxyRequest`, and the dev
-server hands upgrades to its worker rather than to devProxy — so a same-origin
-`/ws` silently never connects and every latency reading stays blank. Caddy
-routes `/ws` straight to Channels in production; everywhere else the browser
-dials the backend port directly via `NUXT_PUBLIC_WS_BASE`. Do not "tidy" this
-back into a route rule.
+**The WebSocket is same-origin everywhere.** The browser always dials
+`/ws/trading/` on the panel's own host; `frontend/server/routes/ws/[...].ts` is
+a nitro **WebSocket handler** that relays it to Channels, forwarding the session
+cookie so `TradingConsumer.connect()` still does the staff check. Caddy
+short-circuits `/ws/*` straight to Channels in the production stack — one hop
+fewer, same contract.
+
+Still **never a route rule**: `routeRules[].proxy` is an h3 `proxyRequest`,
+which forwards the HTTP request and drops the `Upgrade` handshake. That is what
+left the socket on "Connecting" with both latency readings blank. A handler is
+a different mechanism (nitro hands upgrades to the worker) and does carry it.
+
+`NUXT_PUBLIC_WS_BASE` survives only as an escape hatch for putting Channels on
+a separate hostname, and `stores/live.ts` **ignores** it when it names a
+loopback the browser cannot reach or a `ws://` URL on an `https://` page — the
+baked `ws://localhost:8000` it used to hold is exactly why the panel connected
+in development and never on the VPS.
 
 Without Docker: `backend/.venv` + `python manage.py migrate runserver`,
 and `npm run dev` in `frontend/`. Tests: `cd backend && .venv/bin/python -m pytest`.
@@ -194,6 +211,28 @@ leverage) are declared per adapter and handled behind the interface — never wi
   halt state — everything the `IsAdminUser` endpoints withhold — and a
   handshake is exempt from CORS, so an ungated socket is readable by any page
   the admin has open. Pinned by `tests/test_consumer.py`.
+
+**Hidden accounts**
+
+- `ConnectedAccount.hidden` is a **visibility** flag, never an execution one.
+  A hidden account is in every fan-out, sized by the same §5 rules, protected
+  by the same SL/TP policy and halted by the same kill switch. If anything in
+  `apps/engine/` or `apps/trading/services.py` ever imports
+  `apps.accounts.visibility`, the feature has turned into a way to silently
+  stop trading an account. `eligible_accounts` has a test pinning this.
+- Only `visibility.HIDDEN_VIEWER` sees them — a **hardcoded username**, not a
+  Django permission and explicitly **not** `is_superuser`, because both of
+  those can be granted from `/admin/` by someone else.
+- Every read surface filters, **totals included**: account list, balances,
+  `/positions/` (rows *and* the totals line), trade history (a wholly hidden
+  trade disappears; `?account=` is resolved against visible accounts so it
+  cannot be used as an existence oracle), notifications, the routing
+  responses, and each WebSocket handler. A total covering money with no
+  visible account behind it is itself a leak. New read surface → filter it,
+  and add a case to `tests/test_hidden_accounts.py`.
+- Create or repair the viewer with
+  `python manage.py ensure_hidden_viewer --password …`. The password is never
+  a default and never committed.
 
 **Execution (spec §4, §5)**
 

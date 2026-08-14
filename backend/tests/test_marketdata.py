@@ -152,6 +152,46 @@ def test_latency_is_null_when_nothing_was_measured():
     assert provider_latency()["ms"] is None
 
 
+# --- the pinned venue -------------------------------------------------------
+# A pin exists so the chart cannot change exchange behind the admin's back. The
+# default arrangement quotes whichever venue the accounts sit on, which means
+# connecting one Bybit key silently re-prices every chart — and a Bybit mark
+# compared against a Hyperliquid fill is a different number that sizing reads.
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_pinned_venue_outranks_a_connected_exchange():
+    ConnectedAccount.objects.create(
+        label="bybit-1",
+        exchange=Exchange.BYBIT,
+        status=AccountStatus.ACTIVE,
+        withdrawal_check_passed=True,
+    )
+    with override_settings(
+        MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"], "PIN": "hyperliquid"}
+    ):
+        assert marketdata._configured_providers() == ["hyperliquid"]
+
+
+@pytest.mark.django_db
+def test_a_pin_has_no_fallback_behind_it():
+    """That is the point of it: one venue answers, or the panel says so."""
+    with override_settings(
+        MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance", "bybit"], "PIN": "bybit"}
+    ):
+        assert marketdata._configured_providers() == ["bybit"]
+
+
+@pytest.mark.django_db
+def test_a_pin_naming_an_unknown_venue_is_ignored_not_fatal():
+    """A typo in `.env` must not take every price down."""
+    with override_settings(
+        MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"], "PIN": "hyperliqiud"}
+    ):
+        assert marketdata._configured_providers() == ["binance"]
+
+
 # --- outbound proxy ---------------------------------------------------------
 # These exist because an unusable proxy URL is silent and total: httpx raises on
 # every request, both providers are marked down, and the panel ends up with no

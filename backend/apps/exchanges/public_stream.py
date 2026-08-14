@@ -60,6 +60,13 @@ FIRST_FRAME_TIMEOUT = 15.0
 #: without closing, so it is far more patient than the first-frame wait.
 IDLE_TIMEOUT = 90.0
 
+#: How often an open stream re-times itself. The handshake measures the round
+#: trip once, and `RTT_TTL` is 60s, so a socket that stays up all afternoon used
+#: to leave the panel's exchange-latency readout blank while it was working
+#: perfectly. A protocol-level ping is the honest measurement — the same frame
+#: the venue already answers, timed against its pong — and costs nothing.
+RTT_PING_EVERY = 20.0
+
 
 @dataclass(frozen=True, slots=True)
 class BarUpdate:
@@ -115,6 +122,8 @@ class PublicStream:
         # same latency readout the REST polls do.
         record_rtt(self.name, (time.perf_counter() - started) * 1000)
 
+        keepalive = asyncio.ensure_future(self._time_round_trips(socket))
+
         try:
             frame = self.subscription(symbol=symbol, interval=interval, market=market)
             if frame is not None:
@@ -133,7 +142,31 @@ class PublicStream:
                     delivered = True
                     yield update
         finally:
+            keepalive.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await keepalive
             await socket.close()
+
+    async def _time_round_trips(self, socket) -> None:
+        """Keep the engine→exchange latency readout live for as long as this is.
+
+        A WebSocket ping is a real round trip to the venue over the same
+        connection the bars arrive on, so it measures the hop an order travels
+        rather than a separate HTTP path that might route differently. Failures
+        are swallowed: this is a diagnostic, and the stream's own read timeouts
+        are what decide whether the socket is alive.
+        """
+        while True:
+            await asyncio.sleep(RTT_PING_EVERY)
+            started = time.perf_counter()
+            try:
+                pong = await socket.ping()
+                await asyncio.wait_for(pong, timeout=CONNECT_TIMEOUT)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - the reader decides if it is dead
+                return
+            record_rtt(self.name, (time.perf_counter() - started) * 1000)
 
 
 class BybitPublicStream(PublicStream):

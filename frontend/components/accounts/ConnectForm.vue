@@ -17,6 +17,7 @@ const emit = defineEmits<{ created: [] }>()
 const { t } = useI18n()
 const api = useApi()
 const accounts = useAccountsStore()
+const auth = useAuthStore()
 
 const exchanges = ref<ExchangeInfo[]>([])
 const submitting = ref(false)
@@ -27,6 +28,7 @@ const form = reactive({
   label: '',
   exchange: 'paper',
   testnet: false,
+  hidden: false,
   api_key: '',
   api_secret: '',
   api_passphrase: '',
@@ -49,6 +51,7 @@ const isPaper = computed(() => form.exchange === 'paper')
 function reset() {
   Object.assign(form, {
     label: '',
+    hidden: false,
     api_key: '',
     api_secret: '',
     api_passphrase: '',
@@ -105,6 +108,16 @@ async function submit() {
       <p v-else-if="selected && !isPaper" class="alert p-2.5 text-xs">
         {{ selected.note || t('accounts.noTestnet') }}
       </p>
+
+      <!-- Only the one operator allowed to see hidden accounts is offered the
+           toggle. Rendering it for everyone else would advertise the feature,
+           and the server refuses the field from anyone else regardless. -->
+      <UiSwitch
+        v-if="auth.canSeeHidden"
+        v-model="form.hidden"
+        :label="t('accounts.hidden')"
+        :hint="t('accounts.hiddenHint')"
+      />
 
       <template v-if="!isPaper">
         <!-- Hyperliquid: agent wallet key, not an API key/secret pair. -->

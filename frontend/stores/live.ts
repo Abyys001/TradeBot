@@ -33,6 +33,20 @@ export const useLiveStore = defineStore('live', {
     connected: false,
     /** Nulled until the first connection attempt, so the UI can say "connecting". */
     everConnected: false,
+    /** Set the moment the first socket is created, so "connecting" is bounded. */
+    attempted: false,
+    /**
+     * The close code and reason of the last attempt.
+     *
+     * The panel used to report only "connecting" or "offline", and a socket
+     * that had never once connected stayed on "connecting" forever — the same
+     * word whether the handshake was in flight, the route did not exist, or
+     * the session was refused for not being staff. Three different problems
+     * with three different fixes, shown identically, is what made this
+     * undebuggable from the deployment where it happened.
+     */
+    closeCode: null as number | null,
+    closeReason: '',
     lastMessageAt: null as number | null,
     /**
      * Round-trip time to the engine, measured on the keepalive ping.
@@ -62,9 +76,32 @@ export const useLiveStore = defineStore('live', {
   }),
 
   getters: {
-    status(): 'live' | 'connecting' | 'offline' {
+    /**
+     * "connecting" is now a genuinely transient state: it means a handshake is
+     * in flight, not "we have never managed it". A socket that has closed at
+     * least once is offline — or refused, which is a different problem and gets
+     * its own word because retrying will never fix it.
+     */
+    status(): 'live' | 'connecting' | 'offline' | 'refused' {
       if (this.connected) return 'live'
-      return this.everConnected ? 'offline' : 'connecting'
+      if (this.closeCode === 4403) return 'refused'
+      return this.attempted && this.closeCode !== null ? 'offline' : 'connecting'
+    },
+
+    /**
+     * Why the channel is down, in the admin's terms — never a bare code.
+     *
+     * Empty while it is up. The point is that the top bar and the settings
+     * page can always answer "why", which is what "it just says Connecting"
+     * meant: the panel knew and did not say.
+     */
+    statusDetail(): string {
+      if (this.connected) return ''
+      if (this.closeCode === null) return this.attempted ? 'handshake' : 'idle'
+      if (this.closeCode === 4403) return 'forbidden'
+      if (this.closeCode === 1006) return 'unreachable'
+      if (this.closeCode === 1011) return 'engine'
+      return this.closeReason || `code ${this.closeCode}`
     },
     recentLegs(): LegResult[] {
       return Object.values(this.legResults).sort((a, b) => b.at - a.at)
@@ -105,24 +142,57 @@ export const useLiveStore = defineStore('live', {
 
   actions: {
     /**
-     * Same-origin by default: ws://<panel host>/ws/trading/, which the Nuxt
-     * server proxies onward. Set NUXT_PUBLIC_WS_BASE to point somewhere else.
+     * Same-origin: wss://<panel host>/ws/trading/, relayed to Channels by the
+     * panel's own server (server/routes/ws/[...].ts).
+     *
+     * `NUXT_PUBLIC_WS_BASE` still overrides it for a deployment that puts
+     * Channels on a separate hostname, but two overrides are refused rather
+     * than obeyed, because both produce a socket that can never connect while
+     * looking correctly configured:
+     *
+     *   - a loopback address seen from a browser that is not on the server. A
+     *     baked `ws://localhost:8000` is right on the developer's laptop and
+     *     meaningless from anyone else's machine — the single reason the panel
+     *     connected in development and sat on "Connecting" on the VPS.
+     *   - a `ws://` URL on an `https://` page. The browser blocks it as mixed
+     *     content before the request leaves, so the failure never even reaches
+     *     the network tab.
+     *
+     * In both cases the same-origin URL is what the deployment actually meant.
      */
     url(): string {
-      const configured = useRuntimeConfig().public.wsBase
-      if (configured) return `${configured}/trading/`
-      const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-      return `${scheme}//${location.host}/ws/trading/`
+      const secure = location.protocol === 'https:'
+      const sameOrigin = `${secure ? 'wss:' : 'ws:'}//${location.host}/ws/trading/`
+      const configured = String(useRuntimeConfig().public.wsBase || '').trim()
+      if (!configured) return sameOrigin
+
+      let host = ''
+      let insecure = false
+      try {
+        const parsed = new URL(configured.replace(/^ws/, 'http'))
+        host = parsed.hostname
+        insecure = parsed.protocol === 'http:'
+      } catch {
+        return sameOrigin
+      }
+
+      const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)
+      const browserIsLocal = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
+      if (loopback && !browserIsLocal) return sameOrigin
+      if (insecure && secure) return sameOrigin
+      return `${configured.replace(/\/+$/, '')}/trading/`
     },
 
     connect() {
       if (import.meta.server || socket) return
       intentionalClose = false
+      this.attempted = true
       socket = new WebSocket(this.url())
 
       socket.onopen = () => {
         this.connected = true
         this.everConnected = true
+        this.closeCode = null
         retries = 0
         // The keepalive doubles as the latency probe: a silent proxy drops an
         // idle upgrade, and the round trip is the number the top bar shows.
@@ -146,9 +216,17 @@ export const useLiveStore = defineStore('live', {
         this.handle(payload)
       }
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         this.connected = false
         socket = null
+        // What actually happened, so the panel can stop saying "Connecting"
+        // and say why instead. 4403 is the consumer refusing a session that is
+        // not staff — a wrong answer to retry forever, and the one failure the
+        // admin can act on. 1006 is an abnormal close with no frame: the
+        // handshake never completed, which is what a missing proxy route or an
+        // unreachable host looks like from the browser.
+        this.closeCode = event.code || null
+        this.closeReason = event.reason || ''
         // A latency reading from a dead socket is a lie, not a stale number.
         this.pingMs = null
         this.pingSamples = []
@@ -275,6 +353,11 @@ export const useLiveStore = defineStore('live', {
       socket?.close()
       socket = null
       this.connected = false
+      // A deliberate teardown (logout, page leave) is not a diagnosis. Clearing
+      // these keeps a stale "refused" from greeting the next session.
+      this.attempted = false
+      this.closeCode = null
+      this.closeReason = ''
     },
   },
 })

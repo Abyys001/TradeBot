@@ -33,7 +33,8 @@
     "yes": "Yes",
     "no": "No",
     "on": "On",
-    "off": "Off"
+    "off": "Off",
+    "refused": "Refused"
   },
   "theme": {
     "toLight": "Switch to light",
@@ -345,6 +346,8 @@
     "masterAddressHint": "Queries must use the master address — the agent address returns nothing.",
     "useTestnet": "Use testnet",
     "useTestnetHint": "Orders go to the exchange's test environment with no real capital at risk.",
+    "hidden": "Hidden",
+    "hiddenHint": "Trades exactly like every other account — same signals, same sizing, same speed. It is simply not shown to anyone else: not in the accounts list, the positions panel, the totals, the history, or the failure notices.",
     "noTestnet": "This exchange has no test environment.",
     "withdrawalWarning": "The key must be trade-only. It is verified on connect and refused outright if it can withdraw. Keys are encrypted before storage and are never sent back to the browser.",
     "delete": "Delete",
@@ -548,7 +551,14 @@
     "exchangeUnmeasured": "No exchange round trip measured in the last minute.",
     "good": "good",
     "fair": "fair",
-    "poor": "poor"
+    "poor": "poor",
+    "down": {
+      "idle": "Not started — the panel has not opened the channel yet.",
+      "handshake": "Handshake in flight.",
+      "unreachable": "The engine did not complete the handshake. The panel's own origin serves /ws; check that whatever terminates TLS forwards the Upgrade header.",
+      "forbidden": "The engine refused this session. The live channel is staff-only — sign in as a staff account.",
+      "engine": "The panel reached the engine but the engine did not answer. Check the backend container."
+    }
   },
   "watchlist": {
     "title": "Watchlist",

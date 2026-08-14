@@ -7,6 +7,7 @@ failed (spec §4).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
@@ -66,8 +67,14 @@ async def _open_one(
     intent: TradeIntent,
 ) -> LegFill:
     """One account's entry. Runs inside the fan-out's per-leg deadline."""
-    balance = await adapter.get_balance()
-    rules = await adapter.get_symbol_rules(intent.symbol, intent.market)
+    # Two independent reads, so they are two concurrent round trips rather than
+    # one after the other. On a venue 100ms away that is 100ms of the §4 budget
+    # handed back before anything else has happened, and nothing downstream can
+    # observe the difference — neither call depends on the other's answer.
+    balance, rules = await asyncio.gather(
+        adapter.get_balance(),
+        adapter.get_symbol_rules(intent.symbol, intent.market),
+    )
 
     leverage = intent.leverage
     if intent.market is MarketType.FUTURES:
