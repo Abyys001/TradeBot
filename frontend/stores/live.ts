@@ -129,6 +129,10 @@ export const useLiveStore = defineStore('live', {
         // Every 8s, so the reading is current without being chatty.
         this.ping()
         heartbeat = setInterval(() => this.ping(), 8000)
+        // A reconnect has to re-join the market room: the engine dropped this
+        // channel's subscription when the old socket died, so without this the
+        // chart would stay on the polled feed until the admin touched it.
+        useMarketStore().resubscribe()
       }
 
       socket.onmessage = (event) => {
@@ -151,6 +155,9 @@ export const useLiveStore = defineStore('live', {
         this.exchangeMs = null
         this.exchangeName = ''
         pingSentAt = null
+        // No socket, no pushes. The chart must resume polling immediately
+        // rather than sitting on a bar that has stopped updating.
+        useMarketStore().streamDown()
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = null
         if (intentionalClose) return
@@ -169,6 +176,26 @@ export const useLiveStore = defineStore('live', {
       socket.send(JSON.stringify({ type: 'ping' }))
     },
 
+    /**
+     * Follow one pair's live bars. Returns false when the socket is not up, so
+     * the caller keeps polling rather than waiting for pushes that cannot come.
+     *
+     * The engine holds one exchange subscription per pair however many panels
+     * ask for it, so this is cheap to call on every symbol or timeframe change
+     * — and re-sending it is how switching works, since the engine drops the
+     * previous room before joining the new one.
+     */
+    subscribeMarket(payload: { symbol: string; interval: string; market: string }): boolean {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return false
+      socket.send(JSON.stringify({ type: 'subscribe_market', ...payload }))
+      return true
+    },
+
+    unsubscribeMarket() {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return
+      socket.send(JSON.stringify({ type: 'unsubscribe_market' }))
+    },
+
     handle(payload: any) {
       if (payload.type === 'pong') {
         // Reported by the engine whether or not this pong was the one we timed.
@@ -179,6 +206,20 @@ export const useLiveStore = defineStore('live', {
         pingSentAt = null
         this.pingMs = rtt
         this.pingSamples = [...this.pingSamples, rtt].slice(-5)
+        return
+      }
+      if (payload.type === 'market_bar') {
+        useMarketStore().applyBar(payload)
+        return
+      }
+      if (payload.type === 'market_stream_up') {
+        useMarketStore().streamUp(payload.source ?? '')
+        return
+      }
+      if (payload.type === 'market_stream_down') {
+        // Not an outage: the REST feed is still real, just slower. The market
+        // store goes back to polling on its own.
+        useMarketStore().streamDown()
         return
       }
       if (payload.type === 'notification') {

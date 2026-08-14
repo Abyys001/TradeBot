@@ -108,8 +108,15 @@ const diagnostics = computed(() => [
     tone: live.exchangeQuality ? PING_TONE[live.exchangeQuality] : ('neutral' as const),
   },
   {
+    // Names the venue *and* how the prices arrive. Both are real exchange
+    // data, but a streamed tick and a 15-second poll are different promises,
+    // and this card exists to say which one is in force.
     key: 'feed',
-    value: market.live ? market.source || t('common.live') : t('terminal.feedDown'),
+    value: !market.live
+      ? t('terminal.feedDown')
+      : market.streaming
+        ? `${market.streamSource || market.source} · ${t('terminal.streaming')}`
+        : market.source || t('common.live'),
     tone: market.live ? ('ok' as const) : ('signal' as const),
   },
 ])

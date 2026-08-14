@@ -11,11 +11,29 @@ import { defineStore } from 'pinia'
  * greyed and labelled — but nothing invents a bar, and `stale` stops the panel
  * presenting an old price as current.
  *
+ * Prices arrive two ways, and the store treats them as one series:
+ *
+ *   - **streamed**, pushed bar by bar from the engine's exchange socket. This
+ *     is the live path — the same tick the venue publishes, in the tens of
+ *     milliseconds, with no poll interval in front of it.
+ *   - **polled**, the REST feed below. It draws the history on load and takes
+ *     over whenever the stream is not up, so the chart degrades to "a few
+ *     seconds behind" rather than to "stopped".
+ *
+ * Polling never stops entirely while streaming: it drops to a slow repair loop
+ * that re-fetches the window. A push feed can miss a bar across a reconnect,
+ * and re-reading the series is how that heals without anyone noticing.
+ *
  * The polling cadence is deliberately modest — this is a chart, not the order
  * path. Nothing here shares a budget with the 1-second fan-out.
  */
 const CANDLE_POLL_MS = 15000
 const TICKER_POLL_MS = 3000
+/** While bars are streaming, the poll is only a safety net against gaps. */
+const CANDLE_REPAIR_MS = 120000
+const TICKER_STREAMING_MS = 30000
+/** How long a *stream* may be silent before the price is no longer current. */
+const STREAM_STALE_MS = 90000
 
 export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
@@ -75,6 +93,20 @@ export const useMarketStore = defineStore('market', {
     symbols: [] as SymbolInfo[],
     /** Bumped whenever the whole series is replaced, so the chart can re-set it. */
     revision: 0,
+
+    /**
+     * True while bars are being pushed rather than polled.
+     *
+     * Shown in the top bar, because "live" meaning *streaming* and "live"
+     * meaning *a real exchange produced this* are different promises and the
+     * admin is entitled to know which one is currently true.
+     */
+    streaming: false,
+    /** Which venue the stream is coming from — may differ from the poll's. */
+    streamSource: '',
+    /** Bumped on every streamed bar, so the chart can append without a watcher
+     *  on the whole candle array. */
+    tick: 0,
   }),
 
   getters: {
@@ -97,11 +129,112 @@ export const useMarketStore = defineStore('market', {
      */
     seriesKey: (s) => `${s.symbol}|${s.interval}|${s.market}`,
 
-    /** Stale means the poll loop stopped answering; the panel greys the price. */
-    stale: (s) => s.lastTickAt !== null && s.clock - s.lastTickAt > TICKER_POLL_MS * 4,
+    /**
+     * Stale means the feed stopped answering; the panel greys the price.
+     *
+     * The threshold follows which feed is in force. Polled, four missed ticks
+     * is twelve seconds and means the loop is broken. Streamed, silence is not
+     * evidence of anything for much longer — an illiquid pair genuinely has no
+     * trades for a minute, and the slow repair poll only refreshes `clock`
+     * every thirty seconds, so the polled threshold would grey out a stream
+     * that is working perfectly.
+     */
+    stale: (s) =>
+      s.lastTickAt !== null &&
+      s.clock - s.lastTickAt > (s.streaming ? STREAM_STALE_MS : TICKER_POLL_MS * 4),
   },
 
   actions: {
+    /**
+     * Fold one pushed bar into the series.
+     *
+     * The exchange re-sends the *same* bar on every tick until it closes, so
+     * the rule is replace-or-append on the bar's own timestamp — never append
+     * blindly, which is how a live chart grows a duplicate candle per tick.
+     *
+     * A bar for a pair or timeframe the admin has already switched away from
+     * is dropped: the engine's unsubscribe and the panel's own state can be a
+     * round trip apart, and repainting the chart with the wrong instrument is
+     * far worse than missing one frame of the right one.
+     */
+    applyBar(payload: {
+      symbol: string
+      interval: string
+      market: string
+      source?: string
+      bar: { t: number; o: string; h: string; l: string; c: string; closed?: boolean }
+    }) {
+      if (
+        payload.symbol !== this.symbol ||
+        payload.interval !== this.interval ||
+        payload.market !== this.market
+      ) {
+        return
+      }
+
+      const bar: Candle = {
+        time: payload.bar.t,
+        open: Number(payload.bar.o),
+        high: Number(payload.bar.h),
+        low: Number(payload.bar.l),
+        close: Number(payload.bar.c),
+      }
+      if (!Number.isFinite(bar.close)) return
+
+      const last = this.candles[this.candles.length - 1]
+      if (last && bar.time === last.time) {
+        this.candles[this.candles.length - 1] = bar
+      } else if (!last || bar.time > last.time) {
+        this.candles.push(bar)
+      } else {
+        // Older than what is on screen: a late frame from a stream that just
+        // handed over between providers. The series already moved past it.
+        return
+      }
+
+      this.price = bar.close
+      this.live = true
+      if (payload.source) this.streamSource = payload.source
+      if (!this.streaming) {
+        // A bar can beat its own `market_stream_up` across the wire. Slow the
+        // polls here too, or a stream that never announced itself would keep
+        // the panel re-fetching a series it is already being pushed.
+        this.streaming = true
+        this.retime()
+      }
+      this.lastTickAt = Date.now()
+      this.clock = Date.now()
+      this.feedDown = false
+      this.tick += 1
+    },
+
+    /** The engine has a venue answering again. */
+    streamUp(source: string) {
+      this.streaming = true
+      this.streamSource = source
+      this.retime()
+    },
+
+    /** No venue is streaming — fall back to the polled feed at full cadence. */
+    streamDown() {
+      if (!this.streaming && !this.streamSource) return
+      this.streaming = false
+      this.streamSource = ''
+      this.retime()
+    },
+
+    /** Ask the engine for this pair's live bars, if the socket is up. */
+    resubscribe() {
+      const sent = useLiveStore().subscribeMarket({
+        symbol: this.symbol,
+        interval: this.interval,
+        market: this.market,
+      })
+      // Until the first bar lands the panel is still on the polled feed, so
+      // `streaming` stays false and the poll keeps its fast cadence.
+      if (!sent) this.streamDown()
+    },
+
     async loadSymbols() {
       if (this.symbols.length) return
       try {
@@ -204,6 +337,7 @@ export const useMarketStore = defineStore('market', {
       this.symbol = next
       this.price = null
       this.candles = []
+      this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])
     },
 
@@ -212,6 +346,7 @@ export const useMarketStore = defineStore('market', {
       if (interval === this.interval) return
       this.interval = interval
       this.candles = []
+      this.resubscribe()
       await this.loadCandles()
     },
 
@@ -219,15 +354,37 @@ export const useMarketStore = defineStore('market', {
       if (market === this.market) return
       this.market = market
       this.candles = []
+      this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])
+    },
+
+    /**
+     * Re-arm the poll loops at the cadence the current feed deserves.
+     *
+     * Called whenever streaming starts or stops. The polls are never cancelled
+     * outright: a push feed that silently stops is indistinguishable from a
+     * quiet market, and the slow repair loop is what notices.
+     */
+    retime() {
+      if (import.meta.server) return
+      if (candleTimer) clearInterval(candleTimer)
+      if (tickerTimer) clearInterval(tickerTimer)
+      candleTimer = setInterval(
+        () => this.loadCandles(),
+        this.streaming ? CANDLE_REPAIR_MS : CANDLE_POLL_MS,
+      )
+      tickerTimer = setInterval(
+        () => this.loadTicker(),
+        this.streaming ? TICKER_STREAMING_MS : TICKER_POLL_MS,
+      )
     },
 
     /** Called by the terminal on mount; safe to call twice. */
     async start() {
       await Promise.all([this.loadSymbols(), this.loadCandles(), this.loadTicker()])
-      if (candleTimer || import.meta.server) return
-      candleTimer = setInterval(() => this.loadCandles(), CANDLE_POLL_MS)
-      tickerTimer = setInterval(() => this.loadTicker(), TICKER_POLL_MS)
+      if (import.meta.server) return
+      this.retime()
+      this.resubscribe()
     },
 
     stop() {
@@ -235,6 +392,9 @@ export const useMarketStore = defineStore('market', {
       if (tickerTimer) clearInterval(tickerTimer)
       candleTimer = null
       tickerTimer = null
+      useLiveStore().unsubscribeMarket()
+      this.streaming = false
+      this.streamSource = ''
     },
   },
 })

@@ -149,17 +149,30 @@ async function submitQuery() {
         <option v-for="option in intervals" :key="option" :value="option">{{ option }}</option>
       </select>
 
-      <!-- Provenance: which exchange quoted this, or that none did. -->
+      <!-- Provenance, and how fresh it is. A streaming feed and a polled one
+           are both real exchange data but they are not the same promise: the
+           first is the venue's own tick, the second is up to 15s old. The dot
+           pulses only while bars are actually being pushed. -->
       <UiBadge
-        :tone="market.live ? 'neutral' : 'signal'"
+        :tone="market.live ? (market.streaming ? 'ok' : 'neutral') : 'signal'"
         :title="
-          market.live
-            ? t('terminal.sourceHint', { source: market.source, ms: Math.round(market.providerMs ?? 0) })
-            : t('terminal.feedDownHint')
+          !market.live
+            ? t('terminal.feedDownHint')
+            : market.streaming
+              ? t('terminal.streamHint', { source: market.streamSource || market.source })
+              : t('terminal.sourceHint', {
+                  source: market.source,
+                  ms: Math.round(market.providerMs ?? 0),
+                })
         "
       >
+        <span
+          v-if="market.streaming"
+          class="w-1.5 h-1.5 rounded-full bg-current animate-pulse me-1.5 shrink-0"
+          aria-hidden="true"
+        />
         <span class="hidden md:inline">
-          {{ market.live ? market.source : t('terminal.feedDown') }}
+          {{ market.live ? market.streamSource || market.source : t('terminal.feedDown') }}
         </span>
         <span class="md:hidden">{{ market.live ? '●' : '○' }}</span>
       </UiBadge>

@@ -111,7 +111,9 @@
       "opened": "زمان باز شدن",
       "accounts": "حساب‌ها",
       "stillOpen": "باز"
-    }
+    },
+    "streamHint": "پخش زندهٔ مستقیم از {source} — تیک‌های خودِ صرافی",
+    "streaming": "پخش زنده"
   },
   "ticket": {
     "symbol": "جفت‌ارز",

@@ -111,7 +111,9 @@
       "opened": "Opened",
       "accounts": "Accounts",
       "stillOpen": "open"
-    }
+    },
+    "streamHint": "Streaming live from {source} — the exchange's own ticks",
+    "streaming": "streaming"
   },
   "ticket": {
     "symbol": "Pair",
