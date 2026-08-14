@@ -345,20 +345,14 @@ function syncChartLines() {
     >
       <TerminalTicket />
       <div class="hidden lg:block border-t border-line">
-        <MarketWatchlist variant="compact" />
-      </div>
-      <div class="hidden lg:block border-t border-line">
         <TerminalAccountsPane />
       </div>
     </aside>
 
-    <!-- Routing list and watchlist share the phone's third pane; both are
-         "what else is going on" rather than part of the order itself. -->
+    <!-- The routing list gets the phone's third pane: "what else is going on"
+         rather than part of the order itself. -->
     <section class="lg:hidden" :class="ui.chartPane === 'accounts' ? '' : 'hidden'">
       <TerminalAccountsPane />
-      <div class="border-t border-line">
-        <MarketWatchlist variant="compact" />
-      </div>
     </section>
   </div>
 </template>
