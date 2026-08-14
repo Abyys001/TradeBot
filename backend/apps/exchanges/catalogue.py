@@ -53,23 +53,28 @@ WRITE_BATCH = 2000
 
 
 def catalogue_sources() -> list[str]:
-    """Which exchanges to download from — and empty means "connect an account".
+    """Which exchanges to download the pair list from.
 
-    Connected exchanges first, because that is where the orders go. A demo
-    (paper) account has no exchange to ask, so the configured public providers
-    stand in for it; that is still real exchange data, and it keeps spec §9's
-    demo mode usable. With **no** account connected at all this is empty and
-    the panel says so instead of quietly inventing a pair list.
+    Connected exchanges first, because that is where the orders go, then the
+    configured public providers.
+
+    This used to return nothing at all until an account existed, on the
+    reasoning that a pair list with no account behind it was meaningless. It
+    was the wrong call twice over: these catalogues are *public* and need no
+    credentials, so refusing to fetch them protected nothing — and it left a
+    fresh install with an empty symbol picker and no way to see what the
+    platform could trade before committing a key to it. The pair list is real
+    exchange data either way; what an account changes is only which venues lead
+    the order.
     """
-    from apps.accounts.models import ConnectedAccount
     from apps.exchanges.public_sources import SOURCES
 
-    live = connected_exchanges()
-    if live:
-        return live
-    if not ConnectedAccount.objects.exists():
-        return []
-    return [p.strip() for p in settings.MARKET_DATA["PROVIDERS"] if p.strip() in SOURCES]
+    ordered = list(connected_exchanges())
+    for name in settings.MARKET_DATA["PROVIDERS"]:
+        name = name.strip()
+        if name in SOURCES and name not in ordered:
+            ordered.append(name)
+    return ordered
 
 
 def backfill_settings() -> dict:

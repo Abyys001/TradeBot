@@ -12,6 +12,8 @@ import json
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from apps.trading import streamhub
+
 GROUP = "trading"
 
 
@@ -29,6 +31,11 @@ def _exchange_latency() -> dict:
 
 
 class TradingConsumer(AsyncJsonWebsocketConsumer):
+    #: The market room this socket is watching, or "" for none. An instance
+    #: attribute rather than a lazily-set one so `disconnect` can rely on it
+    #: even when the socket is refused before ever subscribing.
+    market_room = ""
+
     async def connect(self) -> None:
         # Same gate as the REST side (`IsAdminUser`, and login itself refuses a
         # non-staff account). This channel carries balances, open positions,
@@ -47,9 +54,49 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json({"type": "connected"})
 
     async def disconnect(self, code: int) -> None:
+        # Leave the market room first: a socket that goes away without dropping
+        # its viewer count would hold an exchange subscription open forever.
+        await self._leave_market()
         await self.channel_layer.group_discard(GROUP, self.channel_name)
 
+    async def _leave_market(self) -> None:
+        key = getattr(self, "market_room", "")
+        if not key:
+            return
+        self.market_room = ""
+        await self.channel_layer.group_discard(key, self.channel_name)
+        await streamhub.leave(key)
+
+    async def _subscribe_market(self, content: dict) -> None:
+        """Follow one pair live. One room at a time — the panel shows one chart.
+
+        Re-subscribing is how the symbol picker and the timeframe buttons work,
+        so the previous room is always left first; without that, switching
+        timeframe five times would leave five exchange subscriptions running.
+        """
+        from apps.exchanges.marketdata import normalise_interval, normalise_market
+
+        symbol = str(content.get("symbol") or "").upper()
+        if not symbol:
+            return
+        try:
+            interval = normalise_interval(content.get("interval"))
+            market = normalise_market(content.get("market"))
+        except ValueError:
+            return
+
+        await self._leave_market()
+        key = await streamhub.join(symbol=symbol, interval=interval, market=market)
+        self.market_room = key
+        await self.channel_layer.group_add(key, self.channel_name)
+
     async def receive_json(self, content: dict, **kwargs) -> None:
+        if content.get("type") == "subscribe_market":
+            await self._subscribe_market(content)
+            return
+        if content.get("type") == "unsubscribe_market":
+            await self._leave_market()
+            return
         if content.get("type") == "ping":
             # The pong carries both halves of the real path: the browser times
             # its own round trip to the engine, and the engine reports the last
@@ -78,6 +125,17 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
     async def stop_all(self, event: dict) -> None:
         # Spec §7: a halt flipped in one tab must show in every open panel.
         await self.send_json({"type": "stop_all", **event["payload"]})
+
+    async def market_bar(self, event: dict) -> None:
+        await self.send_json({"type": "market_bar", **event["payload"]})
+
+    async def market_stream_down(self, event: dict) -> None:
+        # Not an error to show the admin — the polled feed is still real. It
+        # tells the panel to stop expecting pushes and go back to asking.
+        await self.send_json({"type": "market_stream_down", **event["payload"]})
+
+    async def market_stream_up(self, event: dict) -> None:
+        await self.send_json({"type": "market_stream_up", **event["payload"]})
 
     @classmethod
     async def encode_json(cls, content) -> str:
