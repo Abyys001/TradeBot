@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from apps.core.money import D, floor_to_step
@@ -315,8 +315,28 @@ class HyperliquidAdapter(ExchangeAdapter):
         return OrderResult(order_id=str(statuses), filled_qty=filled, avg_price=avg, raw=result)
 
     def _round_price(self, price: Decimal, rules: SymbolRules) -> Decimal:
-        """Hyperliquid rejects prices off the tick grid (tickRejected)."""
-        return floor_to_step(price, rules.price_tick)
+        """Snap a price onto Hyperliquid's grid, or it is tickRejected.
+
+        Hyperliquid has **no uniform tick size**. A price is valid when it has
+        at most 5 significant figures and no more than ``6 - szDecimals``
+        decimal places (perps: ``MAX_DECIMALS`` = 6); integer prices are valid
+        regardless of significant figures. The old reading — floor to a
+        ``10 ** -(6 - szDecimals)`` grid — passed 63016.4 for BTC
+        (6 significant figures, tick 0.1) and the exchange rejected it.
+
+        ``qty_step`` carries ``10 ** -szDecimals``, so the size grid names the
+        price rule too. This mirrors the official SDK's ``rounding.py``: above
+        100k round to an integer, otherwise round to the tighter of the two
+        bounds (half-up; any mode lands on the grid, the SDK's rounding is
+        nearest).
+        """
+        price = D(price)
+        if price > D("100000"):
+            return price.to_integral_value(rounding=ROUND_HALF_UP)
+        size_decimals = -rules.qty_step.as_tuple().exponent
+        sig_fig_dp = max(0, 4 - price.adjusted())
+        decimal_places = min(sig_fig_dp, 6 - size_decimals)
+        return price.quantize(D(1).scaleb(-decimal_places), rounding=ROUND_HALF_UP)
 
     async def list_conditional_orders(self, symbol: str) -> list[str]:
         """Resting reduce-only trigger orders on this coin (Q5d snapshot).

@@ -1309,3 +1309,47 @@ async def test_hyperliquid_rejects_an_unreadable_account_as_an_auth_error():
     adapter, _ = _hyperliquid({"nothing": True})
     with pytest.raises(AuthError):
         await adapter.verify_credentials()
+
+
+async def test_hyperliquid_rounds_prices_to_its_5_significant_figure_grid():
+    """Regression: the exchange rejected engine prices as "not divisible by
+    tick size" (asset=214). Hyperliquid's grid is not a uniform tick: at most
+    5 significant figures, no more than 6 - szDecimals decimal places (perps),
+    integers always valid — per the vendored README and the official SDK's
+    rounding.py. A static 10 ** -(6 - szDecimals) tick passed 63016.4 for BTC
+    (6 significant figures) and got tickRejected.
+    """
+    from apps.exchanges.base import SymbolRules
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32,
+        account_address="0xabc",
+        testnet=True,
+    )
+
+    def rules(size_decimals: int) -> SymbolRules:
+        step = D(1).scaleb(-size_decimals)
+        return SymbolRules(
+            symbol="BTCUSDT",
+            price_tick=D(1).scaleb(-(6 - size_decimals)),
+            qty_step=step,
+            min_qty=step,
+            min_notional=D("10"),
+            max_leverage=10,
+        )
+
+    cases = {
+        # (size_decimals, price) -> on-grid price
+        (5, "63016.4"): "63016",      # the live rejection: 6 sig figs -> integer
+        (5, "97123.456"): "97123",    # 6-sig-fig quote on a 1-decimal grid
+        (5, "63016.5"): "63017",      # half-boundary rounds up, stays on grid
+        (5, "123456"): "123456",      # >100k: integers valid, 6 sig figs kept
+        (5, "123456.7"): "123457",    # ...rounded to an integer
+        (4, "2567.89"): "2567.9",     # ETH: 5 sig figs trumps the 2-decimal grid
+        (2, "1.2345678"): "1.2346",   # SDK example (OP)
+        (2, "0.0012345"): "0.0012",   # SDK example, capped at 4 decimal places
+    }
+    for (size_decimals, raw), expected in cases.items():
+        got = adapter._round_price(D(raw), rules(size_decimals))
+        assert got == D(expected), f"{raw} (sz={size_decimals}) -> {got}, want {expected}"
