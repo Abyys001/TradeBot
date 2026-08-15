@@ -46,6 +46,11 @@ services:
       USE_SQLITE: "false"
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
+      # False so the healthcheck below (plain HTTP on the docker network, no
+      # X-Forwarded-Proto) gets a 200 instead of a 301. Browsers never reach
+      # Django over plaintext: Caddy/nginx terminate TLS and forward
+      # X-Forwarded-Proto: https, which is what the redirect would be for.
+      DJANGO_SECURE_SSL_REDIRECT: "false"
     expose: ["8000"]
     # Not decoration: without it Caddy and the panel start against a backend
     # that is still running collectstatic and migrate on first boot, and the

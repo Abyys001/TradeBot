@@ -46,6 +46,21 @@ WebSocket handler that relays to `NUXT_WS_PROXY_TARGET`, forwarding the session
 cookie so the staff check still happens at the consumer. Any proxy that
 forwards an `Upgrade` header to the panel works with no extra routing.
 
+The relay is why the `/ws/trading/` curl below can read **101 instead of 403**
+behind such a proxy: the relay completes the handshake the moment it opens the
+upstream, so the consumer's refusal arrives as a *post-handshake close frame*
+(4403) that curl's HTTP-status check cannot see. That is relay-masking, not a
+leak — the unauth socket is still refused, just one step later. Two options:
+
+- **Accept 101 as the pass** behind the relay. The panel's own status line is
+  the real check (Settings → Connection & data must read `REFUSED · staff-only`
+  for a stranger, `LIVE` for the admin).
+- **Route `/ws` past the relay to Daphne** so the check prints 403 again:
+  add the `location /ws/` block from `deploy/nginx.conf` (upgrade headers +
+  `proxy_read_timeout 3600s`), pointing at the backend. That requires the
+  backend reachable from the proxy — nginx on the compose network, or the
+  backend port published to the host. One hop fewer either way.
+
 What cannot carry it is a nitro **route rule**: `routeRules[].proxy` is an h3
 `proxyRequest`, which forwards the HTTP request and drops the upgrade. That is
 the failure this section exists to prevent — the socket sits on "connecting"
@@ -57,6 +72,17 @@ every nginx front are the same two every debugging session here comes back to:
 a `location /ws/` whose `proxy_pass` leaves out the `Upgrade`/`Connection`
 headers (socket stuck on "connecting"), and a plain `location /` that forwards
 `/api/` to the backend minus the `/api` prefix. This file handles both.
+
+Two more nginx gotchas seen in the field, both covered in this file:
+
+- **Idle sockets get reaped at nginx's default `proxy_read_timeout` (60s)** if
+  your `location` does not say `proxy_read_timeout 3600s`. The panel pings every
+  8s so a foreground tab survives anyway, but a throttled background tab can
+  cross 60s and drop the channel. `deploy/nginx.conf` sets 3600s on `/ws`.
+- **The relay needs the upgrade headers too.** If nginx forwards `/ws/` to the
+  *panel* rather than splitting it off, a plain `proxy_pass` without
+  `Upgrade`/`Connection` still strands the socket on "connecting" — the relay
+  is an upgrade endpoint like any other.
 
 ## 0. What the server needs
 
@@ -143,11 +169,21 @@ that loads and never goes `LIVE`:
 ```ini
 SITE_DOMAIN=maxbot.cybercina.co.uk
 DJANGO_ALLOWED_HOSTS=backend,localhost,127.0.0.1,maxbot.cybercina.co.uk
+DJANGO_SECURE_SSL_REDIRECT=false
 CORS_ALLOWED_ORIGINS=https://maxbot.cybercina.co.uk
 ```
 
 `DJANGO_ALLOWED_HOSTS` also gates the WebSocket: the live channel refuses any
 handshake whose `Origin` host is not listed.
+
+`DJANGO_SECURE_SSL_REDIRECT=false` is not a security relaxation: TLS is
+terminated by the proxy in front, which forwards `X-Forwarded-Proto: https`, so
+browsers never hit Django over plaintext anyway. Left at the `true` default
+(which `DJANGO_DEBUG=false` implies), the compose healthcheck — a plain `http://
+127.0.0.1:8000` probe on the docker network with no forwarder header — gets a
+301 and the backend never turns `healthy`, so `frontend` and `caddy` never
+start. The prod compose pins it `false`; the line is here so the value is
+visible in the source of truth.
 
 ### The settings that change how it trades
 
@@ -365,6 +401,7 @@ WebSocket relay, for one), so `--build` is not optional on `git pull`.
 | Symptom | First thing to check |
 |---|---|
 | Panel loads, never goes `LIVE` | The domain in `DJANGO_ALLOWED_HOSTS`. The socket's origin check reads that list, so a missing domain is a page that works and a channel that refuses. |
+| Backend stays `unhealthy`, `frontend`/`caddy` never start | `DJANGO_SECURE_SSL_REDIRECT` is unset (so `true`, given `DEBUG=false`): the healthcheck's plain HTTP probe gets a 301. Set it `false` — it is pinned in the compose and `env.production.example`. |
 | `502` from Caddy | `docker compose ps` — the backend is probably still migrating on first boot. `start_period` is 90s. |
 | `400 DisallowedHost` in the backend log | Same list. The panel forwards the browser's Host as `X-Forwarded-Host`. |
 | CSRF failures on the ticket | `CORS_ALLOWED_ORIGINS` must carry the exact `https://` origin — it seeds `CSRF_TRUSTED_ORIGINS`. |
