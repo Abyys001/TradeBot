@@ -47,6 +47,17 @@ services:
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
     expose: ["8000"]
+    # Not decoration: without it Caddy and the panel start against a backend
+    # that is still running collectstatic and migrate on first boot, and the
+    # first thing anyone sees is a 502 they then go looking for a cause for.
+    # The endpoint proves Postgres and Redis actually answer, not merely that
+    # the process is listening. `start_period` covers that first migrate.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=5).status==200 else 1)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -69,7 +80,16 @@ services:
       # same-origin wss:// URL from location.host. Setting it would hardcode
       # the domain into the deployment for no gain.
     expose: ["3000"]
-    depends_on: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # Wait for a backend that actually answers, not one that has merely
+    # started: the panel proxies /api and its first render asks for a session.
+    depends_on:
+      backend: {condition: service_healthy}
     restart: unless-stopped
 
   caddy:

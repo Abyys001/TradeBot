@@ -26,8 +26,8 @@ class TokenBucket:
         """Take tokens, waiting if needed. False when it would exceed ``timeout``.
 
         Returning False rather than sleeping past the deadline matters: the
-        fan-out has a 1-second budget, and a leg that can't be sent in time must
-        fail fast so the admin sees a notification, not silently queue.
+        fan-out's per-leg deadline is short, and a leg that can't be sent in time
+        must fail fast so the admin sees a notification, not silently queue.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:

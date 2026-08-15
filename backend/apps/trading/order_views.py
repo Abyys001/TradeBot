@@ -2,7 +2,7 @@
 
 Plain Django **async** views rather than DRF ones: the fan-out is asyncio, and
 DRF 3.15 has no async view support, so routing through it would run the legs in
-a worker thread and serialise them — exactly what the 1-second budget cannot
+a worker thread and serialise them — exactly what the fan-out deadline cannot
 afford.
 
 The cost of leaving DRF behind is that none of its request handling applies
@@ -208,7 +208,7 @@ async def open_position(request: HttpRequest) -> JsonResponse:
 @require_POST
 @admin_required
 async def amend_position(request: HttpRequest, pk: int) -> JsonResponse:
-    """Mid-trade SL/TP change (spec §4 — 1-second budget)."""
+    """Mid-trade SL/TP change (spec §4 — must land within the deadline)."""
     trade = await _get_open_trade(pk)
     if trade is None:
         return JsonResponse({"detail": "no open trade with that id"}, status=404)

@@ -188,8 +188,16 @@ TRADING = {
     "SLTP_FAILURE_RETRIES": int(os.getenv("SLTP_FAILURE_RETRIES", "2")),
     # Q5a guard: refuse an SL that sits at or beyond the liquidation price.
     "REJECT_SL_BEYOND_LIQUIDATION": env_bool("REJECT_SL_BEYOND_LIQUIDATION", True),
-    # Spec §4. Hard per-account deadline for a fan-out leg, in seconds.
-    "FANOUT_TIMEOUT_SECONDS": float(os.getenv("FANOUT_TIMEOUT_SECONDS", "1.0")),
+    # Spec §4 (amended, Q19). Hard per-account deadline for a fan-out leg, in
+    # seconds. Started at 1.0; a VPS's exchange round trips (balance, leverage,
+    # order, then SL/TP) routinely landed at 1–2s. The setup cost that made that
+    # true is gone — adapters are kept warm between actions (see
+    # apps/exchanges/pool.py), so a leg no longer pays a TCP+TLS handshake, and
+    # on Hyperliquid no longer re-downloads the asset metadata, before its first
+    # real call. 3.0 is the default: comfortably above a healthy VPS leg, still
+    # short enough that one slow exchange cannot hold up the others — that leg
+    # is abandoned, not awaited.
+    "FANOUT_TIMEOUT_SECONDS": float(os.getenv("FANOUT_TIMEOUT_SECONDS", "3.0")),
     # Spec §3. Leverage bounds offered by the UI.
     "MIN_LEVERAGE": int(os.getenv("MIN_LEVERAGE", "1")),
     "MAX_LEVERAGE": int(os.getenv("MAX_LEVERAGE", "10")),

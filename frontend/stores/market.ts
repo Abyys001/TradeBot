@@ -25,7 +25,7 @@ import { defineStore } from 'pinia'
  * and re-reading the series is how that heals without anyone noticing.
  *
  * The polling cadence is deliberately modest — this is a chart, not the order
- * path. Nothing here shares a budget with the 1-second fan-out.
+ * path. Nothing here shares a budget with the fan-out.
  */
 const CANDLE_POLL_MS = 15000
 const TICKER_POLL_MS = 3000
@@ -71,6 +71,17 @@ export const useMarketStore = defineStore('market', {
     /** True once real exchange data has arrived. Never true for anything else. */
     live: false,
     source: '',
+    /**
+     * The venue the feed is *pinned* to (`MARKET_DATA_PIN`), or '' when it
+     * follows whatever exchange the accounts sit on.
+     *
+     * Distinct from `source` on purpose. `source` is who answered this
+     * request; `pinned` is who is allowed to. They read as the same string
+     * while everything is healthy, and the difference is the whole point of
+     * the pin: a Binance mark compared against a Hyperliquid fill is a
+     * different number, and sizing reads it.
+     */
+    pinnedSource: '',
     /** Measured engine→exchange round trip in ms. Null = nothing timed lately. */
     providerMs: null as number | null,
     loading: false,
@@ -264,6 +275,7 @@ export const useMarketStore = defineStore('market', {
         }))
         this.live = feed.live
         this.source = feed.source
+        this.pinnedSource = feed.pinned ?? this.pinnedSource
         this.providerMs = feed.provider_ms ?? this.providerMs
         this.error = ''
         this.feedDown = false
@@ -291,6 +303,7 @@ export const useMarketStore = defineStore('market', {
         this.changePct = quote.change_pct === null ? null : Number(quote.change_pct)
         this.live = quote.live
         this.source = quote.source
+        this.pinnedSource = quote.pinned ?? this.pinnedSource
         this.providerMs = quote.provider_ms ?? this.providerMs
         this.lastTickAt = Date.now()
         this.error = ''

@@ -18,7 +18,8 @@
 type Leg = { label: string; ms: number; ok: boolean }
 
 const props = withDefaults(defineProps<{ legs?: Leg[]; budgetMs?: number }>(), {
-  budgetMs: 1000,
+  // Matches the backend's shipped FANOUT_TIMEOUT_SECONDS default (Q19).
+  budgetMs: 4000,
 })
 
 const DEMO: Leg[] = [

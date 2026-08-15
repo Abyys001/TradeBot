@@ -25,9 +25,54 @@ from apps.exchanges.ratelimit import TokenBucket
 
 logger = logging.getLogger(__name__)
 
-# Below the fan-out's 1s budget so a slow exchange fails inside the deadline
-# rather than being killed by it — the error message is then useful.
+# Below the fan-out's per-leg deadline so a slow exchange fails inside the
+# deadline rather than being killed by it — the error message is then useful.
+# A floor rather than the value: ``default_timeout()`` derives the real one from
+# the configured deadline, and this is what a deployment that sets an absurdly
+# small deadline still gets.
 DEFAULT_TIMEOUT = 0.8
+
+#: How long an idle connection is kept for reuse. Adapters are pooled per
+#: account (``apps.exchanges.pool``) and the balance poll touches every account
+#: every 20s, so this is what turns that poll into a free keepalive: the trade
+#: that follows finds a connection already open and skips the TCP+TLS handshake
+#: that used to be the largest single item in a leg's time.
+KEEPALIVE_EXPIRY = 300.0
+
+_LIMITS = httpx.Limits(
+    max_keepalive_connections=8,
+    max_connections=16,
+    keepalive_expiry=KEEPALIVE_EXPIRY,
+)
+
+
+def default_timeout() -> float:
+    """Per-request ceiling, derived from the spec §4 per-leg deadline.
+
+    Hardcoding 0.8s was wrong in both directions: too tight for a VPS whose
+    round trip to the venue is 200ms and a signed request takes two of them,
+    and unrelated to the deadline it is supposed to sit under — raising
+    ``FANOUT_TIMEOUT_SECONDS`` bought a leg no extra patience at all, which is
+    part of why a healthy order still came back as a timeout.
+
+    Three quarters of the budget: long enough that a real answer is waited for,
+    short enough that ``ExchangeUnavailable: request timed out`` (which names
+    the venue) beats the fan-out's generic deadline message.
+    """
+    from django.conf import settings
+
+    budget = float(settings.TRADING["FANOUT_TIMEOUT_SECONDS"])
+    return max(DEFAULT_TIMEOUT, budget * 0.75)
+
+
+def _httpx_timeout(total: float) -> httpx.Timeout:
+    """Read patience and connect patience are not the same thing.
+
+    A venue that is answering slowly deserves the full budget. A host that is
+    unreachable — DNS gone, port blocked, the wrong proxy — should fail fast so
+    the leg reports it instead of burning the whole deadline discovering it.
+    """
+    return httpx.Timeout(total, connect=min(total, 2.0))
 
 
 def exchange_proxy() -> str | None:
@@ -78,7 +123,7 @@ class RestAdapter(ExchangeAdapter):
         api_secret: str = "",
         passphrase: str = "",
         testnet: bool = False,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.api_key = api_key
@@ -87,14 +132,17 @@ class RestAdapter(ExchangeAdapter):
         self.testnet = testnet
         self._url = (self.testnet_url or self.base_url) if testnet else self.base_url
         self._limiter = TokenBucket(self.rate, self.burst)
-        self._timeout = timeout
+        self._timeout = default_timeout() if timeout is None else timeout
         #: An injected client answers for *every* host — that is what makes the
         #: adapter tests offline. Only a real adapter opens a second one.
         self._injected = client is not None
         self._client = client or httpx.AsyncClient(
             base_url=self._url,
-            timeout=httpx.Timeout(timeout),
+            timeout=_httpx_timeout(self._timeout),
             headers={"User-Agent": "WalletManager-CopyTrader/1.0"},
+            # Adapters outlive an action (apps.exchanges.pool), so this pool is
+            # what carries a warm connection into the next order.
+            limits=_LIMITS,
             # Explicit, never ambient: see exchange_proxy.
             trust_env=False,
             proxy=exchange_proxy(),
@@ -115,8 +163,9 @@ class RestAdapter(ExchangeAdapter):
         if url not in self._extra_clients:
             self._extra_clients[url] = httpx.AsyncClient(
                 base_url=url,
-                timeout=httpx.Timeout(self._timeout),
+                timeout=_httpx_timeout(self._timeout),
                 headers={"User-Agent": "WalletManager-CopyTrader/1.0"},
+                limits=_LIMITS,
                 trust_env=False,
                 proxy=exchange_proxy(),
             )

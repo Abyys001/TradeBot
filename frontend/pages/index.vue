@@ -16,6 +16,7 @@ definePageMeta({ layout: 'public' })
 const { t } = useI18n()
 const localePath = useLocalePath()
 const auth = useAuthStore()
+const trading = useTradingStore()
 const { ms } = useFormat()
 
 const legs = ref<{ label: string; ms: number; ok: boolean }[]>([])
@@ -30,14 +31,20 @@ onMounted(async () => {
   if (!auth.authenticated) return
   const api = useApi()
   try {
-    const [accounts, trades] = await Promise.all([api.accounts(), api.trades()])
+    // The budget line must be the backend's actual deadline (Q19), not a guess.
+    const [accounts, trades, policy] = await Promise.all([
+      api.accounts(),
+      api.trades(),
+      api.policy().catch(() => null),
+    ])
+    if (policy) trading.policy = policy
     accountCount.value = accounts.length
     exchangeCount.value = new Set(accounts.map((a) => a.exchange)).size
     const latest = trades[0]
     if (latest) {
       lastFanout.value = {
         ms: latest.fanout_ms ?? 0,
-        withinBudget: (latest.fanout_ms ?? 0) <= 1000,
+        withinBudget: (latest.fanout_ms ?? 0) <= trading.fanoutBudgetMs,
         symbol: latest.symbol,
       }
       legs.value = latest.legs.map((leg) => ({

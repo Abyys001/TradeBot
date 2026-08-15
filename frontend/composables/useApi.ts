@@ -134,6 +134,12 @@ export interface CandleFeed {
    * synthetic series any more — a feed outage is a 503, not a chart.
    */
   live: boolean
+  /**
+   * The venue the feed is locked to (`MARKET_DATA_PIN`), or '' when it follows
+   * the connected accounts. Named separately from `source` so the chart can say
+   * which venue is *allowed* to answer, not just which one did.
+   */
+  pinned: string
   /** Measured engine→exchange round trip in ms, null when nothing was timed. */
   provider_ms: number | null
   candles: ApiCandle[]
@@ -147,6 +153,7 @@ export interface TickerQuote {
   market: string
   source: string
   live: boolean
+  pinned: string
   provider_ms: number | null
 }
 

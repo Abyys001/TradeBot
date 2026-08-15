@@ -8,7 +8,10 @@ Responsibilities, in order:
   4. persist the trade and every leg, including failures (spec §8)
   5. raise a persistent notification per failed leg (spec §4)
   6. push results to the panel over the WebSocket
-  7. close every adapter, always
+
+Adapters are **not** closed after an action: they are kept warm per account by
+``apps.exchanges.pool``, because a cold TLS handshake per leg per action was
+most of the spec §4 deadline on a VPS.
 
 Nothing here decides *policy* — sizing and SL/TP semantics live in
 ``apps.trading.sizing`` / ``sltp`` so they stay unit-testable without a database.
@@ -35,8 +38,8 @@ from apps.engine.executor import (
     open_trade,
 )
 from apps.engine.fanout import FanOutResult, StopAllActive
+from apps.exchanges import pool
 from apps.exchanges.base import ExchangeAdapter, MarketType, OrderType, Side
-from apps.exchanges.registry import build_adapter
 from apps.trading import killswitch
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 
@@ -94,20 +97,23 @@ def accounts_in_open_trades() -> list[int]:
 
 
 def _adapters(accounts: list[ConnectedAccount]) -> list[tuple[int, ExchangeAdapter]]:
-    """One fresh adapter per account. Build failures become failed legs, not crashes."""
+    """One adapter per account, warm where one already exists.
+
+    Still one per account — the client, the credentials and the rate limiter
+    are never shared, which is the structural half of spec §2 isolation. What
+    changed is only that the account's own connection survives between actions
+    instead of being handshaked from cold inside the §4 deadline. See
+    ``apps.exchanges.pool`` for why that was most of a second on a VPS.
+
+    Build failures become failed legs, not crashes.
+    """
     built: list[tuple[int, ExchangeAdapter]] = []
     for account in accounts:
         try:
-            built.append((account.id, build_adapter(account)))
+            built.append((account.id, pool.get(account)))
         except Exception as exc:  # noqa: BLE001 - one bad account must not stop the rest
             logger.warning("could not build adapter for account=%s: %s", account.id, exc)
     return built
-
-
-async def _close_all(adapters: list[tuple[int, ExchangeAdapter]]) -> None:
-    await asyncio.gather(
-        *(adapter.close() for _, adapter in adapters), return_exceptions=True
-    )
 
 
 # --- persistence ------------------------------------------------------------
@@ -319,10 +325,7 @@ async def route_open(
         limit_price=limit_price,
         reference_price=reference_price,
     )
-    try:
-        result = await open_trade(adapters, intent)
-    finally:
-        await _close_all(adapters)
+    result = await open_trade(adapters, intent)
 
     trade = await _persist_open(intent=intent, result=result, accounts=accounts)
     notifications = await _persist_notifications(result)
@@ -338,18 +341,15 @@ async def route_amend(
 ) -> FanOutResult:
     accounts = await eligible_accounts(trade)
     adapters = _adapters(accounts)
-    try:
-        result = await amend_sltp(
-            adapters,
-            symbol=trade.symbol,
-            side=Side(trade.side),
-            leverage=trade.leverage,
-            sl_pct=sl_pct,
-            tp_pct=tp_pct,
-            admin_entry=trade.admin_entry_price or Decimal("0"),
-        )
-    finally:
-        await _close_all(adapters)
+    result = await amend_sltp(
+        adapters,
+        symbol=trade.symbol,
+        side=Side(trade.side),
+        leverage=trade.leverage,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        admin_entry=trade.admin_entry_price or Decimal("0"),
+    )
 
     await _save_amend(trade, sl_pct, tp_pct)
     for notification in await _persist_notifications(result):
@@ -368,10 +368,7 @@ def _save_amend(trade: Trade, sl_pct: Decimal | None, tp_pct: Decimal | None) ->
 async def route_close(*, trade: Trade) -> FanOutResult:
     accounts = await eligible_accounts(trade)
     adapters = _adapters(accounts)
-    try:
-        result = await close_trade(adapters, symbol=trade.symbol)
-    finally:
-        await _close_all(adapters)
+    result = await close_trade(adapters, symbol=trade.symbol)
 
     await _persist_close(trade, result)
     for notification in await _persist_notifications(result):
@@ -409,14 +406,11 @@ async def refresh_balances(*, force: bool = False) -> list[dict]:
 
         return op
 
-    try:
-        result = await fan_out(
-            [(aid, make(ad)) for aid, ad in adapters],
-            timeout=3.0,
-            respect_stop_all=False,
-        )
-    finally:
-        await _close_all(adapters)
+    result = await fan_out(
+        [(aid, make(ad)) for aid, ad in adapters],
+        timeout=settings.TRADING["FANOUT_TIMEOUT_SECONDS"],
+        respect_stop_all=False,
+    )
 
     rows = await _save_balances(result)
     # The consumer has carried a `balances` event since day one and nothing

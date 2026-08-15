@@ -11,9 +11,9 @@ export interface FanOutResult {
 /**
  * Owns the live trade, the trade log, and every fan-out round trip.
  *
- * Fan-out timing is kept because spec §4 is a hard promise (1s) and the admin
- * should be able to see whether it was met on every single action, not discover
- * months later that it drifted.
+ * Fan-out timing is kept because spec §4 is a hard promise (a per-leg deadline,
+ * `FANOUT_TIMEOUT_SECONDS`) and the admin should be able to see whether it was
+ * met on every single action, not discover months later that it drifted.
  */
 export const useTradingStore = defineStore('trading', {
   state: () => ({
@@ -40,6 +40,16 @@ export const useTradingStore = defineStore('trading', {
     lastFanoutMs: (s) => s.lastResult?.total_ms ?? null,
     breachedBudget: (s) => s.lastResult !== null && !s.lastResult.within_budget,
 
+    /**
+     * The spec §4 per-leg deadline, in ms, as the backend actually set it
+     * (`FANOUT_TIMEOUT_SECONDS` from the policy endpoint, Q19). The fallback
+     * mirrors the backend's shipped default so a comparison is never made
+     * against the old 1s number; once the policy loads, this reads the truth.
+     */
+    fanoutBudgetMs(): number {
+      return Math.round((this.policy?.fanout_timeout_seconds ?? 4.0) * 1000)
+    },
+
     openTrade: (s) => s.trades.find((t) => t.status === 'open') ?? null,
     closedTrades: (s) => s.trades.filter((t) => t.status !== 'open'),
     latest: (s) => s.trades[0] ?? null,
@@ -63,7 +73,7 @@ export const useTradingStore = defineStore('trading', {
     },
 
     budgetBreaches(): number {
-      return this.trades.filter((t) => (t.fanout_ms ?? 0) > 1000).length
+      return this.trades.filter((t) => (t.fanout_ms ?? 0) > this.fanoutBudgetMs).length
     },
 
     /** Legs that filled but carry no stop — spec §4's worst quiet state. */
@@ -136,8 +146,8 @@ export const useTradingStore = defineStore('trading', {
      * Announce a fan-out result as a transient toast (spec §10).
      *
      * The count and the elapsed time are the two facts worth confirming: spec
-     * §4 promises every account inside one second, and this is where the admin
-     * sees that promise kept on each individual action.
+     * §4 promises every account within the deadline, and this is where the
+     * admin sees that promise kept on each individual action.
      */
     confirm(key: string, result: FanOutResult) {
       const { t } = useNuxtApp().$i18n

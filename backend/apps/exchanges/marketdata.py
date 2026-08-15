@@ -1,8 +1,9 @@
 """Public market data — candles and last price (spec §3).
 
 Deliberately **not** part of the adapter seam. Adapters hold credentials, are
-built one per account, and live inside the 1-second fan-out budget. This module
-holds no credentials, is shared by every request, and never signs anything, so:
+built one per account, and live inside the fan-out's per-leg deadline. This
+module holds no credentials, is shared by every request, and never signs
+anything, so:
 
   - a market-data outage cannot touch order routing;
   - a chart refresh can never accidentally be signed with a partner's key;
@@ -326,6 +327,7 @@ def get_candles(
             "source": stored[1],
             "live": False,
             "stored": True,
+            "pinned": pinned_provider(),
             "feed_error": str(exc),
             "provider_ms": None,
             "candles": [candle.as_dict() for candle in stored[0]],
@@ -342,6 +344,12 @@ def get_candles(
         # came from an exchange. Nothing else can produce one any more.
         "live": True,
         "stored": False,
+        # Which venue this desk is *locked* to, or "" when the feed follows the
+        # connected accounts. On the wire so the chart can name the pin rather
+        # than only naming whoever happened to answer — those are the same
+        # string today and a different promise, and the admin sizing an order
+        # off this price is entitled to know which one they are looking at.
+        "pinned": pinned_provider(),
         "provider_ms": last_rtt(provider),
         "candles": [candle.as_dict() for candle in candles],
     }
@@ -398,6 +406,7 @@ def get_ticker(*, symbol: str, market: MarketType = MarketType.FUTURES) -> dict:
         "market": market.value,
         "source": provider,
         "live": True,
+        "pinned": pinned_provider(),
         "provider_ms": last_rtt(provider),
     }
     cache.set(key, payload, TICKER_TTL)

@@ -48,7 +48,7 @@ intent — if the code changes, so does this table.
 - [x] Spot supported? Futures/perpetual supported? (spec §2 requires both)
 - [x] Leverage 1–10x settable per-symbol via API? (spec §3)
 - [x] Native SL/TP attached at entry, or must be emulated with conditional orders?
-- [x] SL/TP amendable on an open position without cancel+replace? (spec §4, 1s budget)
+- [x] SL/TP amendable on an open position without cancel+replace? (spec §4, fan-out deadline)
 - [x] Market close of a full position in one call? (spec §3)
 - [x] Available-balance query for 99% sizing? Quantity/notional step + min-notional rules? (spec §5)
 - [x] Non-withdrawable / trade-only API key scope available? (spec §7 — hard requirement)

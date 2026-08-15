@@ -9,7 +9,7 @@ import { defineStore } from 'pinia'
  * by the app shell.
  *
  * It carries per-leg results and failure notices as they happen rather than
- * after the whole fan-out settles — with a 1-second budget and N accounts, the
+ * after the whole fan-out settles — with a short deadline and N accounts, the
  * admin should see the first failure immediately, not at the end.
  */
 export interface LegResult {
@@ -51,8 +51,8 @@ export const useLiveStore = defineStore('live', {
     /**
      * Round-trip time to the engine, measured on the keepalive ping.
      *
-     * Shown in the top bar because this panel's whole promise is a one-second
-     * fan-out: if the admin's own link to the engine is 800ms, the budget was
+     * Shown in the top bar because this panel's whole promise is a prompt
+     * fan-out: if the admin's own link to the engine is 800ms, the deadline was
      * spent before the order was even sent, and that is worth knowing *before*
      * pressing send rather than afterwards from the latency chart.
      */
@@ -65,7 +65,7 @@ export const useLiveStore = defineStore('live', {
      *
      * Browser→engine is often a millisecond on a local network and says
      * nothing about whether an order can reach Binance inside the spec §4
-     * budget. This is the number that does. Null when nothing has been
+     * deadline. This is the number that does. Null when nothing has been
      * measured recently — never a placeholder.
      */
     exchangeMs: null as number | null,
@@ -115,10 +115,10 @@ export const useLiveStore = defineStore('live', {
     },
 
     /**
-     * Thresholds are about the spec §4 budget, not about feeling fast: at
-     * 250ms round trip a quarter of the one-second budget is the admin's own
-     * link, and past 600ms the budget cannot be met however fast the exchanges
-     * answer.
+     * Thresholds are about the spec §4 deadline, not about feeling fast: a
+     * 250ms round trip is a large slice of even a generous deadline when it is
+     * the admin's own link, and past 600ms no deadline survives however fast
+     * the exchanges answer.
      */
     pingQuality(): 'good' | 'fair' | 'poor' | null {
       const value = this.pingMedian
@@ -128,9 +128,9 @@ export const useLiveStore = defineStore('live', {
     },
 
     /**
-     * Same budget logic applied to the leg that actually carries the order.
+     * Same deadline logic applied to the leg that actually carries the order.
      * A round trip to the exchange is paid twice inside the fan-out (send and
-     * acknowledge), so 150ms is already a third of the second.
+     * acknowledge), so 150ms is already a serious share of the budget.
      */
     exchangeQuality(): 'good' | 'fair' | 'poor' | null {
       const value = this.exchangeMs

@@ -7,7 +7,7 @@ per-account leverage, testnet or not) are declared in ``Capabilities`` and
 handled *inside* the adapter.
 
 Everything here is async. A blocking call in an adapter stalls the whole
-fan-out and blows the 1-second budget in spec §4.
+fan-out and blows the per-leg deadline in spec §4.
 """
 
 from __future__ import annotations

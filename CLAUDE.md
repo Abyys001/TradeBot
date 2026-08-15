@@ -170,14 +170,15 @@ Admin browser (Nuxt 3 + TradingView)
 API / gateway (Django 5 + DRF + Channels)  ← accounts, auth, history, encrypted key vault
         │ in-process command bus
         ▼
-Execution engine (async Python, asyncio)   ← the 1-second fan-out lives here
+Execution engine (async Python, asyncio)   ← the fan-out lives here (spec §4, `FANOUT_TIMEOUT_SECONDS`)
         │ N independent adapter tasks, one per connected account
         ▼
 Exchange adapters (one module per exchange, common Adapter interface)
 ```
 
-Why the engine is separate from Django: spec §4 caps mid-trade propagation at
-**1 second** across all accounts. That means one `asyncio.gather` over per-account
+Why the engine is separate from Django: spec §4 caps mid-trade propagation at a
+per-leg deadline (`FANOUT_TIMEOUT_SECONDS`, default 3.0 — Q19) across all
+accounts. That means one `asyncio.gather` over per-account
 tasks with per-task timeouts, not a Celery queue (broker round-trip + worker
 prefetch blows the budget). Celery stays for non-latency work only — history
 aggregation, balance polling, reconciliation.
@@ -272,7 +273,7 @@ Nothing here is runnable yet. In order:
 3. Build the Adapter interface + an in-memory **paper adapter** first — it is
    also spec §9's demo mode, and it lets the fan-out engine be tested with no
    real credentials.
-4. Fan-out engine against the paper adapter, with timing assertions on the 1s budget.
+4. Fan-out engine against the paper adapter, with timing assertions on the per-leg deadline.
 5. Real adapters in the order in `docs/exchanges/coverage.md`, Hyperliquid
    first — it is the flagged-important one *and* has the most unusual auth
    model (agent wallets, per-signer nonces), so it stress-tests the interface

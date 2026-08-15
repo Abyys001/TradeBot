@@ -36,6 +36,36 @@ watch(
   },
 )
 
+/**
+ * The venue this line is quoting, in the admin's words.
+ *
+ * When the feed is pinned, the pin is the answer — the whole point of a pin is
+ * that the chart cannot change venue, so the badge names the pin rather than
+ * whoever happened to answer. Unpinned, it names the live source (stream) or
+ * the last polled one.
+ */
+const feedName = computed(() => {
+  if (!market.live) return ''
+  const slug = market.pinnedSource || (market.streaming ? market.streamSource : market.source)
+  return exchangeLabel(slug)
+})
+
+const feedHint = computed(() => {
+  if (!market.live) return t('terminal.feedDownHint')
+  const name = exchangeLabel(market.pinnedSource || market.source || market.streamSource)
+  const ms = Math.round(market.providerMs ?? 0)
+  if (market.pinnedSource) {
+    return t('terminal.pinnedFeedHint', {
+      name,
+      mode: market.streaming ? t('terminal.streaming') : t('terminal.polling'),
+      ms,
+    })
+  }
+  return market.streaming
+    ? t('terminal.streamHint', { source: name })
+    : t('terminal.sourceHint', { source: name, ms })
+})
+
 async function choose(symbol: string) {
   picking.value = false
   query.value = ''
@@ -152,19 +182,12 @@ async function submitQuery() {
       <!-- Provenance, and how fresh it is. A streaming feed and a polled one
            are both real exchange data but they are not the same promise: the
            first is the venue's own tick, the second is up to 15s old. The dot
-           pulses only while bars are actually being pushed. -->
+           pulses only while bars are actually being pushed. When the feed is
+           pinned the badge names the pin — that venue is the only one allowed
+           to answer — and marks it as pinned. -->
       <UiBadge
         :tone="market.live ? (market.streaming ? 'ok' : 'neutral') : 'signal'"
-        :title="
-          !market.live
-            ? t('terminal.feedDownHint')
-            : market.streaming
-              ? t('terminal.streamHint', { source: market.streamSource || market.source })
-              : t('terminal.sourceHint', {
-                  source: market.source,
-                  ms: Math.round(market.providerMs ?? 0),
-                })
-        "
+        :title="feedHint"
       >
         <span
           v-if="market.streaming"
@@ -172,7 +195,8 @@ async function submitQuery() {
           aria-hidden="true"
         />
         <span class="hidden md:inline">
-          {{ market.live ? market.streamSource || market.source : t('terminal.feedDown') }}
+          {{ market.live ? feedName : t('terminal.feedDown') }}
+          <span v-if="market.live && market.pinnedSource" class="opacity-70">· {{ t('terminal.pinned') }}</span>
         </span>
         <span class="md:hidden">{{ market.live ? '●' : '○' }}</span>
       </UiBadge>

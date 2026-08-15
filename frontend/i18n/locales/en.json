@@ -114,7 +114,10 @@
       "stillOpen": "open"
     },
     "streamHint": "Streaming live from {source} — the exchange's own ticks",
-    "streaming": "streaming"
+    "streaming": "streaming",
+    "pinnedFeedHint": "Feed is pinned to {name} — {mode}",
+    "pinned": "pinned",
+    "polling": "polling"
   },
   "ticket": {
     "symbol": "Pair",
@@ -170,10 +173,10 @@
   },
   "fanout": {
     "title": "Last fan-out",
-    "overBudget": "This exceeded the one-second budget in spec §4.",
+    "overBudget": "This exceeded the fan-out deadline in spec §4.",
     "counts": "{ok} filled · {failed} failed",
     "noneTitle": "Nothing routed yet",
-    "noneBody": "The timing of the last fan-out against the one-second budget in spec §4 shows here."
+    "noneBody": "The timing of the last fan-out against the fan-out deadline in spec §4 shows here."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -208,8 +211,8 @@
     "noAccountsBody": "Connect a trade-only API key to start routing orders.",
     "latency": "Fan-out time",
     "latencyHint": "Every account reached, per trade",
-    "latencyCaption": "Most recent trades, oldest first. The dashed line is the one-second budget in spec §4.",
-    "budget": "1s budget",
+    "latencyCaption": "Most recent trades, oldest first. The dashed line is the fan-out deadline in spec §4.",
+    "budget": "deadline",
     "breaches": "{n} over budget",
     "worst": "worst {ms}ms",
     "noLatencyTitle": "Nothing measured yet",
@@ -229,8 +232,8 @@
       "flatSub": "no open trade",
       "legs": "legs",
       "fanout": "Last fan-out",
-      "overBudget": "over the 1s budget",
-      "withinBudget": "within the 1s budget",
+      "overBudget": "over the deadline",
+      "withinBudget": "within the deadline",
       "noTrades": "no trades yet"
     }
   },
@@ -380,7 +383,7 @@
       "winRate": "Win rate",
       "winRateSub": "{wins} of {n} scored legs",
       "breaches": "Over budget",
-      "breachesSub": "fan-outs past 1s"
+      "breachesSub": "fan-outs past the deadline"
     }
   },
   "settings": {
@@ -463,7 +466,7 @@
     "diagHint": {
       "socket": "WebSocket to the execution engine. Order routing still works over REST while it is down.",
       "latency": "Measured round trip from this browser to the engine. On a local network it is a millisecond, which says nothing about reaching an exchange.",
-      "exchangeLatency": "Measured round trip from the engine to the price provider — the hop an order actually travels, and the one that spends the one-second budget. Blank when nothing was measured in the last minute.",
+      "exchangeLatency": "Measured round trip from the engine to the price provider — the hop an order actually travels, and the one that spends the fan-out deadline. Blank when nothing was measured in the last minute.",
       "feed": "Which exchange the chart prices came from. Every price shown is an exchange's; when none is reachable the panel shows no price at all."
     },
     "legalNote": "This platform routes real trades for other people's capital. Depending on your jurisdiction and how any fee or profit share is structured, that can require registration or a licence (spec §11). Confirm with a qualified professional before connecting real partner accounts."
@@ -482,7 +485,7 @@
     "h1": {
       "line1": "You trade once.",
       "line2": "Every account",
-      "line3": "follows in a second."
+      "line3": "follows in seconds."
     },
     "lede": "Entry, stop, target, close — each one goes out to every connected account at the same moment, sized to that account's own balance. When one exchange fails, the rest still fill and you get told which one didn't.",
     "cta": {

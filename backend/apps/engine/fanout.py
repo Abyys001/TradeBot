@@ -4,11 +4,11 @@ One admin action becomes N independent per-account tasks, run concurrently with
 a hard per-task deadline. The contract this module exists to guarantee:
 
   - one account's failure never blocks, delays, or aborts another
-  - every leg is dispatched within FANOUT_TIMEOUT_SECONDS (default 1.0)
+  - every leg is dispatched within FANOUT_TIMEOUT_SECONDS (default 4.0, Q19)
   - a leg that overruns is abandoned, not awaited
 
 That is why this is plain asyncio and not Celery: a broker round-trip plus
-worker prefetch does not fit inside a 1-second budget.
+worker prefetch does not fit inside a per-leg deadline.
 """
 
 from __future__ import annotations

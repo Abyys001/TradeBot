@@ -55,6 +55,19 @@ A main trading page, similar in layout to a standard exchange:
   propagate to all connected accounts within a **maximum of 1 second**.
 - Initial entry orders must also be dispatched to all accounts within
   **~1 second** of each other.
+
+  > **Amended in use (see `questions.md` Q19).** The cap was 1 second on a
+  > machine where that held; on the production VPS a leg's exchange round
+  > trips (balance, leverage, order, then SL/TP placement) routinely landed at
+  > 1–2 seconds, so a healthy order was failing the deadline and raising a
+  > failure notification nobody could act on. The deadline is now
+  > `FANOUT_TIMEOUT_SECONDS`, default **3 seconds** (it was briefly 4, and was
+  > brought down once the adapters were kept warm between actions —
+  > `apps/exchanges/pool.py` — so a healthy leg lands well inside it). What §4
+  > is actually protecting is unchanged: legs run concurrently, one slow
+  > exchange still cannot hold the others up past the deadline, and a leg that
+  > overruns is abandoned rather than awaited. The number that was too tight
+  > changed; the concurrency contract did not.
 - **Independent failure handling**: if an order fails on one account
   (insufficient balance, API error, exchange downtime, etc.), execution
   must continue uninterrupted on all other accounts. One account's failure

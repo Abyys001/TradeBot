@@ -172,11 +172,11 @@ def test_a_limit_order_without_a_price_is_refused():
 
 
 def test_every_account_is_reached_inside_the_budget():
-    """Spec §4: N accounts, concurrently, reported within one second.
+    """Spec §4: N accounts, concurrently, reported within the deadline.
 
     The assertion that matters is `within_budget` — it is computed from the
-    fan-out's own wall clock, so it is the same number the panel shows and the
-    same one the spec caps.
+    fan-out's own wall clock against FANOUT_TIMEOUT_SECONDS, so it is the same
+    number the panel shows and the same one the spec caps.
     """
     for i in range(5):
         account(f"partner-{i}", balance=str(1000 * (i + 1)))

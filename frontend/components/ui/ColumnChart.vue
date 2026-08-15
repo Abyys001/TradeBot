@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Fan-out time per trade, with the spec §4 one-second budget drawn across it.
+ * Fan-out time per trade, with the spec §4 fan-out deadline drawn across it.
  *
  * The reference line is the whole reason this is a chart and not a number: the
  * question is never "how many milliseconds" but "how close are we to the

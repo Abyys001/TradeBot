@@ -51,7 +51,7 @@ export function useFormat() {
     return `${n > 0 ? '+' : ''}${money(n, digits)}`
   }
 
-  /** Milliseconds, at the precision the 1-second budget is argued in. */
+  /** Milliseconds, at the precision the fan-out deadline is argued in. */
   function ms(value: number | null | undefined): string {
     if (value === null || value === undefined || Number.isNaN(value)) return '—'
     return value < 10 ? `${value.toFixed(1)}ms` : `${Math.round(value)}ms`

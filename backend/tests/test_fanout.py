@@ -1,4 +1,4 @@
-"""Spec §4 — the 1-second budget and independent failure handling.
+"""Spec §4 — the per-leg deadline and independent failure handling.
 
 These are the tests the platform exists for. If one of them regresses, one
 partner's outage starts costing other partners money.
@@ -11,6 +11,7 @@ import time
 from dataclasses import replace
 
 import pytest
+from django.conf import settings
 from django.test import override_settings
 
 from apps.core.money import D
@@ -65,7 +66,9 @@ async def test_a_hung_account_is_abandoned_not_awaited():
         (3, PaperAdapter(balance=D("1000"))),
     ]
     started = time.perf_counter()
-    result = await open_trade(accounts, intent())
+    # A short explicit timeout keeps this test quick; the configured deadline
+    # is covered by test_the_whole_fanout_fits_the_configured_budget.
+    result = await open_trade(accounts, intent(), timeout=1.0)
     elapsed = time.perf_counter() - started
 
     assert elapsed < 2.0, "a hung account blocked the fan-out"
@@ -73,13 +76,15 @@ async def test_a_hung_account_is_abandoned_not_awaited():
     assert result.failed[0].timed_out
 
 
-async def test_the_whole_fanout_fits_the_one_second_budget():
-    """Spec §4: every leg dispatched within ~1s of the others."""
+async def test_the_whole_fanout_fits_the_configured_budget():
+    """Spec §4: every leg dispatched within the configured deadline (Q19)."""
     accounts = [(i, PaperAdapter(balance=D("1000"), latency=0.02)) for i in range(25)]
     result = await open_trade(accounts, intent())
 
     assert result.all_ok
-    assert result.within_budget(1.0), f"fan-out took {result.total_ms:.0f}ms"
+    assert result.within_budget(
+        settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
+    ), f"fan-out took {result.total_ms:.0f}ms"
 
 
 async def test_legs_run_concurrently_not_serially():

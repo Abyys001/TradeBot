@@ -321,6 +321,45 @@ cached, navigations are network-first, and only content-hashed build assets are
 served from the cache. A cached balance or price is a wrong number presented as
 a current one, which on this panel is worse than an error.
 
+## Q19. Fan-out deadline extended 1s → 4s → 3.0s ✅ Spec §4 amendment, on the record
+
+Reported in use: on the production VPS a healthy entry was failing the §4
+deadline. Each leg's exchange round trips (balance, leverage, order, then
+SL/TP placement) were landing at 1–2 seconds, the 1s cap turned that into a
+failure notification nobody could act on, and the panel showed a fake
+"within the budget" reading against the same number that was being blown.
+
+The change and what it deliberately is not:
+
+- `FANOUT_TIMEOUT_SECONDS` now defaults to **3.0** (`config/settings.py`,
+  `.env.example`, `.env.production.example`), with an env override per
+  deployment. Test hooks take an explicit `timeout=` so the suite stays fast
+  and the platform default is only exercised at its true value. The first
+  amendment set 4.0; once the adapters were kept warm between actions (see
+  below) a healthy VPS leg landed well inside it, so the default came back
+  down to 3.0.
+- It is **not** a relaxation of §4's concurrency contract. Legs still run in
+  one `asyncio.gather`; one slow exchange still cannot hold up the others past
+  the deadline; a leg that overruns is abandoned, not awaited; a failed order
+  still raises a persistent notification.
+- The spec text (platform-spec.md §4), conformance table, gap analysis, and
+  the deploy runbook now all name the setting rather than the number.
+
+Why not instead make the fan-out tolerate the 1s by pooling connections or
+warming adapters? Pooling *one account's leg into another's* is still
+forbidden — §2 isolation is absolute — and that was the version rejected in
+the first amendment. What was added instead is a **warm adapter pool**
+(`apps/exchanges/pool.py`): each account keeps its own isolated adapter, its
+own client, its own rate limiter, and the pool only keeps *already-created*
+adapters alive between actions. A leg no longer pays a TCP + TLS handshake
+(and Hyperliquid no longer re-downloads its asset catalogue) before its first
+real call, so a healthy leg lands in tens of milliseconds — which is what lets
+the default sit at 3.0 rather than 4.0.
+
+**Note:** the change moves the *deadline*. The panel's "within the budget"
+check and the audit `fanout_ms` both read `FANOUT_TIMEOUT_SECONDS`, so they
+stay truthful together.
+
 ---
 
 # Answered — binding decisions

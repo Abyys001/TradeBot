@@ -5,7 +5,7 @@
  *
  * The fan-out column is the one to watch — it is the spec §4 promise measured
  * on every single action, and it turns amber the moment a trade goes over
- * budget rather than waiting for someone to audit the log.
+ * deadline rather than waiting for someone to audit the log.
  */
 const { t } = useI18n()
 const localePath = useLocalePath()

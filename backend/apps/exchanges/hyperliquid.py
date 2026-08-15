@@ -47,6 +47,19 @@ MAINNET = "https://api.hyperliquid.xyz"
 TESTNET = "https://api.hyperliquid-testnet.xyz"
 
 
+def _sdk_timeout() -> float:
+    """Per-request ceiling for the SDK, derived from the spec §4 deadline.
+
+    Was a hardcoded 5s, which is longer than the whole per-leg budget: a hung
+    request was killed by the fan-out with a bare "exceeded the deadline"
+    instead of the SDK reporting what it was waiting for. Sitting just under
+    the budget keeps the useful error.
+    """
+    from django.conf import settings
+
+    return max(1.0, float(settings.TRADING["FANOUT_TIMEOUT_SECONDS"]) * 0.75)
+
+
 class HyperliquidAdapter(ExchangeAdapter):
     name = "hyperliquid"
     capabilities = Capabilities(
@@ -82,24 +95,66 @@ class HyperliquidAdapter(ExchangeAdapter):
         self._exchange: Any = None
         self._info: Any = None
         self._meta: dict[str, dict] = {}
+        #: Serialises the one-time SDK construction. A leg opens with three
+        #: concurrent calls (balance, rules, leverage), so without this a cold
+        #: adapter builds the SDK three times over and downloads the asset
+        #: metadata with it — the expensive thing this adapter now does once.
+        self._build_lock = asyncio.Lock()
 
     # --- SDK plumbing -------------------------------------------------------
 
     def _build(self) -> None:
+        """Construct the SDK clients, fetching the asset metadata exactly once.
+
+        The obvious spelling — construct ``Info``, then construct ``Exchange`` —
+        downloads that metadata **twice**: ``Info.__init__`` posts ``spotMeta``
+        and ``meta`` to build its name→asset maps, and ``Exchange.__init__``
+        builds an ``Info`` of its own, which does it again. Four blocking POSTs
+        plus two cold TLS handshakes, and all of it inside the spec §4 per-leg
+        deadline on the first action after a restart.
+
+        Fetching the two payloads here and handing them to both constructors
+        makes it two POSTs on one connection, and neither constructor then
+        reaches the network at all. Combined with the adapter staying warm
+        between actions (``apps.exchanges.pool``) it is paid once per process
+        rather than once per order.
+        """
         from eth_account import Account
+        from hyperliquid.api import API
         from hyperliquid.exchange import Exchange
         from hyperliquid.info import Info
 
+        timeout = _sdk_timeout()
         wallet = Account.from_key(self._key)
-        self._info = Info(base_url=self._url, skip_ws=True, timeout=5)
+
+        # One session, two calls. These are public /info reads — no signature,
+        # no credentials — so nothing here touches the wallet.
+        api = API(self._url, timeout)
+        spot_meta = api.post("/info", {"type": "spotMeta"})
+        meta = api.post("/info", {"type": "meta"})
+
+        # positional args: (base_url, skip_ws, meta, spot_meta)
+        self._info = Info(self._url, True, meta, spot_meta, timeout=timeout)
         self._exchange = Exchange(
-            wallet=wallet, base_url=self._url, account_address=self.account_address, timeout=5
+            wallet=wallet,
+            base_url=self._url,
+            meta=meta,
+            spot_meta=spot_meta,
+            account_address=self.account_address,
+            timeout=timeout,
         )
+
+    async def _ensure_built(self) -> None:
+        """Build the SDK once, however many callers arrive at the same moment."""
+        if self._exchange is not None:
+            return
+        async with self._build_lock:
+            if self._exchange is None:
+                await asyncio.to_thread(self._build)
 
     async def _call(self, fn_name: str, *args, **kwargs) -> Any:
         """Run a synchronous SDK call off the event loop."""
-        if self._exchange is None:
-            await asyncio.to_thread(self._build)
+        await self._ensure_built()
         target = self._exchange if hasattr(self._exchange, fn_name) else self._info
         fn = getattr(target, fn_name)
         try:

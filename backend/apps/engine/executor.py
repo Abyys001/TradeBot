@@ -67,14 +67,28 @@ async def _open_one(
     intent: TradeIntent,
 ) -> LegFill:
     """One account's entry. Runs inside the fan-out's per-leg deadline."""
-    # Two independent reads, so they are two concurrent round trips rather than
-    # one after the other. On a venue 100ms away that is 100ms of the §4 budget
-    # handed back before anything else has happened, and nothing downstream can
-    # observe the difference — neither call depends on the other's answer.
-    balance, rules = await asyncio.gather(
+    # Three independent round trips, fired together: balance and rules are read
+    # concurrently, and set_leverage depends on neither of them, so on a futures
+    # leg it starts at the same moment instead of after them. On a venue 150ms
+    # away that is ~300ms of the §4 budget handed back before anything else has
+    # happened, and nothing downstream can observe the difference — the order
+    # still cannot go out until every flight member has landed.
+    calls = [
         adapter.get_balance(),
         adapter.get_symbol_rules(intent.symbol, intent.market),
-    )
+    ]
+    if intent.market is MarketType.FUTURES:
+        calls.append(adapter.set_leverage(intent.symbol, intent.leverage))
+    else:
+        # Spot has no leverage to set; keep the tuple shape so the unpack below
+        # does not depend on the market.
+        calls.append(asyncio.sleep(0))
+    balance, rules, leverage_call = await asyncio.gather(*calls, return_exceptions=True)
+
+    if isinstance(balance, BaseException):
+        raise balance
+    if isinstance(rules, BaseException):
+        raise rules
 
     leverage = intent.leverage
     if intent.market is MarketType.FUTURES:
@@ -91,7 +105,11 @@ async def _open_one(
                 "so the account sits this one out",
                 code="leverage_capped",
             )
-        await adapter.set_leverage(intent.symbol, leverage)
+        if isinstance(leverage_call, BaseException):
+            # The cap check ran first on purpose: an account that cannot comply
+            # with this leverage is skipped with the informative code, not with
+            # whatever the exchange said about the rejected set_leverage.
+            raise leverage_call
 
     reference_price = (
         intent.limit_price
@@ -271,10 +289,17 @@ async def _protect(
 async def open_trade(
     accounts: list[tuple[object, ExchangeAdapter]],
     intent: TradeIntent,
+    *,
+    timeout: float | None = None,
 ) -> FanOutResult[LegFill]:
-    """Entry, fanned out. Sizing rejections are per-account, never global."""
+    """Entry, fanned out. Sizing rejections are per-account, never global.
+
+    ``timeout`` overrides the configured per-leg deadline; the tests use it to
+    keep a hung-leg scenario quick without changing the platform's setting.
+    """
     return await fan_out(
-        [(aid, _make_open(aid, adapter, intent)) for aid, adapter in accounts]
+        [(aid, _make_open(aid, adapter, intent)) for aid, adapter in accounts],
+        timeout=timeout,
     )
 
 
@@ -299,8 +324,9 @@ async def amend_sltp(
     sl_pct: Decimal | None,
     tp_pct: Decimal | None,
     admin_entry: Decimal,
+    timeout: float | None = None,
 ) -> FanOutResult[None]:
-    """Mid-trade SL/TP change (spec §4 — must land within 1 second).
+    """Mid-trade SL/TP change (spec §4 — must land within the fan-out deadline).
 
     ``respect_stop_all`` is False for the same reason as ``close_trade``: Q14
     decided the halt stops *new* routing only. Tightening a stop on a position
@@ -310,10 +336,16 @@ async def amend_sltp(
 
     def make(account_id, adapter):
         async def op() -> None:
-            position = await adapter.get_position(symbol)
+            # Two independent reads, so they travel together rather than back to
+            # back — one full exchange round trip handed back to the §4 budget
+            # on every amend. The position lookup cannot short-circuit the rules
+            # read, but that read is harmless when no position exists.
+            position, rules = await asyncio.gather(
+                adapter.get_position(symbol),
+                adapter.get_symbol_rules(symbol, MarketType.FUTURES),
+            )
             if position is None:
                 raise AdapterError("no open position on this account")
-            rules = await adapter.get_symbol_rules(symbol, MarketType.FUTURES)
             # Q5b/Q5c: which entry price the percentage is measured from.
             entry = anchor_price(admin_entry=admin_entry, own_entry=position.entry_price)
             # The exchange's own view of this position's leverage, not the
@@ -342,6 +374,7 @@ async def amend_sltp(
     return await fan_out(
         [(aid, make(aid, ad)) for aid, ad in accounts],
         respect_stop_all=False,
+        timeout=timeout,
     )
 
 
@@ -349,6 +382,7 @@ async def close_trade(
     accounts: list[tuple[object, ExchangeAdapter]],
     *,
     symbol: str,
+    timeout: float | None = None,
 ) -> FanOutResult[Decimal]:
     """Market-close everywhere (spec §3, §4).
 
@@ -366,6 +400,7 @@ async def close_trade(
     return await fan_out(
         [(aid, make(ad)) for aid, ad in accounts],
         respect_stop_all=False,
+        timeout=timeout,
     )
 
 

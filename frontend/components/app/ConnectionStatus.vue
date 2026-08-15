@@ -5,7 +5,7 @@
  * **Two measured numbers, never one.** The first is the browser's own round
  * trip to the engine, timed on the keepalive. On a local network that is a
  * millisecond — a true number that says nothing about whether an order reaches
- * an exchange inside the spec §4 budget. The second is what does: the engine's
+ * an exchange inside the spec §4 deadline. The second is what does: the engine's
  * last measured round trip to the exchange, timed on real market-data calls and
  * reported in the pong.
  *
@@ -54,7 +54,7 @@ const tooltip = computed(() => {
     lines.push(
       t('connection.exchangeHint', {
         ms: live.exchangeMs ?? 0,
-        exchange: live.exchangeName,
+        exchange: exchangeLabel(live.exchangeName),
         quality: t(`connection.${live.exchangeQuality}`),
       }),
     )
@@ -104,7 +104,7 @@ const tooltip = computed(() => {
         :class="PING_TONE[live.exchangeQuality ?? 'good']"
       >
         <span class="text-ink-faint text-tick uppercase me-0.5">
-          {{ live.exchangeName || t('connection.exchange') }}
+          {{ exchangeLabel(live.exchangeName) || t('connection.exchange') }}
         </span>
         {{ Math.round(live.exchangeMs) }}<span class="text-ink-faint">ms</span>
       </span>

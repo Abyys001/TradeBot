@@ -121,13 +121,16 @@ const diagnostics = computed(() => [
   {
     // Names the venue *and* how the prices arrive. Both are real exchange
     // data, but a streamed tick and a 15-second poll are different promises,
-    // and this card exists to say which one is in force.
+    // and this card exists to say which one is in force. A pinned venue is
+    // named as the pin — that is the only exchange allowed to answer.
     key: 'feed',
     value: !market.live
       ? t('terminal.feedDown')
       : market.streaming
-        ? `${market.streamSource || market.source} · ${t('terminal.streaming')}`
-        : market.source || t('common.live'),
+        ? `${exchangeLabel(market.pinnedSource || market.streamSource)} · ${t('terminal.streaming')}`
+        : market.pinnedSource
+          ? `${exchangeLabel(market.pinnedSource)} · ${t('terminal.polling')}`
+          : exchangeLabel(market.source),
     tone: market.live ? ('ok' as const) : ('signal' as const),
   },
 ])

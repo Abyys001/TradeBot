@@ -236,7 +236,7 @@ async def test_the_fanout_duration_is_recorded_for_audit():
     trade, result = await open_a_trade()
 
     assert trade.fanout_ms is not None
-    assert result.within_budget(1.0)
+    assert result.within_budget()
     legs = await sync_to_async(lambda: list(trade.legs.all()))()
     assert all(leg.dispatch_ms is not None for leg in legs)
 

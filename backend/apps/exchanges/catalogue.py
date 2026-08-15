@@ -66,8 +66,18 @@ def catalogue_sources() -> list[str]:
     platform could trade before committing a key to it. The pair list is real
     exchange data either way; what an account changes is only which venues lead
     the order.
+
+    A **pinned** feed (`MARKET_DATA_PIN`) narrows this to that one venue. The
+    picker and the price feed have to agree: offering a pair the pinned venue
+    does not list means a chart that can only ever answer "no price feed", and
+    an order sized off nothing.
     """
+    from apps.exchanges.marketdata import pinned_provider
     from apps.exchanges.public_sources import SOURCES
+
+    pin = pinned_provider()
+    if pin:
+        return [pin]
 
     ordered = list(connected_exchanges())
     for name in settings.MARKET_DATA["PROVIDERS"]:

@@ -14,7 +14,7 @@ Reads go through the cache so the routing path costs a cache hit rather than a
 query, and so every worker process sees a flip immediately when the cache is
 Redis. All of these functions are **synchronous** and must be called from async
 code via ``sync_to_async``; doing DB or Redis I/O directly on the event loop is
-what the 1-second fan-out budget cannot afford.
+what the fan-out deadline cannot afford.
 """
 
 from __future__ import annotations

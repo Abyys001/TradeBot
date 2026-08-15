@@ -38,7 +38,7 @@ const openTrade = computed(() => trading.openTrade)
 
 const lastFanout = computed(() => {
   const value = trading.lastFanoutMs ?? trading.latest?.fanout_ms ?? null
-  return value === null ? null : { ms: value, over: value > 1000 }
+  return value === null ? null : { ms: value, over: value > trading.fanoutBudgetMs }
 })
 
 // --- capital allocation ---------------------------------------------------
@@ -80,7 +80,7 @@ const fanoutPoints = computed<ColumnPoint[]>(() =>
       minute: '2-digit',
       hour12: false,
     }),
-    over: point.ms > 1000,
+    over: point.ms > trading.fanoutBudgetMs,
   })),
 )
 
@@ -257,7 +257,7 @@ const pnlSeries = computed(() => {
         <UiColumnChart
           v-if="fanoutPoints.length"
           :points="fanoutPoints"
-          :reference="1000"
+          :reference="trading.fanoutBudgetMs"
           :reference-label="t('dashboard.budget')"
           :height="150"
         >
