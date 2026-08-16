@@ -199,6 +199,311 @@ async def test_toobit_declares_no_testnet():
     assert "no test environment" in ToobitAdapter.capabilities.testnet_note
 
 
+TOOBIT_CONTRACTS = [
+    {
+        "symbol": "BTC-SWAP-USDT",
+        "index": "BTCUSDT",
+        "inverse": False,
+        "marginToken": "USDT",
+        "contractMultiplier": "0.0001",
+        "filters": [
+            {
+                "filterType": "PRICE_FILTER",
+                "minPrice": "0.01",
+                "maxPrice": "1000000",
+                "tickSize": "0.10",
+            },
+            {"filterType": "LOT_SIZE", "minQty": "0.0001", "maxQty": "4000", "stepSize": "0.0001"},
+            {"filterType": "MIN_NOTIONAL", "minNotional": "10"},
+        ],
+    },
+    # A non-USDT-margined and an inverse contract must be ignored by the adapter.
+    {
+        "symbol": "BTC-SWAP-BTC",
+        "index": "BTCUSD",
+        "inverse": True,
+        "marginToken": "BTC",
+        "contractMultiplier": "100",
+        "filters": [],
+    },
+    {
+        "symbol": "ETH-SWAP-BTC",
+        "index": "ETHBTC",
+        "inverse": False,
+        "marginToken": "BTC",
+        "contractMultiplier": "0.01",
+        "filters": [],
+    },
+]
+
+
+def toobit_handler(*, info: bool = True, **endpoints):
+    """A mock handler serving exchangeInfo (and per-call fixture bodies)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if info and request.url.path == "/api/v1/exchangeInfo":
+            return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+        for path, payload in endpoints.items():
+            if request.url.path == path:
+                return json_response(payload) if callable(payload) else json_response(payload)
+        return json_response({"code": -1121, "msg": "Invalid symbol."}, status=400)
+
+    return handler
+
+
+async def test_toobit_signs_parameters_in_the_query_string():
+    """Toobit signs totalParams = query string; the body stays empty."""
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["headers"] = dict(request.headers)
+        captured["body"] = request.content.decode()
+        return json_response({"code": 200, "msg": "success"})
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    await adapter.request(
+        "POST", "/api/v1/futures/leverage", body={"symbol": "BTCUSDT", "leverage": 10}
+    )
+
+    query = parse_qs(urlparse(captured["url"]).query)
+    assert captured["headers"]["X-BB-APIKEY"] == KEY
+    assert captured["body"] == ""
+    # Query wins over body: the symbol/leverage params travelled in the query.
+    assert query["symbol"] == ["BTCUSDT"]
+    assert query["leverage"] == ["10"]
+    assert query["recvWindow"] == ["5000"]
+    unsigned = captured["url"].split("?", 1)[1].rsplit("&signature=", 1)[0]
+    expected = hmac.new(SECRET.encode(), unsigned.encode(), hashlib.sha256).hexdigest()
+    assert query["signature"][0] == expected
+
+
+async def test_toobit_maps_the_admin_symbol_through_contracts():
+    """BTCUSDT -> BTC-SWAP-USDT, ignoring inverse and non-USDT contracts."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    contract, multiplier = await adapter._contract("BTCUSDT")
+    assert contract == "BTC-SWAP-USDT"
+    assert multiplier == D("0.0001")
+    with pytest.raises(AdapterError):
+        await adapter._contract("BTCUSD")
+
+
+async def test_toobit_reads_futures_filters_in_base_units():
+    """LOT_SIZE is token quantity, not contracts (doc: "min trade quantity,
+    token quantity not contracts")."""
+    adapter = ToobitAdapter(
+        api_key=KEY, api_secret=SECRET, client=mock(toobit_handler())
+    )
+    rules = await adapter.get_symbol_rules("BTCUSDT", MarketType.FUTURES)
+    assert rules.price_tick == D("0.10")
+    assert rules.qty_step == D("0.0001")
+    assert rules.min_qty == D("0.0001")
+    assert rules.min_notional == D("10")
+    with pytest.raises(NotSupported):
+        await adapter.get_symbol_rules("BTCUSDT", MarketType.SPOT)
+
+
+async def test_toobit_place_order_uses_v2_contract_quantity():
+    """v2: side/positionSide, quantity in contracts, mandatory client id,
+    {code,msg,data} envelope unwrapped, fills scaled back to base units."""
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/exchangeInfo":
+            return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+        sent["body"] = parse_qs(urlparse(str(request.url)).query)
+        return json_response(
+            {
+                "code": 200,
+                "msg": "success",
+                "data": {
+                    "symbol": "BTC-SWAP-USDT",
+                    "orderId": "860350156235039872",
+                    "newClientOrderId": "gen-123",
+                    "status": "FILLED",
+                    "avgPrice": "66000.5",
+                    "executedQty": "10",
+                    "origQty": "10",
+                },
+            }
+        )
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    result = await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.001"),  # 0.001 / 0.0001 = 10 contracts
+        order_type=OrderType.MARKET,
+    )
+
+    body = sent["body"]
+    assert body["symbol"] == ["BTC-SWAP-USDT"]
+    assert body["side"] == ["BUY"]
+    assert body["positionSide"] == ["LONG"]
+    assert body["type"] == ["MARKET"]
+    assert body["quantity"] == ["10"]
+    assert body["newClientOrderId"]  # generated when the engine sends none
+    assert result.order_id == "860350156235039872"
+    assert result.filled_qty == D("0.001")  # 10 contracts x 0.0001
+    assert result.avg_price == D("66000.5")
+
+
+async def test_toobit_place_order_refuses_sub_contract_size():
+    """A size under one contract must error, never silently round up past 99%."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    with pytest.raises(AdapterError):
+        await adapter.place_order(
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            side=Side.LONG,
+            qty=D("0.00005"),  # half a contract
+            order_type=OrderType.MARKET,
+        )
+
+
+async def test_toobit_balance_reads_coin_and_available_balance():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return json_response(
+            [
+                {"coin": "USDT", "balance": "100.5", "availableBalance": "99.4",
+                 "positionMargin": "1.1"},
+                {"coin": "BTC", "balance": "0.01", "availableBalance": "0.01"},
+            ]
+        )
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    balance = await adapter.get_balance("USDT")
+    assert balance.available == D("99.4")
+    assert balance.total == D("100.5")
+
+
+async def test_toobit_get_position_converts_contracts_to_base():
+    adapter = ToobitAdapter(
+        api_key=KEY, api_secret=SECRET, client=mock(toobit_handler(positions=[]))
+    )
+    await adapter.get_position("BTCUSDT")  # empty list -> None, must not raise
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/exchangeInfo":
+            return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+        return json_response(
+            [
+                {
+                    "symbol": "BTC-SWAP-USDT",
+                    "side": "LONG",
+                    "avgPrice": "66000",
+                    "position": "20",  # contracts
+                    "available": "20",
+                    "leverage": "10",
+                    "flp": "60000",
+                    "positionValue": "1320",
+                    "margin": "132",
+                    "unrealizedPnL": "12.5",
+                    "markPrice": "66000",
+                }
+            ]
+        )
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    position = await adapter.get_position("BTCUSDT")
+    assert position is not None
+    assert position.side is Side.LONG
+    assert position.size == D("0.002")  # 20 contracts x 0.0001
+    assert position.entry_price == D("66000")
+    assert position.liquidation_price == D("60000")
+    assert position.unrealized_pnl == D("12.5")
+    assert position.leverage == 10
+
+
+async def test_toobit_close_uses_flash_close_and_mark_price():
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/exchangeInfo":
+            return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+        if request.url.path == "/api/v1/futures/positions":
+            return json_response(
+                [{"symbol": "BTC-SWAP-USDT", "side": "LONG", "position": "10", "avgPrice": "66000"}]
+            )
+        if request.url.path == "/api/v1/futures/flashClose":
+            sent["body"] = parse_qs(urlparse(str(request.url)).query)
+            return json_response({"code": 200, "orderId": "close-1"})
+        if request.url.path == "/quote/v1/markPrice":
+            return json_response({"exchangeId": 301, "symbolId": "BTC-SWAP-USDT", "price": "66500"})
+        return json_response({"code": -1121, "msg": "Invalid symbol."}, status=400)
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    result = await adapter.close_position("BTCUSDT")
+    assert sent["body"]["side"] == ["LONG"]  # position direction, not a trade side
+    assert sent["body"]["clientOrderId"]
+    assert result.order_id == "close-1"
+    assert result.filled_qty == D("0.001")
+    assert result.avg_price == D("66500")  # flashClose reports no fill price
+
+
+async def test_toobit_set_sltp_replaces_in_place_via_trading_stop():
+    """Empty string clears a leg; no position means no protection to set."""
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/exchangeInfo":
+            return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+        if request.url.path == "/api/v1/futures/positions":
+            return json_response([{"symbol": "BTC-SWAP-USDT", "side": "SHORT", "position": "10"}])
+        sent["body"] = parse_qs(urlparse(str(request.url)).query)
+        return json_response({"symbol": "BTC-SWAP-USDT", "side": "SHORT", "takeProfit": "60000", "stopLoss": ""})
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    await adapter.set_sltp(symbol="BTCUSDT", stop_loss=None, take_profit=D("60000"))
+    assert sent["body"]["side"] == ["SHORT"]
+    assert sent["body"]["takeProfit"] == ["60000"]
+    assert sent["body"]["stopLoss"] == [""]
+    assert sent["body"]["slTriggerBy"] == ["MARK_PRICE"]
+    assert sent["body"]["tpTriggerBy"] == ["MARK_PRICE"]
+
+    no_position = toobit_handler(positions=[])
+    no_position_adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(no_position))
+    with pytest.raises(AdapterError):
+        await no_position_adapter.set_sltp(symbol="BTCUSDT", stop_loss=D("50000"), take_profit=None)
+
+
+async def test_toobit_lists_and_cancels_only_protection_orders():
+    """Q5d: STOP and STOP_PROFIT_LOSS are the adapter's conditional types;
+    an unrelated working order survives a cancel sweep. A stale cancel is a
+    race (-2013), not a failure."""
+    cancelled: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/exchangeInfo":
+            return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
+        if request.url.path == "/api/v1/futures/openOrders":
+            return json_response(
+                [
+                    {"orderId": "1", "type": "STOP", "stopPrice": "50000", "triggerBy": "MARK_PRICE"},
+                    {"orderId": "2", "type": "STOP_PROFIT_LOSS", "orderType": "STOP_LONG_LOSS"},
+                    {"orderId": "3", "type": "LIMIT"},  # must never be cancelled
+                ]
+            )
+        if request.url.path == "/api/v1/futures/order":
+            cancelled.append(parse_qs(urlparse(str(request.url)).query)["orderId"][0])
+            return json_response({"orderId": "1", "type": "STOP", "status": "CANCELED"})
+        return json_response({"code": -1121, "msg": "Invalid symbol."}, status=400)
+
+    adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    assert await adapter.list_conditional_orders("BTCUSDT") == ["1", "2"]
+    await adapter.cancel_orders("BTCUSDT", ["1", "2"])
+    assert cancelled == ["1", "2"]
+
+
 async def test_binance_reads_symbol_filters():
     def handler(request: httpx.Request) -> httpx.Response:
         return json_response(

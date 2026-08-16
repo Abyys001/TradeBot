@@ -101,6 +101,19 @@ export function useApi() {
     // --- history (spec §8) ---
     trades: (accountId?: number | null) =>
       request<Trade[]>(`/trading/trades/${accountId ? `?account=${accountId}` : ''}`),
+
+    // --- financial management (the ledger) ---
+    /** Deposits, withdrawals, per-account PnL and the profit split in one shot. */
+    ledger: () => request<LedgerSnapshot>('/accounts/ledger/'),
+    movements: (accountId?: number | null) =>
+      request<FundMovement[]>(`/accounts/ledger/movements/${accountId ? `?account=${accountId}` : ''}`),
+    createMovement: (body: Record<string, unknown>) =>
+      request<FundMovement>('/accounts/ledger/movements/', { method: 'POST', body }),
+    deleteMovement: (id: number) =>
+      request<void>(`/accounts/ledger/movements/${id}/`, { method: 'DELETE' }),
+    ledgerSplit: () => request<ProfitSplit>('/accounts/ledger/split/'),
+    saveLedgerSplit: (body: Record<string, unknown>) =>
+      request<ProfitSplit>('/accounts/ledger/split/', { method: 'POST', body }),
   }
 }
 
@@ -124,6 +137,28 @@ export interface ApiCandle {
   v: string
 }
 
+export interface HistoryStatus {
+  /**
+   * Where the pair's own chart-driven download stands:
+   *
+   *   - `none` — history is off (no public feed configured).
+   *   - `ready` — stored bars already span the configured window.
+   *   - `downloading` — a download is queued or running; `percent` is how far.
+   *   - `failed` — the last attempt failed and is inside its retry cooldown.
+   */
+  state: 'none' | 'downloading' | 'ready' | 'failed'
+  /** The timeframe the chart currently has on screen (fetched first). */
+  interval: string
+  days: number
+  intervals: string[]
+  series_done: number
+  series_total: number
+  percent: number
+  /** How many other pairs are waiting behind this one. */
+  queued: number
+  error: string
+}
+
 export interface CandleFeed {
   symbol: string
   interval: string
@@ -135,6 +170,11 @@ export interface CandleFeed {
    */
   live: boolean
   /**
+   * True when the bars came from downloaded history rather than the live feed
+   * (`live` is then false too): stored exchange data, merely old.
+   */
+  stored?: boolean
+  /**
    * The venue the feed is locked to (`MARKET_DATA_PIN`), or '' when it follows
    * the connected accounts. Named separately from `source` so the chart can say
    * which venue is *allowed* to answer, not just which one did.
@@ -143,6 +183,17 @@ export interface CandleFeed {
   /** Measured engine→exchange round trip in ms, null when nothing was timed. */
   provider_ms: number | null
   candles: ApiCandle[]
+  /**
+   * Present when the live feed was down and the chart turned to the pair's own
+   * download: the reason the real-time price is missing.
+   */
+  feed_error?: string
+  /**
+   * The pair's on-demand history download. Attached to every success (state
+   * `ready` when stored bars cover the window) and to the 202 the endpoint
+   * answers while the download is running (state `downloading`).
+   */
+  history?: HistoryStatus
 }
 
 export interface TickerQuote {
@@ -359,4 +410,74 @@ export interface Trade {
   closed_at: string | null
   fanout_ms: number | null
   legs: TradeLeg[]
+}
+
+// --- the financial ledger ---------------------------------------------------
+
+/** A cash flow, recorded by hand — the keys are trade-only (spec §7). */
+export interface FundMovement {
+  id: number
+  account: number
+  account_label: string
+  kind: 'deposit' | 'withdrawal'
+  amount: string
+  asset: string
+  occurred_at: string
+  note: string
+  created_at: string
+}
+
+/** The three roles the profit is split between. Percentages, not dollars. */
+export interface SplitPercents {
+  investor: string
+  trader: string
+  programmer: string
+}
+
+/** One account's row: what went in, what came out, what it is worth now. */
+export interface LedgerRow {
+  account: number
+  label: string
+  exchange: string
+  exchange_label: string
+  status: string
+  testnet: boolean
+  hidden: boolean
+  asset: string
+  balance_is_usdt: boolean
+  deposits: string
+  withdrawals: string
+  net_invested: string
+  current_balance: string | null
+  pnl: string | null
+  pnl_pct: string | null
+  shares: SplitPercents
+}
+
+/** An exchange's aggregate, or the grand total — same shape, one more key. */
+export interface LedgerGroup extends SplitPercents {
+  accounts: number
+  net_invested: string
+  current_balance: string
+  pnl: string
+  pnl_pct: string | null
+  shares: SplitPercents
+}
+
+export interface LedgerExchange extends LedgerGroup {
+  exchange: string
+  label: string
+}
+
+export interface LedgerSnapshot {
+  accounts: LedgerRow[]
+  exchanges: LedgerExchange[]
+  totals: LedgerGroup
+  split: SplitPercents
+  non_usdt: { account: number; label: string; asset: string }[]
+}
+
+export interface ProfitSplit extends SplitPercents {
+  updated_at: string
+  updated_by: string
 }

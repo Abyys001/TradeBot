@@ -24,8 +24,16 @@ from django.contrib.auth.models import User
 from django.test import Client, override_settings
 from django.utils import timezone
 
-from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Notification
+from apps.accounts.models import (
+    AccountStatus,
+    ConnectedAccount,
+    Exchange,
+    FundMovement,
+    FundMovementType,
+    Notification,
+)
 from apps.accounts.visibility import HIDDEN_VIEWER, can_see_hidden
+from apps.core.money import D
 from apps.trading.consumers import GROUP, TradingConsumer
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 
@@ -265,6 +273,103 @@ def test_a_wholly_hidden_position_reads_as_no_open_trade():
     assert body["legs"] == []
 
     assert viewer_client().get("/api/trading/positions/").json()["trade"] is not None
+
+
+# --- the financial ledger ---------------------------------------------------
+
+
+def movement(account: ConnectedAccount, kind: str, amount: str) -> FundMovement:
+    return FundMovement.objects.create(account=account, kind=kind, amount=amount)
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_ledger_hides_hidden_accounts_from_rows_exchanges_and_totals():
+    """A total that covers money with no visible account behind it is itself a
+    leak — the same rule the positions panel's totals line obeys."""
+    visible = make_account("open-book", last_balance="110")
+    movement(visible, FundMovementType.DEPOSIT, "100")
+    hidden = make_account("quiet", hidden=True, last_balance="5010")
+    movement(hidden, FundMovementType.DEPOSIT, "5000")
+
+    body = other_client().get("/api/accounts/ledger/").json()
+    assert [row["label"] for row in body["accounts"]] == ["open-book"]
+    assert body["totals"]["accounts"] == 1
+    assert D(body["totals"]["net_invested"]) == D("100")
+    assert D(body["totals"]["pnl"]) == D("10")
+
+    seen = viewer_client().get("/api/accounts/ledger/").json()
+    assert {row["label"] for row in seen["accounts"]} == {"open-book", "quiet"}
+    assert seen["totals"]["accounts"] == 2
+    assert D(seen["totals"]["pnl"]) == D("20")
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_an_all_hidden_ledger_reads_as_no_movement_at_all():
+    hidden = make_account("quiet", hidden=True, last_balance="5010")
+    movement(hidden, FundMovementType.DEPOSIT, "5000")
+
+    body = other_client().get("/api/accounts/ledger/").json()
+    assert body["accounts"] == []
+    assert body["exchanges"] == []
+    assert body["totals"]["accounts"] == 0
+
+    seen = viewer_client().get("/api/accounts/ledger/").json()
+    assert len(seen["accounts"]) == 1
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_hidden_accounts_never_appear_in_the_non_usdt_list():
+    make_account("quiet", hidden=True, last_balance_asset="BTC", last_balance="0.1")
+    body = other_client().get("/api/accounts/ledger/").json()
+    assert body["non_usdt"] == []
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_ledger_movements_hide_the_hidden_rows_and_404_on_the_probe():
+    visible = make_account("open-book")
+    movement(visible, FundMovementType.DEPOSIT, "100")
+    hidden = make_account("quiet", hidden=True)
+    movement(hidden, FundMovementType.DEPOSIT, "5000")
+
+    client = other_client()
+    body = client.get("/api/accounts/ledger/movements/").json()
+    assert [row["account_label"] for row in body] == ["open-book"]
+    # The id probe must not answer "does this account exist?".
+    assert client.get(f"/api/accounts/ledger/movements/?account={hidden.id}").status_code == 404
+
+    seen = viewer_client().get("/api/accounts/ledger/movements/").json()
+    assert len(seen) == 2
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_ledger_movement_delete_404s_for_a_hidden_accounts_row():
+    hidden = make_account("quiet", hidden=True)
+    row = movement(hidden, FundMovementType.DEPOSIT, "5000")
+
+    assert other_client().delete(f"/api/accounts/ledger/movements/{row.id}/").status_code == 404
+    assert FundMovement.objects.filter(id=row.id).exists()
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_ledger_movement_create_404s_for_a_hidden_account():
+    hidden = make_account("quiet", hidden=True)
+
+    response = other_client().post(
+        "/api/accounts/ledger/movements/",
+        {"account": hidden.id, "kind": "deposit", "amount": "100"},
+        content_type="application/json",
+    )
+    assert response.status_code == 404
+    assert not FundMovement.objects.exists()
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_split_is_global_and_visible_to_everyone():
+    """The split percentages are not per-account and are not a leak: they name
+    no account, so both readers get the same numbers."""
+    body = other_client().get("/api/accounts/ledger/split/").json()
+    assert body["investor"] == "60.00"
+    assert viewer_client().get("/api/accounts/ledger/split/").json() == body
 
 
 # --- notifications ----------------------------------------------------------

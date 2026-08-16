@@ -31,7 +31,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Any
 from urllib.parse import urlencode
 
@@ -54,9 +54,10 @@ from apps.exchanges.rest import RestAdapter
 
 logger = logging.getLogger(__name__)
 
-#: -2011 "Unknown order sent" — the order triggered or was cancelled between the
-#: snapshot and the cancel. That is a race, not a failure (see base.cancel_orders).
-_GONE = ("-2011", "unknown order", "does not exist")
+#: -2011 "Unknown order sent" / -2013 "No such order" / -1143 "Order not found
+#: on order book" — the order triggered or was cancelled between the snapshot
+#: and the cancel. That is a race, not a failure (see base.cancel_orders).
+_GONE = ("-2011", "-2013", "-1143", "unknown order", "does not exist")
 
 
 def _already_gone(exc: Exception) -> bool:
@@ -219,6 +220,29 @@ class BinanceStyleAdapter(RestAdapter):
                     raise
                 logger.info("%s: order %s was already gone", self.name, order_id)
 
+    async def _exchange_info(self) -> dict[str, dict]:
+        # An injected client means a mocked transport. Caching across mocks
+        # would leak one test's fixture into the next, and the cache is a
+        # latency optimisation, not behaviour — so tests skip it entirely.
+        if self._injected:
+            return await self._fetch_exchange_info()
+
+        host = self._url
+        cached = _EXCHANGE_INFO.get(host)
+        now = time.monotonic()
+        if cached and now - cached[0] < _EXCHANGE_INFO_TTL:
+            return cached[1]
+
+        lock = _EXCHANGE_INFO_LOCKS.setdefault(host, asyncio.Lock())
+        async with lock:
+            # Another leg of the same fan-out may have filled it while we waited.
+            cached = _EXCHANGE_INFO.get(host)
+            if cached and time.monotonic() - cached[0] < _EXCHANGE_INFO_TTL:
+                return cached[1]
+            symbols = await self._fetch_exchange_info()
+            _EXCHANGE_INFO[host] = (time.monotonic(), symbols)
+            return symbols
+
 
 # --- Binance ----------------------------------------------------------------
 
@@ -356,37 +380,6 @@ class BinanceAdapter(BinanceStyleAdapter):
         return "LONG" if side is Side.LONG else "SHORT"
 
     # --- market rules -------------------------------------------------------
-
-    async def _fetch_exchange_info(self) -> dict[str, dict]:
-        data = await self.request("GET", "/fapi/v1/exchangeInfo", signed=False, weight=1)
-        return {
-            entry["symbol"]: entry
-            for entry in data.get("symbols", [])
-            if entry.get("symbol")
-        }
-
-    async def _exchange_info(self) -> dict[str, dict]:
-        # An injected client means a mocked transport. Caching across mocks
-        # would leak one test's fixture into the next, and the cache is a
-        # latency optimisation, not behaviour — so tests skip it entirely.
-        if self._injected:
-            return await self._fetch_exchange_info()
-
-        host = self._url
-        cached = _EXCHANGE_INFO.get(host)
-        now = time.monotonic()
-        if cached and now - cached[0] < _EXCHANGE_INFO_TTL:
-            return cached[1]
-
-        lock = _EXCHANGE_INFO_LOCKS.setdefault(host, asyncio.Lock())
-        async with lock:
-            # Another leg of the same fan-out may have filled it while we waited.
-            cached = _EXCHANGE_INFO.get(host)
-            if cached and time.monotonic() - cached[0] < _EXCHANGE_INFO_TTL:
-                return cached[1]
-            symbols = await self._fetch_exchange_info()
-            _EXCHANGE_INFO[host] = (time.monotonic(), symbols)
-            return symbols
 
     async def get_symbol_rules(self, symbol: str, market: MarketType) -> SymbolRules:
         if market is MarketType.SPOT:
@@ -576,6 +569,31 @@ class BinanceAdapter(BinanceStyleAdapter):
                 body["positionSide"] = self._position_side(position.side)
             await self.request("POST", f"{self.futures_prefix}/order", body=body, weight=2)
 
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """What is actually resting: the ``closePosition`` market triggers.
+
+        ``STOP_MARKET`` is the stop, ``TAKE_PROFIT_MARKET`` the take-profit —
+        both carry their trigger in ``stopPrice``. Only ``closePosition=true``
+        orders count: those are the ones ``set_sltp`` places and the Q5d
+        strategy cancels, so this is the same set the exchange will honour.
+        """
+        data = await self.request(
+            "GET", f"{self.futures_prefix}/openOrders", params={"symbol": symbol}, weight=1
+        )
+        rows = data if isinstance(data, list) else []
+        stop_loss = take_profit = None
+        for row in rows:
+            if not row.get("closePosition"):
+                continue
+            price = D(str(row.get("stopPrice") or "")) or None
+            if price is None:
+                continue
+            if row.get("type") == "STOP_MARKET":
+                stop_loss = price
+            elif row.get("type") == "TAKE_PROFIT_MARKET":
+                take_profit = price
+        return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
+
     async def get_position(self, symbol: str) -> Position | None:
         """``GET /fapi/v3/positionRisk``.
 
@@ -689,21 +707,36 @@ class BinanceAdapter(BinanceStyleAdapter):
 
 
 class ToobitAdapter(BinanceStyleAdapter):
-    """Toobit USDT-M.
+    """Toobit USDT-M futures.
 
-    **Unverified and known-wrong.** These request shapes were written against
-    Binance's API, not Toobit's, and the 2026-08-13 audit confirmed against
-    ``reference/exchanges/toobit/api/usdt-m-account-and-trading.md`` that they
-    will be rejected: Toobit wants ``side`` of ``BUY_OPEN``/``SELL_OPEN``, a
-    ``type`` of only ``LIMIT`` or ``STOP`` (market is ``LIMIT`` +
-    ``priceType=MARKET``), integer ``quantity`` in contracts, symbols shaped
-    ``BTC-SWAP-USDT``, a mandatory ``newClientOrderId``, ``coin`` rather than
-    ``asset`` in the balance response, and it has its own
-    ``/api/v1/futures/positions``, ``/api/v1/exchangeInfo``,
-    ``/api/v1/futures/position/trading-stop`` and ``/api/v1/futures/flashClose``.
+    Rebuilt 2026-08-16 against ``reference/exchanges/toobit/api/*`` after the
+    2026-08-13 audit proved the previous shapes were Binance's, not Toobit's.
+    The differences that matter, in one place:
 
-    It is left exactly as it was rather than half-fixed, so nobody mistakes it
-    for working. Tracked in ``docs/exchanges/coverage.md``.
+    * **Signing** — parameters (``signature`` included) travel in the query
+      string for every verb. Toobit signs ``totalParams`` = the query string,
+      and the documented curl pattern puts ``signature`` in the query, so the
+      form-body path is never taken here.
+    * **Symbols** — the contract id is ``BTC-SWAP-USDT``, reached from the
+      admin's ``BTCUSDT`` through ``exchangeInfo.contracts[].index``
+      (USDT-margined, non-inverse only).
+    * **Quantity is in contracts** — divide base size by ``contractMultiplier``.
+      The ``LOT_SIZE`` / ``MIN_NOTIONAL`` filters are in base / quote units, so
+      sizing never sees contract counts.
+    * **Entry is the v2 endpoint** (``side`` + ``positionSide``, ``type``
+      ``MARKET`` / ``LIMIT``); the response is wrapped in ``{code, msg, data}``.
+    * **Closing is ``flashClose``** — it cancels working orders then
+      market-closes. There is no ``reduceOnly`` parameter.
+    * **SL/TP post-entry amend is native** — ``position/trading-stop`` replaces
+      the position's protection in place, so ``native_sltp_amend`` is True and
+      the Q5d cancel dance is never entered for this exchange.
+
+    Spot is deliberately not declared: Toobit's spot order model differs
+    (``POST /api/v1/spot/order``, ``BUY``/``SELL``, quote-quantity buys) and
+    nothing in the platform needs it yet. Binance's adapter made the same call.
+
+    Still doc-vs-code only — no testnet exists (Q9), so nothing here has been
+    exercised against a live key. Tracked in ``docs/exchanges/coverage.md``.
     """
 
     name = "toobit"
@@ -712,16 +745,50 @@ class ToobitAdapter(BinanceStyleAdapter):
     api_key_header = "X-BB-APIKEY"
     futures_prefix = "/api/v1/futures"
     spot_prefix = "/api/v1"
+    ws_url = "wss://stream.toobit.com"
     capabilities = Capabilities(
-        markets=frozenset({MarketType.SPOT, MarketType.FUTURES}),
+        markets=frozenset({MarketType.FUTURES}),
         has_testnet=False,
         testnet_note="Toobit publishes no test environment — cannot be used in test mode.",
-        native_sltp_on_entry=True,  # takeProfit/stopLoss accepted at entry
-        native_sltp_amend=False,
-        supports_reduce_only=True,
+        native_sltp_on_entry=True,  # takeProfit/stopLoss accepted at entry (v2)
+        native_sltp_amend=True,  # position/trading-stop replaces in place (Q5d)
+        supports_reduce_only=True,  # closes via close-sides / flashClose
         max_leverage=10,
         per_key_rate_limits=True,
     )
+
+    #: Toobit's names for the reduce-only SL/TP protection orders (Q5d). Only
+    #: these are ever cancelled by the Q5d strategy — an unrelated working order
+    #: the partner placed by hand must survive an SL/TP change untouched.
+    conditional_types = frozenset({"STOP", "STOP_PROFIT_LOSS"})
+
+    def _sign(
+        self, method: str, path: str, params: dict | None, body: dict | None
+    ) -> tuple[dict[str, str], dict | None, Any]:
+        # Toobit signs the query string and only the query string; params and
+        # signature may all ride there for any verb. Sending them that way
+        # sidesteps the "query string + body" signing rule entirely — the body
+        # is always empty here.
+        payload = {**(params or {}), **(body or {})}
+        payload["timestamp"] = int(time.time() * 1000) + type(self)._time_offset_ms
+        payload["recvWindow"] = self.recv_window
+        query = urlencode(payload)
+        signature = hmac.new(
+            self.api_secret.encode(), query.encode(), hashlib.sha256
+        ).hexdigest()
+        return {self.api_key_header: self.api_key}, {**payload, "signature": signature}, None
+
+    async def _sync_clock(self) -> None:
+        # Toobit's server-time endpoint is /api/v1/time, not {futures_prefix}/time.
+        data = await super().request("GET", "/api/v1/time", signed=False)
+        server_ms = int(data.get("serverTime", 0))
+        if server_ms:
+            type(self)._time_offset_ms = server_ms - int(time.time() * 1000)
+            logger.warning(
+                "%s: local clock is %sms off the exchange; signed requests corrected",
+                self.name,
+                type(self)._time_offset_ms,
+            )
 
     async def _get_account_permissions(self) -> dict:
         # Toobit's docs expose no key-permission endpoint. Spec §7 cannot be
@@ -732,51 +799,83 @@ class ToobitAdapter(BinanceStyleAdapter):
             "key is trade-only in the Toobit dashboard before connecting."
         )
 
+    # --- contract id and exchange rules ---------------------------------------
+
+    async def _fetch_exchange_info(self) -> dict[str, dict]:
+        # Futures live under ``contracts`` (not ``symbols``), and only the
+        # USDT-margined, non-inverse ones are reachable through this adapter.
+        # Keyed by the plain ``index`` (``BTCUSDT``) so the admin's symbol maps
+        # straight in.
+        data = await self.request("GET", "/api/v1/exchangeInfo", signed=False, weight=1)
+        return {
+            entry["index"]: entry
+            for entry in data.get("contracts", [])
+            if entry.get("index")
+            and entry.get("marginToken") == "USDT"
+            and not entry.get("inverse")
+        }
+
+    async def _contract(self, symbol: str) -> tuple[str, Decimal]:
+        entry = (await self._exchange_info()).get(symbol)
+        if entry is None:
+            raise AdapterError(f"{self.name}: unknown symbol {symbol}")
+        return entry["symbol"], D(str(entry.get("contractMultiplier", "1")))
+
+    @staticmethod
+    def _v2_data(payload: Any) -> Any:
+        # v2 responses wrap in {code, msg, data}; v1 do not. unwrap() has
+        # already rejected non-200 codes, so just drop the envelope.
+        if isinstance(payload, dict) and isinstance(payload.get("data"), dict | list):
+            return payload["data"]
+        return payload
+
+    async def get_symbol_rules(self, symbol: str, market: MarketType) -> SymbolRules:
+        if market is MarketType.SPOT:
+            raise NotSupported(
+                "toobit: this adapter covers USDT-M futures only. Spot would be a "
+                "different order model (POST /api/v1/spot/order)."
+            )
+        entry = (await self._exchange_info()).get(symbol)
+        if entry is None:
+            raise AdapterError(f"{self.name}: unknown symbol {symbol}")
+        filters = {f["filterType"]: f for f in entry.get("filters", [])}
+        price_filter = filters.get("PRICE_FILTER", {})
+        lot = filters.get("LOT_SIZE", {})
+        notional = filters.get("MIN_NOTIONAL", {})
+        return SymbolRules(
+            symbol=symbol,
+            price_tick=D(str(price_filter.get("tickSize", "0.01"))),
+            qty_step=D(str(lot.get("stepSize", "0.0001"))),
+            min_qty=D(str(lot.get("minQty", "0.0001"))),
+            min_notional=D(str(notional.get("minNotional", "5"))),
+            max_leverage=self.capabilities.max_leverage,
+        )
+
+    async def get_mark_price(self, symbol: str) -> Decimal:
+        contract, _ = await self._contract(symbol)
+        data = await self.request(
+            "GET", "/quote/v1/markPrice", params={"symbol": contract}, signed=False, weight=1
+        )
+        return D(str(data.get("price", "0")))
+
     async def get_balance(self, asset: str = "USDT") -> Balance:
-        data = await self.request("GET", "/api/v1/futures/balance", weight=5)
-        rows = data if isinstance(data, list) else data.get("balances", [])
+        data = await self.request("GET", f"{self.futures_prefix}/balance", weight=5)
+        rows = data if isinstance(data, list) else []
         for row in rows:
-            if row.get("asset", row.get("tokenId", "")).upper() == asset.upper():
+            if str(row.get("coin", "")).upper() == asset.upper():
                 return Balance(
                     asset=asset,
-                    available=D(row.get("availableBalance", row.get("free", "0"))),
-                    total=D(row.get("balance", row.get("total", "0"))),
+                    available=D(str(row.get("availableBalance", "0"))),
+                    total=D(str(row.get("balance", "0"))),
                 )
         return Balance(asset=asset, available=D("0"), total=D("0"))
 
-    async def get_symbol_rules(self, symbol: str, market: MarketType) -> SymbolRules:
-        path = f"{self._prefix(market)}/exchangeInfo"
-        data = await self.request("GET", path, signed=False, weight=10)
-        for entry in data.get("symbols", []):
-            if entry.get("symbol") != symbol:
-                continue
-            filters = {f["filterType"]: f for f in entry.get("filters", [])}
-            price_filter = filters.get("PRICE_FILTER", {})
-            lot = filters.get("LOT_SIZE", filters.get("MARKET_LOT_SIZE", {}))
-            notional = filters.get("MIN_NOTIONAL", filters.get("NOTIONAL", {}))
-            return SymbolRules(
-                symbol=symbol,
-                price_tick=D(price_filter.get("tickSize", "0.01")),
-                qty_step=D(lot.get("stepSize", "0.001")),
-                min_qty=D(lot.get("minQty", "0.001")),
-                min_notional=D(notional.get("minNotional", notional.get("notional", "5"))),
-                max_leverage=self.capabilities.max_leverage,
-            )
-        raise AdapterError(f"{self.name}: unknown symbol {symbol}")
-
-    async def get_mark_price(self, symbol: str) -> Decimal:
-        data = await self.request(
-            "GET", f"{self.futures_prefix}/ticker/price", params={"symbol": symbol}, signed=False
-        )
-        if isinstance(data, list):
-            data = data[0] if data else {}
-        return D(data.get("price", "0"))
-
     async def set_leverage(self, symbol: str, leverage: int) -> None:
+        contract, _ = await self._contract(symbol)
         await self.request(
             "POST",
             f"{self.futures_prefix}/leverage",
-            body={"symbol": symbol, "leverage": leverage},
+            body={"symbol": contract, "leverage": leverage},
         )
 
     async def place_order(
@@ -793,31 +892,57 @@ class ToobitAdapter(BinanceStyleAdapter):
         reduce_only: bool = False,
         client_order_id: str | None = None,
     ) -> OrderResult:
+        if market is MarketType.SPOT:
+            raise NotSupported("toobit: this adapter covers USDT-M futures only")
+        contract, multiplier = await self._contract(symbol)
+        if multiplier <= 0:
+            raise AdapterError(f"{self.name}: bad contractMultiplier for {symbol}")
+
+        # Toobit sizes orders in whole contracts; the sizing layer works in base
+        # units. The exchange's LOT_SIZE step equals the contract multiplier, so
+        # the division is exact — round down defensively and refuse sub-contract
+        # sizes rather than silently rounding up past the 99% margin cap.
+        contracts = (qty / multiplier).to_integral_value(rounding=ROUND_DOWN)
+        if contracts <= 0:
+            raise AdapterError(
+                f"{self.name}: size {qty} {symbol} is under one contract "
+                f"({multiplier} {symbol} per contract)"
+            )
+
         body: dict[str, Any] = {
-            "symbol": symbol,
+            "symbol": contract,
             "side": "BUY" if side is Side.LONG else "SELL",
+            "positionSide": "LONG" if side is Side.LONG else "SHORT",
             "type": "MARKET" if order_type is OrderType.MARKET else "LIMIT",
-            "quantity": f"{qty:f}",
+            "quantity": str(int(contracts)),
+            # Mandatory on Toobit; the engine does not pass one.
+            "newClientOrderId": (client_order_id or str(time.time_ns()))[:36],
         }
         if order_type is OrderType.LIMIT:
             if limit_price is None:
-                raise AdapterError(f"{self.name}: limit order needs a price")
+                raise AdapterError("toobit: limit order needs a price")
             body["price"] = f"{limit_price:f}"
             body["timeInForce"] = "GTC"
-        if reduce_only and market is MarketType.FUTURES:
-            body["reduceOnly"] = "true"
-        if client_order_id:
-            body["newClientOrderId"] = client_order_id
         if stop_loss is not None:
             body["stopLoss"] = f"{stop_loss:f}"
         if take_profit is not None:
             body["takeProfit"] = f"{take_profit:f}"
+        if stop_loss is not None or take_profit is not None:
+            # Mark price is harder to manipulate than last-traded — the same
+            # reason Binance sets workingType=MARK_PRICE on its stops.
+            body["slTriggerBy"] = "MARK_PRICE"
+            body["tpTriggerBy"] = "MARK_PRICE"
 
-        data = await self.request("POST", f"{self._prefix(market)}/order", body=body, weight=2)
-        filled = D(data.get("executedQty", data.get("origQty", qty)))
-        avg = D(data.get("avgPrice", "0")) or D(data.get("price", "0"))
+        data = self._v2_data(
+            await self.request("POST", "/api/v2/futures/order", body=body, weight=1)
+        )
+        filled = D(str(data.get("executedQty", "0"))) * multiplier
+        avg = D(str(data.get("avgPrice", "0")))
+        if filled == 0:
+            # A resting limit order has no fill yet; report what was accepted.
+            filled = D(str(data.get("origQty", qty))) * multiplier
         if avg == 0:
-            avg = await self.get_mark_price(symbol)
+            avg = D(str(data.get("price", "0"))) or await self.get_mark_price(symbol)
         return OrderResult(
             order_id=str(data.get("orderId", "")), filled_qty=filled, avg_price=avg, raw=data
         )
@@ -825,76 +950,152 @@ class ToobitAdapter(BinanceStyleAdapter):
     async def set_sltp(
         self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
     ) -> None:
-        """Places reduce-only conditional orders — no amend in place.
+        """Replace SL/TP in place via ``position/trading-stop`` (native amend).
 
-        Cancelling what this replaces is the caller's job (Q5d): see
-        ``executor.apply_sltp``, which drives ``list_conditional_orders`` and
-        ``cancel_orders`` around this call."""
+        ``native_sltp_amend`` is True, so ``executor.apply_sltp`` calls this
+        directly and never runs the Q5d cancel dance — the position's protection
+        is overwritten as a whole and there is nothing to cancel.
+        """
+        contract, _ = await self._contract(symbol)
         position = await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"{self.name}: no open position on {symbol}")
-        exit_side = "SELL" if position.side is Side.LONG else "BUY"
+        await self.request(
+            "POST",
+            f"{self.futures_prefix}/position/trading-stop",
+            body={
+                "symbol": contract,
+                "side": "LONG" if position.side is Side.LONG else "SHORT",
+                "takeProfit": f"{take_profit:f}" if take_profit is not None else "",
+                "stopLoss": f"{stop_loss:f}" if stop_loss is not None else "",
+                "tpTriggerBy": "MARK_PRICE",
+                "slTriggerBy": "MARK_PRICE",
+            },
+            weight=3,
+        )
 
-        for price, order_type in (
-            (stop_loss, "STOP_MARKET"),
-            (take_profit, "TAKE_PROFIT_MARKET"),
-        ):
-            if price is None:
-                continue
-            await self.request(
-                "POST",
-                f"{self.futures_prefix}/order",
-                body={
-                    "symbol": symbol,
-                    "side": exit_side,
-                    "type": order_type,
-                    "stopPrice": f"{price:f}",
-                    "closePosition": "true",
-                    "workingType": "MARK_PRICE",
-                },
-                weight=2,
-            )
+    async def list_conditional_orders(self, symbol: str) -> list[str]:
+        contract, _ = await self._contract(symbol)
+        data = await self.request(
+            "GET", f"{self.futures_prefix}/openOrders", params={"symbol": contract}, weight=1
+        )
+        rows = data if isinstance(data, list) else []
+        return [
+            str(row["orderId"])
+            for row in rows
+            if row.get("type") in self.conditional_types and row.get("orderId") is not None
+        ]
+
+    async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        contract, _ = await self._contract(symbol)
+        for order_id in order_ids:
+            try:
+                # ``type=STOP`` covers both STOP and STOP_PROFIT_LOSS cancels.
+                await self.request(
+                    "DELETE",
+                    f"{self.futures_prefix}/order",
+                    params={"symbol": contract, "orderId": order_id, "type": "STOP"},
+                )
+            except AdapterError as exc:
+                if not _already_gone(exc):
+                    raise
+                logger.info("%s: order %s was already gone", self.name, order_id)
 
     async def get_position(self, symbol: str) -> Position | None:
+        contract, multiplier = await self._contract(symbol)
         data = await self.request(
-            "GET", f"{self.futures_prefix}/positionRisk", params={"symbol": symbol}, weight=5
+            "GET", f"{self.futures_prefix}/positions", params={"symbol": contract}, weight=5
         )
         rows = data if isinstance(data, list) else [data]
         for row in rows:
-            amount = D(row.get("positionAmt", "0"))
-            if amount == 0:
+            contracts = D(str(row.get("position", "0")))
+            if contracts == 0:
                 continue
             return Position(
                 symbol=symbol,
-                side=Side.LONG if amount > 0 else Side.SHORT,
-                size=abs(amount),
-                entry_price=D(row.get("entryPrice", "0")),
-                liquidation_price=D(row.get("liquidationPrice", "0")) or None,
-                unrealized_pnl=D(row.get("unRealizedProfit", "0")),
-                leverage=int(D(row.get("leverage", "1"))),
+                side=Side.LONG if row.get("side") == "LONG" else Side.SHORT,
+                size=contracts * multiplier,
+                entry_price=D(str(row.get("avgPrice", "0"))),
+                liquidation_price=D(str(row.get("flp", "0"))) or None,
+                unrealized_pnl=D(str(row.get("unrealizedPnL", "0"))),
+                leverage=int(D(str(row.get("leverage", "1")))),
             )
         return None
 
     async def close_position(self, symbol: str) -> OrderResult:
+        contract, _ = await self._contract(symbol)
         position = await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"{self.name}: no open position to close on {symbol}")
         data = await self.request(
             "POST",
-            f"{self.futures_prefix}/order",
+            f"{self.futures_prefix}/flashClose",
             body={
-                "symbol": symbol,
-                "side": "SELL" if position.side is Side.LONG else "BUY",
-                "type": "MARKET",
-                "quantity": f"{position.size:f}",
-                "reduceOnly": "true",
+                "symbol": contract,
+                "side": "LONG" if position.side is Side.LONG else "SHORT",
+                "clientOrderId": str(time.time_ns()),
             },
-            weight=2,
+            weight=1,
         )
-        avg = D(data.get("avgPrice", "0")) or await self.get_mark_price(symbol)
+        avg = await self.get_mark_price(symbol)
         return OrderResult(
             order_id=str(data.get("orderId", "")),
             filled_qty=position.size,
             avg_price=avg,
             raw=data,
         )
+
+    # --- private stream -----------------------------------------------------
+
+    async def stream_events(self) -> AsyncIterator[dict]:
+        """User data stream: ``POST /api/v1/listenKey`` + ``stream.toobit.com``.
+
+        Nothing in the platform consumes this yet — positions are polled — so it
+        exists to satisfy the per-exchange checklist and to be the seam a
+        fill-driven history can hang off. The listenKey endpoints take the same
+        timestamp/signature as any signed call.
+        """
+        try:
+            import websockets
+        except ImportError as exc:  # pragma: no cover - dependency guard
+            raise NotSupported(
+                "toobit: the private stream needs the 'websockets' package"
+            ) from exc
+
+        data = await self.request("POST", "/api/v1/listenKey")
+        listen_key = data.get("listenKey")
+        if not listen_key:
+            raise AdapterError("toobit: the exchange returned no listenKey")
+
+        stop = asyncio.Event()
+
+        async def keepalive() -> None:
+            while not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=1800)
+                    return
+                except TimeoutError:
+                    try:
+                        await self.request(
+                            "PUT", "/api/v1/listenKey", body={"listenKey": listen_key}
+                        )
+                    except AdapterError as exc:
+                        logger.warning("toobit: listenKey keepalive failed: %s", exc)
+
+        pump = asyncio.create_task(keepalive())
+        try:
+            async with websockets.connect(f"{self.ws_url}/api/v1/ws/{listen_key}") as socket:
+                async for message in socket:
+                    try:
+                        yield json.loads(message)
+                    except ValueError:
+                        logger.warning("toobit: unparseable stream frame")
+        finally:
+            stop.set()
+            pump.cancel()
+            try:
+                await self.request(
+                    "DELETE", "/api/v1/listenKey", body={"listenKey": listen_key}
+                )
+            except AdapterError:
+                pass

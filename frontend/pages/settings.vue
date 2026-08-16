@@ -11,10 +11,13 @@
  *      appeared to change them without changing the deployment would be lying.
  *      Each row names the question in `questions.md` it answers, so the screen
  *      and the decision record stay tied together.
- *   3. Connection & data — what the panel is actually talking to right now:
+ *   3. Profit split — the one live financial control besides the halt: who
+ *      gets what share of the profit, entered in Settings once, applied by the
+ *      ledger everywhere.
+ *   4. Connection & data — what the panel is actually talking to right now:
  *      socket state, round-trip latency, and whether prices are a real feed.
- *   4. Exchange coverage — per-adapter capabilities, testnet honesty (Q9).
- *   5. Preferences — theme and language, which are this browser's business.
+ *   5. Exchange coverage — per-adapter capabilities, testnet honesty (Q9).
+ *   6. Preferences — theme and language, which are this browser's business.
  *
  * The previous version was one flat list of key/value rows with no grouping and
  * no live state at all, which is why it read as a dump rather than a page.
@@ -26,12 +29,23 @@ const live = useLiveStore()
 const market = useMarketStore()
 const { theme, isDark, toggle } = useTheme()
 const { locale, locales, setLocale } = useI18n()
+const { dateTime } = useFormat()
 
 useHead({ title: t('nav.settings') })
 
 const exchanges = ref<ExchangeInfo[]>([])
 const loading = ref(true)
 const confirmResume = ref(false)
+
+const SPLIT_ROLES = ['investor', 'trader', 'programmer'] as const
+
+const split = ref<ProfitSplit | null>(null)
+const splitForm = reactive({ investor: '', trader: '', programmer: '' })
+const splitLoading = ref(true)
+const splitSaving = ref(false)
+const splitError = ref('')
+const splitSaved = ref(false)
+let splitSavedTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(async () => {
   await trading.loadPolicy()
@@ -42,7 +56,63 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  await loadSplit()
 })
+
+async function loadSplit() {
+  try {
+    split.value = await api.ledgerSplit()
+    splitForm.investor = split.value.investor
+    splitForm.trader = split.value.trader
+    splitForm.programmer = split.value.programmer
+    splitError.value = ''
+  } catch (e: any) {
+    splitError.value = errorMessage(e)
+  } finally {
+    splitLoading.value = false
+  }
+}
+
+/** Client-side mirror of the server rule (must sum to 100) — but the server
+    stays authoritative and validates again on save. */
+const splitSum = computed(() => {
+  let sum = 0
+  for (const role of SPLIT_ROLES) {
+    const n = Number(splitForm[role])
+    if (!Number.isFinite(n)) return null
+    sum += n
+  }
+  return Math.round(sum * 100) / 100
+})
+
+const splitValid = computed(() => {
+  if (splitSum.value === null) return false
+  for (const role of SPLIT_ROLES) {
+    const n = Number(splitForm[role])
+    if (n < 0 || n > 100) return false
+  }
+  return splitSum.value === 100
+})
+
+async function saveSplit() {
+  if (!splitValid.value || splitSaving.value) return
+  splitSaving.value = true
+  splitError.value = ''
+  try {
+    split.value = await api.saveLedgerSplit({
+      investor: splitForm.investor,
+      trader: splitForm.trader,
+      programmer: splitForm.programmer,
+    })
+    splitSaved.value = true
+    if (splitSavedTimer) clearTimeout(splitSavedTimer)
+    splitSavedTimer = setTimeout(() => (splitSaved.value = false), 3000)
+  } catch (e: any) {
+    splitError.value = errorMessage(e)
+  } finally {
+    splitSaving.value = false
+  }
+}
 
 const policy = computed(() => trading.policy)
 
@@ -245,7 +315,62 @@ const diagnostics = computed(() => [
       </ul>
     </UiCard>
 
-    <!-- 4. Spec §9 / Q9: an exchange with no test environment is labelled, never
+    <!-- 3. The profit split — global percentages, entered here, applied by the
+         ledger everywhere. Profit only: on a loss nothing is divided. -->
+    <UiCard :title="t('settings.split.title')" :hint="t('settings.split.hint')">
+      <div v-if="splitLoading" class="space-y-3">
+        <div v-for="i in 3" :key="i" class="skeleton h-12" />
+      </div>
+
+      <template v-else>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <UiField
+            v-for="role in SPLIT_ROLES"
+            :key="role"
+            :label="t(`settings.split.role.${role}`)"
+          >
+            <template #default="{ id, describedBy }">
+              <div class="relative">
+                <input
+                  :id="id"
+                  v-model="splitForm[role]"
+                  class="field pe-8"
+                  inputmode="decimal"
+                  :aria-describedby="describedBy"
+                  :disabled="splitSaving"
+                />
+                <span class="absolute end-3 top-1/2 -translate-y-1/2 text-xs text-ink-faint">%</span>
+              </div>
+            </template>
+          </UiField>
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+          <span
+            class="text-sm num"
+            :class="splitSum === 100 ? 'text-ok' : 'text-signal'"
+          >
+            {{ t('settings.split.sum', { sum: splitSum === null ? '—' : splitSum }) }}
+          </span>
+          <p v-if="splitSum !== null && splitSum !== 100" class="text-xs text-signal">
+            {{ t('settings.split.sumError') }}
+          </p>
+          <p v-else-if="splitError" class="text-xs text-signal">{{ splitError }}</p>
+          <p v-else-if="splitSaved" class="text-xs text-ok">{{ t('settings.split.saved') }}</p>
+          <p v-else-if="split?.updated_by" class="text-xs text-ink-faint">
+            {{ t('settings.split.updated', { user: split.updated_by, when: dateTime(split.updated_at) }) }}
+          </p>
+
+          <button class="btn-brand btn-sm ms-auto" :disabled="!splitValid || splitSaving" @click="saveSplit">
+            <UiIcon v-if="splitSaving" name="refresh" :size="14" class="animate-spin" />
+            <UiIcon v-else name="check" :size="14" />
+            {{ t('settings.split.save') }}
+          </button>
+        </div>
+      </template>
+    </UiCard>
+
+    <!-- 5. Spec §9 / Q9: an exchange with no test environment is labelled, never
          given a testnet toggle that quietly trades real money. -->
     <UiCard :title="t('settings.exchanges')" :hint="t('settings.exchangesHint')" flush>
       <div v-if="loading" class="p-4 space-y-2">

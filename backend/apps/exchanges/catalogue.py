@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
@@ -35,6 +35,8 @@ from apps.exchanges.feed_base import BACKFILL_TIMEOUT, INTERVALS, MarketDataErro
 from apps.exchanges.marketdata import connected_exchanges, source_for
 from apps.trading.models import (
     ExchangeSymbol,
+    HistoryRequest,
+    HistoryRequestStatus,
     MarketDataSync,
     StoredCandle,
     SyncPhase,
@@ -407,3 +409,286 @@ def sync_state() -> dict:
 
 def utc(seconds: int) -> datetime:
     return datetime.fromtimestamp(seconds, tz=UTC)
+
+
+# --- on-demand chart history -------------------------------------------------
+#
+# The bulk download above stores a year for the busiest pairs; every pair after
+# that was a blank chart the first time it was opened. ``ensure_history`` is the
+# smaller, chart-driven download — at least a day across every timeframe, asked
+# for by opening the pair's chart and served by a single worker thread that runs
+# the queue oldest-first (FIFO = who asked first wins).
+
+#: A failed pair is not retried on the next poll for this long. Opening the
+#: chart polls every CANDLE_POLL_MS; without the cooldown one flaky venue would
+#: re-queue the download every poll.
+CHART_RETRY_AFTER = 600
+#: A row left RUNNING longer than this was a worker that died mid-download; it
+#: is reclaimed as failed so the pair can be asked again.
+CHART_RUN_TIMEOUT = 900
+#: The worker's idle wake-up. A couple of rows are common and cheap to notice.
+WORKER_IDLE_SLEEP = 1.0
+
+_worker_lock = threading.Lock()
+_worker_thread: threading.Thread | None = None
+
+
+def chart_backfill_settings() -> dict:
+    return {
+        "intervals": [i for i in settings.MARKET_DATA["BACKFILL_INTERVALS"] if i in INTERVALS],
+        "days": int(settings.MARKET_DATA["CHART_BACKFILL_DAYS"]),
+    }
+
+
+def _series_covered(market: str, symbol: str, interval: str, days: int) -> bool:
+    """True when the pair already has stored history spanning back ``days``.
+
+    One interval step of slack, not the exact floor: venues align bars to their
+    own grid, and the paged walk stops with its oldest bar anywhere in
+    ``(floor, floor + step]``. Requiring the exact second would re-download a
+    pair whose history already covers the span.
+    """
+    step = INTERVALS.get(interval, INTERVALS["1m"])
+    oldest = (
+        StoredCandle.objects.filter(market=market, symbol=symbol, interval=interval)
+        .order_by("open_time")
+        .values_list("open_time", flat=True)
+        .first()
+    )
+    return oldest is not None and oldest <= int(time.time()) - days * 86400 + step
+
+
+def _active_request(market: str, symbol: str) -> HistoryRequest | None:
+    return (
+        HistoryRequest.objects.filter(
+            market=market,
+            symbol=symbol,
+            status__in=(HistoryRequestStatus.PENDING, HistoryRequestStatus.RUNNING),
+        )
+        .first()
+    )
+
+
+def _last_failure(market: str, symbol: str) -> HistoryRequest | None:
+    return (
+        HistoryRequest.objects.filter(
+            market=market, symbol=symbol, status=HistoryRequestStatus.FAILED
+        )
+        .exclude(finished_at__isnull=True)
+        .order_by("-finished_at")
+        .first()
+    )
+
+
+def _queued() -> int:
+    return HistoryRequest.objects.filter(
+        status__in=(HistoryRequestStatus.PENDING, HistoryRequestStatus.RUNNING)
+    ).count()
+
+
+def _status_dict(
+    job: HistoryRequest | None,
+    queued: int,
+    interval: str,
+    *,
+    state: str = "",
+    error: str = "",
+) -> dict:
+    """The wire shape for the chart's history block. Kept light — polled often."""
+    if not state:
+        if job is None:
+            state = "none"
+        elif job.status in (HistoryRequestStatus.PENDING, HistoryRequestStatus.RUNNING):
+            state = "downloading"
+        elif job.status == HistoryRequestStatus.DONE:
+            state = "ready"
+        else:
+            state = "failed"
+    intervals = [i for i in (job.intervals.split(",") if job and job.intervals else [])]
+    return {
+        "state": state,
+        "interval": interval,
+        "days": job.days if job else chart_backfill_settings()["days"],
+        "intervals": intervals,
+        "series_done": job.series_done if job else 0,
+        "series_total": job.series_total if job else 0,
+        "percent": job.percent if job else 0,
+        "queued": queued,
+        "error": error or (job.error if job else ""),
+    }
+
+
+def ensure_history(market: str, symbol: str, interval: str) -> dict:
+    """The chart's own history for a pair the bulk backfill never reached.
+
+    Called on every chart poll, so it is cheap: a row is only created the
+    first time a pair that has no stored history and no active download needs
+    one. Answers a state the panel can draw without parsing anything:
+
+    - ``none`` — chart history is off (no public feed configured).
+    - ``ready`` — stored history covers the configured span.
+    - ``downloading`` — a download is queued or running; ``percent`` is how far.
+    - ``failed`` — the last attempt failed and is inside its retry cooldown.
+
+    Never raises — a history download failing must never take the chart with
+    it. When the feed itself is down the caller answers 503 first and this is
+    simply not reached.
+    """
+    config = chart_backfill_settings()
+    if not settings.MARKET_DATA["ENABLED"] or not catalogue_sources():
+        return _status_dict(None, 0, interval)
+    if _series_covered(market, symbol, interval, config["days"]):
+        return _status_dict(None, 0, interval, state="ready")
+
+    job = _active_request(market, symbol)
+    if job:
+        if interval != job.priority_interval:
+            # The chart moved timeframes mid-download; make that one first.
+            job.priority_interval = interval
+            job.save(update_fields=["priority_interval", "updated_at"])
+        return _status_dict(job, _queued(), interval)
+
+    last_fail = _last_failure(market, symbol)
+    if last_fail and timezone.now() - last_fail.finished_at < timedelta(
+        seconds=CHART_RETRY_AFTER
+    ):
+        return _status_dict(last_fail, _queued(), interval)
+
+    job = HistoryRequest.objects.create(
+        market=market,
+        symbol=symbol,
+        days=config["days"],
+        intervals=",".join(config["intervals"]),
+        priority_interval=interval,
+        series_total=len(config["intervals"]),
+    )
+    _ensure_worker()
+    return _status_dict(job, _queued(), interval)
+
+
+def _ensure_worker() -> None:
+    global _worker_thread
+    with _worker_lock:
+        if _worker_thread is None or not _worker_thread.is_alive():
+            _worker_thread = threading.Thread(
+                target=_worker_loop, name="history-worker", daemon=True
+            )
+            _worker_thread.start()
+
+
+def _worker_loop() -> None:
+    close_old_connections()
+    try:
+        while True:
+            try:
+                if not _drain_once():
+                    time.sleep(WORKER_IDLE_SLEEP)
+            except Exception:  # noqa: BLE001 - one bad pass must not kill the loop
+                logger.exception("history worker pass failed")
+                time.sleep(WORKER_IDLE_SLEEP)
+    finally:
+        close_old_connections()
+
+
+def _drain_once() -> bool:
+    """Run one queued download. Returns True if anything was worked on."""
+    reclaimed = _reclaim_stale()
+    job = (
+        HistoryRequest.objects.filter(status=HistoryRequestStatus.PENDING)
+        .order_by("created_at")
+        .first()
+    )
+    if job is None:
+        return bool(reclaimed)
+    try:
+        run_history_request(job.pk)
+    except Exception as exc:  # noqa: BLE001 - a failed row is not a dead worker
+        logger.exception("history download failed for %s", job.symbol)
+        HistoryRequest.objects.filter(pk=job.pk).update(
+            status=HistoryRequestStatus.FAILED,
+            error=str(exc),
+            finished_at=timezone.now(),
+        )
+    return True
+
+
+def _reclaim_stale() -> int:
+    """A download interrupted by a restart must not sit RUNNING forever."""
+    cutoff = timezone.now() - timedelta(seconds=CHART_RUN_TIMEOUT)
+    return HistoryRequest.objects.filter(
+        status=HistoryRequestStatus.RUNNING, updated_at__lt=cutoff
+    ).update(
+        status=HistoryRequestStatus.FAILED,
+        error="download was interrupted (worker restarted)",
+        finished_at=timezone.now(),
+    )
+
+
+def run_history_request(job_id: int) -> None:
+    """Execute one on-demand chart download. Safe to call directly (tests)."""
+    job = HistoryRequest.objects.get(pk=job_id)
+    job.status = HistoryRequestStatus.RUNNING
+    job.save(update_fields=["status", "updated_at"])
+
+    intervals = [i for i in job.intervals.split(",") if i]
+    if job.priority_interval in intervals:
+        intervals = [job.priority_interval] + [i for i in intervals if i != job.priority_interval]
+
+    picked = False
+    for exchange in catalogue_sources():
+        source = source_for(exchange)
+        try:
+            probe = source.candles(
+                symbol=job.symbol, interval=job.priority_interval, market=MarketType(job.market),
+                limit=1,
+            )
+        except Exception as exc:  # noqa: BLE001 - one venue is not the end of the search
+            logger.info("no %s history from %s: %s", job.symbol, exchange, exc)
+            continue
+        if not probe:
+            continue
+        job.exchange = exchange
+        job.save(update_fields=["exchange", "updated_at"])
+        picked = True
+        break
+
+    if not picked:
+        _finish_request(
+            job, HistoryRequestStatus.FAILED, error=f"{job.symbol}: no venue serves history"
+        )
+        return
+
+    problems: list[str] = []
+    for interval in intervals:
+        try:
+            job.bars_written += backfill_series(
+                exchange=job.exchange,
+                symbol=job.symbol,
+                interval=interval,
+                market=MarketType(job.market),
+                days=job.days,
+            )
+        except Exception as exc:  # noqa: BLE001 - one interval must not stop the rest
+            problems.append(f"{interval}: {exc}")
+            logger.warning("chart history failed for %s %s: %s", job.symbol, interval, exc)
+        job.series_done += 1
+        job.detail = f"{job.symbol} {interval}"
+        job.save(update_fields=["series_done", "bars_written", "detail", "updated_at"])
+
+    if problems:
+        # Some intervals stored, some did not: the pair is retryable, not green.
+        _finish_request(job, HistoryRequestStatus.FAILED, error="; ".join(problems[:5]))
+    else:
+        _finish_request(
+            job,
+            HistoryRequestStatus.DONE,
+            detail=f"{job.bars_written} bars across {job.series_done} series",
+        )
+
+
+def _finish_request(job: HistoryRequest, status: str, *, detail: str = "", error: str = "") -> None:
+    job.status = status
+    job.detail = detail or job.detail
+    job.error = error
+    job.finished_at = timezone.now()
+    job.save()

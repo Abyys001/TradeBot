@@ -37,6 +37,7 @@ from apps.exchanges.base import (
     OrderResult,
     OrderType,
     Position,
+    SLTPState,
     Side,
     SymbolRules,
 )
@@ -356,6 +357,38 @@ class HyperliquidAdapter(ExchangeAdapter):
             and order.get("reduceOnly")
             and order.get("oid") is not None
         ]
+
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """The trigger orders actually resting on this coin.
+
+        ``frontendOpenOrders`` is also what ``list_conditional_orders`` uses, so
+        the read-back sees exactly the set the Q5d strategy would cancel — the
+        two cannot disagree about what "resting protection" means. A trigger
+        Hyperliquid silently dropped is a missing leg here, which is the whole
+        point of the read-back.
+        """
+        coin = self._coin(symbol)
+        orders = await self._call("frontend_open_orders", self.account_address)
+        stop_loss = take_profit = None
+        for order in orders or []:
+            if order.get("coin") != coin or not order.get("isTrigger"):
+                continue
+            kind = (order.get("order") or {}).get("tpsl")
+            price = self._trigger_price(order)
+            if price is None:
+                continue
+            if kind == "sl":
+                stop_loss = price
+            elif kind == "tp":
+                take_profit = price
+        return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
+
+    def _trigger_price(self, order: dict) -> Decimal | None:
+        """``triggerPx`` out of a frontend order row, if it is there."""
+        trigger = (order.get("order") or {}).get("trigger")
+        if isinstance(trigger, dict) and trigger.get("triggerPx") is not None:
+            return D(str(trigger["triggerPx"]))
+        return None
 
     async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
         coin = self._coin(symbol)

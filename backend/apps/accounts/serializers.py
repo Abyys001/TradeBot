@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from apps.accounts.models import ConnectedAccount, Notification
+from apps.accounts.models import ConnectedAccount, FundMovement, Notification, ProfitSplit
 from apps.accounts.visibility import can_see_hidden
 
 
@@ -112,3 +112,53 @@ class NotificationSerializer(serializers.ModelSerializer):
         model = Notification
         fields = ["id", "account", "message", "code", "created_at", "dismissed_at", "is_active"]
         read_only_fields = fields
+
+
+class FundMovementSerializer(serializers.ModelSerializer):
+    """Read + create. Amount is always positive; the direction lives in ``kind``."""
+
+    account_label = serializers.CharField(source="account.label", read_only=True)
+
+    class Meta:
+        model = FundMovement
+        fields = [
+            "id",
+            "account",
+            "account_label",
+            "kind",
+            "amount",
+            "asset",
+            "occurred_at",
+            "note",
+            "created_at",
+        ]
+        read_only_fields = ["id", "account_label", "created_at"]
+
+    def validate_amount(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("amount must be positive")
+        return value
+
+
+class ProfitSplitSerializer(serializers.ModelSerializer):
+    """Read + write. The three percentages must sum to 100."""
+
+    class Meta:
+        model = ProfitSplit
+        fields = ["investor", "trader", "programmer", "updated_at", "updated_by"]
+        read_only_fields = ["updated_at", "updated_by"]
+
+    def validate(self, attrs: dict) -> dict:
+        investor = attrs.get("investor", getattr(self.instance, "investor", None))
+        trader = attrs.get("trader", getattr(self.instance, "trader", None))
+        programmer = attrs.get("programmer", getattr(self.instance, "programmer", None))
+        if None in (investor, trader, programmer):
+            return attrs
+        for name, value in (("investor", investor), ("trader", trader), ("programmer", programmer)):
+            if value < 0 or value > 100:
+                raise serializers.ValidationError({name: "must be between 0 and 100"})
+        if investor + trader + programmer != 100:
+            raise serializers.ValidationError(
+                {"investor": "percentages must sum to 100"}
+            )
+        return attrs

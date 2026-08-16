@@ -60,6 +60,13 @@ export function useNavigation() {
       primary: false,
     },
     {
+      name: 'finance',
+      path: localePath('/finance'),
+      icon: 'ledger',
+      label: t('nav.finance'),
+      primary: false,
+    },
+    {
       name: 'settings',
       path: localePath('/settings'),
       icon: 'settings',

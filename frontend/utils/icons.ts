@@ -18,6 +18,9 @@ export const ICON_PATHS = {
   bell: 'M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6M10.5 20a1.8 1.8 0 0 0 3 0',
   accounts: 'M3 7h18M3 12h18M3 17h18',
   history: 'M12 8v4l3 2m6-2a9 9 0 1 1-2.6-6.4M21 3v5h-5',
+  // An open ledger book with ruled lines — the financial management page.
+  ledger:
+    'M6 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v14h10V5H6Zm3 3h4M9 11h4M9 15h4',
   risk: 'M12 3 2 20h20L12 3Zm0 6v5m0 3h.01',
   settings:
     'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 0 0-2-1.2L14.5 2h-4l-.4 2.6c-.7.3-1.4.7-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1c.6.5 1.3.9 2 1.2l.4 2.6h4l.4-2.6c.7-.3 1.4-.7 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z',

@@ -6,10 +6,14 @@ are only ever decrypted inside an adapter at signing time.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from apps.core import crypto
+from apps.core.money import ZERO, D
 
 
 class Exchange(models.TextChoices):
@@ -186,3 +190,77 @@ class Notification(models.Model):
     @property
     def is_active(self) -> bool:
         return self.dismissed_at is None
+
+
+class FundMovementType(models.TextChoices):
+    DEPOSIT = "deposit", "Deposit"
+    WITHDRAWAL = "withdrawal", "Withdrawal"
+
+
+class FundMovement(models.Model):
+    """One recorded deposit or withdrawal against an account.
+
+    Cash flows are entered by hand — the platform's keys are trade-only (spec
+    §7), so no exchange API can tell us who moved money in or out. The account's
+    ``last_balance`` stays the exchange's live number; this table is the history
+    that turns that number into invested capital and PnL (``apps.accounts.ledger``).
+    """
+
+    account = models.ForeignKey(
+        ConnectedAccount, on_delete=models.CASCADE, related_name="fund_movements"
+    )
+    kind = models.CharField(max_length=12, choices=FundMovementType.choices)
+    amount = models.DecimalField(
+        max_digits=24,
+        decimal_places=8,
+        help_text="Always positive; the direction lives in ``kind``.",
+    )
+    asset = models.CharField(max_length=12, default="USDT")
+    #: When the money actually moved. Defaults to now but is backfillable: the
+    #: ledger is "record from here on", so entries may be dated in the past.
+    occurred_at = models.DateTimeField(default=timezone.now)
+    note = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-occurred_at", "-id"]
+        indexes = [models.Index(fields=["account", "occurred_at"])]
+
+    def clean(self) -> None:
+        if self.amount is not None and self.amount <= ZERO:
+            raise ValidationError({"amount": "amount must be positive"})
+
+    def __str__(self) -> str:
+        return f"{self.kind} {self.amount} {self.asset} @ {self.account.label}"
+
+
+class ProfitSplit(models.Model):
+    """The profit split: one global set of percentages for the three roles.
+
+    Applies to profit only — the investor keeps their capital, and each role's
+    share of an account's *positive* PnL is ``pnl * pct / 100``. Read via
+    ``apps.accounts.ledger.get_split``; the percentages are edited from the
+    panel's Settings page. ``singleton=1`` mirrors ``KillSwitch``.
+    """
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1)
+    investor = models.DecimalField(max_digits=5, decimal_places=2)
+    trader = models.DecimalField(max_digits=5, decimal_places=2)
+    programmer = models.DecimalField(max_digits=5, decimal_places=2)
+    updated_at = models.DateTimeField(auto_now=True)
+    #: Username, not a FK: this row outlives the account that set it.
+    updated_by = models.CharField(max_length=150, blank=True)
+
+    def clean(self) -> None:
+        if None in (self.investor, self.trader, self.programmer):
+            return
+        for field in ("investor", "trader", "programmer"):
+            value = D(getattr(self, field))
+            if value < ZERO or value > Decimal("100"):
+                raise ValidationError({field: "must be between 0 and 100"})
+        total = D(self.investor) + D(self.trader) + D(self.programmer)
+        if total != Decimal("100"):
+            raise ValidationError({"investor": "percentages must sum to 100"})
+
+    def __str__(self) -> str:
+        return f"split investor={self.investor} trader={self.trader} programmer={self.programmer}"

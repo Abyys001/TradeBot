@@ -232,3 +232,65 @@ class MarketDataSync(models.Model):
 
     def __str__(self) -> str:
         return f"{self.exchange} {self.status} {self.percent}%"
+
+
+class HistoryRequestStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    DONE = "done", "Done"
+    FAILED = "failed", "Failed"
+
+
+class HistoryRequest(models.Model):
+    """One pair's on-demand history download, asked for by opening its chart.
+
+    The bulk backfill (``MarketDataSync``) stores a year for the busiest pairs;
+    every pair after that was a blank chart the first time it was opened. This
+    row is the smaller, chart-driven download — at least a day across every
+    timeframe, fetched in its own thread the moment a chart asks, so the long
+    tail of the picker is never an empty canvas.
+
+    One row per pair while active: opening the chart twice never queues two
+    downloads. ``priority_interval`` is the timeframe the chart currently has
+    on screen; the worker fetches that series first, so the visible candle gets
+    its history before the rest of the timeframe list follows.
+    """
+
+    market = models.CharField(max_length=10)
+    symbol = models.CharField(max_length=32)
+    #: The venue that actually answered. Blank until the worker picks one.
+    exchange = models.CharField(max_length=20, blank=True)
+    status = models.CharField(
+        max_length=10,
+        choices=HistoryRequestStatus.choices,
+        default=HistoryRequestStatus.PENDING,
+    )
+    days = models.PositiveIntegerField(default=1)
+    #: The timeframe the chart had on screen when it last polled. Comma-joined.
+    intervals = models.CharField(max_length=200, blank=True)
+    priority_interval = models.CharField(max_length=6, default="1m")
+
+    series_done = models.PositiveIntegerField(default=0)
+    series_total = models.PositiveIntegerField(default=0)
+    bars_written = models.PositiveBigIntegerField(default=0)
+
+    detail = models.CharField(max_length=200, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    @property
+    def percent(self) -> int:
+        """0-100, counting completed timeframes — what the spinner can show."""
+        if self.status == HistoryRequestStatus.DONE:
+            return 100
+        if not self.series_total:
+            return 0
+        return int(100 * min(self.series_done, self.series_total) / self.series_total)
+
+    def __str__(self) -> str:
+        return f"{self.symbol} {self.status} {self.percent}%"

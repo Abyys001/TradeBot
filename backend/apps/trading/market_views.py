@@ -19,7 +19,12 @@ from rest_framework.response import Response
 from apps.accounts.visibility import can_see_hidden, hidden_only_exchanges
 from apps.core.money import D
 from apps.exchanges.base import MarketType, Side
-from apps.exchanges.catalogue import catalogue_sources, start_sync, sync_state
+from apps.exchanges.catalogue import (
+    catalogue_sources,
+    ensure_history,
+    start_sync,
+    sync_state,
+)
 from apps.exchanges.marketdata import (
     DEFAULT_LIMIT,
     INTERVALS,
@@ -28,6 +33,7 @@ from apps.exchanges.marketdata import (
     get_ticker,
     normalise_interval,
     normalise_market,
+    pinned_provider,
 )
 from apps.trading.models import ExchangeSymbol, Trade, TradeStatus
 
@@ -35,6 +41,11 @@ from apps.trading.models import ExchangeSymbol, Trade, TradeStatus
 #: has to be able to tell "no feed" from "a price", and every price it draws has
 #: to have come from an exchange.
 FEED_DOWN = 503
+
+#: Returned while a chart-driven download is running: the chart is *going* to
+#: have history, it just does not yet. 503 would read as "permanently no feed"
+#: and the panel would stop asking; 202 keeps it polling into the download.
+HISTORY_DOWNLOADING = 202
 
 #: Cap on a single watchlist request. The list is the admin's own and lives in
 #: their browser; this only stops a hand-written URL from turning into a
@@ -55,6 +66,12 @@ def candles(request):
     Real exchange data or a 503. There is no placeholder series: a chart that
     says "no feed" is honest, and one that invents candles is how someone reads
     a price that never existed.
+
+    When the feed is down and the pair has *no* stored history, the pair's own
+    download is kicked off (see ``catalogue.ensure_history``) and this answers
+    **202** until the worker has stored some bars — the chart is going to have
+    history, it just does not yet. Every success carries the download's state
+    in ``history`` so the chart can show progress and never re-ask.
     """
     try:
         interval = normalise_interval(request.query_params.get("interval"))
@@ -73,7 +90,26 @@ def candles(request):
             symbol=symbol, interval=interval, market=market, limit=limit, end=end
         )
     except MarketDataError as exc:
+        history = ensure_history(market.value, symbol, interval)
+        if history["state"] == "downloading":
+            return Response(
+                {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "market": market.value,
+                    "source": "",
+                    "live": False,
+                    "stored": False,
+                    "pinned": pinned_provider(),
+                    "provider_ms": None,
+                    "feed_error": str(exc),
+                    "candles": [],
+                    "history": history,
+                },
+                status=HISTORY_DOWNLOADING,
+            )
         return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+    payload["history"] = ensure_history(market.value, symbol, interval)
     return Response(payload)
 
 

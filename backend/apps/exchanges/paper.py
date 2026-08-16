@@ -26,6 +26,7 @@ from apps.exchanges.base import (
     OrderResult,
     OrderType,
     Position,
+    SLTPState,
     Side,
     SymbolRules,
 )
@@ -201,6 +202,12 @@ class PaperAdapter(ExchangeAdapter):
     ) -> None:
         await self._tick("set_sltp")
         self._state["sltp"] = (stop_loss, take_profit)
+
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """Demo mode has a server-side state, so it can answer truthfully."""
+        await self._tick("get_sltp")
+        stop_loss, take_profit = self._state["sltp"]
+        return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
 
     async def get_position(self, symbol: str) -> Position | None:
         await self._tick("get_position")

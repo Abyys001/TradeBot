@@ -273,6 +273,11 @@ MARKET_DATA = {
     "BACKFILL_DAYS": int(os.getenv("BACKFILL_DAYS", "365")),
     # Start the download by itself when the first account connects.
     "AUTO_SYNC": False if RUNNING_TESTS else env_bool("MARKET_DATA_AUTO_SYNC", True),
+    # --- on-demand chart history --------------------------------------------
+    # The chart's own download for a pair the bulk backfill never reached: at
+    # least this many days of bars, on every timeframe, fetched in a background
+    # thread the moment the pair's chart is opened (see catalogue.ensure_history).
+    "CHART_BACKFILL_DAYS": int(os.getenv("CHART_BACKFILL_DAYS", "1")),
 }
 
 LOGGING = {

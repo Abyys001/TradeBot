@@ -14,6 +14,7 @@ a feed outage is an outage rather than a number, and PnL stays in Decimal.
 
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 
 import httpx
@@ -26,6 +27,7 @@ from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange
 from apps.core.money import D
 from apps.exchanges import marketdata
 from apps.exchanges.base import MarketType
+from apps.exchanges.catalogue import HistoryRequest, HistoryRequestStatus
 from apps.exchanges.marketdata import (
     BinancePublicSource,
     BybitPublicSource,
@@ -34,7 +36,7 @@ from apps.exchanges.marketdata import (
     get_ticker,
     provider_latency,
 )
-from apps.trading.models import Trade, TradeLeg, TradeStatus
+from apps.trading.models import StoredCandle, Trade, TradeLeg, TradeStatus
 
 KEY = Fernet.generate_key().decode()
 
@@ -65,6 +67,42 @@ def stub_feed(monkeypatch, *, price: str = "100.5", rtt_ms: float = 42.0):
 
     monkeypatch.setattr(marketdata.HttpSource, "_get", fake_get)
     return override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]})
+
+
+def history_feed(monkeypatch, *, days: int = 1):
+    """A stub whose klines are *recent* and page back past the download span.
+
+    ``stub_feed`` is pinned to November 2023, but ``backfill_series`` filters to
+    the last ``days`` and would store nothing from it. This one is anchored to
+    now and honours the ``end`` page cursor, so a 1-day walk actually reaches
+    its floor and stops.
+    """
+
+    def fake_get(self, url, params):
+        marketdata.record_rtt(self.name, 10.0)
+        if "klines" in url:
+            limit = int(params.get("limit") or 1000)
+            step = 60000
+            end_ms = int(params.get("endTime") or 0) or int(time.time()) * 1000
+            # Real exchanges align bars to the epoch grid and never serve one
+            # *after* endTime. Without the alignment the paged walk misses the
+            # floor by up to a step and a covered pair keeps re-downloading.
+            newest = (end_ms // step) * step
+            base = newest - step * (limit - 1)
+            return [
+                [base + i * step, "100", "100", "100", "100", "1"] for i in range(limit)
+            ]
+        return {"lastPrice": "100", "priceChangePercent": "1.25"}
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", fake_get)
+    return override_settings(
+        MARKET_DATA={
+            "ENABLED": True,
+            "PROVIDERS": ["binance"],
+            "BACKFILL_INTERVALS": ["1m", "5m", "15m", "1h", "4h", "1d"],
+            "CHART_BACKFILL_DAYS": days,
+        }
+    )
 
 
 # --- no feed means no price -------------------------------------------------
@@ -408,3 +446,163 @@ def test_positions_endpoint_reports_a_leg_that_never_filled():
     assert body["totals"]["failed"] == 1
     assert body["legs"][0]["pnl"] is None
     assert body["legs"][0]["error"] == "below minimum notional"
+
+
+# --- on-demand chart history -------------------------------------------------
+# Opening a chart on a pair the bulk backfill never reached queues that pair's
+# own download (at least a day across every timeframe, chart timeframe first),
+# and the candles endpoint answers 202 until the worker has stored something.
+# These never touch a real exchange and never start a real thread: the worker
+# is stubbed out and ``run_history_request`` is driven by hand, which is also
+# how the race-free assertions below stay deterministic.
+
+CHART_SETTINGS = {
+    "ENABLED": True,
+    "PROVIDERS": ["binance"],
+    "BACKFILL_INTERVALS": ["1m", "5m", "15m", "1h", "4h", "1d"],
+    "CHART_BACKFILL_DAYS": 1,
+}
+ALL_INTERVALS = {"1m", "5m", "15m", "1h", "4h", "1d"}
+
+
+@pytest.mark.django_db
+def test_chart_history_is_downloaded_on_demand(monkeypatch):
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+
+    with history_feed(monkeypatch):
+        status = catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+        assert status["state"] == "downloading"
+
+        job = HistoryRequest.objects.get(symbol="SHIBUSDT")
+        assert job.priority_interval == "1m"
+
+        catalogue.run_history_request(job.pk)
+        job.refresh_from_db()
+
+    assert job.status == HistoryRequestStatus.DONE
+    assert job.series_done == job.series_total == len(ALL_INTERVALS)
+    assert job.bars_written > 0
+    stored = set(
+        StoredCandle.objects.filter(symbol="SHIBUSDT").values_list("interval", flat=True)
+    )
+    assert stored == ALL_INTERVALS
+
+
+@pytest.mark.django_db
+def test_candles_endpoint_answers_202_while_history_downloads(monkeypatch):
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+    client = user_client()
+
+    def explode(self, url, params):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
+    with override_settings(MARKET_DATA=CHART_SETTINGS):
+        response = client.get("/api/trading/market/candles/?symbol=SHIBUSDT")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["live"] is False
+    assert body["candles"] == []
+    assert body["history"]["state"] == "downloading"
+    assert HistoryRequest.objects.filter(symbol="SHIBUSDT").count() == 1
+
+
+@pytest.mark.django_db
+def test_candles_endpoint_serves_downloaded_history_once_ready(monkeypatch):
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+    client = user_client()
+
+    with history_feed(monkeypatch):
+        catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+        job = HistoryRequest.objects.get(symbol="SHIBUSDT")
+        catalogue.run_history_request(job.pk)
+        job.refresh_from_db()
+        assert job.status == HistoryRequestStatus.DONE
+
+    def explode(self, url, params):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
+    with override_settings(MARKET_DATA=CHART_SETTINGS):
+        response = client.get("/api/trading/market/candles/?symbol=SHIBUSDT")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["live"] is False
+    assert body["stored"] is True
+    assert len(body["candles"]) > 0
+    assert body["history"]["state"] == "ready"
+
+
+@pytest.mark.django_db
+def test_a_pair_already_covered_by_stored_history_is_ready_not_redownloaded(monkeypatch):
+    from apps.exchanges import catalogue
+
+    now = int(time.time())
+    StoredCandle.objects.create(
+        exchange="binance",
+        market="futures",
+        symbol="SHIBUSDT",
+        interval="1m",
+        open_time=now - 2 * 86400,
+        open=D("0.1"),
+        high=D("0.1"),
+        low=D("0.1"),
+        close=D("0.1"),
+        volume=D("1"),
+    )
+
+    with history_feed(monkeypatch):
+        status = catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+
+    assert status["state"] == "ready"
+    assert not HistoryRequest.objects.filter(symbol="SHIBUSDT").exists()
+
+
+@pytest.mark.django_db
+def test_a_failed_download_is_not_re_requested_on_every_poll(monkeypatch):
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+    client = user_client()
+
+    def explode(self, url, params):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
+    with override_settings(MARKET_DATA=CHART_SETTINGS):
+        assert client.get("/api/trading/market/candles/?symbol=SHIBUSDT").status_code == 202
+
+        job = HistoryRequest.objects.get(symbol="SHIBUSDT")
+        catalogue._finish_request(job, HistoryRequestStatus.FAILED, error="boom")
+
+        response = client.get("/api/trading/market/candles/?symbol=SHIBUSDT")
+
+    assert response.status_code == 503
+    assert HistoryRequest.objects.filter(symbol="SHIBUSDT").count() == 1
+
+
+@pytest.mark.django_db
+def test_the_chart_timeframe_takes_priority(monkeypatch):
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+
+    with history_feed(monkeypatch):
+        catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+        job = HistoryRequest.objects.get(symbol="SHIBUSDT")
+        assert job.priority_interval == "1m"
+
+        status = catalogue.ensure_history("futures", "SHIBUSDT", "4h")
+        job.refresh_from_db()
+
+    assert job.priority_interval == "4h"
+    assert status["state"] == "downloading"
+    assert HistoryRequest.objects.filter(symbol="SHIBUSDT").count() == 1

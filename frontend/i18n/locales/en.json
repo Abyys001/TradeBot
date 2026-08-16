@@ -8,6 +8,7 @@
     "accounts": "Accounts",
     "history": "History",
     "risk": "Risk",
+    "finance": "Finance",
     "settings": "Settings",
     "signIn": "Sign in",
     "signOut": "Sign out",
@@ -385,6 +386,68 @@
       "breaches": "Over budget",
       "breachesSub": "fan-outs past the deadline"
     }
+  },
+  "finance": {
+    "title": "Financial management",
+    "subtitle": "What went in, what it is worth now, and who the profit is split between. Cash flows are recorded by hand — the API keys are trade-only.",
+    "stat": {
+      "invested": "Net invested",
+      "investedSub": "deposits − withdrawals",
+      "current": "Current balance",
+      "currentSub": "live USDT, from the exchanges",
+      "pnl": "PnL",
+      "pnlSub": "since inception",
+      "split": "Profit split",
+      "splitSub": "global percentages"
+    },
+    "role": {
+      "investor": "Investor",
+      "trader": "Trader",
+      "programmer": "Programmer"
+    },
+    "exchangeAccounts": "{n} account | {n} accounts",
+    "exchanges": "By exchange",
+    "exchangesInvested": "Net invested",
+    "exchangesCurrent": "Current",
+    "exchangesPnl": "PnL",
+    "table": {
+      "account": "Account",
+      "exchange": "Exchange",
+      "deposits": "Deposits",
+      "withdrawals": "Withdrawals",
+      "net": "Net invested",
+      "current": "Current",
+      "pnl": "PnL",
+      "pnlPct": "PnL %",
+      "split": "Profit split"
+    },
+    "nonUsdt": "Non-USDT accounts",
+    "nonUsdtSub": "kept out of the dollar totals",
+    "movements": {
+      "title": "Cash movements",
+      "subtitle": "manual deposits and withdrawals",
+      "empty": "Nothing recorded yet",
+      "emptyBody": "Deposits and withdrawals are entered by hand — the keys cannot move money.",
+      "add": "Add movement",
+      "deposit": "Deposit",
+      "withdrawal": "Withdrawal"
+    },
+    "addTitle": "Record a movement",
+    "form": {
+      "account": "Account",
+      "kind": "Kind",
+      "amount": "Amount",
+      "amountPlaceholder": "0.00",
+      "note": "Note",
+      "noteHint": "what this money was for",
+      "notePlaceholder": "optional",
+      "save": "Record movement",
+      "invalid": "Choose an account and enter a positive amount."
+    },
+    "deleteTitle": "Delete this movement?",
+    "deleteBody": "This removes the {kind} of {amount} for {account}. PnL and totals recompute.",
+    "empty": "No accounts yet",
+    "emptyBody": "Connect an account before recording cash flows."
   },
   "settings": {
     "title": "Settings in force",

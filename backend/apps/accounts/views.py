@@ -4,16 +4,27 @@ import logging
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
-from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Notification
+from apps.accounts.ledger import get_split, ledger_snapshot
+from apps.accounts.models import (
+    AccountStatus,
+    ConnectedAccount,
+    Exchange,
+    FundMovement,
+    Notification,
+)
 from apps.accounts.serializers import (
     ConnectedAccountCreateSerializer,
     ConnectedAccountSerializer,
+    FundMovementSerializer,
     NotificationSerializer,
+    ProfitSplitSerializer,
 )
 from apps.accounts.visibility import can_see_hidden, visible_accounts
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
@@ -242,3 +253,65 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             notification.dismissed_at = timezone.now()
             notification.save(update_fields=["dismissed_at"])
         return Response(NotificationSerializer(notification).data, status=status.HTTP_200_OK)
+
+
+class LedgerViewSet(viewsets.ViewSet):
+    """Financial management: cash flows, balances, PnL and the profit split.
+
+    Everything routes through ``visibility.visible_accounts`` first, so a hidden
+    account contributes neither a row nor a cent to the totals — the same rule
+    every other read surface obeys.
+    """
+
+    permission_classes = [IsAdminUser]
+
+    def list(self, request):
+        accounts = visible_accounts(request.user, ConnectedAccount.objects.all())
+        return Response(ledger_snapshot(accounts))
+
+    @action(detail=False, methods=["get", "post"], url_path="movements")
+    def movements(self, request):
+        if request.method == "POST":
+            return self._create_movement(request)
+        return self._list_movements(request)
+
+    def _movement_queryset(self, request):
+        return FundMovement.objects.filter(
+            account__in=visible_accounts(request.user, ConnectedAccount.objects.all())
+        ).select_related("account")
+
+    def _list_movements(self, request):
+        queryset = self._movement_queryset(request)
+        account_id = request.query_params.get("account")
+        if account_id:
+            # 404 for an unknown *or hidden* account: the list must not become an
+            # existence oracle for the hidden ones (same rule as trade history).
+            visible = visible_accounts(request.user, ConnectedAccount.objects.all())
+            get_object_or_404(visible, id=account_id)
+            queryset = queryset.filter(account_id=account_id)
+        return Response(FundMovementSerializer(queryset, many=True).data)
+
+    def _create_movement(self, request):
+        serializer = FundMovementSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        account = serializer.validated_data["account"]
+        visible = visible_accounts(request.user, ConnectedAccount.objects.all())
+        get_object_or_404(visible, id=account.id)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["delete"], url_path=r"movements/(?P<movement_pk>[0-9]+)")
+    def movement_detail(self, request, movement_pk=None):
+        movement = get_object_or_404(self._movement_queryset(request), id=movement_pk)
+        movement.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["get", "post"], url_path="split")
+    def split(self, request):
+        row = get_split()
+        if request.method == "POST":
+            serializer = ProfitSplitSerializer(row, data=request.data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(updated_by=request.user.get_username())
+            return Response(serializer.data)
+        return Response(ProfitSplitSerializer(row).data)

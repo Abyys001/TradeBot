@@ -102,6 +102,19 @@ class OrderResult:
     raw: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class SLTPState:
+    """What actually rests on the exchange: the verified trigger prices.
+
+    ``None`` for a side means the exchange holds no trigger order for it. The
+    whole state is only meaningful when it came from ``get_sltp`` — a read of
+    the exchange, never what we asked it to place.
+    """
+
+    stop_loss: Decimal | None
+    take_profit: Decimal | None
+
+
 # --- Errors -----------------------------------------------------------------
 
 
@@ -233,6 +246,22 @@ class ExchangeAdapter(abc.ABC):
         Must tolerate an id that has already triggered or been cancelled — a
         stop that fired between the snapshot and this call is a race, not an
         error, and raising here would fail an amend that actually succeeded.
+        """
+        return None
+
+    async def get_sltp(self, symbol: str) -> SLTPState | None:
+        """The SL/TP **actually resting on the exchange**, when the adapter can ask.
+
+        Placing is not proof. A trigger order an exchange silently drops (a
+        take-profit that never lands, say) looks identical to a working one from
+        the caller's side, so after every ``set_sltp`` the executor reads back
+        and only then calls the leg protected. Adapters that can enumerate their
+        conditional orders (Binance, Bybit, OKX, KuCoin, Gate.io, Hyperliquid,
+        paper) return the resting trigger prices.
+
+        The default is ``None`` = "cannot answer". That is never a failure — an
+        exchange that cannot be asked is honest about it, and the leg is
+        recorded as placed-but-unconfirmed rather than verified.
         """
         return None
 
