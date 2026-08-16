@@ -194,10 +194,14 @@ TRADING = {
     # true is gone — adapters are kept warm between actions (see
     # apps/exchanges/pool.py), so a leg no longer pays a TCP+TLS handshake, and
     # on Hyperliquid no longer re-downloads the asset metadata, before its first
-    # real call. 3.0 is the default: comfortably above a healthy VPS leg, still
-    # short enough that one slow exchange cannot hold up the others — that leg
-    # is abandoned, not awaited.
-    "FANOUT_TIMEOUT_SECONDS": float(os.getenv("FANOUT_TIMEOUT_SECONDS", "3.0")),
+    # real call. 5.0 is the default: comfortably above a healthy VPS leg, so the
+    # deadline stays a tripwire for genuinely stuck exchanges rather than a
+    # speed bump healthy legs trip on. A leg that overruns is abandoned, not
+    # awaited — and then re-read from the exchange, because abandoned is not the
+    # same as failed (see apps/engine/executor.py: _reconcile*). A request that
+    # already reached the exchange may have executed even though we stopped
+    # listening for the reply.
+    "FANOUT_TIMEOUT_SECONDS": float(os.getenv("FANOUT_TIMEOUT_SECONDS", "5.0")),
     # Spec §3. Leverage bounds offered by the UI.
     "MIN_LEVERAGE": int(os.getenv("MIN_LEVERAGE", "1")),
     "MAX_LEVERAGE": int(os.getenv("MAX_LEVERAGE", "10")),

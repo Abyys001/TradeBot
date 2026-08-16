@@ -1,18 +1,23 @@
 <script setup lang="ts">
 /**
- * Spec §4 is a hard promise: every account within one second. This shows
- * whether the last action actually met it, so a regression is visible the day
- * it happens rather than months later.
+ * Spec §4 is a hard promise: every account within the configured deadline
+ * (`FANOUT_TIMEOUT_SECONDS`, Q19). This shows whether the last action actually
+ * met it, so a regression is visible the day it happens rather than months later.
  *
  * The bar is the budget, not a decoration — the fill is the share of the
- * second that was used, and it turns amber the moment it is all of it.
+ * deadline that was used, and it turns amber the moment it is all of it. The
+ * budget is read from the store's `fanoutBudgetMs` (the backend's policy), not
+ * hardcoded, so the display follows the setting wherever it is moved.
  */
 const props = defineProps<{ result: FanOutResult }>()
 const { t } = useI18n()
 const accounts = useAccountsStore()
+const trading = useTradingStore()
 const { ms } = useFormat()
 
-const used = computed(() => Math.min(100, (props.result.total_ms / 1000) * 100))
+const used = computed(() =>
+  Math.min(100, (props.result.total_ms / trading.fanoutBudgetMs) * 100),
+)
 </script>
 
 <template>
@@ -20,7 +25,7 @@ const used = computed(() => Math.min(100, (props.result.total_ms / 1000) * 100))
     <div class="flex items-baseline justify-between gap-2">
       <span class="label">{{ t('fanout.title') }}</span>
       <span class="num text-xs" :class="result.within_budget ? 'text-ok' : 'text-signal'">
-        {{ ms(result.total_ms) }} / 1000ms
+        {{ ms(result.total_ms) }} / {{ ms(trading.fanoutBudgetMs) }}
       </span>
     </div>
 

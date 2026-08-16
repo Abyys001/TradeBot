@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 from django.conf import settings
 
@@ -286,6 +288,308 @@ async def _protect(
     raise ValueError(f"unknown SLTP_FAILURE_POLICY: {policy!r}")
 
 
+# --- post-deadline reconciliation (Q19) ------------------------------------
+#
+# A timed-out leg is *unconfirmed*, not failed. ``asyncio.wait_for`` cancels the
+# leg the moment the deadline passes, but cancellation cannot unsend a request
+# the exchange already received — the order may have executed even though we
+# stopped listening for the reply. These helpers re-read the account on the
+# exchange and record what actually happened, so a note that says "exceeded the
+# deadline" is never minted for a position that demonstrably exists on the
+# other side. The exchange is the only source the platform trusts.
+
+#: How much of the deadline a confirmation re-read may spend per leg. Floored
+#: so a tiny test deadline still gets a real re-read, capped so a large
+#: deadline cannot stretch the response the admin is waiting on.
+_RECONCILE_FRACTION = 0.4
+_RECONCILE_FLOOR = 0.5
+_RECONCILE_CEIL = 2.0
+
+
+def _reconcile_budget(deadline: float) -> float:
+    return min(_RECONCILE_CEIL, max(_RECONCILE_FLOOR, deadline * _RECONCILE_FRACTION))
+
+
+#: ``(ok, value, error, error_code)`` for a confirmed leg, or None = unconfirmed.
+Reconcile = tuple[bool, Any, str, str]
+
+
+async def _reconcile(
+    result: FanOutResult,
+    accounts: list[tuple[object, ExchangeAdapter]],
+    *,
+    deadline: float,
+    per_leg: Callable[[LegResult, ExchangeAdapter, float, float], Awaitable[Reconcile | None]],
+) -> FanOutResult:
+    """Ask the exchange whether each timed-out leg actually landed.
+
+    Runs only for ``leg.timed_out`` legs whose account has an adapter, all
+    concurrently, each bounded by the per-leg reconcile budget. A re-read that
+    cannot answer (no position, exchange down, overrun) returns ``None`` and
+    the leg keeps its timeout — nothing here fabricates an outcome. A re-read
+    that crashes is logged and treated the same way.
+    """
+    by_account = dict(accounts)
+    pending = [leg for leg in result.legs if leg.timed_out and leg.account_id in by_account]
+    if not pending:
+        return result
+
+    budget = _reconcile_budget(deadline)
+    outcomes = await asyncio.gather(
+        *(per_leg(leg, by_account[leg.account_id], budget, deadline) for leg in pending),
+        return_exceptions=True,
+    )
+    for leg, outcome in zip(pending, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            logger.warning("reconcile crashed for account=%s: %s", leg.account_id, outcome)
+            continue
+        if outcome is None:
+            continue
+        ok, value, error, error_code = outcome
+        logger.info("reconcile account=%s -> ok=%s (%s)", leg.account_id, ok, error_code)
+        leg.ok = ok
+        leg.value = value
+        leg.error = error
+        leg.error_code = error_code
+    return result
+
+
+async def _reconcile_open(
+    leg: LegResult,
+    adapter: ExchangeAdapter,
+    intent: TradeIntent,
+    budget: float,
+    deadline: float,
+) -> Reconcile | None:
+    """Did a timed-out entry land? The exchange's position list decides."""
+    try:
+        position, rules = await asyncio.wait_for(
+            asyncio.gather(
+                adapter.get_position(intent.symbol),
+                adapter.get_symbol_rules(intent.symbol, intent.market),
+            ),
+            timeout=budget,
+        )
+    except TimeoutError:
+        return None
+    except Exception as exc:  # noqa: BLE001 - an unanswered re-read keeps the timeout
+        logger.warning("reconcile open account=%s: %s", leg.account_id, exc)
+        return None
+    if position is None:
+        return None
+
+    leverage = position.leverage or intent.leverage
+    notional = position.size * position.entry_price
+    margin = notional if intent.market is MarketType.SPOT else notional / D(leverage)
+    risk = resolve_active(
+        side=intent.side,
+        entry=position.entry_price,
+        leverage=leverage,
+        margin=margin,
+        notional=notional,
+        sl_pct=intent.sl_pct,
+        tp_pct=intent.tp_pct,
+        price_tick=rules.price_tick,
+    )
+
+    # On an exchange without native entry SL/TP the fill is real but the
+    # protection never ran. Close that window the way the normal path does
+    # (Q5e), inside the reconcile budget — but never more than one bounded
+    # attempt: the leg already overran and the response must stay bounded.
+    attached = adapter.capabilities.native_sltp_on_entry
+    if not attached and (risk.stop_price or risk.take_profit_price):
+        try:
+            await asyncio.wait_for(
+                apply_sltp(
+                    adapter,
+                    symbol=intent.symbol,
+                    stop_loss=risk.stop_price,
+                    take_profit=risk.take_profit_price,
+                ),
+                timeout=budget,
+            )
+            attached = True
+        except TimeoutError:
+            return (
+                False,
+                None,
+                "entry filled after the deadline but the SL/TP attach was cut off — "
+                "the position is open and may be UNPROTECTED: check it now",
+                "sltp_unconfirmed",
+            )
+        except AdapterError as exc:
+            if settings.TRADING["SLTP_FAILURE_POLICY"] == "retry_then_notify":
+                return (
+                    False,
+                    None,
+                    "entry filled after the deadline but SL/TP could not be attached — "
+                    "the position is UNPROTECTED",
+                    "sltp_failed",
+                )
+            try:
+                await asyncio.wait_for(adapter.close_position(intent.symbol), timeout=budget)
+            except TimeoutError:
+                logger.error(
+                    "reconcile: SL/TP attach failed on %s and the position could not be "
+                    "closed either — open and UNPROTECTED",
+                    intent.symbol,
+                )
+                return (
+                    False,
+                    None,
+                    "entry filled after the deadline, SL/TP could not be attached and the "
+                    "position could not be closed — it is open and UNPROTECTED: check it now",
+                    "sltp_unconfirmed",
+                )
+            except Exception as close_exc:  # noqa: BLE001
+                logger.error(
+                    "reconcile close after failed attach on %s: %s", intent.symbol, close_exc
+                )
+                return (
+                    False,
+                    None,
+                    f"entry filled after the deadline, SL/TP could not be attached ({exc}) "
+                    f"and closing the position also failed ({close_exc}) — it is open and "
+                    "UNPROTECTED: check it now",
+                    "sltp_unconfirmed",
+                )
+            return (
+                False,
+                None,
+                f"entry filled after the deadline but SL/TP could not be attached ({exc}); "
+                "position closed at market",
+                "closed_after_late_fill",
+            )
+
+    return (
+        True,
+        LegFill(
+            account_id=leg.account_id,
+            qty=position.size,
+            entry_price=position.entry_price,
+            margin=margin,
+            notional=notional,
+            stop_loss=risk.stop_price,
+            take_profit=risk.take_profit_price,
+            sltp_attached=attached,
+            order_id="",
+        ),
+        f"entry filled after the {deadline:g}s deadline — confirmed on the exchange",
+        "late_fill",
+    )
+
+
+async def _reconcile_close(
+    leg: LegResult,
+    adapter: ExchangeAdapter,
+    symbol: str,
+    budget: float,
+    deadline: float,
+) -> Reconcile | None:
+    """Did a timed-out close actually flatten the position?"""
+    try:
+        position = await asyncio.wait_for(adapter.get_position(symbol), timeout=budget)
+    except TimeoutError:
+        return None
+    except Exception as exc:  # noqa: BLE001 - an unanswered re-read keeps the timeout
+        logger.warning("reconcile close account=%s: %s", leg.account_id, exc)
+        return None
+    if position is not None:
+        # Still there — the close genuinely did not happen.
+        return None
+    try:
+        mark = await asyncio.wait_for(adapter.get_mark_price(symbol), timeout=budget)
+    except Exception:  # noqa: BLE001 - the close is the fact; the price is a detail
+        mark = None
+    return (
+        True,
+        mark,
+        f"close executed after the {deadline:g}s deadline — confirmed on the exchange",
+        "late_close",
+    )
+
+
+async def _reconcile_amend(
+    leg: LegResult,
+    adapter: ExchangeAdapter,
+    *,
+    symbol: str,
+    side: Side,
+    leverage: int,
+    sl_pct: Decimal | None,
+    tp_pct: Decimal | None,
+    admin_entry: Decimal,
+    budget: float,
+    deadline: float,
+) -> Reconcile | None:
+    """Did a timed-out amend land, and is the protection what was asked for?"""
+    try:
+        position, rules = await asyncio.wait_for(
+            asyncio.gather(
+                adapter.get_position(symbol),
+                adapter.get_symbol_rules(symbol, MarketType.FUTURES),
+            ),
+            timeout=budget,
+        )
+    except TimeoutError:
+        return None
+    except Exception as exc:  # noqa: BLE001 - an unanswered re-read keeps the timeout
+        logger.warning("reconcile amend account=%s: %s", leg.account_id, exc)
+        return None
+    if position is None:
+        # Nothing left to amend — the position closed (at its old stop, say)
+        # while the amend was in flight. The amend is moot, not a failure.
+        return (
+            True,
+            None,
+            "position already closed on the exchange — the SL/TP amend no longer applies",
+            "position_closed",
+        )
+    entry = anchor_price(admin_entry=admin_entry, own_entry=position.entry_price)
+    effective_leverage = position.leverage or leverage
+    risk = resolve_active(
+        side=side,
+        entry=entry,
+        leverage=effective_leverage,
+        margin=position.size * position.entry_price / D(effective_leverage),
+        notional=position.size * position.entry_price,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        price_tick=rules.price_tick,
+    )
+    try:
+        await asyncio.wait_for(
+            apply_sltp(
+                adapter,
+                symbol=symbol,
+                stop_loss=risk.stop_price,
+                take_profit=risk.take_profit_price,
+            ),
+            timeout=budget,
+        )
+    except TimeoutError:
+        return (
+            False,
+            None,
+            "SL/TP amend could not be re-applied after the deadline — check the "
+            "position's protection",
+            "sltp_unconfirmed",
+        )
+    except AdapterError as exc:
+        return (
+            False,
+            None,
+            f"SL/TP amend could not be re-applied after the deadline: {exc}",
+            "sltp_failed",
+        )
+    return (
+        True,
+        None,
+        f"SL/TP re-applied after the {deadline:g}s deadline — confirmed on the exchange",
+        "late_amend",
+    )
+
+
 async def open_trade(
     accounts: list[tuple[object, ExchangeAdapter]],
     intent: TradeIntent,
@@ -296,11 +600,20 @@ async def open_trade(
 
     ``timeout`` overrides the configured per-leg deadline; the tests use it to
     keep a hung-leg scenario quick without changing the platform's setting.
+    Legs that hit the deadline are re-read from the exchange afterwards
+    (``_reconcile_open``): an entry that demonstrably landed is reported as
+    filled — with a note saying so, never as a timeout failure.
     """
-    return await fan_out(
+    deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
+    result = await fan_out(
         [(aid, _make_open(aid, adapter, intent)) for aid, adapter in accounts],
         timeout=timeout,
     )
+
+    async def confirm(leg, adapter, budget, dl):
+        return await _reconcile_open(leg, adapter, intent, budget, dl)
+
+    return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
 
 
 def _make_open(account_id, adapter, intent):
@@ -371,11 +684,28 @@ async def amend_sltp(
 
         return op
 
-    return await fan_out(
+    deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
+    result = await fan_out(
         [(aid, make(aid, ad)) for aid, ad in accounts],
         respect_stop_all=False,
         timeout=timeout,
     )
+
+    async def confirm(leg, adapter, budget, dl):
+        return await _reconcile_amend(
+            leg,
+            adapter,
+            symbol=symbol,
+            side=side,
+            leverage=leverage,
+            sl_pct=sl_pct,
+            tp_pct=tp_pct,
+            admin_entry=admin_entry,
+            budget=budget,
+            deadline=dl,
+        )
+
+    return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
 
 
 async def close_trade(
@@ -397,11 +727,17 @@ async def close_trade(
 
         return op
 
-    return await fan_out(
+    deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
+    result = await fan_out(
         [(aid, make(ad)) for aid, ad in accounts],
         respect_stop_all=False,
         timeout=timeout,
     )
+
+    async def confirm(leg, adapter, budget, dl):
+        return await _reconcile_close(leg, adapter, symbol, budget, dl)
+
+    return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
 
 
 def failure_notifications(result: FanOutResult) -> list[dict]:

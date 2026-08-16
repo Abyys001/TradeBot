@@ -400,3 +400,178 @@ async def test_sltp_failure_closes_the_position_under_the_default_policy():
     assert not result.succeeded
     assert "closed at market" in result.failed[0].error
     assert await adapter.get_position("BTCUSDT") is None
+
+
+# --- Q19: post-deadline reconciliation --------------------------------------
+#
+# ``asyncio.wait_for`` cancels a leg at the deadline, but cancellation cannot
+# unsend a request the exchange already received. The exchange is the only
+# source the platform trusts, so these adapters model it doing the *real* thing
+# and then staying silent past the deadline — the exact behaviour that used to
+# mint false "exceeded the deadline" failures.
+
+
+class LateFillAdapter(PaperAdapter):
+    """The entry lands on the exchange but the reply never reaches us in time."""
+
+    async def place_order(self, **kwargs):
+        await super().place_order(**kwargs)
+        await asyncio.sleep(5.0)
+
+
+async def test_a_timed_out_entry_that_filled_is_a_late_fill_not_a_failure():
+    """Q19: never say "exceeded the deadline" about a position that exists."""
+    adapter = LateFillAdapter(balance=D("1000"))
+    result = await open_trade([(1, adapter)], intent(), timeout=0.5)
+
+    assert not result.failed
+    assert not failure_notifications(result), "a confirmed fill is not a failure"
+    assert await adapter.get_position("BTCUSDT") is not None
+    leg = result.succeeded[0]
+    assert leg.error_code == "late_fill"
+    assert "confirmed on the exchange" in leg.error
+    assert leg.value.qty == (await adapter.get_position("BTCUSDT")).size
+
+
+async def test_a_timed_out_entry_that_never_filled_stays_a_timeout():
+    """A hung account the exchange cannot confirm is abandoned, not fabricated."""
+    result = await open_trade(
+        [(1, PaperAdapter(balance=D("1000"), latency=5.0))], intent(), timeout=0.5
+    )
+
+    assert result.failed[0].timed_out
+    assert failure_notifications(result)[0]["persistent"] is True
+
+
+class EmulatedLateFillAdapter(LateFillAdapter):
+    """A late fill on an exchange that attaches SL/TP *after* entry."""
+
+    capabilities = replace(PaperAdapter.capabilities, native_sltp_on_entry=False)
+
+
+async def test_a_late_fill_is_reprotected_when_native_entry_sltp_is_unavailable():
+    """A confirmed fill is never left running at leverage without protection."""
+    adapter = EmulatedLateFillAdapter(balance=D("1000"))
+    result = await open_trade([(1, adapter)], intent(), timeout=0.5)
+
+    assert result.succeeded[0].error_code == "late_fill"
+    assert result.succeeded[0].value.sltp_attached is True
+    assert adapter._state["sltp"] != (None, None)
+
+
+async def test_a_late_fill_that_cannot_be_protected_is_closed_not_left_unprotected():
+    """Q5e default: no leveraged position is left without a stop."""
+    adapter = EmulatedLateFillAdapter(balance=D("1000"), fail_on={"set_sltp"})
+    result = await open_trade([(1, adapter)], intent(), timeout=0.5)
+
+    assert not result.succeeded
+    assert result.failed[0].error_code == "closed_after_late_fill"
+    assert "closed at market" in result.failed[0].error
+    assert await adapter.get_position("BTCUSDT") is None
+    assert failure_notifications(result)[0]["persistent"] is True
+
+
+class LateCloseAdapter(PaperAdapter):
+    """The close actually flattens the position, but the reply is slow."""
+
+    async def close_position(self, symbol):
+        await super().close_position(symbol)
+        await asyncio.sleep(5.0)
+
+
+async def test_a_close_that_actually_happened_is_confirmed_not_failed():
+    adapter = LateCloseAdapter(balance=D("1000"))
+    adapter.set_mark_price(D("90000"))
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+
+    result = await close_trade([(1, adapter)], symbol="BTCUSDT", timeout=0.5)
+
+    assert not result.failed
+    assert not failure_notifications(result)
+    assert await adapter.get_position("BTCUSDT") is None
+    leg = result.succeeded[0]
+    assert leg.error_code == "late_close"
+    assert leg.value == D("90000")
+
+
+class LateSltpAdapter(PaperAdapter):
+    """The amend's set_sltp lands but never answers; the confirm re-apply is fast."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._slow = True
+
+    async def set_sltp(self, *, symbol, stop_loss, take_profit):
+        await super().set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+        if self._slow:
+            self._slow = False
+            await asyncio.sleep(5.0)
+
+
+async def test_an_amend_that_landed_is_reapplied_and_confirmed():
+    adapter = LateSltpAdapter(balance=D("1000"))
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+
+    result = await amend_sltp(
+        [(1, adapter)],
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        admin_entry=D("100000"),
+        timeout=0.5,
+    )
+
+    assert not result.failed
+    assert not failure_notifications(result)
+    leg = result.succeeded[0]
+    assert leg.error_code == "late_amend"
+    assert "confirmed on the exchange" in leg.error
+    assert adapter._state["sltp"] != (None, None)
+
+
+class CloseDuringAmendAdapter(PaperAdapter):
+    """The position's own stop fires while the amend is still in flight."""
+
+    async def set_sltp(self, *, symbol, stop_loss, take_profit):
+        self._position = None
+        await asyncio.sleep(5.0)
+
+
+async def test_an_amend_on_a_position_that_closed_is_superseded_not_failed():
+    adapter = CloseDuringAmendAdapter(balance=D("1000"))
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+
+    result = await amend_sltp(
+        [(1, adapter)],
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        admin_entry=D("100000"),
+        timeout=0.5,
+    )
+
+    assert not result.failed
+    assert not failure_notifications(result)
+    assert result.succeeded[0].error_code == "position_closed"

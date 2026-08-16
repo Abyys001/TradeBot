@@ -6,6 +6,8 @@ service layer, the real models, and the real notification path.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from asgiref.sync import sync_to_async
 from cryptography.fernet import Fernet
@@ -15,6 +17,7 @@ from django.utils import timezone
 from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Notification
 from apps.core.money import D
 from apps.exchanges.base import MarketType, OrderType, Side
+from apps.exchanges.paper import PaperAdapter
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 from apps.trading.services import (
     eligible_accounts,
@@ -337,3 +340,32 @@ async def test_an_account_already_in_a_trade_sits_the_next_one_out():
     assert second is not None
     labels = await sync_to_async(lambda: [leg.account.label for leg in second.legs.all()])()
     assert labels == ["partner-b"], "an account already holding a position must sit out"
+
+
+class SlowReplyAdapter(PaperAdapter):
+    """The entry lands on the exchange but the reply never reaches us in time."""
+
+    async def place_order(self, **kwargs):
+        await super().place_order(**kwargs)
+        await asyncio.sleep(5.0)
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_late_fill_persists_as_ok_with_no_failure_notification(monkeypatch):
+    """Q19: a timed-out leg that actually filled is ok in the DB, not a failure."""
+    account = await make_account("slow-venue", balance="1000")
+
+    def fake_adapters(accounts):
+        return [(account.pk, SlowReplyAdapter(balance=D("1000")))]
+
+    monkeypatch.setattr("apps.trading.services._adapters", fake_adapters)
+
+    trade, result = await open_a_trade()
+
+    assert result.all_ok
+    assert result.succeeded[0].error_code == "late_fill"
+    leg = await sync_to_async(lambda: trade.legs.get())()
+    assert leg.ok
+    assert leg.error_code == "late_fill"
+    assert "confirmed on the exchange" in leg.error
+    assert await sync_to_async(Notification.objects.count)() == 0
