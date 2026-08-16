@@ -24,6 +24,7 @@ from apps.exchanges.base import (
     MarketType,
     OrderType,
     Side,
+    SLTPState,
 )
 from apps.trading.sizing import SizingRejection, size_order
 from apps.trading.sltp import SLTPRejection, anchor_price, resolve_active
@@ -60,7 +61,26 @@ class LegFill:
     stop_loss: Decimal | None
     take_profit: Decimal | None
     sltp_attached: bool
+    sltp_verified: bool
     order_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SltpResult:
+    """What protection is actually resting on the exchange, after a read-back.
+
+    ``attached`` and ``verified`` are deliberately two flags. ``attached`` is
+    the outcome the caller acts on: when False the position is unprotected and
+    the Q5e policy says what happens next. ``verified`` is how much we can
+    trust that outcome: an exchange with no ``get_sltp`` read-back is recorded
+    as placed-but-unconfirmed rather than certified, so a silently dropped
+    trigger order can never masquerade as protection.
+    """
+
+    stop_loss: Decimal | None
+    take_profit: Decimal | None
+    attached: bool
+    verified: bool
 
 
 async def _open_one(
@@ -149,11 +169,39 @@ async def _open_one(
         take_profit=risk.take_profit_price if attach else None,
     )
 
-    sltp_attached = attach
-    if not attach and (risk.stop_price or risk.take_profit_price):
-        # Q5e: entry is filled and the position is live but unprotected. This is
-        # the dangerous window; _protect applies the configured failure policy.
-        sltp_attached = await _protect(adapter, intent, risk.stop_price, risk.take_profit_price)
+    if risk.stop_price or risk.take_profit_price:
+        if attach:
+            # Entry carried the SL/TP natively. Placing is not proof — an
+            # exchange can silently drop a trigger leg — so read the protection
+            # back. On a mismatch the Q5e path re-attaches (place-then-cancel
+            # clears the wrong order along the way) instead of trusting the
+            # fill's side effects.
+            state, ok = await _verify_sltp(
+                adapter, intent.symbol, risk.stop_price, risk.take_profit_price
+            )
+            if state is not None and not ok:
+                logger.warning(
+                    "native SL/TP read back as stop=%s take-profit=%s on %s — re-attaching",
+                    state.stop_loss,
+                    state.take_profit,
+                    intent.symbol,
+                )
+                protection = await _protect(
+                    adapter, intent, risk.stop_price, risk.take_profit_price
+                )
+            else:
+                protection = SltpResult(
+                    stop_loss=risk.stop_price,
+                    take_profit=risk.take_profit_price,
+                    attached=True,
+                    verified=state is not None,
+                )
+        else:
+            # Q5e: entry is filled and the position is live but unprotected. This
+            # is the dangerous window; _protect applies the configured policy.
+            protection = await _protect(adapter, intent, risk.stop_price, risk.take_profit_price)
+    else:
+        protection = SltpResult(None, None, attached=attach, verified=False)
 
     return LegFill(
         account_id=account_id,
@@ -161,9 +209,10 @@ async def _open_one(
         entry_price=result.avg_price,
         margin=sized.margin,
         notional=sized.notional,
-        stop_loss=risk.stop_price,
-        take_profit=risk.take_profit_price,
-        sltp_attached=sltp_attached,
+        stop_loss=protection.stop_loss,
+        take_profit=protection.take_profit,
+        sltp_attached=protection.attached,
+        sltp_verified=protection.verified,
         order_id=result.order_id,
     )
 
@@ -237,17 +286,94 @@ async def apply_sltp(
         await adapter.cancel_orders(symbol, stale)
 
 
+#: How close a read-back trigger price must be to what was placed. Read-back
+#: prices come back re-rounded by each exchange's own grid (Hyperliquid rounds
+#: triggers to five significant figures, say), so exact equality is the wrong
+#: test — but the band must be tight enough that it can never certify a stop at
+#: the wrong price.
+_SLTP_TOLERANCE = D("0.0001")
+
+
+def _prices_close(a: Decimal | None, b: Decimal | None) -> bool:
+    """Two trigger prices agree within the exchange's rounding."""
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    if a == b:
+        return True
+    span = max(abs(a), abs(b))
+    return abs(a - b) <= span * _SLTP_TOLERANCE
+
+
+async def _verify_sltp(
+    adapter: ExchangeAdapter,
+    symbol: str,
+    stop_loss: Decimal | None,
+    take_profit: Decimal | None,
+) -> tuple[SLTPState | None, bool]:
+    """Read the protection back from the exchange and judge it.
+
+    ``(state, ok)``. ``state`` is None when the adapter cannot answer — a read
+    error or a missing ``get_sltp`` endpoint — and that is never a failure:
+    ok stays True so the leg records placed-but-unconfirmed rather than
+    alarming the admin over an exchange the platform cannot hold to account.
+    When the adapter can answer, every requested leg must be present and
+    price-close, or the exchange is not honouring what was placed.
+    """
+    try:
+        state = await adapter.get_sltp(symbol)
+    except Exception as exc:  # noqa: BLE001 - an unanswerable read-back is "cannot ask"
+        logger.warning("SL/TP read-back failed for %s: %s", symbol, exc)
+        return None, True
+    if state is None:
+        return None, True
+    ok = _prices_close(state.stop_loss, stop_loss) and _prices_close(
+        state.take_profit, take_profit
+    )
+    return state, ok
+
+
+async def _apply_and_verify(
+    adapter: ExchangeAdapter,
+    symbol: str,
+    stop_loss: Decimal | None,
+    take_profit: Decimal | None,
+) -> SltpResult:
+    """Place protection, then read it back in the same step.
+
+    Raises ``AdapterError(code="sltp_mismatch")`` when the exchange did not
+    hold the SL/TP that was placed — the caller decides what that means under
+    its failure policy. Returns attached=True/verified=False for an exchange
+    that cannot be read back (honest unconfirmed, not a lie).
+    """
+    await apply_sltp(adapter, symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+    state, ok = await _verify_sltp(adapter, symbol, stop_loss, take_profit)
+    if state is None:
+        return SltpResult(stop_loss, take_profit, attached=True, verified=False)
+    if ok:
+        return SltpResult(stop_loss, take_profit, attached=True, verified=True)
+    raise AdapterError(
+        "the exchange did not hold the SL/TP that was placed: "
+        f"read back stop={state.stop_loss} take-profit={state.take_profit}",
+        code="sltp_mismatch",
+    )
+
+
 async def _protect(
     adapter: ExchangeAdapter,
     intent: TradeIntent,
     stop_loss: Decimal | None,
     take_profit: Decimal | None,
-) -> bool:
+) -> SltpResult:
     """Attach SL/TP after entry, applying the Q5e failure policy.
 
-    Returns True when the position ended up protected. When it did not and the
-    policy says so, the position is closed at market rather than left running
-    unprotected at leverage.
+    ``attached`` is only True when the read-back confirms the protection
+    actually rests on the exchange (``verified``); an adapter that cannot be
+    read back is recorded as placed-but-unconfirmed so a silent drop can never
+    masquerade as a protected leg. When protection could not be attached and
+    the policy says so, the position is closed at market rather than left
+    running unprotected at leverage.
     """
     retries = settings.TRADING["SLTP_FAILURE_RETRIES"]
     policy = settings.TRADING["SLTP_FAILURE_POLICY"]
@@ -255,10 +381,9 @@ async def _protect(
 
     for attempt in range(retries + 1):
         try:
-            await apply_sltp(
-                adapter, symbol=intent.symbol, stop_loss=stop_loss, take_profit=take_profit
+            return await _apply_and_verify(
+                adapter, intent.symbol, stop_loss, take_profit
             )
-            return True
         except AdapterError as exc:
             last_error = exc
             logger.warning(
@@ -284,7 +409,7 @@ async def _protect(
         raise AdapterError(f"SL/TP attach failed ({last_error}); position closed at market")
     if policy == "retry_then_notify":
         logger.error("SL/TP could not be attached to %s — position is UNPROTECTED", intent.symbol)
-        return False
+        return SltpResult(stop_loss, take_profit, attached=False, verified=False)
     raise ValueError(f"unknown SLTP_FAILURE_POLICY: {policy!r}")
 
 
@@ -397,69 +522,85 @@ async def _reconcile_open(
     # (Q5e), inside the reconcile budget — but never more than one bounded
     # attempt: the leg already overran and the response must stay bounded.
     attached = adapter.capabilities.native_sltp_on_entry
-    if not attached and (risk.stop_price or risk.take_profit_price):
-        try:
-            await asyncio.wait_for(
-                apply_sltp(
-                    adapter,
-                    symbol=intent.symbol,
-                    stop_loss=risk.stop_price,
-                    take_profit=risk.take_profit_price,
-                ),
-                timeout=budget,
-            )
-            attached = True
-        except TimeoutError:
-            return (
-                False,
-                None,
-                "entry filled after the deadline but the SL/TP attach was cut off — "
-                "the position is open and may be UNPROTECTED: check it now",
-                "sltp_unconfirmed",
-            )
-        except AdapterError as exc:
-            if settings.TRADING["SLTP_FAILURE_POLICY"] == "retry_then_notify":
-                return (
-                    False,
-                    None,
-                    "entry filled after the deadline but SL/TP could not be attached — "
-                    "the position is UNPROTECTED",
-                    "sltp_failed",
-                )
+    verified = False
+    if risk.stop_price or risk.take_profit_price:
+        if attached:
+            # Native entry carried the protection; confirm it survived the ride.
+            # A read-back we cannot get in the remaining budget is unconfirmed,
+            # never a reason to fabricate a failure for a real position.
             try:
-                await asyncio.wait_for(adapter.close_position(intent.symbol), timeout=budget)
+                state, ok = await asyncio.wait_for(
+                    _verify_sltp(
+                        adapter, intent.symbol, risk.stop_price, risk.take_profit_price
+                    ),
+                    timeout=budget,
+                )
+                verified = state is not None and ok
             except TimeoutError:
-                logger.error(
-                    "reconcile: SL/TP attach failed on %s and the position could not be "
-                    "closed either — open and UNPROTECTED",
-                    intent.symbol,
+                verified = False
+        else:
+            try:
+                protection = await asyncio.wait_for(
+                    _apply_and_verify(
+                        adapter,
+                        intent.symbol,
+                        risk.stop_price,
+                        risk.take_profit_price,
+                    ),
+                    timeout=budget,
                 )
+                attached, verified = protection.attached, protection.verified
+            except TimeoutError:
                 return (
                     False,
                     None,
-                    "entry filled after the deadline, SL/TP could not be attached and the "
-                    "position could not be closed — it is open and UNPROTECTED: check it now",
+                    "entry filled after the deadline but the SL/TP attach was cut off — "
+                    "the position is open and may be UNPROTECTED: check it now",
                     "sltp_unconfirmed",
                 )
-            except Exception as close_exc:  # noqa: BLE001
-                logger.error(
-                    "reconcile close after failed attach on %s: %s", intent.symbol, close_exc
-                )
+            except AdapterError as exc:
+                if settings.TRADING["SLTP_FAILURE_POLICY"] == "retry_then_notify":
+                    return (
+                        False,
+                        None,
+                        "entry filled after the deadline but SL/TP could not be attached — "
+                        "the position is UNPROTECTED",
+                        "sltp_failed",
+                    )
+                try:
+                    await asyncio.wait_for(adapter.close_position(intent.symbol), timeout=budget)
+                except TimeoutError:
+                    logger.error(
+                        "reconcile: SL/TP attach failed on %s and the position could not be "
+                        "closed either — open and UNPROTECTED",
+                        intent.symbol,
+                    )
+                    return (
+                        False,
+                        None,
+                        "entry filled after the deadline, SL/TP could not be attached and the "
+                        "position could not be closed — it is open and UNPROTECTED: check it now",
+                        "sltp_unconfirmed",
+                    )
+                except Exception as close_exc:  # noqa: BLE001
+                    logger.error(
+                        "reconcile close after failed attach on %s: %s", intent.symbol, close_exc
+                    )
+                    return (
+                        False,
+                        None,
+                        f"entry filled after the deadline, SL/TP could not be attached ({exc}) "
+                        f"and closing the position also failed ({close_exc}) — it is open and "
+                        "UNPROTECTED: check it now",
+                        "sltp_unconfirmed",
+                    )
                 return (
                     False,
                     None,
-                    f"entry filled after the deadline, SL/TP could not be attached ({exc}) "
-                    f"and closing the position also failed ({close_exc}) — it is open and "
-                    "UNPROTECTED: check it now",
-                    "sltp_unconfirmed",
+                    f"entry filled after the deadline but SL/TP could not be attached ({exc}); "
+                    "position closed at market",
+                    "closed_after_late_fill",
                 )
-            return (
-                False,
-                None,
-                f"entry filled after the deadline but SL/TP could not be attached ({exc}); "
-                "position closed at market",
-                "closed_after_late_fill",
-            )
 
     return (
         True,
@@ -472,6 +613,7 @@ async def _reconcile_open(
             stop_loss=risk.stop_price,
             take_profit=risk.take_profit_price,
             sltp_attached=attached,
+            sltp_verified=verified,
             order_id="",
         ),
         f"entry filled after the {deadline:g}s deadline — confirmed on the exchange",
@@ -558,13 +700,8 @@ async def _reconcile_amend(
         price_tick=rules.price_tick,
     )
     try:
-        await asyncio.wait_for(
-            apply_sltp(
-                adapter,
-                symbol=symbol,
-                stop_loss=risk.stop_price,
-                take_profit=risk.take_profit_price,
-            ),
+        protection = await asyncio.wait_for(
+            _apply_and_verify(adapter, symbol, risk.stop_price, risk.take_profit_price),
             timeout=budget,
         )
     except TimeoutError:
@@ -584,7 +721,7 @@ async def _reconcile_amend(
         )
     return (
         True,
-        None,
+        protection,
         f"SL/TP re-applied after the {deadline:g}s deadline — confirmed on the exchange",
         "late_amend",
     )
@@ -638,8 +775,13 @@ async def amend_sltp(
     tp_pct: Decimal | None,
     admin_entry: Decimal,
     timeout: float | None = None,
-) -> FanOutResult[None]:
+) -> FanOutResult[SltpResult]:
     """Mid-trade SL/TP change (spec §4 — must land within the fan-out deadline).
+
+    Each leg returns its ``SltpResult`` — what the exchange actually holds
+    after the amend, verified by read-back where the adapter can answer — so
+    the caller persists real resting prices per leg instead of the admin's
+    percentages.
 
     ``respect_stop_all`` is False for the same reason as ``close_trade``: Q14
     decided the halt stops *new* routing only. Tightening a stop on a position
@@ -648,7 +790,7 @@ async def amend_sltp(
     """
 
     def make(account_id, adapter):
-        async def op() -> None:
+        async def op() -> SltpResult:
             # Two independent reads, so they travel together rather than back to
             # back — one full exchange round trip handed back to the §4 budget
             # on every amend. The position lookup cannot short-circuit the rules
@@ -675,7 +817,7 @@ async def amend_sltp(
                 tp_pct=tp_pct,
                 price_tick=rules.price_tick,
             )
-            await apply_sltp(
+            return await _apply_and_verify(
                 adapter,
                 symbol=symbol,
                 stop_loss=risk.stop_price,
@@ -757,6 +899,7 @@ def failure_notifications(result: FanOutResult) -> list[dict]:
 __all__ = [
     "TradeIntent",
     "LegFill",
+    "SltpResult",
     "LegResult",
     "open_trade",
     "amend_sltp",

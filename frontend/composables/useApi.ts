@@ -222,6 +222,8 @@ export interface PositionLeg {
   error: string
   error_code: string
   sltp_attached: boolean
+  /** True only when a read-back showed the SL/TP resting on the exchange. */
+  sltp_verified: boolean
   qty: string | null
   entry_price: string | null
   margin: string | null
@@ -390,6 +392,8 @@ export interface TradeLeg {
   stop_loss: string | null
   take_profit: string | null
   sltp_attached: boolean
+  /** True only when a read-back showed the SL/TP resting on the exchange. */
+  sltp_verified: boolean
   pnl: string | null
   opened_at: string | null
   closed_at: string | null

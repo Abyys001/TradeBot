@@ -82,6 +82,11 @@ class TradeLeg(models.Model):
     take_profit = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
     # False means the entry filled but SL/TP did not attach (Q5e).
     sltp_attached = models.BooleanField(default=False)
+    # False while the attach is unconfirmed: the adapter could not read the
+    # protection back from the exchange (no get_sltp endpoint, or a read error).
+    # True only when a read-back showed the SL/TP actually resting at these
+    # prices — placed is not proof, a silently dropped trigger is a missing leg.
+    sltp_verified = models.BooleanField(default=False)
     pnl = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
 
     opened_at = models.DateTimeField(auto_now_add=True)

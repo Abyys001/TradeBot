@@ -32,6 +32,7 @@ from apps.exchanges.base import (
     OrderType,
     Position,
     Side,
+    SLTPState,
     SymbolRules,
     WithdrawalPermissionError,
 )
@@ -162,15 +163,35 @@ class OkxAdapter(RestAdapter):
         self._contract_size[inst_id] = D(row.get("ctVal") or "1")
         lot = D(row.get("lotSz") or "1")
         contract = self._contract_size[inst_id]
+        min_qty = D(row.get("minSz") or "1") * contract
+        # Q18: OKX publishes no per-symbol minimum *notional* — it enforces a
+        # minimum quantity. So the practical floor is that quantity valued at
+        # today's price (mark for futures, last trade for spot); a derived
+        # number beats the guessed five it replaced.
+        price = (
+            await self.get_mark_price(symbol)
+            if market is MarketType.FUTURES
+            else await self._last_price(inst_id)
+        )
         return SymbolRules(
             symbol=symbol,
             price_tick=D(row.get("tickSz") or "0.01"),
             # Expressed in base units so sizing stays exchange-agnostic.
             qty_step=lot * contract,
-            min_qty=D(row.get("minSz") or "1") * contract,
-            min_notional=D("5"),
+            min_qty=min_qty,
+            min_notional=min_qty * price,
             max_leverage=int(D(row.get("lever") or "10")),
         )
+
+    async def _last_price(self, inst_id: str) -> Decimal:
+        """Spot last trade price — the mark-price endpoint is futures-only."""
+        data = await self.request(
+            "GET", "/api/v5/market/ticker", params={"instId": inst_id}, signed=False
+        )
+        rows = data if isinstance(data, list) else [data]
+        if not rows:
+            raise AdapterError(f"okx: no ticker for {inst_id}")
+        return D(rows[0].get("last") or rows[0].get("lastPx") or "0")
 
     async def get_mark_price(self, symbol: str) -> Decimal:
         inst_id = self._inst_id(symbol, MarketType.FUTURES)
@@ -303,6 +324,26 @@ class OkxAdapter(RestAdapter):
             body["tpTriggerPx"] = f"{take_profit:f}"
             body["tpOrdPx"] = "-1"
         await self.request("POST", "/api/v5/trade/order-algo", body=body)
+
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """The resting OCO algo order's trigger prices, if it still has them.
+
+        ``orders-algo-pending`` is the same feed ``list_conditional_orders``
+        snapshots from, filtered to exactly the ``oco`` type ``set_sltp``
+        places. A take-profit the exchange dropped shows up here as a None leg.
+        """
+        inst_id = self._inst_id(symbol, MarketType.FUTURES)
+        data = await self.request(
+            "GET",
+            "/api/v5/trade/orders-algo-pending",
+            params={"instId": inst_id, "ordType": "oco"},
+        )
+        rows = data if isinstance(data, list) else []
+        stop_loss = take_profit = None
+        for row in rows:
+            stop_loss = D(str(row.get("slTriggerPx") or "")) or None
+            take_profit = D(str(row.get("tpTriggerPx") or "")) or None
+        return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
 
     async def get_position(self, symbol: str) -> Position | None:
         inst_id = self._inst_id(symbol, MarketType.FUTURES)

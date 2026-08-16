@@ -92,6 +92,8 @@
     "feedDownHint": "No exchange price feed is reachable. The panel shows no price rather than an invented one.",
     "feedDownTitle": "No price feed",
     "feedDownBody": "No exchange could be reached, so there is nothing real to chart. Nothing is drawn until a feed comes back.",
+    "downloadingHistory": "Downloading history…",
+    "downloadQueued": "{n} downloads in queue",
     "noQuote": "No quote",
     "resetView": "Reset the view to the latest candles",
     "candleTimerHint": "Time left in the current {interval} candle",
@@ -166,6 +168,7 @@
     "failedShort": "failed",
     "unprotected": "{n} filled leg(s) carry no stop. Amend the SL/TP or close them.",
     "noStop": "No stop",
+    "unconfirmed": "Unconfirmed",
     "notFilled": "Not filled",
     "flatTitle": "No open position",
     "flatBody": "Send an order and every account's own position appears here, marked to the live price.",
@@ -511,6 +514,20 @@
     "appearanceHint": "Stored in this browser, not on the server.",
     "language": "Language",
     "languageHint": "English is the source language; Persian is a full translation with RTL layout.",
+    "split": {
+      "title": "Profit split",
+      "hint": "The profit on every account is divided by these global percentages. On a loss there is nothing to divide — the loss is the PnL.",
+      "role": {
+        "investor": "Investor %",
+        "trader": "Trader %",
+        "programmer": "Programmer %"
+      },
+      "sum": "Total: {sum}%",
+      "sumError": "The three percentages must add up to exactly 100.",
+      "save": "Save split",
+      "saved": "Split saved",
+      "updated": "Last changed by {user}, {when}"
+    },
     "noTestnet": "No testnet",
     "group": {
       "sizing": "Position sizing",

@@ -53,6 +53,10 @@ export const ICON_PATHS = {
   eyeOff: 'M3 3l18 18M10.6 5.2A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.2 6.2A17 17 0 0 0 2 12s3.6 7 10 7c1.6 0 3-.4 4.3-1M9.9 9.9a3 3 0 0 0 4.2 4.2',
   /** Corners drawing inward: re-fit the chart to the data. */
   fit: 'M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3m13 5h3a2 2 0 0 0 2-2v-3',
+  /** A quarter arc, spun by `animate-spin`: the "working" glyph. */
+  spinner: 'M12 2a10 10 0 0 1 10 10',
+  /** A rising line with an arrowhead: profit direction. */
+  trend: 'M3 17l6-6 4 4 8-8M15 7h6v6',
 } as const
 
 export type IconName = keyof typeof ICON_PATHS

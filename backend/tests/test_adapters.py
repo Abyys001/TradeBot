@@ -237,15 +237,18 @@ TOOBIT_CONTRACTS = [
 ]
 
 
-def toobit_handler(*, info: bool = True, **endpoints):
-    """A mock handler serving exchangeInfo (and per-call fixture bodies)."""
+def toobit_handler(**endpoints):
+    """A mock handler serving exchangeInfo plus per-path fixture bodies.
+
+    Callers pass full paths, e.g. ``toobit_handler(**{"/api/v1/futures/positions": []})``.
+    """
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if info and request.url.path == "/api/v1/exchangeInfo":
+        if request.url.path == "/api/v1/exchangeInfo":
             return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
         for path, payload in endpoints.items():
             if request.url.path == path:
-                return json_response(payload) if callable(payload) else json_response(payload)
+                return json_response(payload)
         return json_response({"code": -1121, "msg": "Invalid symbol."}, status=400)
 
     return handler
@@ -257,7 +260,7 @@ async def test_toobit_signs_parameters_in_the_query_string():
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured["url"] = str(request.url)
-        captured["headers"] = dict(request.headers)
+        captured["headers"] = request.headers  # httpx.Headers: case-insensitive
         captured["body"] = request.content.decode()
         return json_response({"code": 200, "msg": "success"})
 
@@ -388,7 +391,8 @@ async def test_toobit_balance_reads_coin_and_available_balance():
 
 async def test_toobit_get_position_converts_contracts_to_base():
     adapter = ToobitAdapter(
-        api_key=KEY, api_secret=SECRET, client=mock(toobit_handler(positions=[]))
+        api_key=KEY, api_secret=SECRET,
+        client=mock(toobit_handler(**{"/api/v1/futures/positions": []})),
     )
     await adapter.get_position("BTCUSDT")  # empty list -> None, must not raise
 
@@ -459,18 +463,22 @@ async def test_toobit_set_sltp_replaces_in_place_via_trading_stop():
             return json_response({"timezone": "UTC", "symbols": [], "contracts": TOOBIT_CONTRACTS})
         if request.url.path == "/api/v1/futures/positions":
             return json_response([{"symbol": "BTC-SWAP-USDT", "side": "SHORT", "position": "10"}])
-        sent["body"] = parse_qs(urlparse(str(request.url)).query)
-        return json_response({"symbol": "BTC-SWAP-USDT", "side": "SHORT", "takeProfit": "60000", "stopLoss": ""})
+        sent["body"] = parse_qs(urlparse(str(request.url)).query, keep_blank_values=True)
+        return json_response(
+            {"symbol": "BTC-SWAP-USDT", "side": "SHORT",
+             "takeProfit": "60000", "stopLoss": ""}
+        )
 
     adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
     await adapter.set_sltp(symbol="BTCUSDT", stop_loss=None, take_profit=D("60000"))
     assert sent["body"]["side"] == ["SHORT"]
     assert sent["body"]["takeProfit"] == ["60000"]
+    # An empty string clears a leg; parse_qs drops blank values unless asked.
     assert sent["body"]["stopLoss"] == [""]
     assert sent["body"]["slTriggerBy"] == ["MARK_PRICE"]
     assert sent["body"]["tpTriggerBy"] == ["MARK_PRICE"]
 
-    no_position = toobit_handler(positions=[])
+    no_position = toobit_handler(**{"/api/v1/futures/positions": []})
     no_position_adapter = ToobitAdapter(api_key=KEY, api_secret=SECRET, client=mock(no_position))
     with pytest.raises(AdapterError):
         await no_position_adapter.set_sltp(symbol="BTCUSDT", stop_loss=D("50000"), take_profit=None)
@@ -488,7 +496,8 @@ async def test_toobit_lists_and_cancels_only_protection_orders():
         if request.url.path == "/api/v1/futures/openOrders":
             return json_response(
                 [
-                    {"orderId": "1", "type": "STOP", "stopPrice": "50000", "triggerBy": "MARK_PRICE"},
+                    {"orderId": "1", "type": "STOP", "stopPrice": "50000",
+                     "triggerBy": "MARK_PRICE"},
                     {"orderId": "2", "type": "STOP_PROFIT_LOSS", "orderType": "STOP_LONG_LOSS"},
                     {"orderId": "3", "type": "LIMIT"},  # must never be cancelled
                 ]
@@ -579,6 +588,8 @@ async def test_okx_converts_base_units_to_contracts():
     """ctVal 0.01 BTC per contract: 0.5 BTC is 50 contracts, not 0.5."""
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if "mark-price" in str(request.url):
+            return json_response({"code": "0", "data": [{"markPx": "66000"}]})
         return json_response(
             {
                 "code": "0",
@@ -594,7 +605,34 @@ async def test_okx_converts_base_units_to_contracts():
     rules = await adapter.get_symbol_rules("BTCUSDT", MarketType.FUTURES)
     # Steps are reported in base units so sizing stays exchange-agnostic.
     assert rules.qty_step == D("0.01")
+    assert rules.min_qty == D("0.01")  # minSz 1 contract x ctVal 0.01
+    # Q18: the floor is the minimum quantity valued at today's mark price.
+    assert rules.min_notional == D("0.01") * D("66000")
     assert adapter._to_contracts("BTC-USDT-SWAP", D("0.5")) == "50"
+
+
+async def test_okx_derives_spot_min_notional_from_last_price():
+    """Spot has no mark-price endpoint — the last trade price is the floor."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "ticker" in str(request.url):
+            return json_response({"code": "0", "data": [{"instId": "ETH-USDT", "last": "3000"}]})
+        return json_response(
+            {
+                "code": "0",
+                "data": [
+                    {"ctVal": "", "lotSz": "0.01", "minSz": "0.1", "tickSz": "0.01",
+                     "lever": "2"}
+                ],
+            }
+        )
+
+    adapter = OkxAdapter(
+        api_key=KEY, api_secret=SECRET, passphrase=PASSPHRASE, client=mock(handler)
+    )
+    rules = await adapter.get_symbol_rules("ETHUSDT", MarketType.SPOT)
+    assert rules.min_qty == D("0.1")  # spot has no ctVal, so minSz is base units
+    assert rules.min_notional == D("0.1") * D("3000")
 
 
 async def test_okx_surfaces_the_inner_error_message():
@@ -733,6 +771,8 @@ async def test_gateio_encodes_a_short_as_a_negative_size():
     captured: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
+        if "tickers" in str(request.url):
+            return json_response([{"mark_price": "100000"}])
         if "contracts" in str(request.url):
             return json_response(
                 {"quanto_multiplier": "0.0001", "order_price_round": "0.1", "leverage_max": "10"}
@@ -751,6 +791,27 @@ async def test_gateio_encodes_a_short_as_a_negative_size():
     assert captured["body"]["size"] == -5  # 0.0005 / 0.0001 = 5, negative for short
     assert captured["body"]["price"] == "0"
     assert captured["body"]["tif"] == "ioc"
+
+
+async def test_gateio_derives_min_notional_from_one_contract_at_mark():
+    """Q18: Gate enforces a whole number of contracts — the floor is one
+    contract valued at today's mark price, not a guessed five."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "tickers" in str(request.url):
+            return json_response([{"mark_price": "100000"}])
+        return json_response(
+            {"quanto_multiplier": "0.0001", "order_price_round": "0.1", "leverage_max": "10"}
+        )
+
+    adapter = GateioAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    rules = await adapter.get_symbol_rules("BTCUSDT", MarketType.FUTURES)
+    assert rules.min_qty == D("0.0001")  # one contract
+    assert rules.min_notional == D("0.0001") * D("100000")
+    # The adapter is futures-only; the declared markets must say so too.
+    assert MarketType.SPOT not in GateioAdapter.capabilities.markets
+    with pytest.raises(NotSupported):
+        await adapter.get_symbol_rules("BTCUSDT", MarketType.SPOT)
 
 
 async def test_gateio_maps_symbol_to_underscore_pair():

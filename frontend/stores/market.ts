@@ -92,6 +92,17 @@ export const useMarketStore = defineStore('market', {
      * chart, not a transient request failure to retry quietly.
      */
     feedDown: false,
+    /**
+     * Set while the pair's on-demand history download is running (the API
+     * answers 202). Distinct from `feedDown`: a 503 means no exchange is
+     * reachable at all, while a 202 means the chart's history is being fetched
+     * and will arrive — the panel says which one is true.
+     */
+    downloading: false,
+    /** 0–100 across the download's series, straight from the backend status. */
+    historyPercent: 0,
+    /** How many other pairs are waiting in the download queue behind this one. */
+    historyQueued: 0,
     lastTickAt: null as number | null,
     /**
      * Ticked on every poll *attempt*, successful or not. `stale` needs a
@@ -279,6 +290,7 @@ export const useMarketStore = defineStore('market', {
         this.providerMs = feed.provider_ms ?? this.providerMs
         this.error = ''
         this.feedDown = false
+        this.applyHistory(feed.history)
         this.revision++
       } catch (e: any) {
         // 503 is the backend saying no exchange answered. It is not a transient
@@ -289,10 +301,33 @@ export const useMarketStore = defineStore('market', {
           this.live = false
           this.source = ''
         }
+        // A non-202 failure carries no history block; stop promising a
+        // download that the next successful poll can always re-raise.
+        this.applyHistory()
         this.error = errorMessage(e)
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Fold the backend's on-demand history status into the panel.
+     *
+     * Only a `downloading` status keeps the flag raised, so the chart can say
+     * "history being fetched" instead of an empty state; `none`, `ready`,
+     * `failed` and an absent block all mean the chart shows what it has and
+     * says nothing about a download.
+     */
+    applyHistory(history?: HistoryStatus) {
+      if (history?.state === 'downloading') {
+        this.downloading = true
+        this.historyPercent = history.percent
+        this.historyQueued = history.queued
+        return
+      }
+      this.downloading = false
+      this.historyPercent = 0
+      this.historyQueued = 0
     },
 
     async loadTicker() {
@@ -350,6 +385,7 @@ export const useMarketStore = defineStore('market', {
       this.symbol = next
       this.price = null
       this.candles = []
+      this.applyHistory()
       this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])
     },
@@ -359,6 +395,7 @@ export const useMarketStore = defineStore('market', {
       if (interval === this.interval) return
       this.interval = interval
       this.candles = []
+      this.applyHistory()
       this.resubscribe()
       await this.loadCandles()
     },
@@ -367,6 +404,7 @@ export const useMarketStore = defineStore('market', {
       if (market === this.market) return
       this.market = market
       this.candles = []
+      this.applyHistory()
       this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])
     },

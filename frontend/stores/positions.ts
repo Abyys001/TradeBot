@@ -44,6 +44,16 @@ export const usePositionsStore = defineStore('positions', {
       return this.legs.filter((leg) => leg.ok && !leg.sltp_attached)
     },
 
+    /**
+     * Legs whose protection is reported attached but never confirmed by a
+     * read-back from the exchange (adapter has no get_sltp endpoint, or the
+     * read failed). Not a failure — the SL/TP may well be resting — but the
+     * admin should read "unconfirmed", not "verified", for these.
+     */
+    unconfirmed(): PositionLeg[] {
+      return this.legs.filter((leg) => leg.ok && leg.sltp_attached && !leg.sltp_verified)
+    },
+
     pnl: (s) => (s.snapshot?.totals?.pnl == null ? null : Number(s.snapshot.totals.pnl)),
     roePct: (s) =>
       s.snapshot?.totals?.roe_pct == null ? null : Number(s.snapshot.totals.roe_pct),

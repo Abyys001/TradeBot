@@ -30,6 +30,7 @@ from apps.exchanges.base import (
     OrderType,
     Position,
     Side,
+    SLTPState,
     SymbolRules,
     WithdrawalPermissionError,
 )
@@ -235,6 +236,24 @@ class BybitAdapter(RestAdapter):
         if take_profit is not None:
             body["tpTriggerBy"] = "MarkPrice"
         await self.request("POST", "/v5/position/trading-stop", body=body)
+
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """The position's own SL/TP, straight from ``position/list``.
+
+        Bybit amends in place via ``trading-stop``, so this is the exact state
+        the exchange holds — the read-back cannot disagree with the amend.
+        """
+        data = await self.request(
+            "GET", "/v5/position/list", params={"category": "linear", "symbol": symbol}
+        )
+        for row in data.get("list", []):
+            if D(row.get("size", "0")) == 0:
+                continue
+            return SLTPState(
+                stop_loss=D(row.get("stopLoss") or "0") or None,
+                take_profit=D(row.get("takeProfit") or "0") or None,
+            )
+        return SLTPState(stop_loss=None, take_profit=None)
 
     async def get_position(self, symbol: str) -> Position | None:
         data = await self.request(

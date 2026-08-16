@@ -13,8 +13,8 @@ independently computed expected signature (`backend/tests/test_adapters.py`).
 |---|---|---|---|---|---|
 | **Hyperliquid** | EIP-712 agent wallet | perps | ✅ | trigger orders, cancel+replace | Official SDK, run off-thread. Q11 unverified. |
 | **Bybit** | HMAC-SHA256 hex | spot + linear | ✅ | native, **amend in place** | Best fit: no cancel/replace window. |
-| **Binance** | HMAC-SHA256 hex | spot + USDⓈ-M | ✅ | conditional orders, cancel+replace | Rate limits are per-IP as well as per-key. Key permissions live on the **spot** host. |
-| **Toobit** | HMAC-SHA256 hex | spot + USDT-M | ❌ | native at entry | Binance-style. No test environment (Q9). |
+| **Binance** | HMAC-SHA256 hex | USDⓈ-M | ✅ | conditional orders, cancel+replace | Rate limits are per-IP as well as per-key. Key permissions live on the **spot** host. |
+| **Toobit** | HMAC-SHA256 hex | USDT-M | ❌ | native, **amend in place** | Signing is query-only (`X-BB-APIKEY`); contract ids via `exchangeInfo.contracts[]`. No test environment (Q9). |
 | **OKX** | HMAC-SHA256 base64 | spot + swap | ✅ header | native at entry, OCO algo orders, cancel+replace | **Sizes in contracts** — `ctVal` conversion. |
 | **KuCoin** | HMAC-SHA256 base64 | futures only | ✅ | stop orders, cancel+replace | Passphrase is HMAC'd too. XBT naming. Key permissions live on the **spot** host. |
 | **Gate.io** | HMAC-SHA512 hex | futures | ✅ | price-triggered orders, cancel+replace | Direction is the **sign of size**. |
@@ -48,11 +48,12 @@ The check is re-run on **resume**, not just at connect: a key can gain
 withdrawal rights while an account sits paused, and resume is the moment it
 starts routing partner capital again.
 
-**Amending SL/TP does not stack orders (Q5d).** Only Bybit amends TP/SL in
-place. On the other six, SL/TP are ordinary reduce-only conditional orders, so
-`engine/executor.apply_sltp` snapshots the live ones with
-`list_conditional_orders()`, places the new pair, then cancels the snapshot.
-Per exchange that snapshot is: Binance/Toobit `openOrders` filtered to the stop
+**Amending SL/TP does not stack orders (Q5d).** Only Bybit and Toobit amend TP/SL
+in place (Toobit via `position/trading-stop`). On the other six, SL/TP are
+ordinary reduce-only conditional orders, so `engine/executor.apply_sltp`
+snapshots the live ones with `list_conditional_orders()`, places the new pair,
+then cancels the snapshot.
+Per exchange that snapshot is: Binance `openOrders` filtered to the stop
 types → `DELETE .../order`; OKX `orders-algo-pending?ordType=oco` →
 `cancel-algos`; KuCoin `stopOrders` → `DELETE /api/v1/orders/{id}`; Gate.io
 `price_orders?status=open` → `DELETE .../price_orders/{id}`; Hyperliquid

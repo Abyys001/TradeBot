@@ -28,6 +28,13 @@ turned out to hold no futures material at all — the adapters had been written
 from memory, against the rule in `CLAUDE.md`. See each
 `reference/exchanges/*/README.md` for the defects that survived because of it.
 
+Toobit was rebuilt on 2026-08-16 against `reference/exchanges/toobit/api/`
+(27 pages): the previous adapter was Binance request shapes pointed at Toobit.
+The rebuild is a standalone adapter — Toobit's signing (all parameters in the
+query string, `X-BB-APIKEY`), `BTC-SWAP-USDT` contract ids mapped via
+`exchangeInfo.contracts[]`, v2 entry, `flashClose`, and native
+`position/trading-stop` SL/TP amend.
+
 Testnet column feeds spec §9: exchanges marked ❌ must be shown in the panel as
 "no test environment — cannot be used in test mode" (`questions.md` Q9).
 
@@ -62,14 +69,14 @@ intent — if the code changes, so does this table.
 | Bybit | spot + futures | ✅ | ✅ `POST /v5/position/trading-stop` | ✅ | ✅ | ❌ |
 | Binance | futures | ❌ `POST /fapi/v1/order` has no `stopLoss`/`takeProfit` | ❌ | ❌ weights are per-IP too | ⚠️ spot host only — a futures-only key is flagged | ✅ `listenKey` user stream |
 | OKX | spot + futures | ✅ | ❌ | ✅ | ✅ | ❌ |
-| Gate.io | futures ⚠️ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Gate.io | futures | ❌ | ❌ | ✅ | ❌ | ❌ |
 | KuCoin | futures | ✅ `POST /api/v1/st-orders` | ❌ | ✅ | ⚠️ spot host only | ✅ |
-| Toobit | spot + futures | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Toobit | futures | ✅ | ✅ `position/trading-stop` | ✅ | ❌ | ✅ `listenKey` |
 | LBank | spot only | ❌ | ❌ | ✅ | ❌ | ❌ |
 
-⚠️ Gate.io declares `SPOT` in its `Capabilities` but `get_symbol_rules` raises
-`NotSupported` for it — the adapter is futures-only in practice. Either the
-capability or the method is wrong; it is listed here as futures.
+Gate.io declared `SPOT` in its `Capabilities` while `get_symbol_rules` raised
+`NotSupported` for it — resolved on 2026-08-16: the capability now matches
+the method, futures only.
 
 Where "SL/TP at entry" is ❌ the protection is a separate order placed after the
 fill — the unprotected window Q5e's failure policy covers. Where "native amend"
@@ -79,5 +86,8 @@ flagged **unverified** in the panel rather than passed silently.
 
 **Min-notional is per symbol and must be read from the exchange, not assumed.**
 Binance returns 50 for BTCUSDT, not 5. `OkxAdapter.get_symbol_rules` and
-`GateioAdapter.get_symbol_rules` still hardcode `min_notional = 5`; anything
-sizing against those two is sizing against a guess.
+`GateioAdapter.get_symbol_rules` were hardcoding `min_notional = 5`; both are
+fixed (2026-08-16, Q18): OKX derives it as minimum quantity × mark price
+(futures) or × last trade price (spot), Gate.io as one `quanto_multiplier`
+contract × mark price. Anything sizing against those two is sizing against the
+exchange's own floor, not a guess.

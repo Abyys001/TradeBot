@@ -263,8 +263,28 @@ function syncChartLines() {
         ref="chartEl"
         class="chart-surface flex-1 min-h-[320px] lg:min-h-0 touch-pan-y relative"
       >
+        <!-- History is being fetched for a pair nothing has ever charted. The
+             backend answers 202 while the download runs, so this is a promise
+             of data to come — a dead feed is the 503 state below, and the two
+             must not read the same. -->
         <div
-          v-if="market.loading && !market.candles.length"
+          v-if="market.downloading && !market.candles.length"
+          class="absolute inset-0 grid place-items-center p-6"
+        >
+          <div class="text-center max-w-xs">
+            <UiIcon name="spinner" :size="22" class="animate-spin text-ink-muted" />
+            <p class="mt-3 text-sm font-medium text-ink">{{ t('terminal.downloadingHistory') }}</p>
+            <p v-if="market.historyPercent" class="mt-1 text-xs text-ink-muted">
+              {{ market.historyPercent }}%
+            </p>
+            <p v-if="market.historyQueued" class="mt-1 text-xs text-ink-muted">
+              {{ t('terminal.downloadQueued', { n: market.historyQueued }) }}
+            </p>
+          </div>
+        </div>
+
+        <div
+          v-else-if="market.loading && !market.candles.length"
           class="absolute inset-0 grid place-items-center text-xs text-ink-muted"
         >
           {{ t('common.loading') }}
@@ -284,6 +304,18 @@ function syncChartLines() {
               {{ t('common.retry') }}
             </button>
           </div>
+        </div>
+
+        <!-- The pair's history is still downloading but stored bars already
+             exist, so the chart is not blank — just incomplete. Says so in the
+             corner rather than pretending the series is finished. -->
+        <div
+          v-if="market.downloading && market.candles.length"
+          class="absolute top-12 end-3 z-10 flex items-center gap-1.5 rounded-md border border-line
+                 bg-sunken/90 backdrop-blur px-2 py-1 text-[0.7rem] text-ink-muted"
+        >
+          <UiIcon name="spinner" :size="11" class="animate-spin" />
+          <span>{{ t('terminal.downloadingHistory') }}</span>
         </div>
 
         <!-- Top-right corner: how long this candle has left, and the only

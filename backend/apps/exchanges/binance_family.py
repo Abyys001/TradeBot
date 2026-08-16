@@ -47,6 +47,7 @@ from apps.exchanges.base import (
     OrderType,
     Position,
     Side,
+    SLTPState,
     SymbolRules,
     WithdrawalPermissionError,
 )
@@ -380,6 +381,14 @@ class BinanceAdapter(BinanceStyleAdapter):
         return "LONG" if side is Side.LONG else "SHORT"
 
     # --- market rules -------------------------------------------------------
+
+    async def _fetch_exchange_info(self) -> dict[str, dict]:
+        data = await self.request("GET", "/fapi/v1/exchangeInfo", signed=False, weight=1)
+        return {
+            entry["symbol"]: entry
+            for entry in data.get("symbols", [])
+            if entry.get("symbol")
+        }
 
     async def get_symbol_rules(self, symbol: str, market: MarketType) -> SymbolRules:
         if market is MarketType.SPOT:

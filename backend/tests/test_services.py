@@ -7,6 +7,7 @@ service layer, the real models, and the real notification path.
 from __future__ import annotations
 
 import asyncio
+from unittest import mock
 
 import pytest
 from asgiref.sync import sync_to_async
@@ -16,7 +17,7 @@ from django.utils import timezone
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Notification
 from apps.core.money import D
-from apps.exchanges.base import MarketType, OrderType, Side
+from apps.exchanges.base import AdapterError, MarketType, OrderType, Side
 from apps.exchanges.paper import PaperAdapter
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 from apps.trading.services import (
@@ -228,6 +229,48 @@ async def test_an_account_connected_after_the_trade_still_cannot_join_an_amend()
     accounts = await eligible_accounts(trade)
 
     assert {account.label for account in accounts} == {"early"}
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_amend_persists_the_verified_resting_prices_per_leg():
+    """The DB stores what the exchange holds, read back after the amend.
+
+    This pins the fix for the chart showing the open-time stop after an amend:
+    ``_save_amend`` used to write only the trade's percentages, never the
+    per-leg prices, so ``/positions/`` kept re-deriving open-time values.
+    """
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+
+    amended = await route_amend(trade=trade, sl_pct=D("0.5"), tp_pct=D("1"))
+    assert amended.all_ok
+
+    leg = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+    assert leg.sltp_verified is True
+    assert leg.sltp_attached is True
+    assert leg.stop_loss is not None
+    assert leg.take_profit is not None
+    # The stop sits on the loss side of the fill and the target on the win side
+    # — the prices the exchange actually holds, not percentages re-derived here.
+    assert leg.stop_loss < leg.entry_price < leg.take_profit
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_failed_amend_keeps_the_old_resting_prices_on_the_leg():
+    """An account still on its old stop must never be recorded at the new price."""
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+    before = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+
+    with mock.patch.object(PaperAdapter, "set_sltp", side_effect=AdapterError("exchange unreachable")):
+        amended = await route_amend(trade=trade, sl_pct=D("0.9"), tp_pct=D("9"))
+    assert not amended.all_ok
+
+    after = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+    assert after.stop_loss == before.stop_loss
+    assert after.take_profit == before.take_profit
+    assert after.sltp_attached is True
+    assert after.sltp_verified is True
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

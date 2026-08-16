@@ -27,6 +27,7 @@ class TradeLegSerializer(serializers.ModelSerializer):
             "stop_loss",
             "take_profit",
             "sltp_attached",
+            "sltp_verified",
             "pnl",
             "opened_at",
             "closed_at",

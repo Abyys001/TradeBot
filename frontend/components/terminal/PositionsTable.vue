@@ -55,6 +55,13 @@ function tone(value: string | null) {
                 <UiBadge v-if="leg.ok && !leg.sltp_attached" tone="signal">
                   {{ t('position.noStop') }}
                 </UiBadge>
+                <UiBadge
+                  v-else-if="leg.ok && !leg.sltp_verified"
+                  tone="signal"
+                  :title="t('position.unconfirmed')"
+                >
+                  {{ t('position.unconfirmed') }}
+                </UiBadge>
                 <UiBadge v-if="!leg.ok" tone="short">{{ t('position.notFilled') }}</UiBadge>
               </div>
               <p v-if="!leg.ok && leg.error" class="text-[0.65rem] text-short truncate max-w-xs">
@@ -97,6 +104,9 @@ function tone(value: string | null) {
         <p v-else class="text-[0.65rem] text-short">{{ leg.error }}</p>
         <UiBadge v-if="leg.ok && !leg.sltp_attached" tone="signal">
           {{ t('position.noStop') }}
+        </UiBadge>
+        <UiBadge v-else-if="leg.ok && !leg.sltp_verified" tone="signal">
+          {{ t('position.unconfirmed') }}
         </UiBadge>
       </li>
     </ul>

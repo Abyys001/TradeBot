@@ -30,6 +30,7 @@ from apps.exchanges.base import (
     OrderType,
     Position,
     Side,
+    SLTPState,
     SymbolRules,
 )
 from apps.exchanges.rest import RestAdapter
@@ -42,7 +43,7 @@ class GateioAdapter(RestAdapter):
     base_url = "https://api.gateio.ws"
     testnet_url = "https://fx-api-testnet.gateio.ws"
     capabilities = Capabilities(
-        markets=frozenset({MarketType.SPOT, MarketType.FUTURES}),
+        markets=frozenset({MarketType.FUTURES}),
         has_testnet=True,
         native_sltp_on_entry=False,
         native_sltp_amend=False,
@@ -127,12 +128,16 @@ class GateioAdapter(RestAdapter):
         # quanto_multiplier is the base-asset size of one contract.
         multiplier = D(str(data.get("quanto_multiplier") or "1"))
         self._quanto[contract] = multiplier
+        # Q18: Gate enforces a whole number of contracts — there is no published
+        # per-symbol notional floor. The practical minimum is one contract
+        # valued at today's mark price; a derived number beats the guessed five.
+        price = await self.get_mark_price(symbol)
         return SymbolRules(
             symbol=symbol,
             price_tick=D(str(data.get("order_price_round") or "0.01")),
             qty_step=multiplier,
             min_qty=multiplier,
-            min_notional=D("5"),
+            min_notional=multiplier * price,
             max_leverage=int(D(str(data.get("leverage_max") or "10"))),
         )
 
@@ -266,6 +271,38 @@ class GateioAdapter(RestAdapter):
                     },
                 },
             )
+
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """The open price-triggered orders, split into stop and take-profit.
+
+        Gate.io's ``price_orders`` response has no rule field telling which
+        trigger is which, so the position's own side decides: a long stops
+        below entry (rule 2, ``<=``) and takes profit above (rule 1, ``>=``);
+        a short is the mirror image — the same mapping ``set_sltp`` places by.
+        """
+        contract = self._contract(symbol)
+        data = await self.request(
+            "GET",
+            f"/api/v4/futures/{SETTLE}/price_orders",
+            params={"status": "open", "contract": contract},
+        )
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            return SLTPState(stop_loss=None, take_profit=None)
+        position = await self.get_position(symbol)
+        long = position is not None and position.side is Side.LONG
+        stop_loss = take_profit = None
+        for row in rows:
+            trigger = row.get("trigger") or {}
+            price = D(str(trigger.get("price") or "")) or None
+            if price is None:
+                continue
+            rule = trigger.get("rule")
+            if rule == (2 if long else 1):
+                stop_loss = price
+            elif rule == (1 if long else 2):
+                take_profit = price
+        return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
 
     async def get_position(self, symbol: str) -> Position | None:
         contract = self._contract(symbol)

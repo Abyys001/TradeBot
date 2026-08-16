@@ -13,7 +13,9 @@ Working end to end: the fan-out engine, sizing, SL/TP policy, credential
 encryption, staff-gated order routing, per-account trade history, the WebSocket
 channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
-(PWA) bilingual Nuxt panel with draggable chart order lines.
+(PWA) bilingual Nuxt panel with draggable chart order lines, and a financial
+ledger (manual deposits/withdrawals, per-account PnL since inception, a global
+profit split).
 **205 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are

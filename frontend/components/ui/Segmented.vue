@@ -6,7 +6,11 @@
  * type. Hiding "short" behind a dropdown adds a click and a moment of doubt to
  * every trade in that direction.
  */
-type Option = { value: string; label: string; tone?: 'long' | 'short' | 'default' }
+type Option = {
+  value: string
+  label: string
+  tone?: 'long' | 'short' | 'ok' | 'signal' | 'default'
+}
 
 const model = defineModel<string>({ required: true })
 withDefaults(defineProps<{ options: Option[]; size?: 'sm' | 'md'; block?: boolean }>(), {
@@ -17,6 +21,8 @@ withDefaults(defineProps<{ options: Option[]; size?: 'sm' | 'md'; block?: boolea
 const TONE: Record<string, string> = {
   long: 'bg-long-dim text-long border-long/60',
   short: 'bg-short-dim text-short border-short/60',
+  ok: 'bg-ok-dim text-ok border-ok/60',
+  signal: 'bg-signal-dim text-signal border-signal/60',
   default: 'bg-raised text-ink border-line-strong',
 }
 </script>

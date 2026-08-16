@@ -195,19 +195,19 @@ $49.50 and $99 are exactly 99%. But 99% of $10 is **$9.90, not $9** ($9 is 90%).
 *Assumption until you say otherwise:* flat 99%, so $9.90 — with the result then
 rounded **down** to the exchange's quantity step, never up.
 
-## Q18. 🔴 Minimum notional is guessed on OKX and Gate.io
+## Q18. ✅ Minimum notional is guessed on OKX and Gate.io — implemented
 
 Spec §5 says an account below the exchange's minimum is **skipped** with a
 notice. That decision is only as good as the minimum it compares against.
 
-`OkxAdapter.get_symbol_rules` and `GateioAdapter.get_symbol_rules` both return a
+`OkxAdapter.get_symbol_rules` and `GateioAdapter.get_symbol_rules` both returned a
 hardcoded `min_notional = D("5")`. Neither exchange publishes a per-symbol
 minimum notional in the instrument endpoint the adapter already calls — OKX
 enforces `minSz` (a quantity), Gate enforces a whole number of contracts — so
-the 5 is a stand-in, not a reading.
+the 5 was a stand-in, not a reading.
 
-It is demonstrably wrong elsewhere: Binance returns **50** for BTCUSDT, verified
-live on 2026-08-13. A small account that should have been skipped can therefore
+It was demonstrably wrong elsewhere: Binance returns **50** for BTCUSDT, verified
+live on 2026-08-13. A small account that should have been skipped could therefore
 be sent an order the exchange rejects, and a leg fails at the exchange instead of
 being cleanly skipped by sizing.
 
@@ -218,8 +218,17 @@ Options:
 - Keep a constant but make it per-exchange and sourced, not a shared 5.
 - Leave it and accept exchange-side rejections for tiny accounts.
 
-*Assumption until you say otherwise:* the first — but it is not implemented yet,
-so today both adapters still size against the guess. Tracked in
+*Resolved 2026-08-16 with the first option* — implemented in both adapters:
+
+- **OKX**: `min_notional = minSz × ctVal × price`, where price is the mark price
+  for futures (`GET /api/v5/public/mark-price`) and the last trade price for spot
+  (`GET /api/v5/market/ticker`, futures-only mark endpoint otherwise).
+- **Gate.io**: `min_notional = quanto_multiplier × mark price`, one whole
+  contract valued at today's price. The adapter also stopped declaring `SPOT` in
+  its capabilities — it never supported it.
+
+The engine already reads `rules.min_notional` (via `get_symbol_rules`) when
+sizing, so the fix flows straight into skip decisions. See
 `docs/exchanges/coverage.md`.
 
 ---
@@ -373,7 +382,9 @@ Hyperliquid uses the connected `hyperliquid-docs` MCP server as its doc source.
 `reference/exchanges/lbank/api/` (spot + contract) and
 `reference/exchanges/toobit/api/` (27 pages incl. copy-trading). Hyperliquid
 integration notes written to `reference/exchanges/hyperliquid/README.md`.
-The two placeholder `TODO.md` files are gone.
+The two placeholder `TODO.md` files are gone. Toobit's adapter was rebuilt
+(2026-08-16) against those docs — the previous one was Binance request shapes
+pointed at Toobit; see `docs/exchanges/coverage.md`.
 
 Caveat: LBank futures is blocked — see Q10.
 
@@ -469,3 +480,26 @@ Spec §11: routing trades for $50k–$100k of other people's capital can trigger
 financial-services or trading-advisor registration depending on jurisdiction and
 compensation structure. Lawyer question, not a repo question. Noted so it is not
 forgotten before the first real partner account connects.
+
+### Financial Management — the ledger and profit split (2026-08-16)
+
+The admin trades once; the ledger records what capital each account has and
+splits profit by role. Four decisions, now binding:
+
+1. **Cash flows are recorded manually.** Deposits and withdrawals are entered
+   in the panel, not imported — §7 requires trade-only, non-withdrawable API
+   keys, so no exchange can move money and no import API exists to call. This
+   is a feature boundary, not a missing one.
+2. **The split divides profit only.** On a loss there is nothing to divide;
+   the loss is the PnL shown, and every share is 0.
+3. **One global split** in the panel settings (default investor 60 / trader 20
+   / programmer 20) applies to every account; the percentages must sum to
+   exactly 100. Percentages, not dollars — each account's profit is scaled by
+   them.
+4. **PnL is since inception**, per account and in the totals, from
+   `last_balance` (the live balance poller). Nothing in the ledger is an
+   exchange import; mark-to-market comes from the existing balance feed.
+
+Backed by `backend/apps/accounts/ledger.py`, `/accounts/ledger/*` endpoints
+(`tests/test_ledger.py`, `tests/test_hidden_accounts.py`) and the `/finance`
+page + Settings "Profit split" card.

@@ -23,7 +23,7 @@ from apps.engine.executor import (
     open_trade,
 )
 from apps.engine.fanout import StopAllActive, fan_out
-from apps.exchanges.base import MarketType, OrderType, Side
+from apps.exchanges.base import MarketType, OrderType, SLTPState, Side
 from apps.exchanges.paper import PaperAdapter
 
 pytestmark = pytest.mark.asyncio
@@ -400,6 +400,94 @@ async def test_sltp_failure_closes_the_position_under_the_default_policy():
     assert not result.succeeded
     assert "closed at market" in result.failed[0].error
     assert await adapter.get_position("BTCUSDT") is None
+
+
+# --- SL/TP read-back: the exchange is the only source of truth --------------
+#
+# ``get_sltp`` reads the resting protection back. "Attached" is only a real
+# statement when the exchange confirms it; a silent drop — the missing take-
+# profit this read-back exists to catch — must not read as a protected leg.
+
+
+async def test_paper_read_back_confirms_sl_and_tp_on_entry():
+    """Native entry attach is verified, not assumed from the fill's side effect."""
+    adapter = PaperAdapter(balance=D("1000"))
+    result = await open_trade([(1, adapter)], intent())
+
+    assert result.all_ok
+    leg = result.succeeded[0]
+    assert leg.value.sltp_attached is True
+    assert leg.value.sltp_verified is True
+    assert leg.value.stop_loss == adapter._state["sltp"][0]
+    assert leg.value.take_profit == adapter._state["sltp"][1]
+
+
+async def test_an_amend_reads_back_and_verifies_the_resting_prices():
+    """The amend records the prices the exchange actually holds, not the ask."""
+    adapter = PaperAdapter(balance=D("1000"))
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.05"),
+        order_type=OrderType.MARKET,
+    )
+
+    result = await amend_sltp(
+        [(1, adapter)],
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        admin_entry=D("100000"),
+    )
+
+    assert result.all_ok
+    value = result.succeeded[0].value
+    assert value.attached is True
+    assert value.verified is True
+    assert value.stop_loss == adapter._state["sltp"][0]
+    assert value.take_profit == adapter._state["sltp"][1]
+
+
+class BadReadbackAdapter(PaperAdapter):
+    """An exchange that holds a *different* SL/TP than the one placed."""
+
+    async def get_sltp(self, symbol):
+        state = await super().get_sltp(symbol)
+        if state is None:
+            return None
+        return SLTPState(state.stop_loss + D("100"), state.take_profit + D("100"))
+
+
+async def test_a_read_back_that_disagrees_fails_the_leg_and_closes():
+    """A stop the exchange does not hold is a missing stop, not a placed one."""
+    adapter = BadReadbackAdapter(balance=D("1000"))
+    result = await open_trade([(1, adapter)], intent())
+
+    assert not result.succeeded
+    assert "position closed at market" in result.failed[0].error
+    assert await adapter.get_position("BTCUSDT") is None
+
+
+class UnverifiableAdapter(PaperAdapter):
+    """An exchange that cannot be read back (Toobit, LBank)."""
+
+    async def get_sltp(self, symbol):
+        return None
+
+
+async def test_an_exchange_that_cannot_answer_is_unconfirmed_not_failed():
+    """An unanswerable read-back is "cannot hold to account", not an alarm."""
+    adapter = UnverifiableAdapter(balance=D("1000"))
+    result = await open_trade([(1, adapter)], intent())
+
+    assert result.all_ok
+    leg = result.succeeded[0]
+    assert leg.value.sltp_attached is True
+    assert leg.value.sltp_verified is False
+    assert not failure_notifications(result)
 
 
 # --- Q19: post-deadline reconciliation --------------------------------------

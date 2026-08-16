@@ -26,8 +26,8 @@ from apps.exchanges.base import (
     OrderResult,
     OrderType,
     Position,
-    SLTPState,
     Side,
+    SLTPState,
     SymbolRules,
 )
 

@@ -31,6 +31,7 @@ from django.utils import timezone
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
 from apps.core.money import D
 from apps.engine.executor import (
+    SltpResult,
     TradeIntent,
     amend_sltp,
     close_trade,
@@ -158,6 +159,7 @@ def _persist_open(
                 stop_loss=getattr(fill, "stop_loss", None),
                 take_profit=getattr(fill, "take_profit", None),
                 sltp_attached=getattr(fill, "sltp_attached", False),
+                sltp_verified=getattr(fill, "sltp_verified", False),
             )
         )
     TradeLeg.objects.bulk_create(legs)
@@ -351,7 +353,7 @@ async def route_amend(
         admin_entry=trade.admin_entry_price or Decimal("0"),
     )
 
-    await _save_amend(trade, sl_pct, tp_pct)
+    await _save_amend(trade, result, sl_pct, tp_pct)
     for notification in await _persist_notifications(result):
         await _broadcast("notification", notification)
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
@@ -359,10 +361,41 @@ async def route_amend(
 
 
 @sync_to_async
-def _save_amend(trade: Trade, sl_pct: Decimal | None, tp_pct: Decimal | None) -> None:
+def _save_amend(
+    trade: Trade,
+    result: FanOutResult,
+    sl_pct: Decimal | None,
+    tp_pct: Decimal | None,
+) -> None:
+    """Persist an amend. The trade carries the new percentages; each leg carries
+    the prices the exchange actually holds, read back and verified per account
+    — not the percentages re-derived on the DB side. A leg whose amend failed
+    or timed out without confirmation keeps its old resting prices: recording
+    the new ones for an account that still sits on the old stop would be the
+    exact chart-vs-exchange desync this read-back exists to kill.
+    """
     trade.sl_pct = sl_pct
     trade.tp_pct = tp_pct
     trade.save(update_fields=["sl_pct", "tp_pct"])
+
+    legs = {leg.account_id: leg for leg in trade.legs.all()}
+    updated = []
+    for outcome in result.legs:
+        leg = legs.get(outcome.account_id)
+        protection = (
+            outcome.value if outcome.ok and isinstance(outcome.value, SltpResult) else None
+        )
+        if leg is None or protection is None:
+            continue
+        leg.stop_loss = protection.stop_loss
+        leg.take_profit = protection.take_profit
+        leg.sltp_attached = protection.attached
+        leg.sltp_verified = protection.verified
+        updated.append(leg)
+    if updated:
+        TradeLeg.objects.bulk_update(
+            updated, ["stop_loss", "take_profit", "sltp_attached", "sltp_verified"]
+        )
 
 
 async def route_close(*, trade: Trade) -> FanOutResult:

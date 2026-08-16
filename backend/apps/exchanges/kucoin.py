@@ -52,6 +52,7 @@ from apps.exchanges.base import (
     OrderType,
     Position,
     Side,
+    SLTPState,
     SymbolRules,
     WithdrawalPermissionError,
 )
@@ -434,6 +435,34 @@ class KucoinAdapter(RestAdapter):
                     "closeOrder": True,
                 },
             )
+
+    async def get_sltp(self, symbol: str) -> SLTPState:
+        """The untriggered stop orders, split into stop and take-profit.
+
+        KuCoin's stop orders carry their direction in ``stop`` — ``down``
+        triggers when price falls, ``up`` when it rises. For a long the stop
+        is a ``down`` order and the take-profit an ``up`` order; a short is
+        the mirror image — the same mapping ``set_sltp`` places by.
+        """
+        data = await self.request(
+            "GET", "/api/v1/stopOrders", params={"symbol": self._contract(symbol)}
+        )
+        rows = data.get("items", []) if isinstance(data, dict) else (data or [])
+        if not rows:
+            return SLTPState(stop_loss=None, take_profit=None)
+        position = await self.get_position(symbol)
+        long = position is not None and position.side is Side.LONG
+        stop_loss = take_profit = None
+        for row in rows:
+            price = D(str(row.get("stopPrice") or "")) or None
+            if price is None:
+                continue
+            direction = row.get("stop")
+            if direction == ("down" if long else "up"):
+                stop_loss = price
+            elif direction == ("up" if long else "down"):
+                take_profit = price
+        return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
 
     async def get_position(self, symbol: str) -> Position | None:
         contract = self._contract(symbol)
