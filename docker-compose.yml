@@ -35,8 +35,9 @@ services:
       # The panel proxies API calls, so requests arrive with Host: backend.
       # Without it here Django answers 400 DisallowedHost and the panel sees a
       # bare 502 from its own proxy.
-      DJANGO_ALLOWED_HOSTS: backend,localhost,127.0.0.1
-    ports: ["8000:8000"]
+      DJANGO_ALLOWED_HOSTS: backend,localhost,127.0.0.1,maxbot.cybercina.co.uk
+      CORS_ALLOWED_ORIGINS: https://maxbot.cybercina.co.uk,http://maxbot.cybercina.co.uk,http://maxbot.cybercina.co.uk:3000
+    ports: ["8001:8000"]
     volumes: ["./backend:/app"]
     depends_on:
       db: {condition: service_healthy}
