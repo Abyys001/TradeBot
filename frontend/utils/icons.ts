@@ -57,6 +57,8 @@ export const ICON_PATHS = {
   spinner: 'M12 2a10 10 0 0 1 10 10',
   /** A rising line with an arrowhead: profit direction. */
   trend: 'M3 17l6-6 4 4 8-8M15 7h6v6',
+  /** A terminal/console with lines — the system log page. */
+  logs: 'M4 5h16M4 9h16M4 13h10M4 17h7',
 } as const
 
 export type IconName = keyof typeof ICON_PATHS

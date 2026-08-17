@@ -35,6 +35,19 @@ const TICKER_STREAMING_MS = 30000
 /** How long a *stream* may be silent before the price is no longer current. */
 const STREAM_STALE_MS = 90000
 
+/**
+ * Pinned pairs that always appear at the top of the symbol picker and always
+ * have live ticker data, regardless of which symbol the chart is showing.
+ */
+export const PINNED_SYMBOLS = ['BTCUSDC', 'HYPEUSDC', 'PUMPUSDC', 'SOLUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BMBUSDC', 'WLDUSDC', 'LITUSDC']
+const PINNED_POLL_MS = 5000
+
+export interface PinnedTicker {
+  price: number | null
+  changePct: number | null
+  live: boolean
+}
+
 export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
 
 export interface Candle {
@@ -57,10 +70,17 @@ const INTERVAL_SECONDS: Record<Interval, number> = {
 
 let candleTimer: ReturnType<typeof setInterval> | null = null
 let tickerTimer: ReturnType<typeof setInterval> | null = null
+let pinnedTimer: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Cookie-persisted chart symbol. Read at module level so it is available
+ * during store initialisation; written inside `setSymbol` on every change.
+ */
+let _symbolCookie: ReturnType<typeof useCookie<string>> | null = null
 
 export const useMarketStore = defineStore('market', {
   state: () => ({
-    symbol: 'BTCUSDT',
+    symbol: 'BTCUSDC',
     market: 'futures' as 'futures' | 'spot',
     interval: '1m' as Interval,
 
@@ -140,6 +160,9 @@ export const useMarketStore = defineStore('market', {
     /** Bumped on every streamed bar, so the chart can append without a watcher
      *  on the whole candle array. */
     tick: 0,
+
+    /** Live ticker data for pinned pairs, always kept fresh. */
+    pinnedTickers: {} as Record<string, PinnedTicker>,
   }),
 
   getters: {
@@ -456,6 +479,8 @@ export const useMarketStore = defineStore('market', {
       this.stored = false
       this.applyHistory()
       this.resubscribe()
+      // Persist so the chart opens on the same pair after a refresh.
+      if (_symbolCookie) _symbolCookie.value = next
       await Promise.all([this.loadCandles(), this.loadTicker()])
     },
 
@@ -503,20 +528,62 @@ export const useMarketStore = defineStore('market', {
 
     /** Called by the terminal on mount; safe to call twice. */
     async start() {
+      // Initialise the cookie handle once (composables cannot run in state factory).
+      if (!_symbolCookie) {
+        _symbolCookie = useCookie<string>('chart-symbol', {
+          default: () => 'BTCUSDC',
+          maxAge: 60 * 60 * 24 * 365,
+          sameSite: 'lax',
+        })
+      }
+      // Restore the last-viewed symbol from the cookie.
+      const saved = _symbolCookie.value
+      if (saved && saved !== this.symbol) {
+        this.symbol = saved
+      }
       await Promise.all([this.loadSymbols(), this.loadCandles(), this.loadTicker()])
       if (import.meta.server) return
       this.retime()
       this.resubscribe()
+      this.startPinnedPolling()
     },
 
     stop() {
       if (candleTimer) clearInterval(candleTimer)
       if (tickerTimer) clearInterval(tickerTimer)
+      if (pinnedTimer) clearInterval(pinnedTimer)
       candleTimer = null
       tickerTimer = null
+      pinnedTimer = null
       useLiveStore().unsubscribeMarket()
       this.streaming = false
       this.streamSource = ''
+    },
+
+    /** Background ticker poll for pinned pairs so their prices are always fresh. */
+    async loadPinnedTickers() {
+      try {
+        const data = await useApi().tickers(PINNED_SYMBOLS, 'spot')
+        const next: Record<string, PinnedTicker> = {}
+        for (const q of data.tickers) {
+          next[q.symbol] = {
+            price: Number(q.price),
+            changePct: q.change_pct === null ? null : Number(q.change_pct),
+            live: q.live,
+          }
+        }
+        this.pinnedTickers = next
+      } catch {
+        // Background poll — a transient failure is not worth a banner.
+      }
+    },
+
+    /** Start (or restart) the pinned-pairs background ticker poll. */
+    startPinnedPolling() {
+      if (import.meta.server) return
+      if (pinnedTimer) clearInterval(pinnedTimer)
+      this.loadPinnedTickers()
+      pinnedTimer = setInterval(() => this.loadPinnedTickers(), PINNED_POLL_MS)
     },
   },
 })

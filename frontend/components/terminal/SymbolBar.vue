@@ -8,6 +8,7 @@
  * the badge says so and the number greys out, in the same line as the price
  * rather than in a tooltip somewhere.
  */
+import { PINNED_SYMBOLS } from '~/stores/market'
 const { t } = useI18n()
 const market = useMarketStore()
 const order = useOrderStore()
@@ -22,8 +23,17 @@ const intervals: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
 const matches = computed(() => {
   const needle = query.value.trim().toUpperCase()
   const list = market.symbols
-  if (!needle) return list
-  return list.filter((s) => s.symbol.includes(needle) || s.base.includes(needle))
+  const filtered = needle
+    ? list.filter((s) => s.symbol.includes(needle) || s.base.includes(needle))
+    : list
+  // Pinned pairs always appear first, in the canonical order.
+  const pinned: SymbolInfo[] = []
+  const rest: SymbolInfo[] = []
+  for (const s of filtered) {
+    if (PINNED_SYMBOLS.includes(s.symbol)) pinned.push(s)
+    else rest.push(s)
+  }
+  return { pinned, rest }
 })
 
 /** Direction of the last price move, for the flash on the number. */
@@ -125,18 +135,34 @@ async function submitQuery() {
           @keyup.enter="submitQuery"
         />
         <ul class="mt-1.5">
-          <li v-for="option in matches" :key="option.symbol">
-            <button
-              class="w-full text-start px-2 py-1.5 rounded-md text-xs hover:bg-raised
-                     flex items-center gap-2"
-              :class="option.symbol === market.symbol ? 'text-brand' : ''"
-              @click="choose(option.symbol)"
-            >
-              <span class="num font-medium">{{ option.base }}</span>
-              <span class="text-ink-faint">{{ option.quote }}</span>
-            </button>
-          </li>
-          <li v-if="!matches.length" class="px-2 py-2 text-xs text-ink-muted">
+          <template v-for="option in matches.pinned" :key="option.symbol">
+            <li>
+              <button
+                class="w-full text-start px-2 py-1.5 rounded-md text-xs hover:bg-raised
+                       flex items-center gap-2"
+                :class="option.symbol === market.symbol ? 'text-brand' : ''"
+                @click="choose(option.symbol)"
+              >
+                <span class="num font-medium">{{ option.base }}</span>
+                <span class="text-ink-faint">{{ option.quote }}</span>
+              </button>
+            </li>
+          </template>
+          <li v-if="matches.pinned.length && matches.rest.length" class="my-1 border-t border-line" />
+          <template v-for="option in matches.rest" :key="option.symbol">
+            <li>
+              <button
+                class="w-full text-start px-2 py-1.5 rounded-md text-xs hover:bg-raised
+                       flex items-center gap-2"
+                :class="option.symbol === market.symbol ? 'text-brand' : ''"
+                @click="choose(option.symbol)"
+              >
+                <span class="num font-medium">{{ option.base }}</span>
+                <span class="text-ink-faint">{{ option.quote }}</span>
+              </button>
+            </li>
+          </template>
+          <li v-if="!matches.pinned.length && !matches.rest.length" class="px-2 py-2 text-xs text-ink-muted">
             {{ t('terminal.pressEnterToUse', { symbol: query.toUpperCase() }) }}
           </li>
         </ul>

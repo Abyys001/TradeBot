@@ -18,6 +18,9 @@ const auth = useAuthStore()
 const localePath = useLocalePath()
 const { t } = useI18n()
 
+const mounted = ref(false)
+onMounted(() => (mounted.value = true))
+
 /** One row geometry, used by every row, so collapsing cannot make them differ. */
 const row = computed(() =>
   ui.sidebarCollapsed
@@ -96,13 +99,13 @@ const row = computed(() =>
       <div
         class="flex items-center gap-3 rounded-lg min-w-0"
         :class="row"
-        :title="ui.sidebarCollapsed ? auth.username : undefined"
+        :title="mounted && ui.sidebarCollapsed ? auth.username : undefined"
       >
         <span
           class="w-7 h-7 rounded-full bg-raised border border-line grid place-items-center
                  text-xs uppercase shrink-0"
         >
-          {{ (auth.username || '?').slice(0, 1) }}
+          {{ mounted ? (auth.username || '?').slice(0, 1) : '?' }}
         </span>
         <span v-if="!ui.sidebarCollapsed" class="min-w-0">
           <span class="label block">{{ t('nav.signedInAs') }}</span>

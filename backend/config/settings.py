@@ -31,10 +31,12 @@ INSTALLED_APPS = [
     "channels",
     "apps.accounts",
     "apps.trading",
+    "apps.logging",
 ]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    "apps.logging.middleware.RequestLoggingMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # Serves Django's static files (the admin UI) once DEBUG=false and
     # `collectstatic` has run — the launch command in docker-compose.prod.yml
@@ -295,8 +297,17 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {"plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"}},
-    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": "plain"}},
-    "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+        "database": {
+            "class": "apps.logging.handlers.DatabaseHandler",
+            "level": "INFO",
+        },
+    },
+    "root": {
+        "handlers": ["console", "database"],
+        "level": os.getenv("LOG_LEVEL", "INFO"),
+    },
 }
 
 # --- Production hardening ---------------------------------------------------

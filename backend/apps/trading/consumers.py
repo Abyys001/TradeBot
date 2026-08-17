@@ -222,6 +222,9 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
     async def market_stream_up(self, event: dict) -> None:
         await self.send_json({"type": "market_stream_up", **event["payload"]})
 
+    async def system_log_entry(self, event: dict) -> None:
+        await self.send_json({"type": "system_log", **event["entry"]})
+
     @classmethod
     async def encode_json(cls, content) -> str:
         # Async because Channels awaits this hook (channels>=4). A sync override
