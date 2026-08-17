@@ -300,6 +300,10 @@ export const useLiveStore = defineStore('live', {
         useMarketStore().streamDown()
         return
       }
+      if (payload.type === 'system_log') {
+        useSystemLogStore().receive(payload)
+        return
+      }
       if (payload.type === 'notification') {
         useNotificationStore().receive({
           id: payload.id ?? `ws-${Date.now()}-${Math.random()}`,

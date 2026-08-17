@@ -14,6 +14,9 @@
 const { t } = useI18n()
 const market = useMarketStore()
 
+const mounted = ref(false)
+onMounted(() => (mounted.value = true))
+
 /** Its own clock: the store's poll cadence is far too coarse to count seconds. */
 const now = ref(Date.now())
 let ticker: ReturnType<typeof setInterval> | null = null
@@ -58,9 +61,9 @@ const closing = computed(() => remaining.value <= 10)
     <span class="label leading-none">{{ market.interval }}</span>
     <span
       class="num text-xs tabular-nums leading-none transition-colors"
-      :class="closing ? 'text-signal' : 'text-ink'"
+      :class="mounted && closing ? 'text-signal' : 'text-ink'"
     >
-      {{ label }}
+      {{ mounted ? label : '--:--' }}
     </span>
   </div>
 </template>

@@ -73,7 +73,8 @@ async function closeAll() {
 
 <template>
   <div class="border-t border-line">
-    <div class="px-3 sm:px-4 py-2.5 flex items-end gap-4 sm:gap-6 overflow-x-auto no-scrollbar">
+    <div class="flex items-end">
+      <div class="flex-1 min-w-0 px-3 sm:px-4 py-2.5 flex items-end gap-4 sm:gap-6 overflow-x-auto no-scrollbar">
       <!-- Live PnL leads: it is the number the admin looks at first. -->
       <div v-if="open" class="shrink-0">
         <span class="label">{{ t('position.pnl') }}</span>
@@ -173,7 +174,9 @@ async function closeAll() {
         </p>
       </div>
 
-      <div class="ms-auto flex items-center gap-2 shrink-0 ps-2">
+      </div>
+
+      <div class="shrink-0 px-3 sm:px-4 py-2.5 flex items-center gap-2">
         <span v-if="amending" class="label text-signal whitespace-nowrap">
           {{ t('position.pushing') }}
         </span>

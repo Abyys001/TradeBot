@@ -67,6 +67,13 @@ export function useNavigation() {
       primary: false,
     },
     {
+      name: 'logs',
+      path: localePath('/logs'),
+      icon: 'logs',
+      label: t('nav.logs'),
+      primary: false,
+    },
+    {
       name: 'settings',
       path: localePath('/settings'),
       icon: 'settings',
