@@ -18,6 +18,11 @@
  * the countdown, provenance — lives in the bars around the chart. Four lines
  * inside one narrow price band is how a drag lands on the wrong one.
  *
+ * Markers are the exception, and they are deliberately not lines. *When* a
+ * trade was entered and left is a point in time, not a price level, so it is
+ * drawn against the time axis where it cannot be grabbed by mistake and cannot
+ * crowd the SL/TP band. See `repaintMarkers` for why they group.
+ *
  * The view is the admin's. Nothing here scrolls, zooms or re-fits the chart on
  * its own; `resetView()` runs when the instrument changes and when the admin
  * asks for it, and never on a data refresh.
@@ -29,6 +34,7 @@ import {
   type ISeriesApi,
   type IPriceLine,
   type CandlestickData,
+  type SeriesMarker,
   type Time,
 } from 'lightweight-charts'
 
@@ -37,12 +43,35 @@ export type Bar = { time: Time; open: number; high: number; low: number; close: 
 export type DragKind = 'sl' | 'tp' | 'entry'
 export type SLTPKind = DragKind
 
+/**
+ * One moment worth marking on the chart: the admin's own entry or close, or an
+ * exchange getting in or out.
+ *
+ * `time` is the moment itself, in unix seconds. The adapter snaps it to the bar
+ * that contains it, because a bar is the finest resolution the chart has — at
+ * 1m the whole fan-out lands inside one candle.
+ */
+export type TradeMarker = {
+  time: number
+  kind: 'entry' | 'exit'
+  side: 'long' | 'short'
+  /** The exchange's name, or the admin's own. Shown on the icon. */
+  label: string
+  /** The admin's own action, which leads its group's label. */
+  admin: boolean
+}
+
 export interface ChartAdapter {
   mount(el: HTMLElement): Promise<void>
   setCandles(bars: Bar[]): void
   appendCandle(bar: Bar): void
   showPosition(p: { entry: number; liquidation: number | null; side: 'long' | 'short' }): void
   showSLTP(sl: number | null, tp: number | null): void
+  /**
+   * Mark where trades were entered and left. Replaces the whole set, so the
+   * caller passes what should be on screen rather than diffing.
+   */
+  setTradeMarkers(markers: TradeMarker[]): void
   clearPosition(): void
   onSLTPDrag(cb: (kind: DragKind, price: number) => void): void
   /**
@@ -62,6 +91,42 @@ export interface ChartAdapter {
   destroy(): void
   /** True while a line is held. Callers must not repaint lines mid-drag. */
   readonly isDragging: boolean
+}
+
+/** A marker mid-layout: its icon, where it sits, and who it stands for. */
+type Placed = {
+  marker: SeriesMarker<Time>
+  up: boolean
+  kind: 'entry' | 'exit'
+  admin: boolean
+  names: string[]
+  x: number | null
+  /** Folded into a neighbour's label, or beaten by one. Arrow only. */
+  merged?: boolean
+}
+
+/** Index of the last bar at or before `time`. Bars are ascending. */
+function barIndexAt(times: number[], time: number): number {
+  let lo = 0
+  let hi = times.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if ((times[mid] as number) <= time) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
+
+/**
+ * The names on one icon, capped.
+ *
+ * Eight exchanges spelled out beside a candle is a paragraph lying across the
+ * price. Two names and a count says who and how many in the width of a word,
+ * and the position panel underneath is where the full list already lives.
+ */
+function groupLabel(names: string[], limit: number): string {
+  if (names.length <= limit) return names.join(', ')
+  return `${names.slice(0, limit).join(', ')} +${names.length - limit}`
 }
 
 function palette() {
@@ -98,6 +163,18 @@ export class LightweightChartAdapter implements ChartAdapter {
   private entryDraggable = false
   private side: 'long' | 'short' = 'long'
   private colors = palette()
+  /** Every entry and exit to mark, unsnapped. Bars decide where they land. */
+  private markers: TradeMarker[] = []
+  /** Names shown on one icon before the rest collapse into "+N". */
+  private static readonly MARKER_NAMES = 2
+  /** Rough width of a label character at the chart's font size, in pixels. */
+  private static readonly LABEL_CHAR_PX = 6.5
+  /** Clear space demanded either side of a label before it counts as clashing. */
+  private static readonly LABEL_GAP_PX = 6
+  /** Half the arrow glyph's width. Arrows always draw, labels work around them. */
+  private static readonly ARROW_HALF_PX = 7
+  /** What was last handed to the series, so a pan does not repaint for nothing. */
+  private markerSignature = ''
   /** The series as given, so autoscale can be reasoned about (see `autoscale`). */
   private bars: Bar[] = []
   private visible: { from: number; to: number } | null = null
@@ -149,6 +226,9 @@ export class LightweightChartAdapter implements ChartAdapter {
     })
     this.chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       this.visible = range ? { from: Number(range.from), to: Number(range.to) } : null
+      // Which labels fit is a function of zoom: bars that were a screen apart
+      // are touching two scroll-wheel notches later.
+      this.repaintMarkers()
     })
     this.attachDragHandlers()
   }
@@ -208,11 +288,191 @@ export class LightweightChartAdapter implements ChartAdapter {
       wickDownColor: this.colors.short,
     })
     this.showSLTP(this.prices.sl, this.prices.tp)
+    // Marker colours come from the same tokens the candles do.
+    this.repaintMarkers()
   }
 
   setCandles(bars: Bar[]) {
     this.bars = bars.slice()
     this.series?.setData(bars as CandlestickData[])
+    // Which bar a marker belongs to is a fact about *these* bars: a timeframe
+    // change re-buckets every one of them.
+    this.repaintMarkers()
+  }
+
+  setTradeMarkers(markers: TradeMarker[]) {
+    this.markers = markers.slice().sort((a, b) => a.time - b.time)
+    this.repaintMarkers()
+  }
+
+  /**
+   * Snap every marker to the bar holding it, then draw **one icon per bar and
+   * direction** — never one per exchange.
+   *
+   * The grouping is the whole point. A fan-out puts the admin's entry and every
+   * exchange's fill inside the same second, so drawn separately they are a
+   * stack of icons over one candle, hiding the price exactly where the admin
+   * most wants to read it. Collapsed, they are a single arrow labelled with who
+   * is in it, which answers "when did we get in, and who came with us" without
+   * covering the bar. Entry and exit stay separate icons on opposite sides of
+   * the candle, because those are the two things being asked about.
+   */
+  private repaintMarkers() {
+    if (!this.series) return
+    if (!this.bars.length || !this.markers.length) {
+      if (this.markerSignature !== '') {
+        this.markerSignature = ''
+        this.series.setMarkers([])
+      }
+      return
+    }
+
+    const times = this.bars.map((b) => Number(b.time))
+    const first = times[0] as number
+
+    type Group = {
+      time: number
+      kind: 'entry' | 'exit'
+      side: 'long' | 'short'
+      names: string[]
+      admin: boolean
+    }
+    const groups = new Map<string, Group>()
+
+    for (const m of this.markers) {
+      // Older than the loaded history. Its bar is not on screen, and pinning it
+      // to the first one would put the icon at a time it did not happen.
+      if (m.time < first) continue
+      const at = times[barIndexAt(times, m.time)] as number
+      const key = `${at}|${m.kind}`
+      let group = groups.get(key)
+      if (!group) {
+        group = { time: at, kind: m.kind, side: m.side, names: [], admin: false }
+        groups.set(key, group)
+      }
+      if (m.admin) group.admin = true
+      if (group.names.includes(m.label)) continue
+      // The admin's own action leads: it is the one the other names followed.
+      if (m.admin) group.names.unshift(m.label)
+      else group.names.push(m.label)
+    }
+
+    const scale = this.chart?.timeScale()
+    const placed: Placed[] = []
+    for (const g of groups.values()) {
+      // An entry sits on the side the trade is taken from and points that way;
+      // an exit sits opposite and points back out. Long and short therefore
+      // mirror each other, and an entry can never be mistaken for an exit.
+      const up = g.kind === 'entry' ? g.side === 'long' : g.side === 'short'
+      placed.push({
+        marker: {
+          time: g.time as Time,
+          position: up ? 'belowBar' : 'aboveBar',
+          shape: up ? 'arrowUp' : 'arrowDown',
+          // Entries carry the trade's colour because they are the loud event;
+          // exits are muted, being a record of something already over.
+          color:
+            g.kind === 'entry'
+              ? g.side === 'long'
+                ? this.colors.long
+                : this.colors.short
+              : this.colors.text,
+          size: 1,
+        },
+        up,
+        kind: g.kind,
+        admin: g.admin,
+        names: g.names,
+        x: scale ? (scale.timeToCoordinate(g.time as Time) as number | null) : null,
+      })
+    }
+
+    this.layOutLabels(placed)
+
+    // Lightweight Charts requires markers in ascending time order.
+    const out = placed.map((p) => p.marker).sort((a, b) => Number(a.time) - Number(b.time))
+    // Panning fires the range subscription continuously; only touch the series
+    // when the result actually differs, or every frame repaints for nothing.
+    const signature = out.map((m) => `${String(m.time)}:${m.text ?? ''}`).join('|')
+    if (signature === this.markerSignature) return
+    this.markerSignature = signature
+    this.series.setMarkers(out)
+  }
+
+  /** Half the pixel width a set of names will occupy once rendered. */
+  private labelHalf(names: string[]): number {
+    return (
+      (groupLabel(names, LightweightChartAdapter.MARKER_NAMES).length *
+        LightweightChartAdapter.LABEL_CHAR_PX) /
+      2
+    )
+  }
+
+  /**
+   * Decide which icons carry text, and what that text says.
+   *
+   * Lightweight Charts centres a marker's text on its arrow and never checks
+   * whether two of them land on the same pixels, so left alone this renders as
+   * one unreadable smear across the price — the exact thing markers must not
+   * do. Two passes fix it:
+   *
+   *   1. **Merge.** Icons of the same kind standing closer than their own label
+   *      is wide are one event as far as the eye is concerned — a fan-out that
+   *      straddled a bar boundary, or a straggling leg. Their names collapse
+   *      into the leftmost icon's label, and *every arrow stays where it is*.
+   *      Nothing about when an exchange got in is lost; only the repeated text
+   *      is. This is what makes the admin's own label survive a neighbour,
+   *      rather than being blanked by an arrow it cannot move.
+   *   2. **Drop.** Whatever labels still overlap after merging belong to
+   *      genuinely different events (an entry and an exit sharing a band, two
+   *      trades at a zoomed-out scale). There is nothing sensible to merge, so
+   *      the lower-priority one loses its text and keeps its arrow. Admin-led
+   *      icons are considered first, so the one saying when *we* acted is never
+   *      the one that yields.
+   */
+  private layOutLabels(items: Placed[]) {
+    const { ARROW_HALF_PX: ARROW, LABEL_GAP_PX: GAP } = LightweightChartAdapter
+
+    // Pass 1 — merge. Same band *and* same kind: an entry and an exit can share
+    // a band when one trade is long and the next is short, and rolling those
+    // two into one label would claim a getting-in was a getting-out.
+    for (const up of [true, false]) {
+      for (const kind of ['entry', 'exit'] as const) {
+        const band = items
+          .filter((i) => i.up === up && i.kind === kind && i.x !== null)
+          .sort((a, b) => (a.x as number) - (b.x as number))
+        let anchor: Placed | null = null
+        for (const item of band) {
+          if (anchor && (item.x as number) - (anchor.x as number) < this.labelHalf(anchor.names) + ARROW + GAP) {
+            for (const name of item.names) {
+              if (!anchor.names.includes(name)) anchor.names.push(name)
+            }
+            item.merged = true
+          } else {
+            anchor = item
+          }
+        }
+      }
+    }
+
+    // Pass 2 — drop what still collides, admin-led icons first.
+    for (const up of [true, false]) {
+      const band = items
+        .filter((i) => i.up === up && i.x !== null && !i.merged)
+        .sort((a, b) => (a.admin === b.admin ? (a.x as number) - (b.x as number) : a.admin ? -1 : 1))
+      const taken: [number, number][] = []
+      for (const item of band) {
+        const half = this.labelHalf(item.names)
+        const left = (item.x as number) - half - GAP
+        const right = (item.x as number) + half + GAP
+        if (taken.some(([l, r]) => left < r && right > l)) item.merged = true
+        else taken.push([left, right])
+      }
+    }
+
+    for (const item of items) {
+      if (!item.merged) item.marker.text = groupLabel(item.names, LightweightChartAdapter.MARKER_NAMES)
+    }
   }
 
   /** True while a line is held, so callers can suppress conflicting repaints. */
@@ -225,8 +485,14 @@ export class LightweightChartAdapter implements ChartAdapter {
     // `update` replaces the last bar or starts a new one; the mirror has to
     // follow the same rule or the autoscale window drifts from what is drawn.
     if (last && Number(last.time) === Number(bar.time)) this.bars[this.bars.length - 1] = bar
-    else if (!last || Number(bar.time) > Number(last.time)) this.bars.push(bar)
-    else return
+    else if (!last || Number(bar.time) > Number(last.time)) {
+      this.bars.push(bar)
+      // A trade entered seconds before its bar opened snapped to the previous
+      // one, because that was the newest bar there was. Now it has its own.
+      this.series?.update(bar as CandlestickData)
+      this.repaintMarkers()
+      return
+    } else return
     this.series?.update(bar as CandlestickData)
   }
 
@@ -308,6 +574,8 @@ export class LightweightChartAdapter implements ChartAdapter {
     this.series = null
     this.lines = {}
     this.bars = []
+    this.markers = []
+    this.markerSignature = ''
     this.visible = null
   }
 

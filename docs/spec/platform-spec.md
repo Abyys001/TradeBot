@@ -61,13 +61,18 @@ A main trading page, similar in layout to a standard exchange:
   > trips (balance, leverage, order, then SL/TP placement) routinely landed at
   > 1–2 seconds, so a healthy order was failing the deadline and raising a
   > failure notification nobody could act on. The deadline is now
-  > `FANOUT_TIMEOUT_SECONDS`, default **3 seconds** (it was briefly 4, and was
-  > brought down once the adapters were kept warm between actions —
-  > `apps/exchanges/pool.py` — so a healthy leg lands well inside it). What §4
-  > is actually protecting is unchanged: legs run concurrently, one slow
-  > exchange still cannot hold the others up past the deadline, and a leg that
-  > overruns is abandoned rather than awaited. The number that was too tight
-  > changed; the concurrency contract did not.
+  > `FANOUT_TIMEOUT_SECONDS`, default **10 seconds** (it has been 1, 4, 3 and
+  > 5; each move was reported from live use). What §4 is actually protecting is
+  > unchanged: legs run concurrently, one slow exchange still cannot hold the
+  > others up past the deadline, and a leg that overruns is abandoned rather
+  > than awaited. The number that was too tight changed; the concurrency
+  > contract did not.
+  >
+  > Abandoned is **not** failed, and neither is any other post-dispatch
+  > failure: a leg that fails after its order went out is *unconfirmed*, re-read
+  > from the exchange, and reported as a fill when the position is there. See
+  > Q19 — that reporting, not the number, was the bug behind "the panel said it
+  > failed and the exchange had opened it".
 - **Independent failure handling**: if an order fails on one account
   (insufficient balance, API error, exchange downtime, etc.), execution
   must continue uninterrupted on all other accounts. One account's failure

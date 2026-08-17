@@ -40,6 +40,11 @@ class Trade(models.Model):
     symbol = models.CharField(max_length=32)
     side = models.CharField(max_length=8)
     market = models.CharField(max_length=10, default="futures")
+    # Needed after the fact, not just at dispatch: a re-read that finds no
+    # position means "the order never landed" for a market order, but says
+    # nothing about a limit order still resting on the book. See
+    # ``services.reconcile_open_trade``.
+    order_type = models.CharField(max_length=10, default="market")
     leverage = models.PositiveSmallIntegerField(default=1)
     sl_pct = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
     tp_pct = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)

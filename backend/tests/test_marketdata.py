@@ -439,7 +439,14 @@ def test_positions_endpoint_reports_a_leg_that_never_filled():
         symbol="BTCUSDT", side="long", market="futures", leverage=10, status=TradeStatus.OPEN
     )
     TradeLeg.objects.create(
-        trade=trade, account=account, ok=False, error="below minimum notional"
+        trade=trade,
+        account=account,
+        ok=False,
+        error="below minimum notional",
+        # A sized-out leg is *provably* flat, so the endpoint's re-check leaves
+        # it alone. Without the code it would read as unconfirmed and be asked
+        # about — see test_an_unconfirmed_leg_is_re_checked_on_the_positions_poll.
+        error_code="below_min_notional",
     )
 
     body = user_client().get("/api/trading/positions/").json()

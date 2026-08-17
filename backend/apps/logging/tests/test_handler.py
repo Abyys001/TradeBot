@@ -85,3 +85,59 @@ def test_handler_extracts_extras(db):
     finally:
         logger.removeHandler(handler)
         handler.close()
+
+
+def _emit(logger_name: str, message: str, **extra) -> None:
+    handler = DatabaseHandler()
+    logger = logging.getLogger(logger_name)
+    logger.propagate = False
+    logger.addHandler(handler)
+    try:
+        logger.warning(message, extra=extra)
+    finally:
+        logger.removeHandler(handler)
+        handler.close()
+
+
+def test_library_chatter_never_reaches_the_log_table(db):
+    """The database handler sits on the root logger. Before the filter, one
+    `httpx` row landed per market-data poll — and its URL carries a signature.
+
+    Both halves matter: the app logger proves the root handler is live in this
+    test, so the empty table below is the filter's doing and not an inert setup.
+    """
+    logging.getLogger("apps.engine.filter_control").warning("a real platform event")
+    assert LogEntry.objects.count() == 1
+
+    logging.getLogger("httpx").info(
+        "HTTP Request: GET "
+        'https://api.binance.com/fapi/v2/balance?timestamp=1&signature=abc123 "HTTP/1.1 200 OK"'
+    )
+    logging.getLogger("django.utils.autoreload").info("Watching for file changes")
+    assert LogEntry.objects.count() == 1
+
+
+def test_a_secret_in_a_message_is_redacted(db):
+    # A dedicated logger name: the category test above disables propagation on
+    # the shared ones and never puts it back.
+    _emit(
+        "apps.exchanges.redaction_test",
+        "request failed: /fapi/v1/order?api_key=AKIAsecret&signature=deadbeef&symbol=BTCUSDT",
+    )
+    entry = LogEntry.objects.get()
+    assert "deadbeef" not in entry.message
+    assert "AKIAsecret" not in entry.message
+    # Everything that is not a secret still reads normally.
+    assert "symbol=BTCUSDT" in entry.message
+
+
+def test_a_secret_in_the_context_json_is_redacted(db):
+    _emit(
+        "apps.exchanges.redaction_test",
+        "signing failed",
+        context={"api_key": "AKIAsecret", "symbol": "BTCUSDT", "nested": {"signature": "abc"}},
+    )
+    entry = LogEntry.objects.get()
+    assert entry.context["api_key"] == "***"
+    assert entry.context["nested"]["signature"] == "***"
+    assert entry.context["symbol"] == "BTCUSDT"

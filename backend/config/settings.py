@@ -196,14 +196,16 @@ TRADING = {
     # true is gone — adapters are kept warm between actions (see
     # apps/exchanges/pool.py), so a leg no longer pays a TCP+TLS handshake, and
     # on Hyperliquid no longer re-downloads the asset metadata, before its first
-    # real call. 5.0 is the default: comfortably above a healthy VPS leg, so the
+    # real call. 10.0 is the default: far above a healthy VPS leg, so the
     # deadline stays a tripwire for genuinely stuck exchanges rather than a
     # speed bump healthy legs trip on. A leg that overruns is abandoned, not
     # awaited — and then re-read from the exchange, because abandoned is not the
     # same as failed (see apps/engine/executor.py: _reconcile*). A request that
     # already reached the exchange may have executed even though we stopped
-    # listening for the reply.
-    "FANOUT_TIMEOUT_SECONDS": float(os.getenv("FANOUT_TIMEOUT_SECONDS", "5.0")),
+    # listening for the reply. The same is true of every *other* way a leg can
+    # fail after the order went out — an HTTP read timeout, a 5xx, a dropped
+    # connection — so the re-read covers all of them, not only the deadline.
+    "FANOUT_TIMEOUT_SECONDS": float(os.getenv("FANOUT_TIMEOUT_SECONDS", "10.0")),
     # Spec §3. Leverage bounds offered by the UI.
     "MIN_LEVERAGE": int(os.getenv("MIN_LEVERAGE", "1")),
     "MAX_LEVERAGE": int(os.getenv("MAX_LEVERAGE", "10")),
@@ -297,11 +299,17 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {"plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"}},
+    "filters": {"not_library_noise": {"()": "apps.logging.handlers.NoiseFilter"}},
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "plain"},
         "database": {
             "class": "apps.logging.handlers.DatabaseHandler",
             "level": "INFO",
+            # The database handler is what the admin reads in /logs, and it hangs
+            # off the root logger — so without this filter it collects every
+            # library's INFO chatter (one httpx line per market-data poll, whose
+            # URL carries a Binance signature). The console keeps all of it.
+            "filters": ["not_library_noise"],
         },
     },
     "root": {

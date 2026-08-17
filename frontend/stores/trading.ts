@@ -49,7 +49,7 @@ export const useTradingStore = defineStore('trading', {
      * against the old 1s number; once the policy loads, this reads the truth.
      */
     fanoutBudgetMs(): number {
-      return Math.round((this.policy?.fanout_timeout_seconds ?? 5.0) * 1000)
+      return Math.round((this.policy?.fanout_timeout_seconds ?? 10.0) * 1000)
     },
 
     openTrade: (s) => s.trades.find((t) => t.status === 'open') ?? null,

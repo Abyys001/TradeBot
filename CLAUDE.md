@@ -16,7 +16,7 @@ mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines, and a financial
 ledger (manual deposits/withdrawals, per-account PnL since inception, a global
 profit split).
-**205 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
+**350 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -179,7 +179,7 @@ Exchange adapters (one module per exchange, common Adapter interface)
 ```
 
 Why the engine is separate from Django: spec §4 caps mid-trade propagation at a
-per-leg deadline (`FANOUT_TIMEOUT_SECONDS`, default 3.0 — Q19) across all
+per-leg deadline (`FANOUT_TIMEOUT_SECONDS`, default 10.0 — Q19) across all
 accounts. That means one `asyncio.gather` over per-account
 tasks with per-task timeouts, not a Celery queue (broker round-trip + worker
 prefetch blows the budget). Celery stays for non-latency work only — history
@@ -250,7 +250,16 @@ leverage) are declared per adapter and handled behind the interface — never wi
   dashboard as unusable**, not traded. Below the exchange's minimum notional →
   **skip that account** with a failure notification; never round up past 99%.
   Round sizes **down** to the exchange step, never up.
-- One open trade per account at a time.
+- One open trade per account at a time — and an account whose last entry is
+  *unconfirmed* counts as possibly holding one.
+- **A failed leg is not proof that nothing happened.** Cancelling a coroutine
+  cannot unsend a request the exchange already received, so every leg that
+  fails after its order went out is re-read from the exchange and reported as a
+  fill when the position is there (`executor._reconcile*`, `confirm_open`,
+  `services.reconcile_open_trade`). Only a code in `fanout.NEVER_SENT_CODES`
+  may be treated as "this account did nothing"; adding a failure path means
+  deciding which side of that line it is on. A venue that will not answer the
+  re-read is reported as **unknown**, never as a failure — see Q19.
 - No account joins a trade already in progress (spec §6).
 - Failed order → persistent notification (~190×110px) that only manual dismissal
   clears (spec §4).

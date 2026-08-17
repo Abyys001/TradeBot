@@ -208,7 +208,13 @@ class RestAdapter(ExchangeAdapter):
         instance for *this* account, so spec §2 isolation is unaffected.
         """
         if not await self._limiter.acquire(weight, timeout=0.5):
-            raise RateLimited(f"{self.name}: local rate limit reached, request not sent")
+            # Coded, because "not sent" is a fact the engine acts on: this is
+            # one of the few failures that provably left no order behind, so it
+            # skips the post-deadline re-read (fanout.NEVER_SENT_CODES).
+            raise RateLimited(
+                f"{self.name}: local rate limit reached, request not sent",
+                code="rate_limit_local",
+            )
 
         if signed:
             headers, query, content = self._sign(method, path, params, body)
@@ -239,7 +245,8 @@ class RestAdapter(ExchangeAdapter):
             # different problems (see BinanceAdapter._get_account_permissions).
             raise AuthError(
                 f"{self.name}: credentials rejected ({response.status_code})"
-                f"{self._detail(response)}"
+                f"{self._detail(response)}",
+                code="auth",
             )
         if response.status_code >= 500:
             raise ExchangeUnavailable(f"{self.name}: exchange error {response.status_code}")

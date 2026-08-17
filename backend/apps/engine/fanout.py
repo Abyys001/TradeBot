@@ -4,10 +4,12 @@ One admin action becomes N independent per-account tasks, run concurrently with
 a hard per-task deadline. The contract this module exists to guarantee:
 
   - one account's failure never blocks, delays, or aborts another
-  - every leg is dispatched within FANOUT_TIMEOUT_SECONDS (default 5.0, Q19)
+  - every leg is dispatched within FANOUT_TIMEOUT_SECONDS (default 10.0, Q19)
   - a leg that overruns is abandoned, not awaited — and then re-read from the
     exchange (executor.py _reconcile*) to learn whether it actually landed, so
     an order that executed after the deadline is reported as filled, not failed
+  - the same re-read covers *every* failure that could have left an order on
+    the exchange, not just the deadline. See ``NEVER_SENT_CODES``.
 
 That is why this is plain asyncio and not Celery: a broker round-trip plus
 worker prefetch does not fit inside a per-leg deadline.
@@ -29,6 +31,42 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+#: Failure codes that **prove** no order reached the exchange. Everything else
+#: is *unconfirmed*: the request may have executed even though the leg failed.
+#:
+#: The asymmetry is deliberate and the direction matters. A leg is only listed
+#: here when the platform can name the moment it stopped — sizing skipped the
+#: account (spec §5), the SL/TP resolver refused, the local rate limiter never
+#: sent the request, the exchange rejected the credentials outright, or a
+#: re-read has since confirmed the account holds nothing. Every other failure —
+#: the fan-out deadline, an HTTP read timeout, a 5xx, a reset connection, an
+#: unrecognised adapter error — happens with a request already in flight, and
+#: cancelling a coroutine cannot unsend it.
+#:
+#: Treating those as plain failures is what let the panel report "exceeded the
+#: deadline" for a position the exchange had already opened.
+NEVER_SENT_CODES = frozenset(
+    {
+        # sizing / policy: the account sat the entry out before place_order
+        "non_usdt_balance",
+        "no_price",
+        "bad_leverage",
+        "below_min_qty",
+        "below_min_notional",
+        "leverage_capped",
+        "sl_beyond_liquidation",
+        "no_entry",
+        # the request was never put on the wire, or the exchange refused it
+        # before it could act on it
+        "rate_limit_local",
+        "auth",
+        # the exchange itself answered "there is nothing here"
+        "no_position",
+        "not_filled",
+    }
+)
+
+
 @dataclass(slots=True)
 class LegResult(Generic[T]):
     """Outcome of one account's leg. Never raises — failure is data, not control flow."""
@@ -43,6 +81,15 @@ class LegResult(Generic[T]):
     @property
     def timed_out(self) -> bool:
         return self.error_code == "timeout"
+
+    @property
+    def unconfirmed(self) -> bool:
+        """Failed, but the exchange may still have acted on the request.
+
+        The question this answers is not "did it work" but "is it safe to say
+        it did not". Only a code in ``NEVER_SENT_CODES`` earns that.
+        """
+        return not self.ok and self.error_code not in NEVER_SENT_CODES
 
 
 @dataclass(slots=True)

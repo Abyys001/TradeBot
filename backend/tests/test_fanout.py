@@ -19,12 +19,21 @@ from apps.engine.executor import (
     TradeIntent,
     amend_sltp,
     close_trade,
+    confirm_open,
     failure_notifications,
     open_trade,
 )
 from apps.engine.fanout import StopAllActive, fan_out
-from apps.exchanges.base import MarketType, OrderType, Side, SLTPState
+from apps.exchanges.base import (
+    ExchangeUnavailable,
+    MarketType,
+    OrderType,
+    Position,
+    Side,
+    SLTPState,
+)
 from apps.exchanges.paper import PaperAdapter
+from apps.trading.services import SAT_OUT_CODES
 
 pytestmark = pytest.mark.asyncio
 
@@ -663,3 +672,125 @@ async def test_an_amend_on_a_position_that_closed_is_superseded_not_failed():
     assert not result.failed
     assert not failure_notifications(result)
     assert result.succeeded[0].error_code == "position_closed"
+
+
+# --- the re-read is not only for the deadline --------------------------------
+#
+# The per-request HTTP ceiling sits *below* the fan-out deadline
+# (rest.default_timeout is 0.75 of the budget), so a slow venue usually raises
+# ``ExchangeUnavailable: request timed out`` long before the leg is cancelled.
+# Those legs were reported as plain failures and never re-read — which is how a
+# position the exchange had already opened was shown to the admin as a failure.
+
+
+class DroppedReplyAdapter(PaperAdapter):
+    """The entry lands; the reply never comes back.
+
+    The HTTP client's own read timeout, a reset connection, a 5xx from a proxy
+    — every one of them raises inside the leg, well under the deadline.
+    """
+
+    async def place_order(self, **kwargs):
+        await super().place_order(**kwargs)
+        raise ExchangeUnavailable("paper: request timed out")
+
+
+async def test_an_entry_that_failed_short_of_the_deadline_is_still_re_read():
+    adapter = DroppedReplyAdapter(balance=D("1000"))
+    result = await open_trade([(1, adapter)], intent())
+
+    assert not result.failed, "a position that exists is not a failure"
+    assert not failure_notifications(result)
+    leg = result.succeeded[0]
+    assert leg.error_code == "late_fill"
+    assert leg.value.qty == (await adapter.get_position("BTCUSDT")).size
+
+
+async def test_an_entry_the_exchange_holds_nothing_for_is_recorded_as_not_filled():
+    """The reason is kept; the code becomes the fact that it never landed."""
+    result = await open_trade(
+        [(1, PaperAdapter(balance=D("1000"), fail_on={"place_order"}))], intent()
+    )
+
+    leg = result.failed[0]
+    assert leg.error_code == "not_filled"
+    assert "no position was opened" in leg.error
+    assert leg.error_code in SAT_OUT_CODES, "the account is free for the next trade"
+
+
+class OppositePositionAdapter(PaperAdapter):
+    """The account already holds a short, put there by something else."""
+
+    async def place_order(self, **kwargs):
+        raise ExchangeUnavailable("paper: request timed out")
+
+    async def get_position(self, symbol):
+        return Position(
+            symbol=symbol,
+            side=Side.SHORT,
+            size=D("0.5"),
+            entry_price=D("100000"),
+            liquidation_price=None,
+            unrealized_pnl=D("0"),
+            leverage=10,
+        )
+
+
+async def test_a_position_on_the_other_side_is_never_claimed_as_this_legs_fill():
+    """Someone else's position must not become this trade's size and entry."""
+    result = await open_trade([(1, OppositePositionAdapter(balance=D("1000")))], intent())
+
+    leg = result.failed[0]
+    assert leg.error_code != "late_fill"
+    assert leg.value is None
+
+
+class CountingAdapter(PaperAdapter):
+    """Counts the re-reads, so "we did not ask" can be asserted."""
+
+    reads = 0
+
+    async def get_position(self, symbol):
+        type(self).reads += 1
+        return await super().get_position(symbol)
+
+
+async def test_a_leg_that_provably_never_sent_an_order_is_not_re_read():
+    """Spec §5 sizing skips cost nothing: there is nothing to ask about."""
+    CountingAdapter.reads = 0
+    result = await open_trade([(1, CountingAdapter(balance=D("1")))], intent())
+
+    assert result.failed[0].error_code == "below_min_qty"
+    assert CountingAdapter.reads == 0
+
+
+class UnreachableAdapter(PaperAdapter):
+    """The venue is simply not answering — not the order, not the re-read."""
+
+    async def place_order(self, **kwargs):
+        raise ExchangeUnavailable("paper: request timed out")
+
+    async def get_position(self, symbol):
+        raise ExchangeUnavailable("paper: request timed out")
+
+
+async def test_a_leg_the_exchange_will_not_answer_says_it_is_unknown():
+    """The admin has to be told to go and look — not that nothing happened."""
+    result = await open_trade([(1, UnreachableAdapter(balance=D("1000")))], intent())
+
+    leg = result.failed[0]
+    assert leg.error_code != "not_filled"
+    assert "NOT known whether this order landed" in leg.error
+    assert leg.error_code not in SAT_OUT_CODES, "still in scope for close"
+
+
+async def test_an_unconfirmed_entry_is_settled_by_a_later_re_read():
+    """``confirm_open``: the same question, asked once the response is gone."""
+    adapter = DroppedReplyAdapter(balance=D("1000"))
+    await open_trade([(1, adapter)], intent())
+
+    result = await confirm_open([(1, adapter)], intent())
+
+    leg = result.succeeded[0]
+    assert leg.error_code == "late_fill"
+    assert leg.value.entry_price == (await adapter.get_position("BTCUSDT")).entry_price

@@ -242,6 +242,68 @@ def test_the_account_filter_is_not_an_existence_oracle():
     assert rows == []
 
 
+# --- the system log ---------------------------------------------------------
+
+
+def _log(**kwargs):
+    from apps.logging.models import LogEntry
+
+    defaults = {
+        "level": "WARNING",
+        "category": "ENGINE",
+        "source": "apps.engine.fanout",
+        "message": "leg failed",
+    }
+    return LogEntry.objects.create(**{**defaults, **kwargs})
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_log_hides_rows_naming_a_hidden_account():
+    visible = make_account("open-book")
+    hidden = make_account("quiet", hidden=True)
+    _log(account_id=visible.id, message="visible leg timed out")
+    _log(account_id=hidden.id, message="quiet leg timed out")
+    _log(message="engine started")
+
+    rows = other_client().get("/api/logging/logs/").json()
+    assert {row["message"] for row in rows} == {"visible leg timed out", "engine started"}
+
+    rows = viewer_client().get("/api/logging/logs/").json()
+    assert len(rows) == 3
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_logs_account_filter_is_not_an_existence_oracle():
+    hidden = make_account("quiet", hidden=True)
+    _log(account_id=hidden.id)
+
+    assert other_client().get(f"/api/logging/logs/?account_id={hidden.id}").json() == []
+    assert len(viewer_client().get(f"/api/logging/logs/?account_id={hidden.id}").json()) == 1
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_log_hides_rows_citing_a_wholly_hidden_trade():
+    """A row carrying only a trade id names no account — but that trade is
+    absent from history, so the log would be the one place it existed."""
+    hidden = make_account("quiet", hidden=True)
+    trade = open_trade_with(hidden)
+    _log(trade_id=trade.id, message="fan-out settled")
+
+    assert other_client().get("/api/logging/logs/").json() == []
+    assert len(viewer_client().get("/api/logging/logs/").json()) == 1
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_log_row_about_a_deleted_account_is_still_readable():
+    """The filter excludes *hidden* ids, not unknown ones — otherwise every log
+    row about an account that has since been removed silently disappears."""
+    make_account("quiet", hidden=True)
+    _log(account_id=99999, message="leg failed on a since-deleted account")
+
+    rows = other_client().get("/api/logging/logs/").json()
+    assert [row["message"] for row in rows] == ["leg failed on a since-deleted account"]
+
+
 # --- the open-position panel, rows and totals -------------------------------
 
 
@@ -501,6 +563,35 @@ async def test_socket_strips_hidden_legs_balances_and_notices():
     message = await communicator.receive_json_from()
     assert message["message"] == "shown"
 
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_the_live_log_tail_drops_rows_naming_a_hidden_account():
+    """The log page's live tail is a read surface like every other one."""
+    user, visible_id, hidden_id = await _make_socket_fixtures("boss")
+    communicator = await _open(user)
+    layer = get_channel_layer()
+
+    await layer.group_send(
+        GROUP,
+        {
+            "type": "system_log.entry",
+            "entry": {"id": 1, "level": "WARNING", "account_id": hidden_id, "message": "secret"},
+        },
+    )
+    await layer.group_send(
+        GROUP,
+        {
+            "type": "system_log.entry",
+            "entry": {"id": 2, "level": "WARNING", "account_id": visible_id, "message": "shown"},
+        },
+    )
+    message = await communicator.receive_json_from()
+    assert message["type"] == "system_log"
+    assert message["message"] == "shown"
     await communicator.disconnect()
 
 

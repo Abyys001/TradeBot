@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from asgiref.sync import async_to_sync
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -36,6 +37,7 @@ from apps.exchanges.marketdata import (
     pinned_provider,
 )
 from apps.trading.models import ExchangeSymbol, Trade, TradeStatus
+from apps.trading.services import reconcile_open_trade
 
 #: Returned when no exchange is reachable. 503, not 200-with-a-number: the panel
 #: has to be able to tell "no feed" from "a price", and every price it draws has
@@ -272,7 +274,15 @@ def positions(request):
     Entry price, liquidation price, size, margin, and current PnL — the fields
     the spec names — for every leg that actually filled, plus the totals the
     admin steers by.
+
+    Before reading, any leg whose entry the exchange never confirmed is
+    re-checked against that exchange (rate-limited to one sweep every
+    ``UNCONFIRMED_RECHECK_INTERVAL`` seconds across all pollers). That is what
+    makes a position opened by a request that outran its deadline show up here
+    as a position rather than as a failure notice — the panel's picture has to
+    match the exchange's, and this endpoint is the picture.
     """
+    async_to_sync(reconcile_open_trade)()
     trade = (
         Trade.objects.filter(status=TradeStatus.OPEN)
         .prefetch_related("legs__account")

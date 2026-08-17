@@ -223,7 +223,17 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json({"type": "market_stream_up", **event["payload"]})
 
     async def system_log_entry(self, event: dict) -> None:
-        await self.send_json({"type": "system_log", **event["entry"]})
+        entry = event["entry"]
+        if not self.sees_hidden:
+            # The live tail is a read surface like any other. A fan-out leg that
+            # times out on a hidden account logs a warning naming that account's
+            # id, and the REST list already strips it — a socket that pushed it
+            # anyway would make the log page the one place the account leaks.
+            # Trade-level rows are left to the REST filter: the id alone reaches
+            # nothing here, and a channel-layer handler must not run a join.
+            if entry.get("account_id") is not None and entry["account_id"] in await _hidden_ids():
+                return
+        await self.send_json({"type": "system_log", **entry})
 
     @classmethod
     async def encode_json(cls, content) -> str:

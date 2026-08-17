@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from typing import Any
+
+from apps.logging.context import get_request_id
 
 #: A log call can happen on Daphne's own event-loop thread — directly (async
 #: code like streamhub) or via Django's thread_sensitive dispatch for a
@@ -46,7 +49,15 @@ CATEGORY_PREFIXES = {
     "django": "SYSTEM",
 }
 
-EXTRA_ATTRS = ("account_id", "trade_id", "exchange", "error_code", "context", "request_id", "category")
+EXTRA_ATTRS = (
+    "account_id",
+    "trade_id",
+    "exchange",
+    "error_code",
+    "context",
+    "request_id",
+    "category",
+)
 
 
 def _derive_category(name: str) -> str:
@@ -54,6 +65,68 @@ def _derive_category(name: str) -> str:
         if name.startswith(prefix):
             return category
     return "SYSTEM"
+
+
+#: Loggers whose INFO output is transport chatter, not platform events.
+#:
+#: The database handler hangs off the *root* logger, so before this filter every
+#: library that logs at INFO wrote rows into the admin's trading log: one `httpx`
+#: line per market-data poll, the autoreloader on every save, urllib3 retries.
+#: They are still on the console, where a developer wants them.
+#:
+#: `httpx` is also the one that matters beyond tidiness — it logs the full
+#: request URL, and Binance and Bybit carry `api_key` and `signature` in the
+#: query string. Those rows went into the database *and* out over the WebSocket.
+#: `_redact` below is the second line of defence for anything that still slips
+#: through in a message somebody writes later.
+NOISY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "urllib3",
+    "asyncio",
+    "watchfiles",
+    "django.utils.autoreload",
+    "django.db.backends",
+    "django.template",
+    "daphne.http",
+    "websockets",
+    "hpack",
+)
+
+#: `key=value` pairs that must never reach the log table, whatever writes them.
+_SECRET_PARAM = re.compile(
+    r"(?i)\b(api[-_]?key|signature|sign|secret|token|passphrase|password)"
+    r"(=|\"?\s*:\s*\"?)([^&\s,;\"'}]+)"
+)
+
+
+def _redact(text: str) -> str:
+    return _SECRET_PARAM.sub(lambda m: f"{m.group(1)}{m.group(2)}***", text)
+
+
+#: The same names, as a whole JSON *key* rather than a `key=value` pair.
+_SECRET_KEY = re.compile(r"(?i)^(api[-_]?key|signature|sign|secret|token|passphrase|password)$")
+
+
+def _redact_context(value: Any) -> Any:
+    """Same rule, applied through the JSON column."""
+    if isinstance(value, str):
+        return _redact(value)
+    if isinstance(value, dict):
+        return {
+            k: "***" if isinstance(k, str) and _SECRET_KEY.match(k) else _redact_context(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_context(v) for v in value]
+    return value
+
+
+class NoiseFilter(logging.Filter):
+    """Keeps library chatter out of the *database* handler only."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.name.startswith(NOISY_LOGGERS)
 
 
 class DatabaseHandler(logging.Handler):
@@ -75,13 +148,16 @@ class DatabaseHandler(logging.Handler):
                 "level": level,
                 "category": extra.get("category") or _derive_category(record.name),
                 "source": record.name,
-                "message": record.getMessage(),
+                "message": _redact(record.getMessage()),
                 "account_id": extra.get("account_id"),
                 "trade_id": extra.get("trade_id"),
                 "exchange": extra.get("exchange"),
                 "error_code": extra.get("error_code"),
-                "context": extra.get("context"),
-                "request_id": extra.get("request_id"),
+                "context": _redact_context(extra.get("context")),
+                # An explicit `extra` wins; otherwise the request being served
+                # supplies it, which is how an engine warning ends up traceable
+                # to the click that caused it.
+                "request_id": extra.get("request_id") or get_request_id(),
             }
 
             from apps.logging.models import LogEntry
@@ -117,6 +193,7 @@ class DatabaseHandler(logging.Handler):
                             "exchange": entry.exchange,
                             "error_code": entry.error_code,
                             "context": entry.context,
+                            "request_id": entry.request_id,
                         },
                     },
                 ),

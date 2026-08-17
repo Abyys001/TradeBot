@@ -120,6 +120,9 @@ export function useApi() {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
       return request<LogEntry[]>(`/logging/logs/${qs}`)
     },
+    /** The level/category values the backend writes — the filter dropdowns are
+     * built from these rather than a second hardcoded copy. */
+    logFacets: () => request<LogFacets>('/logging/logs/facets/'),
     pruneLogs: (days = 30) =>
       request<{ pruned: number }>('/logging/logs/prune/', { method: 'POST', body: { days } }),
   }
@@ -506,4 +509,11 @@ export interface LogEntry {
   exchange: string | null
   error_code: string | null
   context: Record<string, unknown> | null
+  /** Ties every row written while serving one request together. */
+  request_id: string | null
+}
+
+export interface LogFacets {
+  levels: string[]
+  categories: string[]
 }

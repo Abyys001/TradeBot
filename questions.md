@@ -330,7 +330,7 @@ cached, navigations are network-first, and only content-hashed build assets are
 served from the cache. A cached balance or price is a wrong number presented as
 a current one, which on this panel is worse than an error.
 
-## Q19. Fan-out deadline extended 1s → 4s → 3.0s ✅ Spec §4 amendment, on the record
+## Q19. Fan-out deadline 1s → 4s → 3s → 5s → 10s, and the re-read behind it ✅ Spec §4 amendment, on the record
 
 Reported in use: on the production VPS a healthy entry was failing the §4
 deadline. Each leg's exchange round trips (balance, leverage, order, then
@@ -340,13 +340,14 @@ failure notification nobody could act on, and the panel showed a fake
 
 The change and what it deliberately is not:
 
-- `FANOUT_TIMEOUT_SECONDS` now defaults to **3.0** (`config/settings.py`,
+- `FANOUT_TIMEOUT_SECONDS` now defaults to **10.0** (`config/settings.py`,
   `.env.example`, `.env.production.example`), with an env override per
   deployment. Test hooks take an explicit `timeout=` so the suite stays fast
-  and the platform default is only exercised at its true value. The first
-  amendment set 4.0; once the adapters were kept warm between actions (see
-  below) a healthy VPS leg landed well inside it, so the default came back
-  down to 3.0.
+  and the platform default is only exercised at its true value. The number has
+  moved 1.0 → 4.0 → 3.0 → 5.0 → 10.0; each step was reported from live use, and
+  the direction is deliberate. The deadline is a tripwire for an exchange that
+  has genuinely stopped answering, not a service-level target for a healthy
+  leg, and every second of it costs nothing when nothing is stuck.
 - It is **not** a relaxation of §4's concurrency contract. Legs still run in
   one `asyncio.gather`; one slow exchange still cannot hold up the others past
   the deadline; a leg that overruns is abandoned, not awaited; a failed order
@@ -368,6 +369,43 @@ the default sit at 3.0 rather than 4.0.
 **Note:** the change moves the *deadline*. The panel's "within the budget"
 check and the audit `fanout_ms` both read `FANOUT_TIMEOUT_SECONDS`, so they
 stay truthful together.
+
+### The deadline was never the real bug — the reporting was
+
+Raising the number does not fix "the panel said the trade failed and the
+exchange had opened it"; it only makes it rarer. Cancelling a coroutine cannot
+unsend a request the exchange already received, so **any** leg that fails after
+the order goes out may describe a position that exists.
+
+Two things were wrong, and both are fixed:
+
+1. **Only the deadline was re-read.** The reconcile ran for `leg.timed_out`
+   alone. But the HTTP client's own ceiling sits *below* the fan-out deadline
+   (`rest.default_timeout` is 0.75 of the budget), so a slow venue almost
+   always raised `ExchangeUnavailable: request timed out` first — a plain
+   adapter error, which never reconciled. That was the reported bug. The
+   re-read now covers every **unconfirmed** leg: everything whose failure code
+   is not in `fanout.NEVER_SENT_CODES` (sizing skips, the SL/TP resolver, the
+   local rate limiter, a rejected credential — the failures the platform can
+   name the moment it stopped).
+2. **"Unknown" was reported as "did not happen".** A re-read now has three
+   outcomes, not two: `late_fill` (the exchange holds the position — it is a
+   fill, with protection attached or confirmed), `not_filled` (the exchange
+   answered and holds nothing — the reason is kept, the account is freed), and
+   *unchanged plus a warning* when the venue will not answer at all, which
+   tells the admin in as many words that it is **not known** whether the order
+   landed. Only the second one is treated as proof that nothing happened, and
+   only for a market order — a resting limit order shows no position and is
+   still live.
+
+And because the response to the admin has to end, there is a second half:
+`services.reconcile_open_trade()` asks the same question again, later, off the
+positions poll (rate-limited to one sweep every five seconds across all open
+panels). A fill that landed twenty seconds past the deadline still becomes a
+position the panel counts, with real size, entry and PnL. Until it settles, the
+account is **not** offered a new trade — spec §5's one-position-per-account
+rule reads "unknown" as "possibly holding", because the alternative is routing
+a second entry into an account that already has one.
 
 ---
 

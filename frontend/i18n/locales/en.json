@@ -124,7 +124,10 @@
     "polling": "polling",
     "chartDelayed": "Chart delayed",
     "chartDelayedHint": "The newest candle is from {age}. The price above is current; the bars are not. Nothing is drawn to fill the gap.",
-    "chartStoredHint": "These are downloaded candles, newest from {age}. The live candle feed is not answering, so the chart shows stored exchange data rather than an invented one."
+    "chartStoredHint": "These are downloaded candles, newest from {age}. The live candle feed is not answering, so the chart shows stored exchange data rather than an invented one.",
+    "marker": {
+      "you": "You"
+    }
   },
   "ticket": {
     "symbol": "Pair",
@@ -181,10 +184,10 @@
   },
   "fanout": {
     "title": "Last fan-out",
-    "overBudget": "This exceeded the fan-out deadline in spec §4.",
+    "overBudget": "This exceeded the fan-out deadline.",
     "counts": "{ok} filled · {failed} failed",
     "noneTitle": "Nothing routed yet",
-    "noneBody": "The timing of the last fan-out against the fan-out deadline in spec §4 shows here."
+    "noneBody": "The timing of the last fan-out against the fan-out deadline shows here."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -219,7 +222,7 @@
     "noAccountsBody": "Connect a trade-only API key to start routing orders.",
     "latency": "Fan-out time",
     "latencyHint": "Every account reached, per trade",
-    "latencyCaption": "Most recent trades, oldest first. The dashed line is the fan-out deadline in spec §4.",
+    "latencyCaption": "Most recent trades, oldest first. The dashed line is the fan-out deadline.",
     "budget": "deadline",
     "breaches": "{n} over budget",
     "worst": "worst {ms}ms",
@@ -277,7 +280,7 @@
   },
   "risk": {
     "title": "What does a percentage cost?",
-    "intro": "The same SL percentage means two very different things depending on what it measures. Both readings are shown below for the same inputs, so the choice can be made against numbers. This answers Q5a in questions.md.",
+    "intro": "The same SL percentage means two very different things depending on what it measures. Both readings are shown below for the same inputs, so the choice can be made against numbers.",
     "balance": "Account balance",
     "leverage": "Leverage",
     "entry": "Entry price",
@@ -458,7 +461,7 @@
   },
   "settings": {
     "title": "Settings in force",
-    "subtitle": "Every open question in questions.md is a setting with both branches built. This is which branch is live — change it in .env, not here.",
+    "subtitle": "The trading policy in force. These come from the server environment and are read-only here.",
     "policy": "Trading policy",
     "policyHint": "Read-only. These come from the server's environment.",
     "stopAllTitle": "Routing is halted",
@@ -535,11 +538,11 @@
     "noTestnet": "No testnet",
     "group": {
       "sizing": "Position sizing",
-      "sizingHint": "How much of each account goes into a trade (spec §5).",
+      "sizingHint": "How much of each account goes into a trade.",
       "sltp": "Stop loss & take profit",
       "sltpHint": "How SL/TP percentages are read, applied and repaired.",
       "execution": "Execution",
-      "executionHint": "The fan-out's timing guarantees (spec §4)."
+      "executionHint": "The fan-out's timing guarantees."
     },
     "diag": {
       "socket": "Live channel",
@@ -553,7 +556,7 @@
       "exchangeLatency": "Measured round trip from the engine to the price provider — the hop an order actually travels, and the one that spends the fan-out deadline. Blank when nothing was measured in the last minute.",
       "feed": "Which exchange the chart prices came from. Every price shown is an exchange's; when none is reachable the panel shows no price at all."
     },
-    "legalNote": "This platform routes real trades for other people's capital. Depending on your jurisdiction and how any fee or profit share is structured, that can require registration or a licence (spec §11). Confirm with a qualified professional before connecting real partner accounts."
+    "legalNote": "This platform routes real trades for other people’s capital. Depending on your jurisdiction and how any fee or profit share is structured, that can require registration or a licence. Confirm with a qualified professional before connecting real partner accounts."
   },
   "login": {
     "title": "Sign in",
@@ -672,7 +675,8 @@
   },
   "logs": {
     "title": "System Log",
-    "subtitle": "Real-time stream of every backend event — trades, exchanges, engine decisions and errors.",
+    "subtitle": "Every backend event as it is written — trades, exchanges, engine decisions and errors. Newest first.",
+    "streaming": "Streaming",
     "level": "Level",
     "category": "Category",
     "source": "Source",
@@ -680,26 +684,42 @@
     "exchange": "Exchange",
     "trade": "Trade",
     "code": "Code",
+    "request": "Request",
     "context": "Context",
     "search": "Search messages…",
+    "allLevels": "All levels",
+    "allCategories": "All categories",
     "clear": "Clear filters",
-    "prune": "Prune old logs",
+    "prune": "Prune",
     "pruned": "{n} entries pruned",
     "pruneTitle": "Prune old log entries",
     "pruneBody": "Permanently deletes every log entry older than {n} days. This cannot be undone.",
     "pruneDays": "Days to keep",
+    "pruneInvalid": "Keep at least one day — 0 would delete the whole log.",
     "loadMore": "Load older entries",
     "loadingMore": "Loading…",
     "export": "Export",
-    "autoScroll": "Auto-scroll",
+    "exportHint": "Save the rows currently shown, with the active filters, as JSON",
+    "follow": "Follow",
+    "resumeFollow": "Jump to newest",
     "noEntries": "No log entries",
+    "noEntriesBody": "Nothing has been logged yet. Route an order or connect an account and this fills up.",
     "noMatch": "No entries match these filters",
-    "connecting": "Connecting…",
-    "entries": "entries",
-    "all": "All",
+    "noMatchBody": "Only the loaded page is searched here; older entries may still match.",
+    "showing": "{n} shown",
+    "ofLoaded": "of {n} loaded",
+    "moreAvailable": "older entries available",
+    "sinceLoad": "+{n} live",
+    "trimmed": "{n} dropped",
+    "trimmedHint": "The live tail is capped in the browser; the oldest live rows were dropped. Refresh to reload from the server.",
+    "copyRow": "Copy row",
+    "copied": "Copied",
+    "copyFailed": "Could not copy to the clipboard",
+    "traceHint": "Show every entry from this request",
     "refresh": "Refresh",
     "time": "Time",
     "message": "Message",
-    "details": "Details"
+    "details": "Details",
+    "filterCategory": "Filter by this category"
   }
 }

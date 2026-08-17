@@ -417,20 +417,32 @@ async def _protect(
 
 # --- post-deadline reconciliation (Q19) ------------------------------------
 #
-# A timed-out leg is *unconfirmed*, not failed. ``asyncio.wait_for`` cancels the
-# leg the moment the deadline passes, but cancellation cannot unsend a request
-# the exchange already received — the order may have executed even though we
-# stopped listening for the reply. These helpers re-read the account on the
-# exchange and record what actually happened, so a note that says "exceeded the
-# deadline" is never minted for a position that demonstrably exists on the
-# other side. The exchange is the only source the platform trusts.
+# A failed leg is not the same thing as a leg that did nothing. ``asyncio.
+# wait_for`` cancels the leg the moment the deadline passes, and the HTTP client
+# gives up its own read at 0.75 of the budget (``rest.default_timeout``), but
+# neither cancellation can unsend a request the exchange already received — the
+# order may have executed even though we stopped listening for the reply. That
+# is just as true of a 5xx, a reset connection, or an adapter error nobody has
+# a code for.
+#
+# So the re-read runs for every leg that is ``unconfirmed`` (see
+# ``fanout.NEVER_SENT_CODES``), not only for the ones that hit the deadline.
+# Restricting it to ``timed_out`` was the hole: with the per-request ceiling
+# *below* the fan-out deadline, a slow venue almost always raised
+# ``ExchangeUnavailable: request timed out`` instead — which never reconciled,
+# and reported a filled position as a failure.
+#
+# These helpers re-read the account on the exchange and record what actually
+# happened. The exchange is the only source the platform trusts.
 
 #: How much of the deadline a confirmation re-read may spend per leg. Floored
 #: so a tiny test deadline still gets a real re-read, capped so a large
-#: deadline cannot stretch the response the admin is waiting on.
+#: deadline cannot stretch the response the admin is waiting on. The ceiling
+#: has to clear a real exchange round trip on a venue that is already answering
+#: slowly — that is the only venue this code ever runs against.
 _RECONCILE_FRACTION = 0.4
 _RECONCILE_FLOOR = 0.5
-_RECONCILE_CEIL = 2.0
+_RECONCILE_CEIL = 3.0
 
 
 def _reconcile_budget(deadline: float) -> float:
@@ -440,6 +452,19 @@ def _reconcile_budget(deadline: float) -> float:
 #: ``(ok, value, error, error_code)`` for a confirmed leg, or None = unconfirmed.
 Reconcile = tuple[bool, Any, str, str]
 
+#: Appended to a leg the exchange would not answer for. The admin has to know
+#: the difference between "this account did not trade" and "this account might
+#: have traded and nobody can tell yet" — the second one needs them to look.
+_UNVERIFIABLE = (
+    " — the exchange did not answer a re-read, so it is NOT known whether this "
+    "order landed: check the account on the exchange"
+)
+
+
+def _mark_unverifiable(leg: LegResult) -> None:
+    if not leg.error.endswith(_UNVERIFIABLE):
+        leg.error = f"{leg.error}{_UNVERIFIABLE}"
+
 
 async def _reconcile(
     result: FanOutResult,
@@ -448,16 +473,17 @@ async def _reconcile(
     deadline: float,
     per_leg: Callable[[LegResult, ExchangeAdapter, float, float], Awaitable[Reconcile | None]],
 ) -> FanOutResult:
-    """Ask the exchange whether each timed-out leg actually landed.
+    """Ask the exchange whether each unconfirmed leg actually landed.
 
-    Runs only for ``leg.timed_out`` legs whose account has an adapter, all
+    Runs for every ``leg.unconfirmed`` leg whose account has an adapter, all
     concurrently, each bounded by the per-leg reconcile budget. A re-read that
-    cannot answer (no position, exchange down, overrun) returns ``None`` and
-    the leg keeps its timeout — nothing here fabricates an outcome. A re-read
-    that crashes is logged and treated the same way.
+    cannot answer (exchange down, overrun) returns ``None`` and the leg keeps
+    the failure it already had, with a line saying the platform could not check
+    — nothing here fabricates an outcome. A re-read that crashes is logged and
+    treated the same way.
     """
     by_account = dict(accounts)
-    pending = [leg for leg in result.legs if leg.timed_out and leg.account_id in by_account]
+    pending = [leg for leg in result.legs if leg.unconfirmed and leg.account_id in by_account]
     if not pending:
         return result
 
@@ -469,8 +495,10 @@ async def _reconcile(
     for leg, outcome in zip(pending, outcomes, strict=True):
         if isinstance(outcome, BaseException):
             logger.warning("reconcile crashed for account=%s: %s", leg.account_id, outcome)
+            _mark_unverifiable(leg)
             continue
         if outcome is None:
+            _mark_unverifiable(leg)
             continue
         ok, value, error, error_code = outcome
         logger.info("reconcile account=%s -> ok=%s (%s)", leg.account_id, ok, error_code)
@@ -488,7 +516,7 @@ async def _reconcile_open(
     budget: float,
     deadline: float,
 ) -> Reconcile | None:
-    """Did a timed-out entry land? The exchange's position list decides."""
+    """Did an unconfirmed entry land? The exchange's position list decides."""
     try:
         position, rules = await asyncio.wait_for(
             asyncio.gather(
@@ -503,6 +531,25 @@ async def _reconcile_open(
         logger.warning("reconcile open account=%s: %s", leg.account_id, exc)
         return None
     if position is None:
+        if intent.order_type is not OrderType.MARKET:
+            # A limit order can be resting on the exchange, live and unfilled,
+            # with no position to show for it. "No position" is not "no order",
+            # so this one stays unconfirmed rather than being written off.
+            return None
+        # The exchange answered, and it holds nothing: the order provably did
+        # not land. Say so with the original reason kept — the leg is now known
+        # to have sat the entry out, which frees the account for the next trade
+        # and takes it out of scope for close (services.SAT_OUT_CODES).
+        return (
+            False,
+            None,
+            f"{leg.error} — re-checked with the exchange: no position was opened",
+            "not_filled",
+        )
+    if position.side is not intent.side:
+        # Someone else's position — opened by hand, or left over from something
+        # this platform did not route. Claiming it as this leg's fill would put
+        # a size and an entry price in the panel that belong to another trade.
         return None
 
     leverage = position.leverage or intent.leverage
@@ -767,6 +814,41 @@ def _make_open(account_id, adapter, intent):
     return op
 
 
+async def confirm_open(
+    accounts: list[tuple[object, ExchangeAdapter]],
+    intent: TradeIntent,
+    *,
+    timeout: float | None = None,
+) -> FanOutResult[LegFill]:
+    """Re-read accounts whose entry outcome is still unknown, and settle it.
+
+    The reconcile inside ``open_trade`` has to answer the admin's request, so
+    it is bounded — an order that landed on the exchange twenty seconds after
+    the deadline is past the point where it can wait. This is the same re-read
+    with no order behind it, for calling later (the positions poll does), and
+    it is how a fill that arrived too late to be seen still becomes a position
+    the panel knows about.
+
+    Every account passed in is treated as unconfirmed; the caller decides which
+    ones those are. Legs come back exactly as ``open_trade`` would have
+    reported them: ``late_fill`` for a confirmed position, ``not_filled`` when
+    the exchange holds nothing, and the untouched unconfirmed leg when it will
+    not answer.
+    """
+    deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
+    result: FanOutResult[LegFill] = FanOutResult(
+        legs=[
+            LegResult(account_id=account_id, ok=False, error="", error_code="unconfirmed")
+            for account_id, _ in accounts
+        ]
+    )
+
+    async def confirm(leg, adapter, budget, dl):
+        return await _reconcile_open(leg, adapter, intent, budget, dl)
+
+    return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
+
+
 async def amend_sltp(
     accounts: list[tuple[object, ExchangeAdapter]],
     *,
@@ -802,7 +884,9 @@ async def amend_sltp(
                 adapter.get_symbol_rules(symbol, MarketType.FUTURES),
             )
             if position is None:
-                raise AdapterError("no open position on this account")
+                raise AdapterError(
+                    "no open position on this account", code="no_position"
+                )
             # Q5b/Q5c: which entry price the percentage is measured from.
             entry = anchor_price(admin_entry=admin_entry, own_entry=position.entry_price)
             # The exchange's own view of this position's leverage, not the
@@ -904,6 +988,7 @@ __all__ = [
     "SltpResult",
     "LegResult",
     "open_trade",
+    "confirm_open",
     "amend_sltp",
     "close_trade",
     "failure_notifications",

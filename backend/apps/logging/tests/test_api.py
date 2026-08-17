@@ -73,6 +73,40 @@ class LogEntryAPITests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("pruned", resp.data)
 
+    def test_prune_rejects_a_non_numeric_window(self):
+        """A 500 from the endpoint that deletes rows leaves the admin guessing
+        whether anything was deleted."""
+        resp = self.client.post(self.url + "prune/", {"days": "soon"})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_prune_refuses_to_delete_everything(self):
+        self._log()
+        resp = self.client.post(self.url + "prune/", {"days": 0})
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(LogEntry.objects.filter(source="test").exists())
+
+    def test_facets_serve_every_level_and_category_the_backend_writes(self):
+        resp = self.client.get(self.url + "facets/")
+        self.assertEqual(resp.status_code, 200)
+        # The filter dropdowns are built from this; AUTH and MARKET_DATA were
+        # missing from the panel's own hardcoded list.
+        self.assertIn("AUTH", resp.data["categories"])
+        self.assertIn("MARKET_DATA", resp.data["categories"])
+        self.assertEqual(resp.data["levels"], ["INFO", "WARNING", "ERROR", "CRITICAL"])
+
+    def test_request_id_filter_traces_one_request(self):
+        self._log(message="a", request_id="abc123")
+        self._log(message="b", request_id="def456")
+        resp = self.client.get(self.url, {"request_id": "abc123"})
+        self.assertEqual([row["message"] for row in resp.data], ["a"])
+
+    def test_reading_the_log_does_not_write_to_the_log(self):
+        """The access middleware skips this prefix: otherwise the panel's own
+        refresh appeared in the tail it was refreshing, and each refresh added
+        another row."""
+        self.client.get(self.url)
+        self.assertEqual(LogEntry.objects.count(), 0)
+
     def test_unauthenticated_denied(self):
         self.client.logout()
         resp = self.client.get(self.url)

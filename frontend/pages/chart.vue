@@ -73,12 +73,57 @@ const entryDraggable = computed(
   () => !positions.hasPosition && order.orderType === 'limit',
 )
 
+/**
+ * Every entry and exit on the instrument currently on screen.
+ *
+ * One name per *exchange*, not per account: two accounts on Bybit filled at the
+ * same moment on the same venue, and "Bybit, Bybit" says nothing the one name
+ * does not. The adapter dedupes, so listing an exchange twice is harmless — it
+ * is just noise this never generates.
+ *
+ * Failed legs are not marked. A leg that never filled has no moment of entry to
+ * point at, and inventing one on the price would be a lie about what happened;
+ * the notification centre is where a failure is answered.
+ */
+const tradeMarkers = computed<TradeMarker[]>(() => {
+  const seconds = (iso: string | null) => {
+    if (!iso) return null
+    const ms = new Date(iso).getTime()
+    return Number.isFinite(ms) ? Math.floor(ms / 1000) : null
+  }
+  const you = t('terminal.marker.you')
+  const out: TradeMarker[] = []
+
+  for (const trade of trading.trades) {
+    if (trade.symbol !== market.symbol || trade.market !== market.market) continue
+    const side = trade.side === 'short' ? 'short' : 'long'
+
+    // The admin's own action — the one thing on the chart that is "when *we*
+    // entered" rather than when some exchange got there.
+    const opened = seconds(trade.opened_at)
+    if (opened !== null) out.push({ time: opened, kind: 'entry', side, label: you, admin: true })
+    const closed = seconds(trade.closed_at)
+    if (closed !== null) out.push({ time: closed, kind: 'exit', side, label: you, admin: true })
+
+    for (const leg of trade.legs) {
+      if (!leg.ok) continue
+      const label = exchangeLabel(leg.exchange)
+      const legIn = seconds(leg.opened_at)
+      if (legIn !== null) out.push({ time: legIn, kind: 'entry', side, label, admin: false })
+      const legOut = seconds(leg.closed_at)
+      if (legOut !== null) out.push({ time: legOut, kind: 'exit', side, label, admin: false })
+    }
+  }
+  return out
+})
+
 async function mountChart() {
   if (!chartEl.value || chart) return
   chart = useChartAdapter()
   await chart.mount(chartEl.value)
   chart.setEntryDraggable(entryDraggable.value)
   paintSeries()
+  chart.setTradeMarkers(tradeMarkers.value)
   painted.value = market.seriesKey
 
   // Surface 2 of 3: dragging the lines on the chart.
@@ -138,6 +183,11 @@ watch(
 )
 
 watch(isDark, () => chart?.applyTheme())
+
+// Fires on a symbol change (the list is filtered by instrument) and whenever a
+// trade opens or closes. The adapter holds the set across a repaint, so this is
+// the only place it needs pushing.
+watch(tradeMarkers, (markers) => chart?.setTradeMarkers(markers))
 
 watch(entryDraggable, (value) => {
   chart?.setEntryDraggable(value)

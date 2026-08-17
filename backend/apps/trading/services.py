@@ -26,6 +26,7 @@ from decimal import Decimal
 from asgiref.sync import sync_to_async
 from channels.layers import get_channel_layer
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
@@ -35,10 +36,11 @@ from apps.engine.executor import (
     TradeIntent,
     amend_sltp,
     close_trade,
+    confirm_open,
     failure_notifications,
     open_trade,
 )
-from apps.engine.fanout import FanOutResult, StopAllActive
+from apps.engine.fanout import NEVER_SENT_CODES, FanOutResult, StopAllActive
 from apps.exchanges import pool
 from apps.exchanges.base import ExchangeAdapter, MarketType, OrderType, Side
 from apps.trading import killswitch
@@ -67,18 +69,11 @@ logger = logging.getLogger(__name__)
 #: The cost of the safe direction is a leg that truly sat out being asked to
 #: close, which raises "no open position" and mints one dismissable notice. A
 #: spurious notice is recoverable; an unclosable position is not.
-SAT_OUT_CODES = frozenset(
-    {
-        "non_usdt_balance",
-        "no_price",
-        "bad_leverage",
-        "below_min_qty",
-        "below_min_notional",
-        "leverage_capped",
-        "sl_beyond_liquidation",
-        "no_entry",
-    }
-)
+#:
+#: It is the engine's ``NEVER_SENT_CODES`` — the same question ("can we prove
+#: this account holds nothing?") answered once. ``not_filled`` is in it because
+#: a re-read has since asked the exchange and been told no.
+SAT_OUT_CODES = NEVER_SENT_CODES
 
 
 @sync_to_async
@@ -123,11 +118,27 @@ def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
 
 
 def accounts_in_open_trades() -> list[int]:
-    """Account ids holding a leg that filled and has not been closed (spec §5)."""
+    """Account ids that may be holding a leg of the open trade (spec §5).
+
+    "May be" and not "did fill", for the same reason ``eligible_accounts``
+    keeps unconfirmed legs in scope for close: a leg recorded ``ok=False``
+    because the exchange never answered can still be a live position at
+    leverage. Routing a second entry into that account would double it, which
+    is the one thing spec §5's one-trade-per-account rule exists to prevent.
+
+    The block is short-lived by construction — ``reconcile_open_trade`` re-reads
+    those legs on every positions poll and settles them into either a real fill
+    or ``not_filled`` (in ``SAT_OUT_CODES``, so the account frees itself).
+    """
+    open_legs = TradeLeg.objects.filter(
+        trade__status=TradeStatus.OPEN, closed_at__isnull=True
+    )
     return list(
-        TradeLeg.objects.filter(
-            trade__status=TradeStatus.OPEN, ok=True, closed_at__isnull=True
-        ).values_list("account_id", flat=True)
+        open_legs.filter(ok=True).values_list("account_id", flat=True)
+    ) + list(
+        open_legs.filter(ok=False)
+        .exclude(error_code__in=SAT_OUT_CODES)
+        .values_list("account_id", flat=True)
     )
 
 
@@ -162,6 +173,7 @@ def _persist_open(
         symbol=intent.symbol,
         side=intent.side.value,
         market=intent.market.value,
+        order_type=intent.order_type.value,
         leverage=intent.leverage,
         sl_pct=intent.sl_pct,
         tp_pct=intent.tp_pct,
@@ -393,6 +405,122 @@ async def route_open(
     return trade, result
 
 
+#: Minimum spacing between sweeps, in seconds. The positions panel polls every
+#: couple of seconds and every open panel polls independently; without this,
+#: one unconfirmed leg would mean a signed exchange call per tab per poll.
+UNCONFIRMED_RECHECK_INTERVAL = 5
+_RECHECK_GUARD_KEY = "trading:unconfirmed:checked_at"
+
+
+@sync_to_async
+def _unconfirmed_legs() -> tuple[Trade | None, list[ConnectedAccount]]:
+    """The open trade and the accounts whose entry outcome is still unknown."""
+    trade = Trade.objects.filter(status=TradeStatus.OPEN).first()
+    if trade is None:
+        return None, []
+    accounts = list(
+        ConnectedAccount.objects.filter(
+            id__in=trade.legs.filter(ok=False, closed_at__isnull=True)
+            .exclude(error_code__in=SAT_OUT_CODES)
+            .values_list("account_id", flat=True)
+        )
+    )
+    return trade, accounts
+
+
+@sync_to_async
+def _settle_unconfirmed(trade: Trade, result: FanOutResult) -> bool:
+    """Write what the exchange said about each unconfirmed leg.
+
+    A confirmed position becomes a real filled leg — size, entry, margin and
+    the protection the re-read attached — so the positions panel, the totals
+    and the PnL all start counting it. A leg the exchange says it holds nothing
+    for is stamped ``not_filled``, which frees the account for the next trade.
+    A leg that still cannot be reached is left exactly as it was.
+    """
+    legs = {leg.account_id: leg for leg in trade.legs.all()}
+    updated = []
+    fills = []
+    for outcome in result.legs:
+        leg = legs.get(outcome.account_id)
+        if leg is None or outcome.error_code == "unconfirmed":
+            continue
+        fill = outcome.value
+        leg.ok = outcome.ok
+        leg.error = outcome.error
+        leg.error_code = outcome.error_code
+        if fill is not None:
+            leg.qty = fill.qty
+            leg.entry_price = fill.entry_price
+            leg.margin = fill.margin
+            leg.stop_loss = fill.stop_loss
+            leg.take_profit = fill.take_profit
+            leg.sltp_attached = fill.sltp_attached
+            leg.sltp_verified = fill.sltp_verified
+            fills.append(fill.entry_price)
+        updated.append(leg)
+    if not updated:
+        return False
+    TradeLeg.objects.bulk_update(
+        updated,
+        [
+            "ok",
+            "error",
+            "error_code",
+            "qty",
+            "entry_price",
+            "margin",
+            "stop_loss",
+            "take_profit",
+            "sltp_attached",
+            "sltp_verified",
+        ],
+    )
+    if fills and trade.admin_entry_price is None:
+        # Q5c's anchor was never set because no leg had filled at the time.
+        trade.admin_entry_price = sum(fills) / len(fills)
+        trade.save(update_fields=["admin_entry_price"])
+    return True
+
+
+async def reconcile_open_trade() -> bool:
+    """Settle the open trade's unconfirmed legs against the exchanges.
+
+    The reconcile inside ``open_trade`` is bounded by the admin's request: an
+    entry that landed twenty seconds after the deadline is past the point where
+    the response can wait for it. This is the unbounded-in-time half — cheap,
+    idempotent, and called from the positions poll — so a fill that arrived too
+    late to be seen still turns into a position the panel knows about, instead
+    of a permanent "the exchange did not answer" note next to a live position.
+
+    Returns True when something changed, so the caller can re-read.
+    """
+    if not cache.add(_RECHECK_GUARD_KEY, "1", UNCONFIRMED_RECHECK_INTERVAL):
+        return False
+    trade, accounts = await _unconfirmed_legs()
+    if trade is None or not accounts:
+        return False
+    adapters = _adapters(accounts)
+    if not adapters:
+        return False
+    result = await confirm_open(
+        adapters,
+        TradeIntent(
+            symbol=trade.symbol,
+            side=Side(trade.side),
+            market=MarketType(trade.market),
+            order_type=OrderType(trade.order_type),
+            leverage=trade.leverage,
+            sl_pct=trade.sl_pct,
+            tp_pct=trade.tp_pct,
+        ),
+    )
+    changed = await _settle_unconfirmed(trade, result)
+    if changed:
+        await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
+    return changed
+
+
 class NoLegsToRoute(Exception):
     """An amend or close resolved to zero legs, so nothing was sent.
 
@@ -531,8 +659,6 @@ async def refresh_balances(*, force: bool = False) -> list[dict]:
 
 def _claim_refresh_slot() -> bool:
     """True when this caller may hit the exchanges, False when one just did."""
-    from django.core.cache import cache
-
     # add() is atomic: exactly one caller wins the window, the rest read stored.
     return cache.add(_BALANCE_GUARD_KEY, True, BALANCE_REFRESH_INTERVAL)
 

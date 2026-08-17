@@ -9,14 +9,12 @@
  *      from a browser. It leads, because when it is wanted it is wanted fast.
  *   2. Execution & risk policy — read-only. These are `.env` values; a UI that
  *      appeared to change them without changing the deployment would be lying.
- *      Each row names the question in `questions.md` it answers, so the screen
- *      and the decision record stay tied together.
  *   3. Profit split — the one live financial control besides the halt: who
  *      gets what share of the profit, entered in Settings once, applied by the
  *      ledger everywhere.
  *   4. Connection & data — what the panel is actually talking to right now:
  *      socket state, round-trip latency, and whether prices are a real feed.
- *   5. Exchange coverage — per-adapter capabilities, testnet honesty (Q9).
+ *   5. Exchange coverage — per-adapter capabilities, testnet honesty.
  *   6. Preferences — theme and language, which are this browser's business.
  *
  * The previous version was one flat list of key/value rows with no grouping and
@@ -127,7 +125,6 @@ const groups = computed(() => {
         {
           key: 'balance_fraction',
           value: `${(Number(p.balance_fraction) * 100).toFixed(0)}%`,
-          question: 'Q12',
           tone: 'brand' as const,
         },
         { key: 'leverage_range', value: `${p.leverage_range[0]}x – ${p.leverage_range[1]}x` },
@@ -136,10 +133,10 @@ const groups = computed(() => {
     {
       key: 'sltp',
       rows: [
-        { key: 'sltp_basis', value: t(`risk.basis.${p.sltp_basis}`), question: 'Q5a' },
-        { key: 'sltp_reference', value: p.sltp_reference, question: 'Q5b/Q5c' },
-        { key: 'sltp_amend_strategy', value: p.sltp_amend_strategy, question: 'Q5d' },
-        { key: 'sltp_failure_policy', value: p.sltp_failure_policy, question: 'Q5e' },
+        { key: 'sltp_basis', value: t(`risk.basis.${p.sltp_basis}`) },
+        { key: 'sltp_reference', value: p.sltp_reference },
+        { key: 'sltp_amend_strategy', value: p.sltp_amend_strategy },
+        { key: 'sltp_failure_policy', value: p.sltp_failure_policy },
         {
           key: 'reject_sl_beyond_liquidation',
           value: p.reject_sl_beyond_liquidation ? t('common.on') : t('common.off'),
@@ -309,7 +306,6 @@ const diagnostics = computed(() => [
               {{ t(`settings.keys.${row.key}.hint`) }}
             </p>
           </div>
-          <UiBadge v-if="row.question" tone="brand">{{ row.question }}</UiBadge>
           <UiBadge :tone="row.tone ?? 'neutral'" class="num">{{ row.value }}</UiBadge>
         </li>
       </ul>

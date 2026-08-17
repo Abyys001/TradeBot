@@ -12,6 +12,7 @@ from unittest import mock
 import pytest
 from asgiref.sync import sync_to_async
 from cryptography.fernet import Fernet
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
@@ -23,6 +24,7 @@ from apps.trading.models import Trade, TradeLeg, TradeStatus
 from apps.trading.services import (
     NoLegsToRoute,
     eligible_accounts,
+    reconcile_open_trade,
     refresh_balances,
     route_amend,
     route_close,
@@ -503,3 +505,80 @@ async def test_a_leg_the_exchange_would_not_flatten_keeps_the_trade_open():
 
     leg = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
     assert leg.closed_at is None, "a leg still on the exchange was marked closed"
+
+
+# --- the fill that arrives after the response is gone -------------------------
+
+
+class NoReplyAdapter(PaperAdapter):
+    """The entry lands; the reply never comes back at all."""
+
+    async def place_order(self, **kwargs):
+        await super().place_order(**kwargs)
+        raise AdapterError("paper: request timed out")
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_unconfirmed_leg_becomes_a_real_position_on_the_next_poll(monkeypatch):
+    """The panel's picture has to end up matching the exchange's.
+
+    The re-read inside ``route_open`` is bounded by the admin's request. This
+    is the same account asked again once that response is long gone, which is
+    the only way a fill nobody could confirm in time turns into a position the
+    positions panel counts.
+    """
+    account = await make_account("slow-venue", balance="1000")
+    adapter = NoReplyAdapter(balance=D("1000"))
+
+    def fake_adapters(accounts):
+        return [(account.pk, adapter)]
+
+    monkeypatch.setattr("apps.trading.services._adapters", fake_adapters)
+    # The bounded re-read cannot answer either: the venue is still silent.
+    monkeypatch.setattr(adapter, "get_position", mock.AsyncMock(side_effect=TimeoutError))
+    trade, result = await open_a_trade()
+
+    leg = await sync_to_async(lambda: trade.legs.get())()
+    assert not leg.ok
+    assert "NOT known whether this order landed" in leg.error
+
+    # The venue comes back. Nothing was re-sent; it is only asked again.
+    monkeypatch.delattr(adapter, "get_position")
+    cache.delete("trading:unconfirmed:checked_at")
+    assert await reconcile_open_trade() is True
+
+    leg = await sync_to_async(lambda: trade.legs.get())()
+    assert leg.ok
+    assert leg.error_code == "late_fill"
+    assert leg.qty == (await adapter.get_position("BTCUSDT")).size
+    assert leg.entry_price is not None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_unconfirmed_account_cannot_be_given_a_second_position(monkeypatch):
+    """Spec §5 is one open trade per account, and "unknown" is not "none"."""
+    account = await make_account("slow-venue", balance="1000")
+
+    def fake_adapters(accounts):
+        return [(account.pk, PaperAdapter(balance=D("1000"), fail_on={"get_position"}))]
+
+    monkeypatch.setattr("apps.trading.services._adapters", fake_adapters)
+    await open_a_trade()
+
+    assert await eligible_accounts() == []
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_account_the_exchange_says_is_flat_trades_again(monkeypatch):
+    """The block above must not be permanent: ``not_filled`` frees the account."""
+    account = await make_account("rejected", balance="1000")
+
+    def fake_adapters(accounts):
+        return [(account.pk, PaperAdapter(balance=D("1000"), fail_on={"place_order"}))]
+
+    monkeypatch.setattr("apps.trading.services._adapters", fake_adapters)
+    trade, _ = await open_a_trade()
+
+    leg = await sync_to_async(lambda: trade.legs.get())()
+    assert leg.error_code == "not_filled"
+    assert [a.pk for a in await eligible_accounts()] == [account.pk]
