@@ -1,3 +1,10 @@
+# Production stack behind host nginx (TLS terminated on the host).
+# nginx proxies /ws/ straight to backend and everything else to frontend.
+#
+#   docker compose up -d --build
+#
+# See docs/deploy.md for the full runbook.
+
 services:
   db:
     image: postgres:16-alpine
@@ -10,6 +17,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-walletmanager}"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -17,53 +25,53 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
     command: >
-      sh -c "python manage.py migrate &&
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
              daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     env_file: [.env]
     environment:
-      # These override .env deliberately. ./run.sh rewrites .env for a local
-      # SQLite run, and without pinning them here the compose stack would
-      # quietly use SQLite and an in-memory channel layer instead of the
-      # Postgres and Redis it just started.
       USE_SQLITE: "false"
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
-      # The panel proxies API calls, so requests arrive with Host: backend.
-      # Without it here Django answers 400 DisallowedHost and the panel sees a
-      # bare 502 from its own proxy.
       DJANGO_ALLOWED_HOSTS: backend,localhost,127.0.0.1,maxbot.cybercina.co.uk
       CORS_ALLOWED_ORIGINS: https://maxbot.cybercina.co.uk
+      DJANGO_SECURE_SSL_REDIRECT: "false"
     ports: ["127.0.0.1:8001:8000"]
-    volumes: ["./backend:/app"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=5).status==200 else 1)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
+    restart: unless-stopped
 
   frontend:
-    build: ./frontend
-    command: npm run dev -- --host 0.0.0.0
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
     environment:
-      # Server-side proxy target. REST goes through the panel's own origin, so
-      # the browser never needs to resolve this Docker hostname — and a system
-      # HTTP/SOCKS proxy on the host cannot swallow the API calls.
       NUXT_API_PROXY_TARGET: http://backend:8000/api
-      # The live channel now goes the same way. It used to be the exception —
-      # the browser dialled ws://localhost:8000 directly, because a route rule
-      # cannot forward an upgrade — and that is precisely what broke the moment
-      # the panel was opened from anywhere but the machine running it. A nitro
-      # WebSocket handler (frontend/server/routes/ws/[...].ts) does carry the
-      # upgrade, so the browser derives /ws from its own origin and this is the
-      # server-side hop it is relayed to.
       NUXT_WS_PROXY_TARGET: ws://backend:8000
     ports: ["127.0.0.1:3000:3000"]
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      backend: {condition: service_healthy}
+    restart: unless-stopped
 
 volumes:
   pgdata:

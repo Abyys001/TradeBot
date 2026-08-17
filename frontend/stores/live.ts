@@ -23,6 +23,7 @@ export interface LegResult {
 let socket: WebSocket | null = null
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 let heartbeat: ReturnType<typeof setInterval> | null = null
+let connectTimeout: ReturnType<typeof setTimeout> | null = null
 let retries = 0
 let intentionalClose = false
 /** Set when a ping goes out, cleared by its pong. Module-level: not state. */
@@ -187,9 +188,23 @@ export const useLiveStore = defineStore('live', {
       if (import.meta.server || socket) return
       intentionalClose = false
       this.attempted = true
+      this.closeCode = null
+      this.closeReason = ''
       socket = new WebSocket(this.url())
 
+      // Safety net: if the upgrade never completes (proxy silently drops it,
+      // backend unreachable, wrong port) the socket sits in CONNECTING state
+      // forever — no onclose fires, no retry starts.  Force-close after 10 s
+      // so the retry loop kicks in instead of showing "Connecting" forever.
+      if (connectTimeout) clearTimeout(connectTimeout)
+      connectTimeout = setTimeout(() => {
+        if (socket && socket.readyState === WebSocket.CONNECTING) {
+          socket.close(1000, 'handshake timeout')
+        }
+      }, 10_000)
+
       socket.onopen = () => {
+        if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null }
         this.connected = true
         this.everConnected = true
         this.closeCode = null
@@ -217,6 +232,7 @@ export const useLiveStore = defineStore('live', {
       }
 
       socket.onclose = (event) => {
+        if (connectTimeout) { clearTimeout(connectTimeout); connectTimeout = null }
         this.connected = false
         socket = null
         // What actually happened, so the panel can stop saying "Connecting"
@@ -352,8 +368,10 @@ export const useLiveStore = defineStore('live', {
       intentionalClose = true
       if (retryTimer) clearTimeout(retryTimer)
       if (heartbeat) clearInterval(heartbeat)
+      if (connectTimeout) clearTimeout(connectTimeout)
       retryTimer = null
       heartbeat = null
+      connectTimeout = null
       socket?.close()
       socket = null
       this.connected = false
