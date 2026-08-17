@@ -75,8 +75,21 @@ let pinnedTimer: ReturnType<typeof setInterval> | null = null
 /**
  * Cookie-persisted chart symbol. Read at module level so it is available
  * during store initialisation; written inside `setSymbol` on every change.
+ *
+ * The handle's type comes from this factory rather than from
+ * `ReturnType<typeof useCookie<string>>`: that annotation resolves the
+ * no-default overload, whose ref is not writable, and `setSymbol` could not
+ * assign to it.
  */
-let _symbolCookie: ReturnType<typeof useCookie<string>> | null = null
+function symbolCookie() {
+  return useCookie<string>('chart-symbol', {
+    default: () => 'BTCUSDC',
+    maxAge: 60 * 60 * 24 * 365,
+    sameSite: 'lax',
+  })
+}
+
+let _symbolCookie: ReturnType<typeof symbolCookie> | null = null
 
 export const useMarketStore = defineStore('market', {
   state: () => ({
@@ -529,13 +542,7 @@ export const useMarketStore = defineStore('market', {
     /** Called by the terminal on mount; safe to call twice. */
     async start() {
       // Initialise the cookie handle once (composables cannot run in state factory).
-      if (!_symbolCookie) {
-        _symbolCookie = useCookie<string>('chart-symbol', {
-          default: () => 'BTCUSDC',
-          maxAge: 60 * 60 * 24 * 365,
-          sameSite: 'lax',
-        })
-      }
+      if (!_symbolCookie) _symbolCookie = symbolCookie()
       // Restore the last-viewed symbol from the cookie.
       const saved = _symbolCookie.value
       if (saved && saved !== this.symbol) {

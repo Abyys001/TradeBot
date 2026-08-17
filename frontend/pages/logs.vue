@@ -59,8 +59,10 @@ function scrollToBottom() {
   })
 }
 
-function levelBadge(lv: string) {
-  if (lv === 'CRITICAL') return 'critical'
+/** Typed against UiBadge's own tones, so a level cannot name one it does not have. */
+function levelBadge(lv: string): 'short' | 'signal' | 'ok' {
+  // Critical shares the error tone: it is the strongest thing the palette says.
+  if (lv === 'CRITICAL') return 'short'
   if (lv === 'ERROR') return 'short'
   if (lv === 'WARNING') return 'signal'
   return 'ok'
@@ -170,7 +172,7 @@ onMounted(async () => {
         </div>
       </div>
       <div v-else-if="filtered.length === 0" class="p-8 text-center">
-        <UiEmpty icon="logs" :message="hasFilters ? t('logs.noMatch') : t('logs.noEntries')" />
+        <UiEmpty icon="logs" :title="hasFilters ? t('logs.noMatch') : t('logs.noEntries')" />
       </div>
       <div v-else ref="scrollContainer" class="overflow-y-auto max-h-[calc(100vh-16rem)]">
         <table class="table table-xs w-full">
