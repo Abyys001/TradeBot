@@ -280,7 +280,7 @@ MARKET_DATA = {
         p.strip().upper()
         for p in os.getenv(
             "BACKFILL_PRIORITY_PAIRS",
-            "LIT,BTC,HYPE,PUMP,SOL,ZEC,LINK,KAITO,BMB,WLD",
+            "LIT,BTC,HYPE,PUMP,SOL,ZEC,LINK,KAITO,BNB,WLD",
         ).split(",")
         if p.strip()
     ],

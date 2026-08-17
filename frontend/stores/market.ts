@@ -39,7 +39,7 @@ const STREAM_STALE_MS = 90000
  * Pinned pairs that always appear at the top of the symbol picker and always
  * have live ticker data, regardless of which symbol the chart is showing.
  */
-export const PINNED_SYMBOLS = ['BTCUSDC', 'HYPEUSDC', 'PUMPUSDC', 'SOLUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BMBUSDC', 'WLDUSDC', 'LITUSDC']
+export const PINNED_SYMBOLS = ['BTCUSDC', 'HYPEUSDC', 'PUMPUSDC', 'SOLUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BNBUSDC', 'WLDUSDC', 'LITUSDC']
 const PINNED_POLL_MS = 5000
 
 export interface PinnedTicker {

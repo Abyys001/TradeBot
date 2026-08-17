@@ -84,3 +84,35 @@ class LogEntryAPITests(TestCase):
         resp = self.client.get(self.url)
         self.assertEqual(resp.data[0]["message"], "new")
         self.assertEqual(resp.data[1]["message"], "old")
+
+    def test_default_response_is_capped(self):
+        for i in range(5):
+            self._log(message=f"entry {i}")
+        resp = self.client.get(self.url, {"limit": 3})
+        self.assertEqual(len(resp.data), 3)
+        # newest three, still newest-first
+        self.assertEqual(resp.data[0]["message"], "entry 4")
+        self.assertEqual(resp.data[2]["message"], "entry 2")
+
+    def test_limit_is_capped_at_maximum(self):
+        for i in range(3):
+            self._log(message=f"entry {i}")
+        resp = self.client.get(self.url, {"limit": 999999})
+        self.assertEqual(len(resp.data), 3)
+
+    def test_before_id_pages_backwards(self):
+        ids = [self._log_and_get_id(message=f"entry {i}") for i in range(5)]
+        resp = self.client.get(self.url, {"limit": 2, "before_id": ids[3]})
+        self.assertEqual(len(resp.data), 2)
+        self.assertEqual(resp.data[0]["message"], "entry 2")
+        self.assertEqual(resp.data[1]["message"], "entry 1")
+
+    def _log_and_get_id(self, **kwargs):
+        defaults = {
+            "level": "INFO",
+            "category": "SYSTEM",
+            "source": "test",
+            "message": "test message",
+        }
+        defaults.update(kwargs)
+        return LogEntry.objects.create(**defaults).id

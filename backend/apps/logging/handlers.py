@@ -3,8 +3,32 @@ broadcasts them over the WebSocket for live tail."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from typing import Any
+
+#: A log call can happen on Daphne's own event-loop thread — directly (async
+#: code like streamhub) or via Django's thread_sensitive dispatch for a
+#: perfectly ordinary sync view. `async_to_sync` from either of those deadlocks
+#: against the loop it needs (asgiref's CurrentThreadExecutor blocks the real
+#: loop while it waits), which freezes the whole ASGI process. Routing the
+#: broadcast through a dedicated background loop sidesteps the reentrancy
+#: entirely: this thread is never the caller's thread, so there is nothing to
+#: deadlock against, and `run_coroutine_threadsafe` doesn't block the caller
+#: waiting for it to land.
+_bg_loop: asyncio.AbstractEventLoop | None = None
+_bg_lock = threading.Lock()
+
+
+def _broadcast_loop() -> asyncio.AbstractEventLoop:
+    global _bg_loop
+    with _bg_lock:
+        if _bg_loop is None:
+            loop = asyncio.new_event_loop()
+            threading.Thread(target=loop.run_forever, daemon=True, name="log-broadcast").start()
+            _bg_loop = loop
+        return _bg_loop
 
 LEVEL_MAP = {
     logging.INFO: "INFO",
@@ -71,30 +95,32 @@ class DatabaseHandler(logging.Handler):
     def _broadcast(self, entry) -> None:
         """Fire-and-forget broadcast to the trading WebSocket group."""
         try:
-            from asgiref.sync import async_to_sync
             from channels.layers import get_channel_layer
 
             layer = get_channel_layer()
             if layer is None:
                 return
-            async_to_sync(layer.group_send)(
-                "trading",
-                {
-                    "type": "system_log.entry",
-                    "entry": {
-                        "id": entry.id,
-                        "timestamp": entry.timestamp.isoformat(),
-                        "level": entry.level,
-                        "category": entry.category,
-                        "source": entry.source,
-                        "message": entry.message,
-                        "account_id": entry.account_id,
-                        "trade_id": entry.trade_id,
-                        "exchange": entry.exchange,
-                        "error_code": entry.error_code,
-                        "context": entry.context,
+            asyncio.run_coroutine_threadsafe(
+                layer.group_send(
+                    "trading",
+                    {
+                        "type": "system_log.entry",
+                        "entry": {
+                            "id": entry.id,
+                            "timestamp": entry.timestamp.isoformat(),
+                            "level": entry.level,
+                            "category": entry.category,
+                            "source": entry.source,
+                            "message": entry.message,
+                            "account_id": entry.account_id,
+                            "trade_id": entry.trade_id,
+                            "exchange": entry.exchange,
+                            "error_code": entry.error_code,
+                            "context": entry.context,
+                        },
                     },
-                },
+                ),
+                _broadcast_loop(),
             )
         except Exception:  # noqa: BLE001 — broadcast failure must not break logging
             pass

@@ -12,13 +12,19 @@
  *
  * Every page used to do its own version of these, which meant four sockets and
  * four disagreeing copies of the same data.
+ *
+ * The system log is deliberately *not* preloaded here: `/logs` loads its own
+ * page on mount, so an eager fetch on every navigation was pure waste — worse,
+ * before the API gained a response cap it meant every page load shipped the
+ * *entire* log table over the wire. Live entries still arrive on this page's
+ * socket via `stores/live.ts`'s `system_log` handler regardless of route, so
+ * nothing is missed between app open and a first visit to `/logs`.
  */
 const live = useLiveStore()
 const accounts = useAccountsStore()
 const notifications = useNotificationStore()
 const trading = useTradingStore()
 const ui = useUiStore()
-const systemLog = useSystemLogStore()
 const route = useRoute()
 
 // The chart page wants the rail out of the way; leaving it collapses back to
@@ -37,7 +43,6 @@ onMounted(async () => {
   accounts.startAutoRefresh()
   await notifications.hydrate()
   trading.loadPolicy()
-  systemLog.load()
 })
 
 onBeforeUnmount(() => {

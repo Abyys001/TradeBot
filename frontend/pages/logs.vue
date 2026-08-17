@@ -2,15 +2,19 @@
 /**
  * System log — real-time tail of every backend log entry, filterable and
  * auto-scrolling. Entries arrive over the WebSocket as they're written; the
- * initial load comes from the REST API.
+ * initial page (and every re-filter) comes from the REST API, which caps and
+ * cursor-paginates server-side (`apps/logging/views.py`) — the browser never
+ * holds more of the table than it's actually looking at.
  *
- * Filters are reactive: each change re-queries the API. The WebSocket
- * stream is *additive* — new entries matching current filters appear at the
- * bottom; entries that don't match are silently skipped (the store still
- * holds them, the view filters).
+ * Filters are reactive: each change re-queries the API after a short debounce,
+ * so typing in the search box doesn't fire a request per keystroke. The
+ * WebSocket stream is *additive* on top of whatever page is loaded — new
+ * entries matching current filters appear at the bottom; entries that don't
+ * match are silently skipped (the store still holds them, the view filters).
  */
 const { t } = useI18n()
 const store = useSystemLogStore()
+const notifications = useNotificationStore()
 const { dateTime } = useFormat()
 
 useHead({ title: t('logs.title') })
@@ -22,10 +26,25 @@ const search = ref('')
 const autoScroll = ref(true)
 const scrollContainer = ref<HTMLElement | null>(null)
 const showDetails = ref<Set<number>>(new Set())
+const pruneOpen = ref(false)
+const pruneDays = ref(30)
+const pruning = ref(false)
 
 const LEVELS = ['INFO', 'WARNING', 'ERROR', 'CRITICAL']
 const CATEGORIES = ['ENGINE', 'EXCHANGE', 'TRADE', 'ADMIN', 'SYSTEM']
 
+function buildParams(): Record<string, string> {
+  const params: Record<string, string> = {}
+  if (level.value) params.level = level.value
+  if (category.value) params.category = category.value
+  if (source.value) params.source = source.value
+  if (search.value) params.search = search.value
+  return params
+}
+
+// The server-loaded page is already filtered; this re-applies the same
+// predicate client-side so a live WebSocket entry that doesn't match the
+// active filters never flashes into view between one query and the next.
 const filtered = computed(() => {
   let rows = store.newestFirst
   if (level.value) rows = rows.filter((e) => e.level === level.value)
@@ -36,6 +55,12 @@ const filtered = computed(() => {
 })
 
 const hasFilters = computed(() => level.value || category.value || source.value || search.value)
+
+let debounceTimer: ReturnType<typeof setTimeout> | undefined
+watch([level, category, source, search], () => {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => store.load(buildParams()), 250)
+})
 
 function clearFilters() {
   level.value = ''
@@ -76,10 +101,38 @@ function categoryColor(cat: string) {
   return 'text-ink-faint'
 }
 
+/** Saves the currently-loaded, currently-filtered rows as a JSON file — the
+ * fastest way to hand an incident's exact log slice to whoever's debugging it. */
+function exportLogs() {
+  if (import.meta.server) return
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const blob = new Blob([JSON.stringify(filtered.value, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `system-log-${stamp}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function confirmPrune() {
+  pruning.value = true
+  try {
+    const pruned = await store.prune(pruneDays.value)
+    pruneOpen.value = false
+    notifications.toast(t('logs.pruned', { n: pruned }), { tone: 'ok' })
+    await store.load(buildParams())
+  } catch (e: any) {
+    notifications.toast(errorMessage(e), { tone: 'signal' })
+  } finally {
+    pruning.value = false
+  }
+}
+
 watch(() => store.entries.length, scrollToBottom)
 
 onMounted(async () => {
-  await store.load()
+  await store.load(buildParams())
   scrollToBottom()
 })
 </script>
@@ -151,10 +204,31 @@ onMounted(async () => {
             {{ t('logs.autoScroll') }}
           </label>
 
-          <button class="btn-sm btn-ghost" @click="store.load()">
+          <button
+            class="btn-sm btn-ghost"
+            :aria-label="t('logs.refresh')"
+            :title="t('logs.refresh')"
+            @click="store.load(buildParams())"
+          >
             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
             </svg>
+          </button>
+
+          <button
+            class="btn-sm btn-ghost"
+            :disabled="filtered.length === 0"
+            :title="t('logs.export')"
+            @click="exportLogs"
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="hidden sm:inline">{{ t('logs.export') }}</span>
+          </button>
+
+          <button class="btn-sm btn-ghost" @click="pruneOpen = true">
+            {{ t('logs.prune') }}
           </button>
         </div>
       </div>
@@ -243,8 +317,48 @@ onMounted(async () => {
               </tr>
             </template>
           </tbody>
+          <tfoot v-if="store.hasMore">
+            <tr>
+              <td colspan="6" class="text-center py-3">
+                <button
+                  class="btn-sm btn-ghost"
+                  :disabled="store.loadingMore"
+                  @click="store.loadMore(buildParams())"
+                >
+                  {{ store.loadingMore ? t('logs.loadingMore') : t('logs.loadMore') }}
+                </button>
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </section>
+
+    <!-- Deletion is permanent, so this asks in a dialog rather than firing on
+         a single click. -->
+    <UiModal v-model="pruneOpen" :title="t('logs.pruneTitle')" size="sm">
+      <div class="space-y-3">
+        <p class="text-sm leading-relaxed text-ink-muted">
+          {{ t('logs.pruneBody', { n: pruneDays }) }}
+        </p>
+        <label class="block">
+          <span class="label text-[0.65rem]">{{ t('logs.pruneDays') }}</span>
+          <input
+            v-model.number="pruneDays"
+            type="number"
+            min="1"
+            class="field mt-1 w-28"
+          />
+        </label>
+      </div>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <button class="btn-ghost" @click="pruneOpen = false">{{ t('common.cancel') }}</button>
+          <button class="btn-danger" :disabled="pruning || pruneDays < 1" @click="confirmPrune">
+            {{ t('logs.prune') }}
+          </button>
+        </div>
+      </template>
+    </UiModal>
   </div>
 </template>

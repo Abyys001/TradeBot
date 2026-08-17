@@ -15,7 +15,7 @@ import { defineStore } from 'pinia'
  */
 const POLL_MS = 5000
 const MAX = 20
-const DEFAULT_SYMBOLS = ['BTCUSDC', 'SOLUSDC', 'HYPEUSDC', 'LITUSDC', 'PUMPUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BMBUSDC', 'WLDUSDC']
+const DEFAULT_SYMBOLS = ['BTCUSDC', 'SOLUSDC', 'HYPEUSDC', 'LITUSDC', 'PUMPUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BNBUSDC', 'WLDUSDC']
 
 export interface WatchRow {
   symbol: string
