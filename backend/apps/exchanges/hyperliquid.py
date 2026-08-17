@@ -413,20 +413,36 @@ class HyperliquidAdapter(ExchangeAdapter):
         rules = await self.get_symbol_rules(symbol, MarketType.FUTURES)
         # Exit side is the opposite of the position.
         is_buy = position.side is Side.SHORT
+        sz = float(position.size)
 
         for price, kind in ((stop_loss, "sl"), (take_profit, "tp")):
             if price is None:
                 continue
-            await self._call(
+            rounded = float(self._round_price(price, rules))
+            trigger_order_type = {
+                "trigger": {
+                    "triggerPx": rounded,
+                    "isMarket": True,
+                    "tpsl": kind,
+                }
+            }
+            result = await self._call(
                 "order",
                 coin,
                 is_buy,
-                float(position.size),
-                float(self._round_price(price, rules)),
-                {"trigger": {"triggerPx": float(self._round_price(price, rules)),
-                             "isMarket": True, "tpsl": kind}},
+                sz,
+                rounded,
+                trigger_order_type,
                 True,  # reduce_only
             )
+            statuses = (
+                ((result.get("response") or {}).get("data") or {}).get("statuses") or []
+            )
+            for status in statuses:
+                if isinstance(status, dict) and "error" in status:
+                    raise AdapterError(
+                        f"hyperliquid: {kind} order rejected: {status['error']}"
+                    )
 
     async def get_position(self, symbol: str) -> Position | None:
         coin = self._coin(symbol)
@@ -454,10 +470,33 @@ class HyperliquidAdapter(ExchangeAdapter):
         position = await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"hyperliquid: no open position to close on {symbol}")
-        result = await self._call("market_close", self._coin(symbol))
+        coin = self._coin(symbol)
+        rules = await self.get_symbol_rules(symbol, MarketType.FUTURES)
+        # Exit direction: opposite of the position side.
+        is_buy = position.side is Side.SHORT
+        mid = await self.get_mark_price(symbol)
+        # Aggressive IOC limit: 5% crossing, same as place_order for MARKET.
+        price = mid * (D("1.05") if is_buy else D("0.95"))
+        price = float(self._round_price(price, rules))
+        result = await self._call(
+            "order",
+            coin,
+            is_buy,
+            float(position.size),
+            price,
+            {"limit": {"tif": "Ioc"}},
+            True,  # reduce_only
+        )
+        filled = position.size
+        avg = mid
+        statuses = ((result.get("response") or {}).get("data") or {}).get("statuses") or []
+        for status in statuses:
+            if isinstance(status, dict) and "filled" in status:
+                filled = D(str(status["filled"].get("totalSz", position.size)))
+                avg = D(str(status["filled"].get("avgPx", mid)))
         return OrderResult(
-            order_id="market_close",
-            filled_qty=position.size,
-            avg_price=await self.get_mark_price(symbol),
+            order_id=str(statuses),
+            filled_qty=filled,
+            avg_price=avg,
             raw=result,
         )

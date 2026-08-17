@@ -262,7 +262,9 @@ async def test_a_failed_amend_keeps_the_old_resting_prices_on_the_leg():
     trade, _ = await open_a_trade()
     before = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
 
-    with mock.patch.object(PaperAdapter, "set_sltp", side_effect=AdapterError("exchange unreachable")):
+    with mock.patch.object(
+        PaperAdapter, "set_sltp", side_effect=AdapterError("exchange unreachable")
+    ):
         amended = await route_amend(trade=trade, sl_pct=D("0.9"), tp_pct=D("9"))
     assert not amended.all_ok
 

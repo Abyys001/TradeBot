@@ -23,7 +23,7 @@ from apps.engine.executor import (
     open_trade,
 )
 from apps.engine.fanout import StopAllActive, fan_out
-from apps.exchanges.base import MarketType, OrderType, SLTPState, Side
+from apps.exchanges.base import MarketType, OrderType, Side, SLTPState
 from apps.exchanges.paper import PaperAdapter
 
 pytestmark = pytest.mark.asyncio
