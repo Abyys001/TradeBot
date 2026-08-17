@@ -114,7 +114,8 @@ onMounted(async () => {
   // A reload mid-position must not land on an empty ticket.
   if (trading.openTrade) order.hydrateFromTrade(trading.openTrade)
   // The ticket and the chart must never disagree about the instrument.
-  if (order.symbol !== market.symbol) await market.setSymbol(order.symbol)
+  // On first load the market restores from cookie; the order follows it.
+  if (order.symbol !== market.symbol) order.symbol = market.symbol
   await mountChart()
 })
 

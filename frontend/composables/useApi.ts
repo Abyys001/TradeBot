@@ -114,6 +114,14 @@ export function useApi() {
     ledgerSplit: () => request<ProfitSplit>('/accounts/ledger/split/'),
     saveLedgerSplit: (body: Record<string, unknown>) =>
       request<ProfitSplit>('/accounts/ledger/split/', { method: 'POST', body }),
+
+    // --- system log ---
+    logs: (params?: Record<string, string>) => {
+      const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+      return request<LogEntry[]>(`/logging/logs/${qs}`)
+    },
+    pruneLogs: (days = 30) =>
+      request<{ pruned: number }>('/logging/logs/prune/', { method: 'POST', body: { days } }),
   }
 }
 
@@ -484,4 +492,18 @@ export interface LedgerSnapshot {
 export interface ProfitSplit extends SplitPercents {
   updated_at: string
   updated_by: string
+}
+
+export interface LogEntry {
+  id: number
+  timestamp: string
+  level: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL'
+  category: string
+  source: string
+  message: string
+  account_id: number | null
+  trade_id: number | null
+  exchange: string | null
+  error_code: string | null
+  context: Record<string, unknown> | null
 }

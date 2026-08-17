@@ -18,6 +18,7 @@ const accounts = useAccountsStore()
 const notifications = useNotificationStore()
 const trading = useTradingStore()
 const ui = useUiStore()
+const systemLog = useSystemLogStore()
 const route = useRoute()
 
 // The chart page wants the rail out of the way; leaving it collapses back to
@@ -36,6 +37,7 @@ onMounted(async () => {
   accounts.startAutoRefresh()
   await notifications.hydrate()
   trading.loadPolicy()
+  systemLog.load()
 })
 
 onBeforeUnmount(() => {

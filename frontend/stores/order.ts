@@ -18,7 +18,7 @@ export type EditSource = 'ticket' | 'chart' | 'position'
  */
 export const useOrderStore = defineStore('order', {
   state: () => ({
-    symbol: 'BTCUSDT',
+    symbol: 'BTCUSDC',
     side: 'long' as 'long' | 'short',
     market: 'futures' as 'futures' | 'spot',
     orderType: 'market' as 'market' | 'limit',
