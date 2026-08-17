@@ -21,6 +21,7 @@ Two decisions worth stating:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -64,7 +65,10 @@ def _sdk_timeout() -> float:
 class HyperliquidAdapter(ExchangeAdapter):
     name = "hyperliquid"
     capabilities = Capabilities(
-        markets=frozenset({MarketType.SPOT, MarketType.FUTURES}),
+        # Perpetuals only. Spot is a different asset namespace (@N indices, and
+        # MAX_DECIMALS 8 rather than 6), and every spot path in this adapter
+        # raises NotSupported — declaring SPOT here made the seam lie about it.
+        markets=frozenset({MarketType.FUTURES}),
         has_testnet=True,
         native_sltp_on_entry=False,  # TP/SL are separate trigger orders
         native_sltp_amend=False,
@@ -176,8 +180,53 @@ class HyperliquidAdapter(ExchangeAdapter):
         return result
 
     async def close(self) -> None:
+        # Both SDK clients own a ``requests.Session``. The pool closes adapters
+        # when an account's credentials change or it is deleted; dropping the
+        # references without closing the sessions leaks a pooled TLS connection
+        # per rotation in a long-lived ASGI process.
+        for client in (self._exchange, self._info):
+            session = getattr(client, "session", None)
+            if session is not None:
+                session.close()
         self._exchange = None
         self._info = None
+
+    @staticmethod
+    def _statuses(result: Any) -> list:
+        return ((result.get("response") or {}).get("data") or {}).get("statuses") or []
+
+    @staticmethod
+    def _order_id(statuses: list) -> str:
+        """The exchange's ``oid`` out of an order response.
+
+        Hyperliquid reports one status per order, shaped ``{"filled": {...}}``
+        or ``{"resting": {...}}``, each carrying its own ``oid``. This used to
+        return ``str(statuses)`` — the whole list stringified — which is not an
+        identifier and cannot be handed back to ``cancel``.
+        """
+        for status in statuses:
+            if not isinstance(status, dict):
+                continue
+            for leg in status.values():
+                if isinstance(leg, dict) and leg.get("oid") is not None:
+                    return str(leg["oid"])
+        return ""
+
+    @staticmethod
+    def _cloid(client_order_id: str | None) -> Any:
+        """Map an engine order id onto Hyperliquid's 16-byte client id.
+
+        The engine's ids are arbitrary strings; a Cloid must be exactly 16 bytes
+        of hex. Digesting is what makes the mapping deterministic, which is the
+        only property that matters here — the same engine id must produce the
+        same Cloid so a retried leg is deduplicated rather than doubled.
+        """
+        if not client_order_id:
+            return None
+        from hyperliquid.utils.types import Cloid
+
+        digest = hashlib.blake2b(client_order_id.encode(), digest_size=16).digest()
+        return Cloid.from_int(int.from_bytes(digest, "big"))
 
     def _coin(self, symbol: str) -> str:
         """BTCUSDT -> BTC. Hyperliquid perps are named by base asset alone."""
@@ -288,7 +337,7 @@ class HyperliquidAdapter(ExchangeAdapter):
             # There is no market order type — an aggressive IOC limit is the
             # documented equivalent. 5% crossing matches the SDK default.
             mid = await self.get_mark_price(symbol)
-            price = mid * (D("1.05") if is_buy else D("0.95"))
+            price = self._crossed(mid, is_buy, rules)
             hl_type = {"limit": {"tif": "Ioc"}}
         else:
             if limit_price is None:
@@ -304,16 +353,19 @@ class HyperliquidAdapter(ExchangeAdapter):
             float(self._round_price(price, rules)),
             hl_type,
             reduce_only,
+            self._cloid(client_order_id),
         )
 
         filled = size
         avg = price
-        statuses = ((result.get("response") or {}).get("data") or {}).get("statuses") or []
+        statuses = self._statuses(result)
         for status in statuses:
             if isinstance(status, dict) and "filled" in status:
                 filled = D(str(status["filled"].get("totalSz", size)))
                 avg = D(str(status["filled"].get("avgPx", price)))
-        return OrderResult(order_id=str(statuses), filled_qty=filled, avg_price=avg, raw=result)
+        return OrderResult(
+            order_id=self._order_id(statuses), filled_qty=filled, avg_price=avg, raw=result
+        )
 
     def _round_price(self, price: Decimal, rules: SymbolRules) -> Decimal:
         """Snap a price onto Hyperliquid's grid, or it is tickRejected.
@@ -405,44 +457,67 @@ class HyperliquidAdapter(ExchangeAdapter):
         self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
     ) -> None:
         """Places new trigger orders. Hyperliquid has no amend for these, so the
-        previous pair is cancelled by ``executor.apply_sltp`` (Q5d)."""
+        previous pair is cancelled by ``executor.apply_sltp`` (Q5d).
+
+        **Both legs go out in one signed action** (``bulk_orders`` with the
+        ``positionTpsl`` grouping — what the Hyperliquid position form itself
+        sends). The obvious spelling, one ``order`` call per leg, was two signed
+        round trips inside the spec §4 per-leg deadline, and it failed in the
+        worst possible shape: the stop went out first, so anything that stopped
+        the second call — the fan-out deadline cancelling the leg mid-attach, a
+        rejection, a dropped connection — left the position on the exchange with
+        a stop and **no take profit**, which is exactly the state reported from
+        the live stack. One action cannot land half.
+
+        ``positionTpsl`` also ties the pair to the position rather than to a
+        fixed size, so the two cannot drift apart from what is actually held.
+        """
         coin = self._coin(symbol)
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"hyperliquid: no open position on {symbol}")
+            raise AdapterError(
+                f"hyperliquid: no open position on {symbol}", code="no_position"
+            )
         rules = await self.get_symbol_rules(symbol, MarketType.FUTURES)
         # Exit side is the opposite of the position.
         is_buy = position.side is Side.SHORT
         sz = float(position.size)
 
+        requests = []
+        kinds = []
         for price, kind in ((stop_loss, "sl"), (take_profit, "tp")):
             if price is None:
                 continue
-            rounded = float(self._round_price(price, rules))
-            trigger_order_type = {
-                "trigger": {
-                    "triggerPx": rounded,
-                    "isMarket": True,
-                    "tpsl": kind,
+            trigger = float(self._round_price(price, rules))
+            requests.append(
+                {
+                    "coin": coin,
+                    "is_buy": is_buy,
+                    "sz": sz,
+                    # The trigger fires a *market* exit, and on Hyperliquid that
+                    # is still a limit order under the hood. Priced at the
+                    # trigger it can fire and sit unfilled — the stop that does
+                    # not stop. Cross by the same 5% ``place_order`` uses.
+                    "limit_px": float(self._crossed(D(str(trigger)), is_buy, rules)),
+                    "order_type": {
+                        "trigger": {"triggerPx": trigger, "isMarket": True, "tpsl": kind}
+                    },
+                    "reduce_only": True,
                 }
-            }
-            result = await self._call(
-                "order",
-                coin,
-                is_buy,
-                sz,
-                rounded,
-                trigger_order_type,
-                True,  # reduce_only
             )
-            statuses = (
-                ((result.get("response") or {}).get("data") or {}).get("statuses") or []
-            )
-            for status in statuses:
-                if isinstance(status, dict) and "error" in status:
-                    raise AdapterError(
-                        f"hyperliquid: {kind} order rejected: {status['error']}"
-                    )
+            kinds.append(kind)
+        if not requests:
+            return
+
+        result = await self._call("bulk_orders", requests, None, "positionTpsl")
+        statuses = ((result.get("response") or {}).get("data") or {}).get("statuses") or []
+        for kind, status in zip(kinds, statuses, strict=False):
+            if isinstance(status, dict) and "error" in status:
+                raise AdapterError(f"hyperliquid: {kind} order rejected: {status['error']}")
+
+    def _crossed(self, price: Decimal, is_buy: bool, rules: SymbolRules) -> Decimal:
+        """A price aggressive enough that a triggered market exit actually fills."""
+        return self._round_price(price * (D("1.05") if is_buy else D("0.95")), rules)
 
     async def get_position(self, symbol: str) -> Position | None:
         coin = self._coin(symbol)
@@ -469,15 +544,18 @@ class HyperliquidAdapter(ExchangeAdapter):
     async def close_position(self, symbol: str) -> OrderResult:
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"hyperliquid: no open position to close on {symbol}")
+            # Coded, because "already flat" is the outcome a close wanted, not a
+            # failure that should keep the trade open in the panel.
+            raise AdapterError(
+                f"hyperliquid: no open position to close on {symbol}", code="no_position"
+            )
         coin = self._coin(symbol)
         rules = await self.get_symbol_rules(symbol, MarketType.FUTURES)
         # Exit direction: opposite of the position side.
         is_buy = position.side is Side.SHORT
         mid = await self.get_mark_price(symbol)
         # Aggressive IOC limit: 5% crossing, same as place_order for MARKET.
-        price = mid * (D("1.05") if is_buy else D("0.95"))
-        price = float(self._round_price(price, rules))
+        price = float(self._crossed(mid, is_buy, rules))
         result = await self._call(
             "order",
             coin,
@@ -489,13 +567,13 @@ class HyperliquidAdapter(ExchangeAdapter):
         )
         filled = position.size
         avg = mid
-        statuses = ((result.get("response") or {}).get("data") or {}).get("statuses") or []
+        statuses = self._statuses(result)
         for status in statuses:
             if isinstance(status, dict) and "filled" in status:
                 filled = D(str(status["filled"].get("totalSz", position.size)))
                 avg = D(str(status["filled"].get("avgPx", mid)))
         return OrderResult(
-            order_id=str(statuses),
+            order_id=self._order_id(statuses),
             filled_qty=filled,
             avg_price=avg,
             raw=result,

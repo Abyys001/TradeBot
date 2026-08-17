@@ -1719,3 +1719,133 @@ async def test_hyperliquid_rounds_prices_to_its_5_significant_figure_grid():
     for (size_decimals, raw), expected in cases.items():
         got = adapter._round_price(D(raw), rules(size_decimals))
         assert got == D(expected), f"{raw} (sz={size_decimals}) -> {got}, want {expected}"
+
+
+def test_hyperliquid_reports_the_exchange_order_id_not_the_status_list():
+    """``order_id`` used to be ``str(statuses)`` — the whole response list.
+
+    That is not an identifier: it cannot be handed back to ``cancel`` and it
+    puts a Python repr into a field the rest of the platform treats as an
+    exchange reference. Both response shapes carry the ``oid`` one level in.
+    """
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    resting = [{"resting": {"oid": 77}}]
+    filled = [{"filled": {"oid": 91, "totalSz": "0.5", "avgPx": "63000"}}]
+    assert HyperliquidAdapter._order_id(resting) == "77"
+    assert HyperliquidAdapter._order_id(filled) == "91"
+    assert HyperliquidAdapter._order_id([{"error": "rejected"}]) == ""
+    assert HyperliquidAdapter._order_id([]) == ""
+
+
+def test_hyperliquid_maps_a_client_order_id_onto_a_deterministic_cloid():
+    """The engine's ids are arbitrary strings; a Cloid is exactly 16 bytes.
+
+    The mapping has to be deterministic or a retried leg would be placed twice
+    under two different client ids — the opposite of what the id is for. The
+    parameter used to be accepted and silently dropped.
+    """
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    first = HyperliquidAdapter._cloid("trade-42-account-7")
+    second = HyperliquidAdapter._cloid("trade-42-account-7")
+    other = HyperliquidAdapter._cloid("trade-42-account-8")
+
+    assert str(first) == str(second)
+    assert str(first) != str(other)
+    assert len(str(first)) == 34 and str(first).startswith("0x")
+    assert HyperliquidAdapter._cloid(None) is None
+    assert HyperliquidAdapter._cloid("") is None
+
+
+class _TpslSdk(_StubSdk):
+    """Records the signed actions a TP/SL attach sends."""
+
+    def __init__(self, state: dict, *, fail_second: bool = False) -> None:
+        super().__init__(state)
+        self.fail_second = fail_second
+        self.orders: list[tuple] = []
+        self.bulk: list[tuple] = []
+
+    def meta(self) -> dict:
+        return {"universe": [{"name": "BTC", "szDecimals": 3, "maxLeverage": 40}]}
+
+    def order(self, *args) -> dict:
+        self.orders.append(args)
+        if self.fail_second and len(self.orders) == 2:
+            return {"status": "ok", "response": {"data": {"statuses": [{"error": "nope"}]}}}
+        return {"status": "ok", "response": {"data": {"statuses": [{"resting": {"oid": 1}}]}}}
+
+    def bulk_orders(self, requests, builder=None, grouping="na") -> dict:
+        self.bulk.append((requests, grouping))
+        statuses = [{"resting": {"oid": i}} for i, _ in enumerate(requests)]
+        return {"status": "ok", "response": {"data": {"statuses": statuses}}}
+
+
+_LONG_BTC = {
+    "assetPositions": [
+        {
+            "position": {
+                "coin": "BTC",
+                "szi": "0.01",
+                "entryPx": "60000",
+                "unrealizedPnl": "0",
+                "leverage": {"value": 10},
+            }
+        }
+    ],
+    "marginSummary": {"accountValue": "1000"},
+}
+
+
+async def test_hyperliquid_sends_sl_and_tp_in_one_action():
+    """Regression: the exchange held the stop and no take profit.
+
+    The pair used to go out as two separate signed orders, stop first. Anything
+    that stopped the second one — the spec §4 deadline cancelling the leg
+    mid-attach, a rejection, a dropped connection — left a live position
+    carrying a stop and nothing on the upside, which is what the live stack
+    reported. One ``bulk_orders`` action cannot land half.
+    """
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    await adapter.set_sltp(symbol="BTCUSDT", stop_loss=D("57000"), take_profit=D("66000"))
+
+    assert stub.orders == [], "SL/TP must not go out as separate signed actions"
+    assert len(stub.bulk) == 1, "both legs belong in one action"
+    requests, grouping = stub.bulk[0]
+    assert grouping == "positionTpsl"
+
+    kinds = [r["order_type"]["trigger"]["tpsl"] for r in requests]
+    assert kinds == ["sl", "tp"], "the take profit was not sent"
+
+    for request in requests:
+        # Exit side of a long is a sell, and a triggered *market* exit still
+        # needs a crossing limit or it can fire and sit unfilled.
+        assert request["is_buy"] is False
+        assert request["reduce_only"] is True
+        assert request["limit_px"] < request["order_type"]["trigger"]["triggerPx"]
+
+
+async def test_hyperliquid_reports_no_position_with_a_code():
+    """"Already flat" is the outcome a close wanted, so it is coded as such."""
+    from apps.exchanges.base import AdapterError
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk({"assetPositions": [], "marginSummary": {"accountValue": "1000"}})
+    adapter._exchange = stub
+    adapter._info = stub
+
+    with pytest.raises(AdapterError) as caught:
+        await adapter.close_position("BTCUSDT")
+    assert caught.value.code == "no_position"

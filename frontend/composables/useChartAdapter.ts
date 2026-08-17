@@ -24,6 +24,7 @@
  */
 import {
   createChart,
+  type AutoscaleInfo,
   type IChartApi,
   type ISeriesApi,
   type IPriceLine,
@@ -82,14 +83,38 @@ export class LightweightChartAdapter implements ChartAdapter {
   private dragging: DragKind | null = null
   private hovered: DragKind | null = null
   private el: HTMLElement | null = null
-  private prices: { sl: number | null; tp: number | null; entry: number | null } = {
+  /** Every line's price. `liq` is not draggable but is scaled against like the rest. */
+  private prices: {
+    sl: number | null
+    tp: number | null
+    entry: number | null
+    liq: number | null
+  } = {
     sl: null,
     tp: null,
     entry: null,
+    liq: null,
   }
   private entryDraggable = false
   private side: 'long' | 'short' = 'long'
   private colors = palette()
+  /** The series as given, so autoscale can be reasoned about (see `autoscale`). */
+  private bars: Bar[] = []
+  private visible: { from: number; to: number } | null = null
+
+  /**
+   * How far from the visible bars a price line may sit and still stretch the
+   * price scale, as a fraction of the bars' own price level.
+   *
+   * Lightweight Charts scales to the bars *and* every price line, which is
+   * right for the SL/TP/entry of a real order — they are a few percent away and
+   * the admin needs to see them against the candles. It stops being right when
+   * a line lands somewhere the market is not: the candles collapse into a
+   * one-pixel band at the edge and the chart stops being readable at exactly
+   * the moment something is wrong. Past this distance the bars keep the scale
+   * and the line keeps its axis label, which still says where it is.
+   */
+  private static readonly LINE_SCALE_BAND = 0.25
 
   async mount(el: HTMLElement) {
     this.el = el
@@ -120,8 +145,51 @@ export class LightweightChartAdapter implements ChartAdapter {
       // two you drag. The axis label says the same thing and gets out of the way.
       lastValueVisible: true,
       priceLineVisible: false,
+      autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => this.autoscale(original),
+    })
+    this.chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+      this.visible = range ? { from: Number(range.from), to: Number(range.to) } : null
     })
     this.attachDragHandlers()
+  }
+
+  /**
+   * The price range the scale should cover: the visible bars, plus the order
+   * lines that are actually near them.
+   *
+   * Falls back to the library's own answer whenever there is nothing to reason
+   * about — no bars yet, or a window with none in it — so panning past the end
+   * of the series behaves exactly as before.
+   */
+  private autoscale(original: () => AutoscaleInfo | null): AutoscaleInfo | null {
+    const info = original()
+    const window = this.visibleBarRange()
+    if (!info || !window) return info
+
+    const level = (window.min + window.max) / 2
+    const band = level * LightweightChartAdapter.LINE_SCALE_BAND
+    let { min, max } = window
+    for (const price of Object.values(this.prices)) {
+      if (price === null || Math.abs(price - level) > band) continue
+      min = Math.min(min, price)
+      max = Math.max(max, price)
+    }
+    return { priceRange: { minValue: min, maxValue: max }, margins: info.margins }
+  }
+
+  private visibleBarRange(): { min: number; max: number } | null {
+    if (!this.bars.length) return null
+    const from = this.visible?.from ?? -Infinity
+    const to = this.visible?.to ?? Infinity
+    let min = Infinity
+    let max = -Infinity
+    for (const bar of this.bars) {
+      const time = Number(bar.time)
+      if (time < from || time > to) continue
+      if (bar.low < min) min = bar.low
+      if (bar.high > max) max = bar.high
+    }
+    return max > -Infinity ? { min, max } : null
   }
 
   applyTheme() {
@@ -143,6 +211,7 @@ export class LightweightChartAdapter implements ChartAdapter {
   }
 
   setCandles(bars: Bar[]) {
+    this.bars = bars.slice()
     this.series?.setData(bars as CandlestickData[])
   }
 
@@ -152,6 +221,12 @@ export class LightweightChartAdapter implements ChartAdapter {
   }
 
   appendCandle(bar: Bar) {
+    const last = this.bars[this.bars.length - 1]
+    // `update` replaces the last bar or starts a new one; the mirror has to
+    // follow the same rule or the autoscale window drifts from what is drawn.
+    if (last && Number(last.time) === Number(bar.time)) this.bars[this.bars.length - 1] = bar
+    else if (!last || Number(bar.time) > Number(last.time)) this.bars.push(bar)
+    else return
     this.series?.update(bar as CandlestickData)
   }
 
@@ -171,6 +246,7 @@ export class LightweightChartAdapter implements ChartAdapter {
       lineStyle: this.entryDraggable ? 0 : 2,
       kind: this.entryDraggable ? 'entry' : undefined,
     })
+    this.prices.liq = p.liquidation
     if (p.liquidation !== null) {
       this.replace('liq', {
         price: p.liquidation,
@@ -182,6 +258,8 @@ export class LightweightChartAdapter implements ChartAdapter {
   }
 
   clearPosition() {
+    this.prices.entry = null
+    this.prices.liq = null
     this.remove('entry')
     this.remove('liq')
   }
@@ -229,6 +307,8 @@ export class LightweightChartAdapter implements ChartAdapter {
     this.chart = null
     this.series = null
     this.lines = {}
+    this.bars = []
+    this.visible = null
   }
 
   // --- dragging -----------------------------------------------------------

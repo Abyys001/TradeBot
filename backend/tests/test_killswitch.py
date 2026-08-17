@@ -200,4 +200,8 @@ def test_the_amend_endpoint_answers_while_halted():
         content_type="application/json",
     )
 
-    assert response.status_code == 200, response.content
+    # This trade has no legs, so the answer is the "nothing was sent" refusal —
+    # what matters here is that the halt did not turn it into a 500, and that
+    # the refusal is not the kill switch talking.
+    assert response.status_code < 500, response.content
+    assert response.json().get("code") != "stop_all", response.content

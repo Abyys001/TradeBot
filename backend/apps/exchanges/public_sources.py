@@ -16,6 +16,8 @@ from __future__ import annotations
 import time
 from decimal import Decimal
 
+from django.core.cache import cache
+
 from apps.core.money import D
 from apps.exchanges.base import MarketType
 from apps.exchanges.feed_base import (
@@ -784,6 +786,13 @@ class HyperliquidPublicSource(HttpSource):
     #: The venue quotes perps in USD but every account here is USDT-denominated;
     #: the canonical symbol keeps the platform's naming.
     _QUOTE = "USDT"
+    #: One quote costs the *whole* perp universe here (~70 KB, 1.3–2.7s): this
+    #: venue has no per-symbol ticker endpoint. A ten-pair watchlist therefore
+    #: downloaded it ten times per refresh and spent twenty seconds doing it,
+    #: which is how a working feed ends up looking like a dead one. The payload
+    #: is shared across symbols for as long as a quote is considered fresh.
+    _CTX_KEY = "md:hl:ctxs"
+    _CTX_TTL = 3
 
     def _coin(self, symbol: str) -> str:
         pair = split_pair(symbol)
@@ -824,7 +833,11 @@ class HyperliquidPublicSource(HttpSource):
         ]
 
     def _contexts(self) -> list[tuple[dict, dict]]:
-        payload = self._info({"type": "metaAndAssetCtxs"})
+        payload = cache.get(self._CTX_KEY)
+        if payload is None:
+            payload = self._info({"type": "metaAndAssetCtxs"})
+            if isinstance(payload, list) and len(payload) >= 2:
+                cache.set(self._CTX_KEY, payload[:2], self._CTX_TTL)
         if not isinstance(payload, list) or len(payload) < 2:
             raise MarketDataError("hyperliquid: unexpected meta shape")
         universe = (payload[0] or {}).get("universe") or []

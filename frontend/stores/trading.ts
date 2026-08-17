@@ -6,6 +6,8 @@ export interface FanOutResult {
   within_budget: boolean
   succeeded: { account_id: number; ms: number }[]
   failed: { account_id: number; error: string; code: string; ms: number }[]
+  /** Close only: every leg is flat on the exchange. Absent on open/amend. */
+  closed?: boolean
 }
 
 /**
@@ -216,6 +218,15 @@ export const useTradingStore = defineStore('trading', {
       try {
         const result = await useApi().closeOrder(this.tradeId)
         this.lastResult = result
+        // `closed` is the server saying every leg is flat. A close where a leg
+        // would not flatten still answers 200 — dropping the trade here on that
+        // is how the panel came to report a close the exchange never made. The
+        // trade stays on screen, and each failed leg raises its own §4 notice.
+        if (result.closed === false) {
+          this.error = useNuxtApp().$i18n.t('toast.closePartial')
+          this.loadTrades()
+          return result
+        }
         this.confirm('toast.closed', result)
         this.tradeId = null
         this.loadTrades()

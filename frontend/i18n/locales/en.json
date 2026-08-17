@@ -120,7 +120,10 @@
     "streaming": "streaming",
     "pinnedFeedHint": "Feed is pinned to {name} — {mode}",
     "pinned": "pinned",
-    "polling": "polling"
+    "polling": "polling",
+    "chartDelayed": "Chart delayed",
+    "chartDelayedHint": "The newest candle is from {age}. The price above is current; the bars are not. Nothing is drawn to fill the gap.",
+    "chartStoredHint": "These are downloaded candles, newest from {age}. The live candle feed is not answering, so the chart shows stored exchange data rather than an invented one."
   },
   "ticket": {
     "symbol": "Pair",
@@ -663,6 +666,7 @@
     "opened": "Order sent to {n} account(s)",
     "amended": "SL/TP updated on {n} account(s)",
     "closed": "Position closed on {n} account(s)",
-    "detail": "{ms}ms · {failed} failed"
+    "detail": "{ms}ms · {failed} failed",
+    "closePartial": "The position was NOT closed on every account — the exchange still holds it. Check the failure notices and try again."
   }
 }

@@ -606,3 +606,135 @@ def test_the_chart_timeframe_takes_priority(monkeypatch):
     assert job.priority_interval == "4h"
     assert status["state"] == "downloading"
     assert HistoryRequest.objects.filter(symbol="SHIBUSDT").count() == 1
+
+
+# --- a pinned venue is the only venue ---------------------------------------
+#
+# What froze the chart in production: one slow call put the pinned provider in
+# cooldown, and with no second provider the panel spent the next minute on
+# stored history while the ticker kept quoting a live price. These pin the two
+# halves of that fix.
+
+
+def _cooldowns(monkeypatch) -> dict[str, int | None]:
+    """Record how long each provider is held off for, per `_mark_down`."""
+    seen: dict[str, int | None] = {}
+    original = marketdata.cache.set
+
+    def spy(key, value, timeout=None, *args, **kwargs):
+        if str(key).startswith("md:down:"):
+            seen[str(key)] = timeout
+        return original(key, value, timeout, *args, **kwargs)
+
+    monkeypatch.setattr(marketdata.cache, "set", spy)
+    return seen
+
+
+@pytest.mark.django_db
+def test_the_only_provider_is_held_off_briefly_not_for_a_minute(monkeypatch):
+    """A pin leaves one venue, and it is the one we have to keep asking.
+
+    A minute here is longer than four candle polls, so a single slow call cost
+    the chart a minute of live bars while the ticker went on quoting — the panel
+    then drew an old series under a current price.
+    """
+    seen = _cooldowns(monkeypatch)
+
+    def explode(self, url, params):
+        raise httpx.ReadTimeout("slow")
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]}):
+        with pytest.raises(MarketDataError):
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
+
+    assert seen["md:down:binance"] == marketdata.SOLE_COOLDOWN
+    assert marketdata.SOLE_COOLDOWN < 15  # shorter than the panel's candle poll
+
+
+@pytest.mark.django_db
+def test_a_provider_with_a_fallback_behind_it_keeps_the_full_cooldown(monkeypatch):
+    """Where there *is* something to fall back to, the long hold-off still earns its keep."""
+    seen = _cooldowns(monkeypatch)
+
+    def only_bybit_answers(self, url, params):
+        if self.name == "binance":
+            raise httpx.ConnectError("no route to host")
+        marketdata.record_rtt(self.name, 10.0)
+        return {"result": {"list": [{"lastPrice": "100", "prevPrice24h": "99"}]}}
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", only_bybit_answers)
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance", "bybit"]}):
+        assert get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)["source"] == "bybit"
+
+    assert seen["md:down:binance"] == marketdata.COOLDOWN
+
+
+@pytest.mark.django_db
+def test_stored_history_from_another_venue_is_not_served_under_a_pin(monkeypatch):
+    """A pin names who may answer for this pair — downloads included.
+
+    Binance history behind a chart badged Hyperliquid is the substitution the
+    pin exists to prevent, and sizing reads that number.
+    """
+    now = int(time.time())
+    for i in range(5):
+        StoredCandle.objects.create(
+            exchange="binance",
+            market="futures",
+            symbol="BTCUSDT",
+            interval="1m",
+            open_time=now - (5 - i) * 60,
+            open=D("100"),
+            high=D("100"),
+            low=D("100"),
+            close=D("100"),
+            volume=D("1"),
+        )
+
+    def explode(self, *args, **kwargs):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
+    monkeypatch.setattr(marketdata.HttpSource, "_post", explode)
+
+    with override_settings(
+        MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"], "PIN": "hyperliquid"}
+    ):
+        with pytest.raises(MarketDataError):
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=50)
+
+    # Unpinned, the same stored bars are the honest degraded answer.
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]}):
+        payload = get_candles(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=50
+        )
+    assert payload["stored"] is True
+    assert payload["source"] == "binance"
+
+
+@pytest.mark.django_db
+def test_a_watchlist_refresh_downloads_the_hyperliquid_universe_once(monkeypatch):
+    """One quote costs the whole perp universe on this venue; N must not cost N.
+
+    A ten-pair watchlist made ten 70 KB round trips per refresh, each of them
+    over a second, which is enough on its own to look like a dead feed.
+    """
+    posts = []
+
+    def fake_post(self, url, body):
+        posts.append(body["type"])
+        marketdata.record_rtt(self.name, 10.0)
+        return [
+            {"universe": [{"name": "BTC"}, {"name": "ETH"}]},
+            [{"markPx": "100", "prevDayPx": "99"}, {"markPx": "10", "prevDayPx": "9"}],
+        ]
+
+    monkeypatch.setattr(marketdata.HttpSource, "_post", fake_post)
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["hyperliquid"]}):
+        btc = get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        eth = get_ticker(symbol="ETHUSDT", market=MarketType.FUTURES)
+
+    assert btc["price"] == "100"
+    assert eth["price"] == "10"
+    assert posts == ["metaAndAssetCtxs"]

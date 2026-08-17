@@ -21,6 +21,7 @@ from apps.exchanges.base import AdapterError, MarketType, OrderType, Side
 from apps.exchanges.paper import PaperAdapter
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 from apps.trading.services import (
+    NoLegsToRoute,
     eligible_accounts,
     refresh_balances,
     route_amend,
@@ -414,3 +415,91 @@ async def test_a_late_fill_persists_as_ok_with_no_failure_notification(monkeypat
     assert leg.error_code == "late_fill"
     assert "confirmed on the exchange" in leg.error
     assert await sync_to_async(Notification.objects.count)() == 0
+
+
+# --- a live position must stay reachable (the "close did nothing" report) ----
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_leg_that_filled_but_failed_protection_can_still_be_closed():
+    """The bug behind "close says closed, the exchange still holds it".
+
+    An entry that fills and then fails to attach SL/TP is recorded ``ok=False``
+    while the exchange holds a live position — the engine says so itself
+    ("the position is open and may be UNPROTECTED"). Eligibility used to key on
+    ``ok``, so that leg vanished from every later amend and close: the fan-out
+    ran with zero legs, finished in microseconds, reported success, and the
+    trade was stamped CLOSED over a position nobody had closed.
+    """
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+
+    # Exactly the shape _reconcile_open persists for a late fill it could not
+    # protect: failed leg, still open, position live on the exchange.
+    await sync_to_async(
+        lambda: trade.legs.update(
+            ok=False,
+            error="entry filled after the deadline but the SL/TP attach was cut off",
+            error_code="sltp_unconfirmed",
+        )
+    )()
+
+    accounts = await eligible_accounts(trade)
+    assert [a.label for a in accounts] == ["partner-a"], (
+        "a leg holding a live position was excluded from the close"
+    )
+
+    result = await route_close(trade=trade)
+    assert result.all_ok, [leg.error for leg in result.failed]
+
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.CLOSED
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_leg_that_never_placed_an_order_still_sits_out():
+    """The other half: a sizing skip holds nothing, so it is not asked to close."""
+    await make_account("good", balance="1000")
+    await make_account("too-small", balance="0.01")
+
+    trade, result = await open_a_trade()
+    assert len(result.failed) == 1
+
+    accounts = await eligible_accounts(trade)
+    assert [a.label for a in accounts] == ["good"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_close_with_no_reachable_leg_refuses_instead_of_reporting_success():
+    """Zero legs is never a close. The trade must stay OPEN."""
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+
+    # Every leg proven to have sat the entry out -> nothing to route.
+    await sync_to_async(lambda: trade.legs.update(ok=False, error_code="below_min_notional"))()
+
+    with pytest.raises(NoLegsToRoute):
+        await route_close(trade=trade)
+
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.OPEN, "an unrouted close closed the trade"
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_leg_the_exchange_would_not_flatten_keeps_the_trade_open():
+    """A close that fails on the exchange must not stamp the trade CLOSED."""
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+
+    async def refuse(self, symbol):
+        raise AdapterError("exchange rejected the close")
+
+    with mock.patch.object(PaperAdapter, "close_position", refuse):
+        result = await route_close(trade=trade)
+
+    assert not result.all_ok
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.OPEN
+
+    leg = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+    assert leg.closed_at is None, "a leg still on the exchange was marked closed"

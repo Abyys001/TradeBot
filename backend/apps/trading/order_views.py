@@ -36,7 +36,13 @@ from apps.core.money import D
 from apps.engine.fanout import StopAllActive
 from apps.exchanges.base import MarketType, OrderType, Side
 from apps.trading.models import Trade, TradeStatus
-from apps.trading.services import refresh_balances, route_amend, route_close, route_open
+from apps.trading.services import (
+    NoLegsToRoute,
+    refresh_balances,
+    route_amend,
+    route_close,
+    route_open,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +226,10 @@ async def amend_position(request: HttpRequest, pk: int) -> JsonResponse:
     except (ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
 
-    result = await route_amend(trade=trade, sl_pct=sl_pct, tp_pct=tp_pct)
+    try:
+        result = await route_amend(trade=trade, sl_pct=sl_pct, tp_pct=tp_pct)
+    except NoLegsToRoute as exc:
+        return JsonResponse({"detail": str(exc), "code": "no_legs"}, status=409)
     hidden = await _hidden_ids_for(await request.auser())
     return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
 
@@ -234,9 +243,16 @@ async def close_position(request: HttpRequest, pk: int) -> JsonResponse:
     if trade is None:
         return JsonResponse({"detail": "no open trade with that id"}, status=404)
 
-    result = await route_close(trade=trade)
+    try:
+        result = await route_close(trade=trade)
+    except NoLegsToRoute as exc:
+        return JsonResponse({"detail": str(exc), "code": "no_legs"}, status=409)
     hidden = await _hidden_ids_for(await request.auser())
-    return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
+    # A leg the exchange would not flatten leaves the trade OPEN, so say so
+    # rather than letting an empty `failed` list read as "position gone".
+    return JsonResponse(
+        {"trade_id": trade.id, "closed": result.all_ok, **_result_payload(result, hidden)}
+    )
 
 
 @csrf_protect

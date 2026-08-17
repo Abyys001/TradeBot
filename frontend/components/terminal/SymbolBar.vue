@@ -66,6 +66,20 @@ const feedHint = computed(() => {
     : t('terminal.sourceHint', { source: name, ms })
 })
 
+/**
+ * How far behind the chart is, in the admin's terms.
+ *
+ * Stored bars are named as such — that is a different failure from a live feed
+ * that has simply gone quiet, and the fix is different too.
+ */
+const chartStaleHint = computed(() => {
+  const last = market.lastCandle
+  const age = last ? since(new Date(last.time * 1000).toISOString()) : '—'
+  return market.stored
+    ? t('terminal.chartStoredHint', { age })
+    : t('terminal.chartDelayedHint', { age })
+})
+
 async function choose(symbol: string) {
   picking.value = false
   query.value = ''
@@ -199,6 +213,14 @@ async function submitQuery() {
           <span v-if="market.live && market.pinnedSource" class="opacity-70">· {{ t('terminal.pinned') }}</span>
         </span>
         <span class="md:hidden">{{ market.live ? '●' : '○' }}</span>
+      </UiBadge>
+
+      <!-- The bars stopped arriving while the price kept coming. Both are real
+           and they are no longer the same moment, so the panel says so rather
+           than letting the ticker's freshness vouch for the chart. -->
+      <UiBadge v-if="market.chartStale && market.candles.length" tone="signal" :title="chartStaleHint">
+        <span class="hidden md:inline">{{ t('terminal.chartDelayed') }}</span>
+        <span class="md:hidden">⌛</span>
       </UiBadge>
 
       <UiBadge v-if="trading.halted" tone="signal" dot class="hidden lg:inline-flex">

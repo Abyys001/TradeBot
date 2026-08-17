@@ -70,6 +70,17 @@ export const useMarketStore = defineStore('market', {
 
     /** True once real exchange data has arrived. Never true for anything else. */
     live: false,
+    /**
+     * True when the bars on screen came out of downloaded history rather than
+     * the live feed — real exchange data that is merely old.
+     *
+     * Deliberately separate from `live`. `live` is a fact about the *price* on
+     * the top line, which the ticker poll refreshes every few seconds; this is
+     * a fact about the *series*, which the candle poll refreshes and which can
+     * be hours behind while the price is current. Folding the two into one flag
+     * is what let the panel badge a three-day-old chart as live.
+     */
+    stored: false,
     source: '',
     /**
      * The venue the feed is *pinned* to (`MARKET_DATA_PIN`), or '' when it
@@ -164,6 +175,41 @@ export const useMarketStore = defineStore('market', {
     stale: (s) =>
       s.lastTickAt !== null &&
       s.clock - s.lastTickAt > (s.streaming ? STREAM_STALE_MS : TICKER_POLL_MS * 4),
+
+    /**
+     * How many whole intervals the newest bar is behind the current bucket.
+     *
+     * 0 is the bar being built right now, 1 is the ordinary state for the first
+     * moments after a rollover (the venue has not published the new bar yet).
+     * Anything higher means bars stopped arriving, however healthy the ticker
+     * looks — and the ticker *does* keep looking healthy, because it is a
+     * different endpoint on a different cadence. This is the only place the
+     * panel can tell that the chart itself has stopped moving.
+     */
+    barsBehind(): number | null {
+      const last = this.lastCandle
+      if (!last) return null
+      // Read only to take the dependency: `clock` ticks on every poll attempt,
+      // successful or not, and without it this getter would keep returning the
+      // answer it computed when the bars were still arriving.
+      void this.clock
+      const seconds = this.intervalSeconds
+      const bucket = Math.floor(Math.floor(Date.now() / 1000) / seconds) * seconds
+      return Math.max(0, Math.round((bucket - last.time) / seconds))
+    },
+
+    /**
+     * The series is no longer current — the chart is a picture of the past
+     * while the price above it is not.
+     *
+     * Two intervals rather than one: at 1m a bar can legitimately be one bucket
+     * behind for a few seconds after the rollover, and greying a working chart
+     * is its own kind of lie.
+     */
+    chartStale(): boolean {
+      const behind = this.barsBehind
+      return this.stored || (behind !== null && behind >= 2)
+    },
   },
 
   actions: {
@@ -216,6 +262,9 @@ export const useMarketStore = defineStore('market', {
 
       this.price = bar.close
       this.live = true
+      // A pushed bar is the venue's own tick: whatever the series was before,
+      // it is current now.
+      this.stored = false
       if (payload.source) this.streamSource = payload.source
       if (!this.streaming) {
         // A bar can beat its own `market_stream_up` across the wire. Slow the
@@ -284,7 +333,13 @@ export const useMarketStore = defineStore('market', {
           low: Number(c.l),
           close: Number(c.c),
         }))
-        this.live = feed.live
+        // Stored bars are real and old; the panel says which of the two it is
+        // looking at rather than letting the ticker's freshness cover for them.
+        // `live` stays the price feed's own flag: a stored series must not turn
+        // the badge to "no feed" three times a minute while the ticker is
+        // answering perfectly, and the ticker must not badge these bars fresh.
+        this.stored = feed.stored === true
+        if (feed.live) this.live = true
         this.source = feed.source
         this.pinnedSource = feed.pinned ?? this.pinnedSource
         this.providerMs = feed.provider_ms ?? this.providerMs
@@ -362,17 +417,30 @@ export const useMarketStore = defineStore('market', {
      * Fold a tick into the current bar so the chart moves between candle
      * fetches. Opens a new bar when the tick crosses the interval boundary,
      * which is what keeps the last candle from growing forever.
+     *
+     * **Only onto a series that is actually current.** A quote is evidence of a
+     * price now, never of what happened in the bars nobody sent us. When the
+     * candle feed has been failing — a pinned venue in cooldown, a stream that
+     * died quietly — the newest bar can be hours or days old, and appending the
+     * live price to it drew a bar the exchange never published, sitting alone
+     * across a gap the whole width of the outage. That single point then owned
+     * the price scale and flattened every real candle into a line at the bottom
+     * of the chart, which is the state in the screenshots.
+     *
+     * So the tick extends the series by at most one bucket. Behind that, the
+     * bars stay exactly as the exchange sent them and `chartStale` says so.
      */
     applyTick(price: number) {
-      const now = Math.floor(Date.now() / 1000)
-      const bucket = Math.floor(now / this.intervalSeconds) * this.intervalSeconds
+      const seconds = this.intervalSeconds
+      const bucket = Math.floor(Math.floor(Date.now() / 1000) / seconds) * seconds
       const last = this.lastCandle
       if (!last) return
+      if (bucket > last.time + seconds) return
       if (bucket > last.time) {
         this.candles.push({ time: bucket, open: price, high: price, low: price, close: price })
         // Keep the series bounded; the chart never shows more than this anyway.
         if (this.candles.length > 600) this.candles.shift()
-      } else {
+      } else if (bucket === last.time) {
         last.close = price
         last.high = Math.max(last.high, price)
         last.low = Math.min(last.low, price)
@@ -385,6 +453,7 @@ export const useMarketStore = defineStore('market', {
       this.symbol = next
       this.price = null
       this.candles = []
+      this.stored = false
       this.applyHistory()
       this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])
@@ -395,6 +464,7 @@ export const useMarketStore = defineStore('market', {
       if (interval === this.interval) return
       this.interval = interval
       this.candles = []
+      this.stored = false
       this.applyHistory()
       this.resubscribe()
       await this.loadCandles()
@@ -404,6 +474,7 @@ export const useMarketStore = defineStore('market', {
       if (market === this.market) return
       this.market = market
       this.candles = []
+      this.stored = false
       this.applyHistory()
       this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])

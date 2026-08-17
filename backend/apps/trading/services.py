@@ -50,6 +50,37 @@ logger = logging.getLogger(__name__)
 # --- account selection ------------------------------------------------------
 
 
+#: Failure codes that prove the leg never reached ``place_order`` — the account
+#: was skipped by sizing (spec §5) or by the SL/TP resolver *before* any order
+#: was sent, so it holds nothing to amend or close.
+#:
+#: Everything **not** in this set is treated as possibly holding a position, and
+#: that asymmetry is deliberate. A leg fails after a real fill on several paths
+#: the engine itself documents: an entry that filled past the deadline whose
+#: protection could not be confirmed (``sltp_unconfirmed``), one whose SL/TP
+#: could not be attached (``sltp_failed``), a bare ``timeout``, or any adapter
+#: error raised after the order went out. Those legs are recorded ``ok=False``
+#: while the exchange holds a live position at leverage — filtering on ``ok``
+#: made exactly those positions invisible to close, which is how a close could
+#: report success while the exchange still held the trade.
+#:
+#: The cost of the safe direction is a leg that truly sat out being asked to
+#: close, which raises "no open position" and mints one dismissable notice. A
+#: spurious notice is recoverable; an unclosable position is not.
+SAT_OUT_CODES = frozenset(
+    {
+        "non_usdt_balance",
+        "no_price",
+        "bad_leverage",
+        "below_min_qty",
+        "below_min_notional",
+        "leverage_capped",
+        "sl_beyond_liquidation",
+        "no_entry",
+    }
+)
+
+
 @sync_to_async
 def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
     """Accounts that take part in this action.
@@ -60,25 +91,28 @@ def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
     whole fan-out is deliberate: if one account is still winding down a
     position, that is not a reason to keep the other nine flat.
 
-    For an amend or a close, the answer is not "who is active" but **"who is
-    actually holding a leg of this trade"** — the accounts with a filled, still
-    open leg. Three things follow from that, all of them wanted:
+    For an amend or a close, the answer is not "who is active" but **"who may
+    still be holding a leg of this trade"** — every leg that is not closed and
+    did not provably sit the entry out (``SAT_OUT_CODES``). Three things follow
+    from that, all of them wanted:
 
       - Spec §6 still holds: an account that connected or resumed after this
         trade opened has no leg in it, so it cannot join one in progress.
       - Pausing an account no longer strands its open position. Pause stops
         *new* orders; flattening or re-protecting what is already live at
         leverage is a protection action, like closing while halted (Q14).
-      - An account whose entry failed is not asked to close a position it never
-        opened, so it stops minting a fresh "no open position" notification on
-        every amend and close.
+      - A leg whose entry filled but whose protection then failed is still
+        reachable by close. It is recorded ``ok=False`` — the engine says so in
+        as many words ("the position is open and may be UNPROTECTED") — and
+        keying eligibility on ``ok`` locked the admin out of the one position
+        that most needed flattening.
     """
     if trade is not None:
         return list(
             ConnectedAccount.objects.filter(
-                id__in=trade.legs.filter(ok=True, closed_at__isnull=True).values_list(
-                    "account_id", flat=True
-                )
+                id__in=trade.legs.filter(closed_at__isnull=True)
+                .exclude(error_code__in=SAT_OUT_CODES)
+                .values_list("account_id", flat=True)
             )
         )
     return list(
@@ -197,12 +231,34 @@ def _persist_notifications(result: FanOutResult) -> list[dict]:
 
 @sync_to_async
 def _persist_close(trade: Trade, result: FanOutResult) -> None:
+    """Record the close. The trade only reaches CLOSED when every leg is flat.
+
+    A leg that failed to close is a position the exchange still holds, so the
+    trade stays OPEN and keeps its row in the positions panel — the admin can
+    see it and try again. Stamping CLOSED over a failed fan-out is what let the
+    panel report a close the exchange never performed.
+    """
     now = timezone.now()
     legs = {leg.account_id: leg for leg in trade.legs.all()}
     updated = []
+    unflat = False
     for outcome in result.legs:
         leg = legs.get(outcome.account_id)
         if leg is None:
+            continue
+        # "No open position" is the exchange confirming the account is flat —
+        # the desired end state, not a leg left behind.
+        if not (outcome.ok or outcome.error_code == "no_position"):
+            # The exchange still holds this one. Leave closed_at unset so the
+            # leg stays in scope for the next close attempt, and say why.
+            unflat = True
+            if leg.ok:
+                # Only overwrite the error of a leg that actually opened; a leg
+                # that sat the entry out must keep the reason it sat out.
+                leg.ok = False
+                leg.error = outcome.error
+                leg.error_code = outcome.error_code
+                updated.append(leg)
             continue
         leg.closed_at = now
         if outcome.ok and outcome.value is not None:
@@ -210,18 +266,17 @@ def _persist_close(trade: Trade, result: FanOutResult) -> None:
             if leg.entry_price and leg.qty:
                 direction = Decimal("1") if trade.side == Side.LONG.value else Decimal("-1")
                 leg.pnl = (leg.exit_price - leg.entry_price) * leg.qty * direction
-        elif leg.ok:
-            # Only record a close failure for a leg that actually opened.
-            # A leg that never entered will always fail to close ("no open
-            # position"), and overwriting its entry error with that would hide
-            # the reason the account sat out in the first place.
-            leg.ok = False
-            leg.error = outcome.error
-            leg.error_code = outcome.error_code
         updated.append(leg)
     TradeLeg.objects.bulk_update(
         updated, ["closed_at", "exit_price", "pnl", "ok", "error", "error_code"]
     )
+    if unflat:
+        logger.error(
+            "close left trade=%s open on at least one account — the exchange still "
+            "holds a position; the trade stays OPEN",
+            trade.id,
+        )
+        return
     trade.status = TradeStatus.CLOSED
     trade.closed_at = now
     trade.save(update_fields=["status", "closed_at"])
@@ -338,11 +393,26 @@ async def route_open(
     return trade, result
 
 
+class NoLegsToRoute(Exception):
+    """An amend or close resolved to zero legs, so nothing was sent.
+
+    Never a success. An empty fan-out completes in microseconds and reports
+    ``all_ok`` — which is how a close could answer 200 with an empty leg list
+    while the exchange still held the position. The caller turns this into a
+    refusal the admin can see instead.
+    """
+
+
 async def route_amend(
     *, trade: Trade, sl_pct: Decimal | None, tp_pct: Decimal | None
 ) -> FanOutResult:
     accounts = await eligible_accounts(trade)
     adapters = _adapters(accounts)
+    if not adapters:
+        raise NoLegsToRoute(
+            "no account could be reached for this trade — nothing was sent to any "
+            "exchange. Check the position on the exchange directly."
+        )
     result = await amend_sltp(
         adapters,
         symbol=trade.symbol,
@@ -401,6 +471,13 @@ def _save_amend(
 async def route_close(*, trade: Trade) -> FanOutResult:
     accounts = await eligible_accounts(trade)
     adapters = _adapters(accounts)
+    if not adapters:
+        # The trade stays OPEN. Marking it closed here is precisely the bug:
+        # the panel said "closed" and the exchange kept the position.
+        raise NoLegsToRoute(
+            "no account could be reached for this trade — nothing was sent to any "
+            "exchange and the position was NOT closed. Close it on the exchange."
+        )
     result = await close_trade(adapters, symbol=trade.symbol)
 
     await _persist_close(trade, result)

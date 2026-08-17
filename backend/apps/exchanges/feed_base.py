@@ -22,8 +22,17 @@ from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
-# Short: this sits in front of the chart, not in front of an order.
-HTTP_TIMEOUT = 2.5
+# This sits in front of the chart, not in front of an order, so it is bounded
+# by what a real venue actually takes rather than by the fan-out's budget.
+#
+# It was 2.5s, and that is what froze the chart. Measured against Hyperliquid
+# over the deployment's egress: a 300-bar `candleSnapshot` takes 1.0–6.1s and
+# `metaAndAssetCtxs` (71 KB, the ticker call) 1.3–2.7s. Every overrun raised,
+# which put the provider in `COOLDOWN` — and with `MARKET_DATA_PIN` there is no
+# second provider to fall back to, so one slow call cost the chart a minute of
+# live bars while the ticker kept quoting. The panel then showed a moving price
+# over a series hours old, which is the worst of both readings.
+HTTP_TIMEOUT = 8.0
 #: Backfill requests are bulk downloads, not a chart refresh — a whole page of
 #: bars over a long link is worth waiting for rather than retrying.
 BACKFILL_TIMEOUT = 15.0

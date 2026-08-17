@@ -145,7 +145,14 @@ function useMarketPrice() {
     <UiField v-if="order.orderType === 'limit'" v-slot="{ id }" :label="t('ticket.limitPrice')">
       <div class="flex gap-2">
         <input :id="id" v-model.number="order.limitPrice" class="field" inputmode="decimal" />
-        <button class="btn-ghost btn-sm shrink-0" :disabled="market.mark === null" @click="useMarketPrice">
+        <!-- "Use the current price" needs a current price: with the feed stale
+             this button would write the last number that arrived, whenever that
+             was, straight into a live limit order. -->
+        <button
+          class="btn-ghost btn-sm shrink-0"
+          :disabled="market.mark === null || market.stale"
+          @click="useMarketPrice"
+        >
           {{ t('ticket.useMark') }}
         </button>
       </div>

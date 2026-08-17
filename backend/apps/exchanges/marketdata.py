@@ -65,6 +65,14 @@ TICKER_TTL = 3
 #: How long a provider that just failed is skipped for. Without this, one dead
 #: provider costs every request its full timeout before the fallback runs.
 COOLDOWN = 60
+#: The same, when that provider is the *only* one configured — which is what
+#: `MARKET_DATA_PIN` means. There is no fallback to protect here, so the
+#: cooldown is only rate-limiting a venue we still have to ask. A minute of it
+#: is what left the panel drawing a chart hours old beside a live price: one
+#: slow call, and the next four candle polls were answered from stored history
+#: without ever reaching the exchange. Short enough that the following poll
+#: always retries, long enough that a hard outage is not hammered.
+SOLE_COOLDOWN = 5
 #: How long the "which exchanges are connected" lookup is reused. The routing
 #: path must not pay a query per chart tick, and this changes at human speed.
 CONNECTED_TTL = 30
@@ -233,8 +241,8 @@ def _cooling_off(name: str) -> bool:
     return cache.get(f"md:down:{name}") is not None
 
 
-def _mark_down(name: str, exc: Exception) -> None:
-    cache.set(f"md:down:{name}", str(exc), COOLDOWN)
+def _mark_down(name: str, exc: Exception, cooldown: int = COOLDOWN) -> None:
+    cache.set(f"md:down:{name}", str(exc), cooldown)
     logger.warning("market data provider %s unavailable: %s", name, exc)
 
 
@@ -252,6 +260,10 @@ def _try_providers(call, *, what: str):
     if not configured:
         raise MarketDataError("no market data provider is configured")
 
+    # A pin leaves exactly one provider, and a cooldown that assumes a fallback
+    # behind it then holds the whole feed off a venue we have no alternative to.
+    cooldown = SOLE_COOLDOWN if len(configured) == 1 else COOLDOWN
+
     reasons: list[str] = []
     for name in configured:
         if _cooling_off(name):
@@ -260,10 +272,10 @@ def _try_providers(call, *, what: str):
         try:
             return call(SOURCES[name]()), name
         except (MarketDataError, httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
-            _mark_down(name, exc)
+            _mark_down(name, exc, cooldown)
             reasons.append(f"{name}: {exc}")
         except Exception as exc:  # noqa: BLE001 - one bad provider is not a 500
-            _mark_down(name, exc)
+            _mark_down(name, exc, cooldown)
             reasons.append(f"{name}: {exc}")
             logger.exception("unexpected market data failure fetching %s", what)
     raise MarketDataError(f"no provider could serve {what} — " + "; ".join(reasons))
@@ -316,7 +328,16 @@ def get_candles(
         # Downloaded history is real exchange data that is merely old. Serving
         # it beats a blank chart, but it is never presented as live.
         stored = stored_candles(
-            symbol=symbol, interval=interval, market=market, limit=limit, end=end
+            symbol=symbol,
+            interval=interval,
+            market=market,
+            limit=limit,
+            end=end,
+            # A pin says one venue may answer for this pair. History downloaded
+            # from another one is still real, but it is another venue's prices
+            # under a badge naming the pin — exactly the substitution the pin
+            # exists to prevent. Better a blank chart than a quiet hand-off.
+            exchange=pinned_provider(),
         )
         if not stored:
             raise
@@ -364,13 +385,19 @@ def stored_candles(
     market: MarketType,
     limit: int,
     end: int | None = None,
+    exchange: str = "",
 ) -> tuple[list[Candle], str] | None:
-    """The newest ``limit`` downloaded bars at or before ``end``, oldest first."""
+    """The newest ``limit`` downloaded bars at or before ``end``, oldest first.
+
+    ``exchange`` restricts the answer to one venue's download; empty means any.
+    """
     from apps.trading.models import StoredCandle
 
     rows = StoredCandle.objects.filter(
         symbol=symbol, interval=interval, market=market.value
     )
+    if exchange:
+        rows = rows.filter(exchange=exchange)
     if end is not None:
         rows = rows.filter(open_time__lte=end)
     rows = list(rows.order_by("-open_time")[:limit])
