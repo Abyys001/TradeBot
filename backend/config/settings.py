@@ -271,6 +271,17 @@ MARKET_DATA = {
     ],
     "BACKFILL_PAIRS": int(os.getenv("BACKFILL_PAIRS", "50")),
     "BACKFILL_DAYS": int(os.getenv("BACKFILL_DAYS", "365")),
+    # Pairs that are always backfilled regardless of 24h volume ranking.
+    # These are base asset names (e.g. "BTC", "SOL") — the backfill system
+    # resolves them to the full symbol (e.g. "BTCUSDT") during queue build.
+    "BACKFILL_PRIORITY_PAIRS": [
+        p.strip().upper()
+        for p in os.getenv(
+            "BACKFILL_PRIORITY_PAIRS",
+            "LIT,BTC,HYPE,PUMP,SOL,ZEC,LINK,KAITO,BMB,WLD",
+        ).split(",")
+        if p.strip()
+    ],
     # Start the download by itself when the first account connects.
     "AUTO_SYNC": False if RUNNING_TESTS else env_bool("MARKET_DATA_AUTO_SYNC", True),
     # --- on-demand chart history --------------------------------------------

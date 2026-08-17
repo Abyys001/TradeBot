@@ -94,6 +94,7 @@ def backfill_settings() -> dict:
         "intervals": [i for i in settings.MARKET_DATA["BACKFILL_INTERVALS"] if i in INTERVALS],
         "pairs": int(settings.MARKET_DATA["BACKFILL_PAIRS"]),
         "days": int(settings.MARKET_DATA["BACKFILL_DAYS"]),
+        "priority_pairs": list(settings.MARKET_DATA.get("BACKFILL_PRIORITY_PAIRS") or []),
     }
 
 
@@ -160,11 +161,44 @@ def sync_symbols(exchange: str) -> int:
 
 
 def top_symbols(exchange: str, market: MarketType, limit: int) -> list[str]:
-    """The busiest listed pairs, which is what a chart is opened on."""
+    """The busiest listed pairs, which is what a chart is opened on.
+
+    Priority pairs (from ``BACKFILL_PRIORITY_PAIRS``) are always included
+    regardless of their 24h volume, prepended before the volume-sorted list
+    and deduplicated by base asset.  Pairs not listed on the exchange are
+    skipped so they do not waste a slot.
+    """
     rows = ExchangeSymbol.objects.filter(
         exchange=exchange, market=market.value, active=True
     ).order_by("-volume_24h", "symbol")
-    return [row.symbol for row in rows[:limit]]
+    priority = [
+        p.upper() for p in settings.MARKET_DATA.get("BACKFILL_PRIORITY_PAIRS") or []
+    ]
+    priority_bases = set(priority)
+    # Map each priority base to its full symbol (e.g. "BTC" → "BTCUSDT").
+    priority_map: dict[str, str] = {}
+    for row in rows:
+        base = row.base.upper()
+        if base in priority_bases:
+            priority_map[base] = row.symbol
+
+    result: list[str] = []
+    seen_bases: set[str] = set()
+    # Priority pairs first.
+    for p in priority:
+        sym = priority_map.get(p)
+        if sym:
+            result.append(sym)
+            seen_bases.add(p)
+    # Volume-sorted fill.
+    for row in rows:
+        base = row.base.upper()
+        if base not in seen_bases and base not in priority_bases:
+            result.append(row.symbol)
+            seen_bases.add(base)
+            if len(result) >= limit:
+                break
+    return result
 
 
 # --- history ----------------------------------------------------------------
