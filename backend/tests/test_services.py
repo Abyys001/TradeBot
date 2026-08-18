@@ -582,3 +582,56 @@ async def test_an_account_the_exchange_says_is_flat_trades_again(monkeypatch):
     leg = await sync_to_async(lambda: trade.legs.get())()
     assert leg.error_code == "not_filled"
     assert [a.pk for a in await eligible_accounts()] == [account.pk]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_fanout_that_filled_nothing_leaves_no_open_trade(monkeypatch):
+    """An entry nobody took must not block the next one.
+
+    Every leg here sat the entry out, so no exchange holds anything — and the
+    accounts are freed accordingly. The trade row has to agree: while it stayed
+    OPEN, ``/positions/`` reported a position nobody held, the ticket refused
+    the next order with "a trade is already open", and close could not clear it
+    either because the same trade resolves to zero legs to send.
+    """
+    account = await make_account("rejected", balance="1000")
+
+    def fake_adapters(accounts):
+        return [(account.pk, PaperAdapter(balance=D("1000"), fail_on={"place_order"}))]
+
+    monkeypatch.setattr("apps.trading.services._adapters", fake_adapters)
+    trade, _ = await open_a_trade()
+
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.CLOSED
+    assert refreshed.closed_at is not None
+    # The failure is still in the history, and still in the panel's face.
+    leg = await sync_to_async(lambda: refreshed.legs.get())()
+    assert leg.error_code == "not_filled"
+    assert await sync_to_async(Notification.objects.count)() == 1
+    assert not await sync_to_async(Trade.objects.filter(status=TradeStatus.OPEN).exists)()
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_late_reconcile_that_finds_nothing_closes_the_trade(monkeypatch):
+    """The same rule when the answer arrives after the response is gone."""
+    account = await make_account("slow-venue", balance="1000")
+    adapter = PaperAdapter(balance=D("1000"), fail_on={"place_order"})
+
+    def fake_adapters(accounts):
+        return [(account.pk, adapter)]
+
+    monkeypatch.setattr("apps.trading.services._adapters", fake_adapters)
+    # The bounded re-read cannot answer, so the leg is unconfirmed: the trade
+    # stays open, because an account that may hold a position is not free.
+    monkeypatch.setattr(adapter, "get_position", mock.AsyncMock(side_effect=TimeoutError))
+    trade, _ = await open_a_trade()
+    assert (await sync_to_async(Trade.objects.get)(pk=trade.pk)).status == TradeStatus.OPEN
+
+    monkeypatch.delattr(adapter, "get_position")
+    cache.delete("trading:unconfirmed:checked_at")
+    assert await reconcile_open_trade() is True
+
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.CLOSED
+    assert [a.pk for a in await eligible_accounts()] == [account.pk]

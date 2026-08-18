@@ -214,7 +214,44 @@ def _persist_open(
         # actually filled, not the price that was requested.
         trade.admin_entry_price = sum(fills) / len(fills)
         trade.save(update_fields=["admin_entry_price"])
+    retire_if_nothing_open(trade)
     return trade
+
+
+def retire_if_nothing_open(trade: Trade) -> bool:
+    """Close a trade no account can be holding, so it stops blocking the next one.
+
+    Every leg is one of three things: filled, *unconfirmed* (the exchange may
+    have acted and has not said), or provably sat out (``SAT_OUT_CODES``). When
+    a fan-out ends with no leg in the first two categories there is no position
+    anywhere — every account was skipped by sizing, or overran the deadline and
+    the re-read came back "no position was opened".
+
+    Leaving that trade OPEN was a deadlock. The accounts were correctly freed
+    (``accounts_in_open_trades`` ignores sat-out legs), but ``/positions/``
+    still reported an open trade, so the ticket refused the next order with "a
+    trade is already open" — and close could not clear it either, because
+    ``eligible_accounts`` resolves the same trade to zero legs and refuses to
+    send an empty fan-out. The admin was locked out by a trade that never
+    existed on any exchange.
+
+    Closed rather than deleted: spec §8 wants the failed attempt in the
+    history, and the persistent §4 notices point at it.
+    """
+    legs = list(trade.legs.all())
+    if any(leg.ok or leg.error_code not in SAT_OUT_CODES for leg in legs):
+        return False
+    now = timezone.now()
+    trade.legs.filter(closed_at__isnull=True).update(closed_at=now)
+    trade.status = TradeStatus.CLOSED
+    trade.closed_at = now
+    trade.save(update_fields=["status", "closed_at"])
+    logger.info(
+        "trade=%s left no position on any account — closed instead of left open",
+        trade.id,
+        extra={"trade_id": trade.id},
+    )
+    return True
 
 
 @sync_to_async
@@ -480,6 +517,9 @@ def _settle_unconfirmed(trade: Trade, result: FanOutResult) -> bool:
         # Q5c's anchor was never set because no leg had filled at the time.
         trade.admin_entry_price = sum(fills) / len(fills)
         trade.save(update_fields=["admin_entry_price"])
+    # The last unconfirmed leg may have just settled to "the exchange holds
+    # nothing", which can leave this trade with nothing behind it at all.
+    retire_if_nothing_open(trade)
     return True
 
 
@@ -596,8 +636,41 @@ def _save_amend(
         )
 
 
+@sync_to_async
+def _every_account_in(trade: Trade) -> list[ConnectedAccount]:
+    """Every account this trade was routed to, sat-out legs included."""
+    return list(
+        ConnectedAccount.objects.filter(
+            id__in=trade.legs.filter(closed_at__isnull=True).values_list(
+                "account_id", flat=True
+            )
+        )
+    )
+
+
 async def route_close(*, trade: Trade) -> FanOutResult:
     accounts = await eligible_accounts(trade)
+    if not accounts:
+        # Every leg is recorded as having sat the entry out — and that record can
+        # be wrong. A leg written off as ``not_filled`` on one point-in-time read
+        # is exactly how a live Hyperliquid position ended up outside the only
+        # set close would look at, answering the admin 409 "no_legs" four times
+        # while the exposure sat there unprotected.
+        #
+        # Close is the one action where being wrong the other way costs nothing:
+        # ``close_position`` on a genuinely flat account answers ``no_position``,
+        # which ``_settle_close`` already reads as the desired end state. So ask
+        # every account the trade ever touched instead of refusing. Only close —
+        # an amend aimed at a flat account would be a real failure notice.
+        accounts = await _every_account_in(trade)
+        if accounts:
+            logger.warning(
+                "close trade=%s: no leg is recorded as holding anything — asking all "
+                "%d account(s) the trade was routed to anyway",
+                trade.id,
+                len(accounts),
+                extra={"trade_id": trade.id},
+            )
     adapters = _adapters(accounts)
     if not adapters:
         # The trade stays OPEN. Marking it closed here is precisely the bug:
@@ -676,6 +749,26 @@ def _stored_balances() -> list[dict]:
         }
         for account in ConnectedAccount.objects.all()
     ]
+
+
+async def warm_adapters() -> None:
+    """Build every account's exchange client before an order needs one.
+
+    The pool keeps an adapter warm *between* actions, but the first action
+    after a restart still pays the setup — on Hyperliquid ~2.5s of TLS plus
+    asset metadata, inside the spec §4 per-leg deadline, before the order is
+    signed. That is a deadline blown by a client that was not ready, reported
+    as an exchange that did not answer.
+
+    Called when the panel connects (``TradingConsumer``), which is minutes
+    before the admin clicks anything, and cheap to repeat: an adapter that is
+    already built returns immediately.
+    """
+    accounts = await eligible_accounts_for_balances()
+    adapters = _adapters(accounts)
+    if not adapters:
+        return
+    await asyncio.gather(*(adapter.warm() for _, adapter in adapters), return_exceptions=True)
 
 
 @sync_to_async

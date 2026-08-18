@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -105,6 +106,9 @@ class HyperliquidAdapter(ExchangeAdapter):
         #: adapter builds the SDK three times over and downloads the asset
         #: metadata with it — the expensive thing this adapter now does once.
         self._build_lock = asyncio.Lock()
+        #: SDK calls whose awaiter has been cancelled but whose worker thread is
+        #: still running. See ``settle_inflight``.
+        self._inflight: set[asyncio.Future] = set()
 
     # --- SDK plumbing -------------------------------------------------------
 
@@ -157,16 +161,84 @@ class HyperliquidAdapter(ExchangeAdapter):
             if self._exchange is None:
                 await asyncio.to_thread(self._build)
 
+    async def warm(self) -> None:
+        """Build the SDK now so no order pays for it inside the §4 deadline."""
+        try:
+            await self._ensure_built()
+        except Exception as exc:  # noqa: BLE001 - warming is best effort
+            logger.warning("hyperliquid: could not warm the client: %s", exc)
+
     async def _call(self, fn_name: str, *args, **kwargs) -> Any:
-        """Run a synchronous SDK call off the event loop."""
+        """Run a synchronous SDK call off the event loop.
+
+        Timed and logged because the SDK talks over ``requests``: unlike the
+        public feed's httpx calls, nothing else leaves a trace of an order
+        going out, so a leg that overran the deadline looked from the log like
+        a leg that never sent anything. It is the opposite — see
+        ``fanout.NEVER_SENT_CODES``.
+
+        The call is **shielded**. ``asyncio.wait_for`` in the fan-out cancels
+        the coroutine awaiting it, and that cancellation cannot reach the
+        worker thread already inside ``requests`` — the signed order goes out
+        regardless. Shielding keeps the running call reachable in
+        ``_inflight`` instead of orphaning it, so ``settle_inflight`` can wait
+        for the real answer rather than have the reconcile guess from a
+        position read taken while the order was still on its way.
+        """
         await self._ensure_built()
         target = self._exchange if hasattr(self._exchange, fn_name) else self._info
         fn = getattr(target, fn_name)
+        started = time.perf_counter()
+        call = asyncio.ensure_future(asyncio.to_thread(fn, *args, **kwargs))
+        self._inflight.add(call)
+        call.add_done_callback(self._settled)
         try:
-            result = await asyncio.to_thread(fn, *args, **kwargs)
+            result = await asyncio.shield(call)
+        except asyncio.CancelledError:
+            # The deadline fired. The call is still running and still tracked;
+            # nothing here may swallow the cancellation.
+            raise
         except Exception as exc:  # SDK raises bare exceptions
+            logger.warning(
+                "hyperliquid %s failed after %.0fms: %s",
+                fn_name,
+                (time.perf_counter() - started) * 1000,
+                exc,
+                extra={"exchange": self.name},
+            )
             raise AdapterError(f"hyperliquid: {exc}") from exc
+        logger.info(
+            "hyperliquid %s %.0fms",
+            fn_name,
+            (time.perf_counter() - started) * 1000,
+            extra={"exchange": self.name},
+        )
         return self._check(result)
+
+    def _settled(self, call: asyncio.Future) -> None:
+        """Drop a finished call, and read its exception so nobody warns about it.
+
+        A call abandoned at the deadline usually finishes with no awaiter left;
+        without this, one that raised would surface as "Task exception was
+        never retrieved" from the loop's handler instead of the leg's own
+        error, which is already recorded.
+        """
+        self._inflight.discard(call)
+        if not call.cancelled():
+            call.exception()
+
+    async def settle_inflight(self, timeout: float) -> bool:
+        pending = [call for call in self._inflight if not call.done()]
+        if not pending:
+            return True
+        logger.info(
+            "hyperliquid: waiting up to %.1fs for %d abandoned call(s) to finish",
+            timeout,
+            len(pending),
+            extra={"exchange": self.name},
+        )
+        _, still_running = await asyncio.wait(pending, timeout=timeout)
+        return not still_running
 
     def _check(self, result: Any) -> Any:
         if isinstance(result, dict) and result.get("status") == "err":
@@ -473,12 +545,17 @@ class HyperliquidAdapter(ExchangeAdapter):
         fixed size, so the two cannot drift apart from what is actually held.
         """
         coin = self._coin(symbol)
-        position = await self.get_position(symbol)
+        # Neither read depends on the other, and this runs inside the §4 per-leg
+        # deadline with a signed L1 action still to come — a serial pair here was
+        # a whole round trip out of the budget for nothing.
+        position, rules = await asyncio.gather(
+            self.get_position(symbol),
+            self.get_symbol_rules(symbol, MarketType.FUTURES),
+        )
         if position is None:
             raise AdapterError(
                 f"hyperliquid: no open position on {symbol}", code="no_position"
             )
-        rules = await self.get_symbol_rules(symbol, MarketType.FUTURES)
         # Exit side is the opposite of the position.
         is_buy = position.side is Side.SHORT
         sz = float(position.size)

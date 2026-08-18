@@ -176,6 +176,43 @@ class ExchangeAdapter(abc.ABC):
     async def close(self) -> None:
         """Release the HTTP/WS client. Always called, even on failure paths."""
 
+    async def warm(self) -> None:
+        """Do whatever the first call would otherwise do, off the critical path.
+
+        An adapter with lazy setup — a client to construct, asset metadata to
+        download — pays for it inside the spec §4 deadline on the first action
+        after a restart, where it is measured against a budget meant for one
+        order round trip. Hyperliquid's build is ~2.5s on a link where a warm
+        round trip is 0.6s, which is the whole deadline before the order is
+        even signed.
+
+        Default no-op: an adapter with nothing to set up is already warm.
+        Never raises — a venue that cannot be reached now is a leg's problem
+        later, not a reason to fail the panel's connection.
+        """
+        return None
+
+    async def settle_inflight(self, timeout: float) -> bool:
+        """Wait for requests this adapter started and stopped listening for.
+
+        The fan-out deadline cancels a leg's coroutine, and for an adapter
+        whose transport is genuinely async that also aborts the request. It
+        does **not** for an adapter that drives a synchronous SDK through
+        ``asyncio.to_thread``: cancelling the awaiting coroutine cannot kill
+        the worker thread, which runs the signed order to completion long
+        after the leg was written off.
+
+        Returns True when nothing of this adapter's is still in the air, so a
+        caller may trust what the exchange says about the account. False means
+        a request is still executing and "no position" would be a read taken
+        before the exchange was even asked — the mistake that reported a live
+        Hyperliquid position as ``not_filled``.
+
+        Default True: an adapter whose cancellations are real has nothing to
+        wait for.
+        """
+        return True
+
     @abc.abstractmethod
     async def verify_credentials(self) -> None:
         """Raise AuthError if unusable, WithdrawalPermissionError if withdrawable.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -516,14 +517,32 @@ async def _reconcile_open(
     budget: float,
     deadline: float,
 ) -> Reconcile | None:
-    """Did an unconfirmed entry land? The exchange's position list decides."""
+    """Did an unconfirmed entry land? The exchange's position list decides.
+
+    Before asking, wait for anything this adapter still has in the air. A leg
+    cancelled at the deadline does not stop a synchronous SDK call running on a
+    worker thread (``hyperliquid._call``), so the order can reach the exchange
+    *after* the reconcile has already read the account. Reading first and
+    concluding "no position was opened" is how a live BTC position came to be
+    recorded as ``not_filled`` — a verdict in ``SAT_OUT_CODES``, which is final:
+    the sweep never revisits it, close skips the leg, and the exposure sat on
+    the exchange with no stop and no way to close it from the panel.
+    """
+    started = time.perf_counter()
+    try:
+        settled = await adapter.settle_inflight(budget / 2)
+    except Exception as exc:  # noqa: BLE001 - never worse than not having waited
+        logger.warning("reconcile settle account=%s: %s", leg.account_id, exc)
+        settled = False
+    read_budget = max(_RECONCILE_FLOOR, budget - (time.perf_counter() - started))
+
     try:
         position, rules = await asyncio.wait_for(
             asyncio.gather(
                 adapter.get_position(intent.symbol),
                 adapter.get_symbol_rules(intent.symbol, intent.market),
             ),
-            timeout=budget,
+            timeout=read_budget,
         )
     except TimeoutError:
         return None
@@ -536,10 +555,24 @@ async def _reconcile_open(
             # with no position to show for it. "No position" is not "no order",
             # so this one stays unconfirmed rather than being written off.
             return None
-        # The exchange answered, and it holds nothing: the order provably did
-        # not land. Say so with the original reason kept — the leg is now known
-        # to have sat the entry out, which frees the account for the next trade
-        # and takes it out of scope for close (services.SAT_OUT_CODES).
+        if not settled:
+            # A request of ours is still executing. The exchange has not been
+            # asked yet, so it cannot be answering — stay unconfirmed and let
+            # the unbounded sweep (services.reconcile_open_trade) settle it once
+            # the call has finished. An account held out of the next trade is
+            # recoverable; a position nobody knows about is not.
+            logger.warning(
+                "reconcile account=%s: no position, but a call is still in flight — "
+                "staying unconfirmed rather than declaring the entry never landed",
+                leg.account_id,
+                extra={"account_id": leg.account_id, "error_code": "still_in_flight"},
+            )
+            return None
+        # Everything we sent has finished and the exchange holds nothing: the
+        # order provably did not land. Say so with the original reason kept —
+        # the leg is now known to have sat the entry out, which frees the
+        # account for the next trade and takes it out of scope for close
+        # (services.SAT_OUT_CODES).
         return (
             False,
             None,

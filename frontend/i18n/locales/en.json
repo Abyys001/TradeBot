@@ -671,7 +671,8 @@
     "amended": "SL/TP updated on {n} account(s)",
     "closed": "Position closed on {n} account(s)",
     "detail": "{ms}ms · {failed} failed",
-    "closePartial": "The position was NOT closed on every account — the exchange still holds it. Check the failure notices and try again."
+    "closePartial": "The position was NOT closed on every account — the exchange still holds it. Check the failure notices and try again.",
+    "closeNothing": "There is no open trade to close. If an exchange still shows a position, it was opened outside this panel — close it there and check the failure notices."
   },
   "logs": {
     "title": "System Log",

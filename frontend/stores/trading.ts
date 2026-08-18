@@ -191,6 +191,13 @@ export const useTradingStore = defineStore('trading', {
         return result
       } catch (e: any) {
         this.error = errorMessage(e)
+        // A failed *request* is not proof the server did nothing — the same rule
+        // the engine applies to a leg (fanout.NEVER_SENT_CODES). A submit that
+        // overran the client's patience still routed, still created the trade
+        // and can still be holding a real position, so re-read the log and adopt
+        // it. Without this the panel kept `tradeId = null` and the close button
+        // silently did nothing while the exchange held the position.
+        this.loadTrades()
         throw e
       } finally {
         this.submitting = false
@@ -212,10 +219,20 @@ export const useTradingStore = defineStore('trading', {
     },
 
     async close() {
-      if (this.tradeId === null) return null
       this.submitting = true
       this.error = ''
       try {
+        if (this.tradeId === null) {
+          // The panel not knowing the id is not the same as there being nothing
+          // to close: a submit that errored client-side, or a tab opened after
+          // the entry, both land here with a live position on the exchange.
+          // Ask the server before refusing, and say so out loud if it agrees.
+          await this.loadTrades()
+          if (this.tradeId === null) {
+            this.error = useNuxtApp().$i18n.t('toast.closeNothing')
+            return null
+          }
+        }
         const result = await useApi().closeOrder(this.tradeId)
         this.lastResult = result
         // `closed` is the server saying every leg is flat. A close where a leg

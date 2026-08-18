@@ -72,6 +72,31 @@ def _probe_exchange_latency() -> None:
         logger.debug("exchange latency probe failed", exc_info=True)
 
 
+#: Strong references to in-flight warm-ups. A bare ``create_task`` can be
+#: garbage collected mid-build; this is the documented way to keep it alive.
+_warmups: set[asyncio.Task] = set()
+
+
+def _kick_warmup() -> None:
+    """Build the exchange clients in the background, off the order path.
+
+    Fire and forget on purpose: the panel must connect at the speed of the
+    handshake, not at the speed of the slowest venue, and a warm-up that fails
+    costs nothing — the next real call builds the client as it always did.
+    """
+    from apps.trading.services import warm_adapters
+
+    async def run() -> None:
+        try:
+            await warm_adapters()
+        except Exception:  # noqa: BLE001 - warming must never break the channel
+            logger.debug("adapter warm-up failed", exc_info=True)
+
+    task = asyncio.create_task(run())
+    _warmups.add(task)
+    task.add_done_callback(_warmups.discard)
+
+
 class TradingConsumer(AsyncJsonWebsocketConsumer):
     #: The market room this socket is watching, or "" for none. An instance
     #: attribute rather than a lazily-set one so `disconnect` can rely on it
@@ -105,6 +130,10 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(GROUP, self.channel_name)
         await self.accept()
         await self.send_json({"type": "connected"})
+        # The admin has the panel open; the first order is seconds to minutes
+        # away. Build the exchange clients now so that order is not the one
+        # paying for it inside the spec §4 deadline.
+        _kick_warmup()
 
     async def disconnect(self, code: int) -> None:
         if self._probe is not None and not self._probe.done():
