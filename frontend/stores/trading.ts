@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 
 export interface FanOutResult {
-  trade_id: number | null
+  trade_id?: number | null
+  /** Close-all only: every trade the press covered. */
+  trade_ids?: number[]
   total_ms: number
   within_budget: boolean
   succeeded: { account_id: number; ms: number }[]
@@ -128,13 +130,27 @@ export const useTradingStore = defineStore('trading', {
      * this is wanted is not the moment to fill in a dialog. Turning it *off*
      * is where the panel asks, because that is the direction that starts
      * moving money again.
+     *
+     * `closePositions` is what the top-bar Stop-all sends: halt, then flatten
+     * every open trade in the same request, so a browser that dies in between
+     * cannot leave the platform halted with the risk still on.
      */
-    async setHalt(on: boolean, reason = '') {
+    async setHalt(on: boolean, reason = '', closePositions = false) {
       this.haltPending = true
       this.error = ''
       try {
-        const state = await useApi().setStopAll(on, reason)
+        const state = await useApi().setStopAll(on, reason, closePositions)
         this.applyHalt(state)
+        if (state.flattened) {
+          // A leg the exchange would not flatten leaves its trade OPEN. That is
+          // the one outcome of this button nobody may miss, so it is an error
+          // on the surface, not a toast that fades.
+          this.error = state.flattened.closed
+            ? ''
+            : useNuxtApp().$i18n.t('toast.closePartial')
+          this.tradeId = state.flattened.closed ? null : this.tradeId
+          this.loadTrades()
+        }
         return state
       } catch (e: any) {
         this.error = errorMessage(e)
@@ -181,7 +197,9 @@ export const useTradingStore = defineStore('trading', {
       try {
         const result = await api.openOrder(payload)
         this.lastResult = result
-        this.tradeId = result.trade_id
+        // `trade_id` is optional on the shared result shape (close-all carries
+        // `trade_ids` instead), and the state field is strictly `number | null`.
+        this.tradeId = result.trade_id ?? null
         // Spec §10: successes are confirmed transiently. Per-account failures
         // still raise persistent §4 notices — this only says what got through.
         this.confirm('toast.opened', result)
@@ -206,6 +224,14 @@ export const useTradingStore = defineStore('trading', {
 
     async amend(slPct: number | null, tpPct: number | null) {
       if (this.tradeId === null) return null
+      // An amend replaces the protection resting on the exchange wholesale, so
+      // sending one side alone would take the other side *off* the position.
+      // The server refuses it too; refusing here keeps the half-cleared box
+      // from reading as an exchange failure.
+      if (slPct === null || tpPct === null) {
+        this.error = useNuxtApp().$i18n.t('position.sltpRequired')
+        return null
+      }
       this.error = ''
       try {
         const result = await useApi().amendOrder(this.tradeId, { sl_pct: slPct, tp_pct: tpPct })
@@ -218,22 +244,21 @@ export const useTradingStore = defineStore('trading', {
       }
     },
 
+    /**
+     * Close **every** open trade, not the one this tab happens to be showing.
+     *
+     * More than one can be open at a time — accounts freed by an earlier close
+     * take the next entry while the rest are still in the old trade — and the
+     * per-id close left those behind, live on the exchange, with the panel
+     * reporting flat. The server decides what is open; this no longer depends
+     * on the panel knowing an id, which is why the "nothing to close" guess is
+     * gone with it.
+     */
     async close() {
       this.submitting = true
       this.error = ''
       try {
-        if (this.tradeId === null) {
-          // The panel not knowing the id is not the same as there being nothing
-          // to close: a submit that errored client-side, or a tab opened after
-          // the entry, both land here with a live position on the exchange.
-          // Ask the server before refusing, and say so out loud if it agrees.
-          await this.loadTrades()
-          if (this.tradeId === null) {
-            this.error = useNuxtApp().$i18n.t('toast.closeNothing')
-            return null
-          }
-        }
-        const result = await useApi().closeOrder(this.tradeId)
+        const result = await useApi().closeAll()
         this.lastResult = result
         // `closed` is the server saying every leg is flat. A close where a leg
         // would not flatten still answers 200 — dropping the trade here on that

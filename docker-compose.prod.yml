@@ -36,7 +36,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.prod
     command: >
-      sh -c "python manage.py collectstatic --noinput &&
+      sh -c "python manage.py wait_for_db --timeout 30 &&
+             python manage.py collectstatic --noinput &&
              python manage.py migrate &&
              daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     env_file: [.env]
@@ -66,6 +67,29 @@ services:
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  # Keeps the platform's record and the exchanges' positions in agreement even
+  # when no panel is open: a stop that fires at 3am has to free the account for
+  # the next trade whether or not anyone is watching, and a position the venue
+  # holds that this platform lost track of has to surface without waiting for
+  # someone to log in. Read-only against the exchanges (get_position); it never
+  # places, amends, or cancels an order. The same sweep runs inline on every
+  # /positions/ poll, so this service being down costs latency, not accuracy.
+  possync:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    command: python manage.py sync_positions
+    env_file: [.env]
+    environment:
+      USE_SQLITE: "false"
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      backend: {condition: service_healthy}
     restart: unless-stopped
 
   frontend:

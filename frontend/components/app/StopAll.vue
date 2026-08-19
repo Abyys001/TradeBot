@@ -11,8 +11,12 @@
  * wanted is not the moment to fill in a form. Resuming asks, because that is
  * the direction that starts moving other people's money again.
  *
- * Closing and amending open positions keep working while halted; the copy says
- * so, so nobody assumes their open leveraged positions are now stranded.
+ * It **flattens as well as halts**: one request that stops new routing and
+ * market-closes every open trade. Stopping the next order does nothing about
+ * the leveraged position already running, which is the thing an emergency stop
+ * is reached for. Closing and amending still work afterwards, so a leg the
+ * exchange would not flatten can be dealt with by hand — the copy says so, and
+ * a partial close is surfaced rather than toasted away.
  */
 const { t } = useI18n()
 const trading = useTradingStore()
@@ -21,7 +25,7 @@ const confirmResume = ref(false)
 
 async function halt() {
   try {
-    await trading.setHalt(true, 'halted from the panel')
+    await trading.setHalt(true, 'halted from the panel', true)
   } catch {
     // The store carries the message; the badge state is authoritative.
   }

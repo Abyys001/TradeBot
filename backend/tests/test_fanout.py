@@ -431,6 +431,35 @@ async def test_paper_read_back_confirms_sl_and_tp_on_entry():
     assert leg.value.take_profit == adapter._state["sltp"][1]
 
 
+@pytest.mark.parametrize("missing", ["sl_pct", "tp_pct"])
+async def test_an_intent_without_protection_never_reaches_an_exchange(missing):
+    """No account is touched: half the fleet opening unprotected is the failure mode."""
+    adapter = PaperAdapter(balance=D("1000"))
+    with pytest.raises(ValueError, match="stop loss and a take profit"):
+        await open_trade([(1, adapter)], intent(**{missing: None}))
+    assert await adapter.get_position("BTCUSDT") is None
+
+
+@pytest.mark.parametrize("missing", ["sl_pct", "tp_pct"])
+async def test_an_amend_without_protection_never_reaches_an_exchange(missing):
+    """apply_sltp replaces the resting pair, so one side alone would remove the other."""
+    adapter = PaperAdapter(balance=D("1000"))
+    await open_trade([(1, adapter)], intent())
+    before = adapter._state["sltp"]
+
+    kwargs = {"sl_pct": D("0.3"), "tp_pct": D("0.9"), missing: None}
+    with pytest.raises(ValueError, match="stop loss and a take profit"):
+        await amend_sltp(
+            [(1, adapter)],
+            symbol="BTCUSDT",
+            side=Side.LONG,
+            leverage=10,
+            admin_entry=D("100000"),
+            **kwargs,
+        )
+    assert adapter._state["sltp"] == before
+
+
 async def test_an_amend_reads_back_and_verifies_the_resting_prices():
     """The amend records the prices the exchange actually holds, not the ask."""
     adapter = PaperAdapter(balance=D("1000"))

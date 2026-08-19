@@ -63,6 +63,7 @@ const alreadyInTrade = computed(() => positions.hasPosition)
 const canSubmit = computed(
   () =>
     !trading.submitting &&
+    order.hasProtection &&
     !order.slBeyondLiquidation &&
     !noAccounts.value &&
     !halted.value &&
@@ -285,6 +286,10 @@ function useMarketPrice() {
         </dd>
       </div>
     </dl>
+
+    <p v-if="!order.hasProtection" class="alert p-2.5 text-xs leading-relaxed">
+      {{ t('ticket.sltpRequired') }}
+    </p>
 
     <p v-if="order.slBeyondLiquidation" class="alert p-2.5 text-xs leading-relaxed">
       {{ t('ticket.slBeyondLiquidation') }}

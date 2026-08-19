@@ -65,7 +65,7 @@ intent — if the code changes, so does this table.
 
 | | Markets | SL/TP at entry | Native amend | Per-key limits | Key scope readable | Private WS stream |
 |---|---|---|---|---|---|---|
-| Hyperliquid | spot + futures | ❌ separate trigger orders | ❌ | ✅ per address | ⚠️ Q11 unverified | ❌ |
+| Hyperliquid | spot + futures | ✅ `normalTpsl` grouping — entry + both triggers in one signed action | ❌ | ✅ per address | ⚠️ Q11 unverified | ❌ |
 | Bybit | spot + futures | ✅ | ✅ `POST /v5/position/trading-stop` | ✅ | ✅ | ❌ |
 | Binance | futures | ❌ `POST /fapi/v1/order` has no `stopLoss`/`takeProfit` | ❌ | ❌ weights are per-IP too | ⚠️ spot host only — a futures-only key is flagged | ✅ `listenKey` user stream |
 | OKX | spot + futures | ✅ | ❌ | ✅ | ✅ | ❌ |

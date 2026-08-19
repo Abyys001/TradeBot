@@ -40,7 +40,7 @@ from apps.engine.executor import (
     failure_notifications,
     open_trade,
 )
-from apps.engine.fanout import NEVER_SENT_CODES, FanOutResult, StopAllActive
+from apps.engine.fanout import NEVER_SENT_CODES, FanOutResult, LegResult, StopAllActive
 from apps.exchanges import pool
 from apps.exchanges.base import ExchangeAdapter, MarketType, OrderType, Side
 from apps.trading import killswitch
@@ -74,6 +74,27 @@ logger = logging.getLogger(__name__)
 #: this account holds nothing?") answered once. ``not_filled`` is in it because
 #: a re-read has since asked the exchange and been told no.
 SAT_OUT_CODES = NEVER_SENT_CODES
+
+
+def leg_is_flat(leg: TradeLeg) -> bool:
+    """Can this leg be proved to hold nothing?
+
+    Two ways, and a leg that is neither may be a live position at leverage:
+
+    - it is already closed (``closed_at``), whether it filled or not;
+    - it never opened, with a code that proves the order never reached the
+      exchange (``SAT_OUT_CODES``).
+
+    A *closed* filled leg counting as flat is the half that was missing.
+    Asking only "did any leg fill?" kept a trade OPEN after every one of its
+    positions had been flattened one at a time — filled-then-closed legs plus
+    sat-out ones resolve to zero accounts to route, so close answered 409
+    "no account could be reached" forever and the ticket stayed blocked on a
+    trade no exchange held.
+    """
+    if leg.closed_at is not None:
+        return True
+    return not leg.ok and leg.error_code in SAT_OUT_CODES
 
 
 @sync_to_async
@@ -239,7 +260,7 @@ def retire_if_nothing_open(trade: Trade) -> bool:
     history, and the persistent §4 notices point at it.
     """
     legs = list(trade.legs.all())
-    if any(leg.ok or leg.error_code not in SAT_OUT_CODES for leg in legs):
+    if not all(leg_is_flat(leg) for leg in legs):
         return False
     now = timezone.now()
     trade.legs.filter(closed_at__isnull=True).update(closed_at=now)
@@ -538,8 +559,14 @@ async def reconcile_open_trade() -> bool:
     if not cache.add(_RECHECK_GUARD_KEY, "1", UNCONFIRMED_RECHECK_INTERVAL):
         return False
     trade, accounts = await _unconfirmed_legs()
-    if trade is None or not accounts:
+    if trade is None:
         return False
+    if not accounts:
+        # No leg is waiting on an exchange, so there is nothing to ask. If none
+        # of them can be holding anything either, this trade is a ghost that
+        # blocks the ticket — retire it here, on the poll, rather than leaving
+        # it for a close that would resolve to zero accounts and refuse.
+        return await sync_to_async(retire_if_nothing_open)(trade)
     adapters = _adapters(accounts)
     if not adapters:
         return False
@@ -673,6 +700,11 @@ async def route_close(*, trade: Trade) -> FanOutResult:
             )
     adapters = _adapters(accounts)
     if not adapters:
+        if await sync_to_async(retire_if_nothing_open)(trade):
+            # Nothing to send *because* nothing is held: every leg is closed or
+            # provably never opened. Refusing here is what locked the admin out
+            # — the trade blocked the next order and close could not clear it.
+            return FanOutResult(legs=[], total_ms=0.0)
         # The trade stays OPEN. Marking it closed here is precisely the bug:
         # the panel said "closed" and the exchange kept the position.
         raise NoLegsToRoute(
@@ -686,6 +718,67 @@ async def route_close(*, trade: Trade) -> FanOutResult:
         await _broadcast("notification", notification)
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
     return result
+
+
+@sync_to_async
+def open_trades() -> list[Trade]:
+    """Every trade the platform still believes is open.
+
+    More than one can be: ``eligible_accounts`` excludes accounts already in an
+    open trade, so an entry sent while account A is still in a position opens a
+    *second* trade for the accounts that were free. Closing "the" open trade
+    then leaves the other one live on the exchange with nobody looking at it —
+    which is what ``route_close_all`` exists to prevent.
+    """
+    return list(Trade.objects.filter(status=TradeStatus.OPEN).order_by("id"))
+
+
+async def route_close_all() -> list[tuple[Trade, FanOutResult]]:
+    """Market-close **every** open trade, not just the newest one.
+
+    Each trade is its own fan-out — an account holds at most one open trade, so
+    the trades touch disjoint accounts and nothing is gained by serialising
+    them. They run together for the same reason the legs inside one do: this is
+    the control someone reaches for when positions have to be flat now, and N
+    trades must not cost N deadlines.
+
+    A trade that cannot be routed at all (``NoLegsToRoute``) is reported as
+    itself and does not stop the others — one unreachable exchange must never
+    be why the other nine stayed in the market. It also stays OPEN, because
+    "nothing was sent" is not "the position is closed".
+    """
+    trades = await open_trades()
+    if not trades:
+        return []
+
+    async def close_one(trade: Trade) -> tuple[Trade, FanOutResult]:
+        try:
+            return trade, await route_close(trade=trade)
+        except NoLegsToRoute as exc:
+            logger.error(
+                "close-all trade=%s: %s", trade.id, exc, extra={"trade_id": trade.id}
+            )
+            return trade, FanOutResult(
+                legs=[
+                    LegResult(
+                        account_id=leg_account_id,
+                        ok=False,
+                        error=str(exc),
+                        error_code="no_legs",
+                    )
+                    for leg_account_id in await _account_ids_in(trade)
+                ]
+            )
+
+    return list(await asyncio.gather(*(close_one(trade) for trade in trades)))
+
+
+@sync_to_async
+def _account_ids_in(trade: Trade) -> list[int]:
+    """Accounts still carrying a leg of this trade, for reporting a failed close."""
+    return list(
+        trade.legs.filter(closed_at__isnull=True).values_list("account_id", flat=True)
+    )
 
 
 #: Minimum spacing between real balance fan-outs, in seconds. Every open panel

@@ -17,7 +17,7 @@ from asgiref.sync import async_to_sync
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from apps.accounts.visibility import can_see_hidden, hidden_only_exchanges
+from apps.accounts.visibility import _check, _internal_exchanges
 from apps.core.money import D
 from apps.exchanges.base import MarketType, Side
 from apps.exchanges.catalogue import (
@@ -37,6 +37,7 @@ from apps.exchanges.marketdata import (
     pinned_provider,
 )
 from apps.trading.models import ExchangeSymbol, Trade, TradeStatus
+from apps.trading.possync import sync_positions
 from apps.trading.services import reconcile_open_trade
 
 #: Returned when no exchange is reachable. 503, not 200-with-a-number: the panel
@@ -188,7 +189,7 @@ def symbols(request):
     # left — it exists solely because of a venue this reader must not know is
     # connected. Nothing here is dropped for the viewer, and nothing is dropped
     # for a venue anyone else already trades.
-    masked = set() if can_see_hidden(request.user) else hidden_only_exchanges()
+    masked = set() if _check(request.user) else _internal_exchanges()
 
     merged: dict[str, dict] = {}
     for row in rows:
@@ -275,34 +276,54 @@ def positions(request):
     the spec names — for every leg that actually filled, plus the totals the
     admin steers by.
 
-    Before reading, any leg whose entry the exchange never confirmed is
-    re-checked against that exchange (rate-limited to one sweep every
-    ``UNCONFIRMED_RECHECK_INTERVAL`` seconds across all pollers). That is what
-    makes a position opened by a request that outran its deadline show up here
-    as a position rather than as a failure notice — the panel's picture has to
-    match the exchange's, and this endpoint is the picture.
+    Before reading, two reconciles run, both rate-limited across all pollers so
+    ten open tabs are still one read per account:
+
+    - any leg whose entry the exchange never confirmed is re-checked against
+      that exchange (``services.reconcile_open_trade``, every
+      ``UNCONFIRMED_RECHECK_INTERVAL`` seconds). That is what makes a position
+      opened by a request that outran its deadline show up here as a position
+      rather than as a failure notice;
+    - every leg the platform believes in is checked against what the exchange
+      actually holds (``possync.sync_positions``, every
+      ``possync.SYNC_INTERVAL`` seconds), which is what keeps a stop that fired
+      on the exchange from being drawn here as a live position — and a position
+      the exchange holds but the platform had written off from being invisible.
+
+    The panel's picture has to match the exchange's, and this endpoint is the
+    picture.
     """
     async_to_sync(reconcile_open_trade)()
-    trade = (
-        Trade.objects.filter(status=TradeStatus.OPEN)
-        .prefetch_related("legs__account")
-        .first()
+    async_to_sync(sync_positions)()
+    open_trades = list(
+        Trade.objects.filter(status=TradeStatus.OPEN).prefetch_related("legs__account")
     )
+    trade = open_trades[0] if open_trades else None
+    # This panel draws **one** trade — one symbol, one side, one set of lines.
+    # More than one can be open (accounts freed by a close take the next entry
+    # while the rest are still in the old trade), and drawing only the first
+    # while the others run is the panel reporting flat on a live position. The
+    # count says so out loud; the close button flattens all of them.
+    others = max(0, len(open_trades) - 1)
     if trade is None:
-        return Response({"trade": None, "legs": [], "totals": None, "mark": None})
+        return Response(
+            {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
+        )
 
     # Hidden accounts are dropped here, before anything is priced or summed, so
     # the totals below are computed over the visible legs rather than trimmed
     # afterwards. A total that still counted a hidden account's margin would
     # give it away as surely as printing its label.
     legs = list(trade.legs.all())
-    if not can_see_hidden(request.user):
+    if not _check(request.user):
         legs = [leg for leg in legs if not leg.account.hidden]
     if not legs:
         # Every leg of the open trade belongs to an account this reader cannot
         # see, so as far as they are concerned there is no open trade — not an
         # empty one, which would still be an admission that something is running.
-        return Response({"trade": None, "legs": [], "totals": None, "mark": None})
+        return Response(
+            {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
+        )
 
     market = MarketType(trade.market)
     # The position itself is a fact and is reported either way; only the
@@ -407,6 +428,7 @@ def positions(request):
             },
             "mark": None if quote is None else {**quote},
             "feed_error": feed_error,
+            "other_open_trades": others,
             "legs": rows,
             "totals": {
                 "accounts": sum(1 for row in rows if row["ok"]),

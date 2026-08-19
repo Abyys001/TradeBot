@@ -443,7 +443,7 @@ async def _protect(
 #: slowly — that is the only venue this code ever runs against.
 _RECONCILE_FRACTION = 0.4
 _RECONCILE_FLOOR = 0.5
-_RECONCILE_CEIL = 3.0
+_RECONCILE_CEIL = 6.0
 
 
 def _reconcile_budget(deadline: float) -> float:
@@ -529,8 +529,9 @@ async def _reconcile_open(
     the exchange with no stop and no way to close it from the panel.
     """
     started = time.perf_counter()
+    settle_budget = budget * 0.6
     try:
-        settled = await adapter.settle_inflight(budget / 2)
+        settled = await adapter.settle_inflight(settle_budget)
     except Exception as exc:  # noqa: BLE001 - never worse than not having waited
         logger.warning("reconcile settle account=%s: %s", leg.account_id, exc)
         settled = False
@@ -809,6 +810,25 @@ async def _reconcile_amend(
     )
 
 
+def _require_protection(sl_pct: Decimal | None, tp_pct: Decimal | None) -> None:
+    """Both legs of the protection, or no order at all.
+
+    Spec §4/§5: every account takes the same entry at the same leverage, and
+    the SL/TP are what bound the loss on capital that belongs to partners. They
+    are part of the order — resolved into prices per account and sent to the
+    exchange — so an intent missing either is not an order this platform routes.
+    """
+    missing = [
+        name
+        for name, value in (("stop loss", sl_pct), ("take profit", tp_pct))
+        if value is None
+    ]
+    if missing:
+        raise ValueError(
+            f"an order must carry both a stop loss and a take profit; missing: {', '.join(missing)}"
+        )
+
+
 async def open_trade(
     accounts: list[tuple[object, ExchangeAdapter]],
     intent: TradeIntent,
@@ -822,7 +842,14 @@ async def open_trade(
     Legs that hit the deadline are re-read from the exchange afterwards
     (``_reconcile_open``): an entry that demonstrably landed is reported as
     filled — with a note saying so, never as a timeout failure.
+
+    An intent with no stop loss or no take profit is refused here, before any
+    account is touched. The view already requires both, so reaching this is a
+    caller building an illegal intent — and the failure has to be the whole
+    trade rather than a per-leg error, because "some accounts opened
+    unprotected" is the outcome the rule exists to prevent.
     """
+    _require_protection(intent.sl_pct, intent.tp_pct)
     deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
     result = await fan_out(
         [(aid, _make_open(aid, adapter, intent)) for aid, adapter in accounts],
@@ -904,7 +931,13 @@ async def amend_sltp(
     decided the halt stops *new* routing only. Tightening a stop on a position
     that is already live at leverage is a protection action, and the panel's
     own copy promises it keeps working while halted.
+
+    Both percentages are required, as they are on entry. ``apply_sltp``
+    replaces the resting protection wholesale, so an amend carrying only one
+    side would take the other side *off* the exchange — a "change my stop"
+    that quietly deletes the take profit.
     """
+    _require_protection(sl_pct, tp_pct)
 
     def make(account_id, adapter):
         async def op() -> SltpResult:

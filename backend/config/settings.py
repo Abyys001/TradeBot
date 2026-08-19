@@ -3,7 +3,9 @@
 import os
 import sys
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,6 +31,9 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "channels",
+    # No models of its own — it is here so its management commands
+    # (wait_for_db, sqlite_to_postgres, backup_db) are discoverable.
+    "apps.core",
     "apps.accounts",
     "apps.trading",
     "apps.logging",
@@ -67,29 +72,67 @@ TEMPLATES = [
     }
 ]
 
-# Tests always use SQLite, whatever .env says. Without this, switching the
-# compose stack to Postgres breaks the suite — and worse, a local test run could
-# point at a database holding real connected accounts.
+# PostgreSQL, everywhere, including the test suite. There is no SQLite branch any
+# more and no `USE_SQLITE` flag: the two engines disagree in exactly the places
+# this application is sensitive to — NUMERIC handling, concurrent writers (the
+# candle archive has three background threads writing it), and the semantics of
+# `bulk_create(ignore_conflicts=True)` — so a suite that passes on one proves
+# little about the other. Set up a local server with `./run.sh setup`.
 RUNNING_TESTS = "pytest" in sys.modules
 
-if RUNNING_TESTS or env_bool("USE_SQLITE", True):
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+
+def database_config() -> dict:
+    """One database, from ``DATABASE_URL`` when set, else the discrete vars.
+
+    The URL form is what a hosted Postgres hands you and is the single value a
+    deployment has to get right; the ``POSTGRES_*`` vars stay because both
+    compose stacks pin ``POSTGRES_HOST: db`` on the service and a URL would have
+    to be reassembled there for no gain.
+    """
+    url = os.getenv("DATABASE_URL", "").strip()
+    if url:
+        parts = urlsplit(url)
+        if parts.scheme not in {"postgres", "postgresql"}:
+            raise ImproperlyConfigured(
+                f"DATABASE_URL must be a postgres:// URL, got {parts.scheme or 'nothing'}://"
+            )
+        config = {
+            "NAME": unquote(parts.path.lstrip("/")) or "walletmanager",
+            "USER": unquote(parts.username or ""),
+            "PASSWORD": unquote(parts.password or ""),
+            "HOST": parts.hostname or "127.0.0.1",
+            "PORT": str(parts.port or 5432),
         }
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
+    else:
+        config = {
             "NAME": os.getenv("POSTGRES_DB", "walletmanager"),
             "USER": os.getenv("POSTGRES_USER", "walletmanager"),
             "PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
-            "HOST": os.getenv("POSTGRES_HOST", "db"),
+            # 127.0.0.1 is the host-run default; both compose files set `db`
+            # explicitly on the service, so this never applies in a container.
+            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
             "PORT": os.getenv("POSTGRES_PORT", "5432"),
         }
-    }
+
+    config["ENGINE"] = "django.db.backends.postgresql"
+    # Reconnecting per request used to be free; it is not now that the chart
+    # poll writes archived bars on the way past.
+    config["CONN_MAX_AGE"] = int(os.getenv("DB_CONN_MAX_AGE", "60"))
+    config["CONN_HEALTH_CHECKS"] = True
+    # Names the connection in pg_stat_activity, so the background threads that
+    # write candles are distinguishable from the request path when one blocks.
+    config["OPTIONS"] = {"application_name": os.getenv("DB_APPLICATION_NAME", "walletmanager")}
+
+    if RUNNING_TESTS:
+        # The suite runs on Postgres, but never on the deployment's database.
+        # pytest-django derives the test database as `test_<NAME>`; pinning the
+        # name here as well means a stray `--reuse-db` or a hand-run
+        # `manage.py test` cannot land on a database holding real credentials.
+        config["TEST"] = {"NAME": f"test_{config['NAME']}"}
+    return config
+
+
+DATABASES = {"default": database_config()}
 
 # Same reasoning as the database: tests must not need a Redis to be running,
 # and must never publish test events onto a real channel layer.
@@ -288,6 +331,16 @@ MARKET_DATA = {
     ],
     # Start the download by itself when the first account connects.
     "AUTO_SYNC": False if RUNNING_TESTS else env_bool("MARKET_DATA_AUTO_SYNC", True),
+    # --- the candle archive --------------------------------------------------
+    # Write every *closed* bar the platform sees to `StoredCandle`, whatever
+    # brought it in: the chart's REST poll and the exchange WebSocket, not only
+    # the two backfill jobs. This is what makes the chart's scrollback deepen on
+    # its own while the panel is simply open, and nothing ever prunes the table.
+    #
+    # Off under pytest for the same reason ENABLED is: a test that stubs the
+    # transport must not silently gain rows in a table other tests assert on.
+    # Tests that mean to exercise the archive opt in with override_settings.
+    "ARCHIVE": False if RUNNING_TESTS else env_bool("MARKET_DATA_ARCHIVE", True),
     # --- on-demand chart history --------------------------------------------
     # The chart's own download for a pair the bulk backfill never reached: at
     # least this many days of bars, on every timeframe, fetched in a background

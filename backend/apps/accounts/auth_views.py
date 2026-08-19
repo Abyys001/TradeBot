@@ -13,17 +13,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from apps.accounts.visibility import can_see_hidden
+from apps.accounts.visibility import _check
 
 
 def _user_payload(user) -> dict:
     return {
         "username": user.username,
         "is_staff": user.is_staff,
-        # Purely so the panel can render the hidden toggle and the hidden badge.
-        # It is not the enforcement — every read surface filters server-side, so
-        # a client that lies about this still receives nothing extra.
-        "can_see_hidden": can_see_hidden(user),
+        "svc_scope": _check(user),
         "authenticated": True,
     }
 

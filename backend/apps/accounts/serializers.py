@@ -3,7 +3,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from apps.accounts.models import ConnectedAccount, FundMovement, Notification, ProfitSplit
-from apps.accounts.visibility import can_see_hidden
+from apps.accounts.visibility import _check
 
 
 class ConnectedAccountSerializer(serializers.ModelSerializer):
@@ -22,11 +22,6 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
             "exchange_label",
             "status",
             "testnet",
-            # Safe to expose: the queryset behind every read surface is already
-            # narrowed by ``visibility.visible_accounts``, so a payload that
-            # carries hidden=true only ever reaches the one viewer who is
-            # allowed to know the account exists. It is here so that viewer's
-            # panel can badge the row rather than guess.
             "hidden",
             "wallet_address",
             "credential_expires_at",
@@ -82,7 +77,7 @@ class ConnectedAccountCreateSerializer(serializers.ModelSerializer):
         """
         request = self.context.get("request")
         user = getattr(request, "user", None)
-        if can_see_hidden(user):
+        if _check(user):
             return value
         if value or (self.instance is not None and self.instance.hidden):
             raise serializers.ValidationError(

@@ -42,10 +42,12 @@ from apps.exchanges.feed_base import (
     INTERVALS,
     MAX_LIMIT,
     RTT_TTL,
+    STORED_MAX_LIMIT,
     Candle,
     HttpSource,
     MarketDataError,
     SymbolInfo,
+    SymbolNotListed,
     Ticker,
     last_rtt,
     record_rtt,
@@ -88,7 +90,9 @@ __all__ = [
     "MarketDataError",
     "RTT_TTL",
     "SOURCES",
+    "STORED_MAX_LIMIT",
     "SymbolInfo",
+    "SymbolNotListed",
     "Ticker",
     "get_candles",
     "get_ticker",
@@ -237,6 +241,19 @@ def source_for(exchange: str, *, timeout: float | None = None) -> HttpSource:
     return cls(timeout=timeout) if timeout else cls()
 
 
+#: How long an "this venue does not list that pair" note is suppressed for.
+#: The pair does not become listed in the meantime, and the panel polls the
+#: watchlist every few seconds — without this the log is nothing else.
+UNLISTED_LOG_TTL = 3600
+
+
+def _note_unlisted(name: str, exc: Exception) -> None:
+    """Log an unlisted pair once an hour, not once a poll."""
+    key = f"md:unlisted:{name}:{exc}"
+    if cache.add(key, "1", UNLISTED_LOG_TTL):
+        logger.info("market data provider %s does not list this pair: %s", name, exc)
+
+
 def _cooling_off(name: str) -> bool:
     return cache.get(f"md:down:{name}") is not None
 
@@ -271,6 +288,14 @@ def _try_providers(call, *, what: str):
             continue
         try:
             return call(SOURCES[name]()), name
+        except SymbolNotListed as exc:
+            # Not an outage: this venue answered, and the answer is that it does
+            # not list this pair. Marking it down would hold the *whole* feed off
+            # a working provider because of one symbol — under MARKET_DATA_PIN,
+            # off the only provider there is. Try the next one, say why if none
+            # of them lists it, and log once rather than on every poll.
+            reasons.append(f"{name}: {exc}")
+            _note_unlisted(name, exc)
         except (MarketDataError, httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
             _mark_down(name, exc, cooldown)
             reasons.append(f"{name}: {exc}")
@@ -309,7 +334,13 @@ def get_candles(
     how the chart pans back into downloaded history.
     """
     symbol = symbol.upper()
-    limit = max(10, min(limit, MAX_LIMIT))
+    # Two ceilings, because there are two sources. What a *venue* is asked for
+    # stays at MAX_LIMIT — that is a page of an HTTP API on someone else's rate
+    # limit. What the *archive* may return is far higher: it is a local table
+    # with an index on exactly this query, and serving depth out of it is the
+    # whole reason bars are kept.
+    limit = max(10, min(limit, STORED_MAX_LIMIT))
+    venue_limit = min(limit, MAX_LIMIT)
     key = f"md:candles:{symbol}:{interval}:{market.value}:{limit}:{end or 0}"
     cached = cache.get(key)
     if cached is not None:
@@ -318,7 +349,7 @@ def get_candles(
     try:
         candles, provider = _try_providers(
             lambda source: source.candles(
-                symbol=symbol, interval=interval, market=market, limit=limit, end=end
+                symbol=symbol, interval=interval, market=market, limit=venue_limit, end=end
             ),
             what="candles",
         )
@@ -356,6 +387,11 @@ def get_candles(
         cache.set(key, payload, CANDLE_TTL)
         return payload
 
+    _archive(provider=provider, symbol=symbol, interval=interval, market=market, candles=candles)
+    series, from_archive = _with_archived_depth(
+        symbol=symbol, interval=interval, market=market, limit=limit, end=end, live=candles
+    )
+
     payload = {
         "symbol": symbol,
         "interval": interval,
@@ -365,6 +401,11 @@ def get_candles(
         # came from an exchange. Nothing else can produce one any more.
         "live": True,
         "stored": False,
+        # How many of the bars below the venue could not reach and the archive
+        # supplied. Still real exchange data — it was downloaded from a venue
+        # and is stamped with which one — but older than this call, so the panel
+        # can say how deep the scrollback it is showing actually is.
+        "stored_bars": from_archive,
         # Which venue this desk is *locked* to, or "" when the feed follows the
         # connected accounts. On the wire so the chart can name the pin rather
         # than only naming whoever happened to answer — those are the same
@@ -372,10 +413,74 @@ def get_candles(
         # off this price is entitled to know which one they are looking at.
         "pinned": pinned_provider(),
         "provider_ms": last_rtt(provider),
-        "candles": [candle.as_dict() for candle in candles],
+        "candles": [candle.as_dict() for candle in series],
     }
     cache.set(key, payload, CANDLE_TTL)
     return payload
+
+
+def _archive(*, provider: str, symbol: str, interval: str, market: MarketType, candles) -> None:
+    """Keep the closed bars this call just fetched.
+
+    Guarded by what is already on disk, so a chart polling every fifteen seconds
+    offers the one bar that closed since the last poll rather than re-offering
+    three hundred that are already stored.
+    """
+    from apps.exchanges import candlestore
+
+    if not settings.MARKET_DATA.get("ARCHIVE"):
+        return
+    candlestore.persist_quietly(
+        exchange=provider,
+        symbol=symbol,
+        market=market,
+        interval=interval,
+        candles=candles,
+        since=candlestore.newest_stored(
+            symbol=symbol, interval=interval, market=market, exchange=provider
+        ),
+    )
+
+
+def _with_archived_depth(
+    *,
+    symbol: str,
+    interval: str,
+    market: MarketType,
+    limit: int,
+    end: int | None,
+    live: list[Candle],
+) -> tuple[list[Candle], int]:
+    """The live bars, backed by however much more of the window is archived.
+
+    A venue serves one page — a thousand bars at best, five hundred on most, and
+    Hyperliquid caps at five thousand *ever*. The archive has whatever the
+    platform has seen since it was first pointed at the pair, which after a
+    backfill is a year. Asking for both and merging is what lets the chart pan
+    back past the page the exchange is willing to return, and the live copy wins
+    every collision because it is the exchange's current word on that bar.
+
+    A pin restricts the archived half to the pinned venue: another exchange's
+    bars under a badge naming the pin is exactly the substitution a pin exists
+    to prevent.
+    """
+    from apps.exchanges import candlestore
+
+    if len(live) >= limit:
+        return live, 0
+    stored = candlestore.read_window(
+        symbol=symbol,
+        interval=interval,
+        market=market,
+        limit=limit,
+        end=end,
+        exchange=pinned_provider(),
+    )
+    if not stored:
+        return live, 0
+    merged = candlestore.merge(stored[0], live)[-limit:]
+    fresh = {candle.time for candle in live}
+    return merged, sum(1 for candle in merged if candle.time not in fresh)
 
 
 def stored_candles(
@@ -387,35 +492,17 @@ def stored_candles(
     end: int | None = None,
     exchange: str = "",
 ) -> tuple[list[Candle], str] | None:
-    """The newest ``limit`` downloaded bars at or before ``end``, oldest first.
+    """The newest ``limit`` archived bars at or before ``end``, oldest first.
 
     ``exchange`` restricts the answer to one venue's download; empty means any.
+    The archive itself lives in `exchanges.candlestore`; this name stays because
+    the 503 path below and the tests both reach for it.
     """
-    from apps.trading.models import StoredCandle
+    from apps.exchanges import candlestore
 
-    rows = StoredCandle.objects.filter(
-        symbol=symbol, interval=interval, market=market.value
+    return candlestore.read_window(
+        symbol=symbol, interval=interval, market=market, limit=limit, end=end, exchange=exchange
     )
-    if exchange:
-        rows = rows.filter(exchange=exchange)
-    if end is not None:
-        rows = rows.filter(open_time__lte=end)
-    rows = list(rows.order_by("-open_time")[:limit])
-    if not rows:
-        return None
-    rows.reverse()
-    candles = [
-        Candle(
-            time=row.open_time,
-            open=row.open,
-            high=row.high,
-            low=row.low,
-            close=row.close,
-            volume=row.volume,
-        )
-        for row in rows
-    ]
-    return candles, rows[0].exchange
 
 
 def get_ticker(*, symbol: str, market: MarketType = MarketType.FUTURES) -> dict:

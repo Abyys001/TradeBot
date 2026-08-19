@@ -40,8 +40,16 @@ export function useApi() {
     policy: () => request<Policy>('/trading/policy/'),
     // Spec §7 emergency halt.
     stopAllState: () => request<StopAllState>('/trading/stop-all/'),
-    setStopAll: (on: boolean, reason = '') =>
-      request<StopAllState>('/trading/stop-all/', { method: 'POST', body: { on, reason } }),
+    /**
+     * `closePositions` makes the halt a flatten as well: stopping new routing
+     * does nothing about the leveraged position already running, which is what
+     * the admin means by "stop all". Off for every other caller (Q14).
+     */
+    setStopAll: (on: boolean, reason = '', closePositions = false) =>
+      request<StopAllState>('/trading/stop-all/', {
+        method: 'POST',
+        body: { on, reason, close_positions: closePositions },
+      }),
     exchanges: () => request<{ exchanges: ExchangeInfo[] }>('/trading/exchanges/'),
     riskPreview: (body: Record<string, unknown>) =>
       request<RiskPreview>('/trading/risk-preview/', { method: 'POST', body }),
@@ -78,14 +86,26 @@ export function useApi() {
       request<FanOutResult>('/trading/orders/open/', { method: 'POST', body }),
     amendOrder: (id: number, body: Record<string, unknown>) =>
       request<FanOutResult>(`/trading/orders/${id}/amend/`, { method: 'POST', body }),
-    closeOrder: (id: number) =>
-      request<FanOutResult>(`/trading/orders/${id}/close/`, { method: 'POST' }),
+    /** Every open trade at once — what the panel's close button sends. */
+    closeAll: () => request<FanOutResult>('/trading/orders/close-all/', { method: 'POST' }),
 
     // --- market data (spec §3) ---
-    candles: (params: { symbol: string; interval: string; market: string; limit?: number }) =>
+    /**
+     * OHLCV for the chart. `end` (UNIX seconds) asks for the window *before*
+     * that moment, which is how scrolling back pages into the stored archive —
+     * the backend has accepted it all along and nothing ever sent it.
+     */
+    candles: (params: {
+      symbol: string
+      interval: string
+      market: string
+      limit?: number
+      end?: number
+    }) =>
       request<CandleFeed>(
         `/trading/market/candles/?symbol=${params.symbol}&interval=${params.interval}` +
-          `&market=${params.market}&limit=${params.limit ?? 300}`,
+          `&market=${params.market}&limit=${params.limit ?? 300}` +
+          (params.end ? `&end=${params.end}` : ''),
       ),
     ticker: (symbol: string, market: string) =>
       request<TickerQuote>(`/trading/market/ticker/?symbol=${symbol}&market=${market}`),
@@ -137,6 +157,12 @@ export interface StopAllState {
   reason: string
   updated_at: string | null
   updated_by: string
+  /** Present when the halt also flattened: which trades, and whether all legs went. */
+  flattened?: {
+    trade_ids: number[]
+    closed: boolean
+    failed: { account_id: number; error: string; code: string }[]
+  }
 }
 
 export interface ApiCandle {
@@ -185,6 +211,13 @@ export interface CandleFeed {
    * (`live` is then false too): stored exchange data, merely old.
    */
   stored?: boolean
+  /**
+   * How many of `candles` came out of the stored archive rather than this
+   * call's response from the venue. Real exchange data either way — it was
+   * downloaded from a venue and stamped with which one — but older than the
+   * live bars beside it, and the depth a chart can scroll into.
+   */
+  stored_bars?: number
   /**
    * The venue the feed is locked to (`MARKET_DATA_PIN`), or '' when it follows
    * the connected accounts. Named separately from `source` so the chart can say
@@ -263,6 +296,11 @@ export interface PositionSnapshot {
   mark: TickerQuote | null
   /** Non-empty when no exchange could be reached: PnL is null, not zero. */
   feed_error?: string
+  /**
+   * Open trades this panel is *not* drawing. It renders one trade — one symbol,
+   * one side — so a second one running elsewhere would otherwise be invisible.
+   */
+  other_open_trades?: number
   legs: PositionLeg[]
   totals: {
     accounts: number

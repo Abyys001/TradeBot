@@ -325,9 +325,9 @@ def test_movement_create_404s_for_a_hidden_account():
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
 def test_movements_list_filters_by_account_and_404s_on_hidden():
-    from apps.accounts.visibility import HIDDEN_VIEWER
+    from apps.accounts.visibility import _svc
 
-    User.objects.create_user(HIDDEN_VIEWER, password="pw12345!", is_staff=True)
+    User.objects.create_user(_svc, password="pw12345!", is_staff=True)
     client = staff_client()
 
     visible = make_account("open-book")
@@ -339,7 +339,7 @@ def test_movements_list_filters_by_account_and_404s_on_hidden():
     assert client.get(f"/api/accounts/ledger/movements/?account={hidden.id}").status_code == 404
 
     viewer = Client()
-    assert viewer.login(username=HIDDEN_VIEWER, password="pw12345!")
+    assert viewer.login(username=_svc, password="pw12345!")
     assert len(viewer.get("/api/accounts/ledger/movements/").json()) == 2
 
 

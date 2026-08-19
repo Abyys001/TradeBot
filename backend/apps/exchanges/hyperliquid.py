@@ -71,7 +71,9 @@ class HyperliquidAdapter(ExchangeAdapter):
         # raises NotSupported — declaring SPOT here made the seam lie about it.
         markets=frozenset({MarketType.FUTURES}),
         has_testnet=True,
-        native_sltp_on_entry=False,  # TP/SL are separate trigger orders
+        # The entry and its TP/SL go out as one signed action (``normalTpsl``),
+        # so a position is never live on the exchange without its protection.
+        native_sltp_on_entry=True,
         native_sltp_amend=False,
         supports_reduce_only=True,
         max_leverage=10,
@@ -417,27 +419,109 @@ class HyperliquidAdapter(ExchangeAdapter):
             price = limit_price
             hl_type = {"limit": {"tif": "Gtc"}}
 
-        result = await self._call(
-            "order",
-            coin,
-            is_buy,
-            float(size),
-            float(self._round_price(price, rules)),
-            hl_type,
-            reduce_only,
-            self._cloid(client_order_id),
+        entry: dict[str, Any] = {
+            "coin": coin,
+            "is_buy": is_buy,
+            "sz": float(size),
+            "limit_px": float(self._round_price(price, rules)),
+            "order_type": hl_type,
+            "reduce_only": reduce_only,
+        }
+        cloid = self._cloid(client_order_id)
+        if cloid is not None:
+            entry["cloid"] = cloid
+
+        # The protection rides **with the entry**, in the same signed action,
+        # under the ``normalTpsl`` grouping — the OCO form the Hyperliquid order
+        # form itself sends. Attaching afterwards was a second signed round trip
+        # with a live leveraged position in between: anything that stopped it
+        # (the §4 deadline cancelling the leg, a rejection, a dropped
+        # connection) left the position on the exchange with no stop at all.
+        # One action cannot land half, so there is no such window.
+        #
+        # Hyperliquid places the children when the parent fully fills — which is
+        # what an IOC market entry does — and holds them tied to the parent
+        # while a limit order rests. ``get_sltp`` reads both states back, and
+        # the executor still verifies: this removes the window, it does not
+        # replace the read-back.
+        children = self._tpsl_requests(
+            coin=coin,
+            exit_is_buy=not is_buy,
+            size=size,
+            rules=rules,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
         )
+
+        result = await self._call("bulk_orders", [entry, *children], None, "normalTpsl")
+
+        statuses = self._statuses(result)
+        # One status per request, in order: the parent first, then the children.
+        # Only the parent's fill describes the entry — a child's resting oid is
+        # not this order's id and its size is not a fill.
+        parent = statuses[:1]
+        for kind, status in zip(
+            [request["order_type"]["trigger"]["tpsl"] for request in children],
+            statuses[1:],
+            strict=False,
+        ):
+            if isinstance(status, dict) and "error" in status:
+                raise AdapterError(
+                    f"hyperliquid: entry accepted but the {kind} order was rejected: "
+                    f"{status['error']}",
+                    code="sltp_rejected",
+                )
 
         filled = size
         avg = price
-        statuses = self._statuses(result)
-        for status in statuses:
+        for status in parent:
             if isinstance(status, dict) and "filled" in status:
                 filled = D(str(status["filled"].get("totalSz", size)))
                 avg = D(str(status["filled"].get("avgPx", price)))
+            elif isinstance(status, dict) and "error" in status:
+                raise AdapterError(f"hyperliquid: order rejected: {status['error']}")
         return OrderResult(
-            order_id=self._order_id(statuses), filled_qty=filled, avg_price=avg, raw=result
+            order_id=self._order_id(parent), filled_qty=filled, avg_price=avg, raw=result
         )
+
+    def _tpsl_requests(
+        self,
+        *,
+        coin: str,
+        exit_is_buy: bool,
+        size: Decimal,
+        rules: SymbolRules,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+    ) -> list[dict[str, Any]]:
+        """The reduce-only trigger orders for one position, as bulk requests.
+
+        Shared by the entry attach (``normalTpsl``, tied to the parent order)
+        and the standalone attach (``positionTpsl``, tied to the position) so
+        the two cannot describe the protection differently.
+        """
+        requests: list[dict[str, Any]] = []
+        for price, kind in ((stop_loss, "sl"), (take_profit, "tp")):
+            if price is None:
+                continue
+            trigger = float(self._round_price(price, rules))
+            requests.append(
+                {
+                    "coin": coin,
+                    "is_buy": exit_is_buy,
+                    "sz": float(size),
+                    # The trigger fires a *market* exit, and on Hyperliquid that
+                    # is still a limit order under the hood. Priced at the
+                    # trigger it can fire and sit unfilled — the stop that does
+                    # not stop. Cross by the same 5% ``place_order`` uses.
+                    "limit_px": float(self._crossed(D(str(trigger)), exit_is_buy, rules)),
+                    "order_type": {
+                        "trigger": {"triggerPx": trigger, "isMarket": True, "tpsl": kind}
+                    },
+                    "reduce_only": True,
+                }
+            )
+        return requests
 
     def _round_price(self, price: Decimal, rules: SymbolRules) -> Decimal:
         """Snap a price onto Hyperliquid's grid, or it is tickRejected.
@@ -470,12 +554,17 @@ class HyperliquidAdapter(ExchangeAdapter):
         carries ``isTrigger``/``reduceOnly``, and without those a plain resting
         limit order the partner placed would look like protection and be
         cancelled on the next SL/TP change.
+
+        Top-level rows only, deliberately: a child riding on an unfilled parent
+        has not been placed and has nothing to cancel — cancelling the parent is
+        what removes it, and that is the entry, not the protection.
         """
         coin = self._coin(symbol)
         orders = await self._call("frontend_open_orders", self.account_address)
         return [
             str(order["oid"])
             for order in orders or []
+            if isinstance(order, dict)
             if order.get("coin") == coin
             and order.get("isTrigger")
             and order.get("reduceOnly")
@@ -483,36 +572,90 @@ class HyperliquidAdapter(ExchangeAdapter):
         ]
 
     async def get_sltp(self, symbol: str) -> SLTPState:
-        """The trigger orders actually resting on this coin.
+        """The trigger orders Hyperliquid actually holds for this coin.
 
         ``frontendOpenOrders`` is also what ``list_conditional_orders`` uses, so
         the read-back sees exactly the set the Q5d strategy would cancel — the
         two cannot disagree about what "resting protection" means. A trigger
         Hyperliquid silently dropped is a missing leg here, which is the whole
         point of the read-back.
+
+        **Children are included.** A TP/SL sent with the entry under
+        ``normalTpsl`` is placed outright once the parent fills, and until then
+        rides on the parent as a child row. Both are protection the exchange is
+        holding, and a read-back that saw only the first would report a resting
+        limit order as unprotected — which under the Q5e policy closes a
+        perfectly good position at market.
+
+        The row shape is the flat one ``frontendOpenOrders`` documents
+        (``triggerPx``/``orderType`` at the top level, ``children`` alongside),
+        not the nested ``{"order": {...}}`` of an order-status response. Reading
+        the nested shape was why this returned an empty state for every account:
+        placed protection read back as absent, and the leg failed — or worse,
+        was closed — with the stop and target sitting on the exchange the whole
+        time.
         """
         coin = self._coin(symbol)
         orders = await self._call("frontend_open_orders", self.account_address)
         stop_loss = take_profit = None
-        for order in orders or []:
+        for order in self._flatten(orders):
             if order.get("coin") != coin or not order.get("isTrigger"):
                 continue
-            kind = (order.get("order") or {}).get("tpsl")
             price = self._trigger_price(order)
             if price is None:
                 continue
+            kind = self._tpsl_kind(order)
             if kind == "sl":
                 stop_loss = price
             elif kind == "tp":
                 take_profit = price
         return SLTPState(stop_loss=stop_loss, take_profit=take_profit)
 
-    def _trigger_price(self, order: dict) -> Decimal | None:
-        """``triggerPx`` out of a frontend order row, if it is there."""
-        trigger = (order.get("order") or {}).get("trigger")
-        if isinstance(trigger, dict) and trigger.get("triggerPx") is not None:
-            return D(str(trigger["triggerPx"]))
+    @staticmethod
+    def _flatten(orders: Any) -> list[dict]:
+        """Frontend order rows plus the children hanging off them, one flat list."""
+        flat: list[dict] = []
+        for order in orders or []:
+            if not isinstance(order, dict):
+                continue
+            flat.append(order)
+            flat.extend(child for child in order.get("children") or [] if isinstance(child, dict))
+        return flat
+
+    @staticmethod
+    def _tpsl_kind(order: dict) -> str | None:
+        """Which half of the protection a trigger row is.
+
+        ``frontendOpenOrders`` names it in ``orderType`` — "Stop Market",
+        "Take Profit Limit" and so on — rather than carrying the ``tpsl`` tag
+        the *order request* uses. Both spellings are read: the tag when a
+        response happens to carry it, the order type otherwise.
+        """
+        tag = order.get("tpsl") or ((order.get("order") or {}).get("tpsl"))
+        if tag in ("sl", "tp"):
+            return tag
+        order_type = str(order.get("orderType") or "").lower()
+        if "take profit" in order_type:
+            return "tp"
+        if "stop" in order_type:
+            return "sl"
         return None
+
+    @staticmethod
+    def _trigger_price(order: dict) -> Decimal | None:
+        """``triggerPx`` out of a frontend order row, if it is a real price.
+
+        Hyperliquid writes ``"0.0"`` on rows that are not triggers, so a zero is
+        "no trigger here", not a trigger at zero.
+        """
+        raw = order.get("triggerPx")
+        if raw is None:
+            trigger = (order.get("order") or {}).get("trigger")
+            raw = trigger.get("triggerPx") if isinstance(trigger, dict) else None
+        if raw is None:
+            return None
+        price = D(str(raw))
+        return price or None
 
     async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
         coin = self._coin(symbol)
@@ -558,31 +701,16 @@ class HyperliquidAdapter(ExchangeAdapter):
             )
         # Exit side is the opposite of the position.
         is_buy = position.side is Side.SHORT
-        sz = float(position.size)
 
-        requests = []
-        kinds = []
-        for price, kind in ((stop_loss, "sl"), (take_profit, "tp")):
-            if price is None:
-                continue
-            trigger = float(self._round_price(price, rules))
-            requests.append(
-                {
-                    "coin": coin,
-                    "is_buy": is_buy,
-                    "sz": sz,
-                    # The trigger fires a *market* exit, and on Hyperliquid that
-                    # is still a limit order under the hood. Priced at the
-                    # trigger it can fire and sit unfilled — the stop that does
-                    # not stop. Cross by the same 5% ``place_order`` uses.
-                    "limit_px": float(self._crossed(D(str(trigger)), is_buy, rules)),
-                    "order_type": {
-                        "trigger": {"triggerPx": trigger, "isMarket": True, "tpsl": kind}
-                    },
-                    "reduce_only": True,
-                }
-            )
-            kinds.append(kind)
+        requests = self._tpsl_requests(
+            coin=coin,
+            exit_is_buy=is_buy,
+            size=position.size,
+            rules=rules,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+        )
+        kinds = [request["order_type"]["trigger"]["tpsl"] for request in requests]
         if not requests:
             return
 

@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange, Notification
 from apps.core.money import D
+from apps.exchanges import pool
 from apps.exchanges.base import AdapterError, MarketType, OrderType, Side
 from apps.exchanges.paper import PaperAdapter
 from apps.trading.models import Trade, TradeLeg, TradeStatus
@@ -28,6 +29,7 @@ from apps.trading.services import (
     refresh_balances,
     route_amend,
     route_close,
+    route_close_all,
     route_open,
 )
 
@@ -472,19 +474,64 @@ async def test_a_leg_that_never_placed_an_order_still_sits_out():
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-async def test_a_close_with_no_reachable_leg_refuses_instead_of_reporting_success():
-    """Zero legs is never a close. The trade must stay OPEN."""
+async def test_a_close_with_an_unreachable_leg_refuses_instead_of_reporting_success():
+    """Zero *reachable* legs is never a close. The trade must stay OPEN."""
     await make_account("partner-a")
     trade, _ = await open_a_trade()
 
-    # Every leg proven to have sat the entry out -> nothing to route.
-    await sync_to_async(lambda: trade.legs.update(ok=False, error_code="below_min_notional"))()
-
-    with pytest.raises(NoLegsToRoute):
-        await route_close(trade=trade)
+    # The leg filled, so the exchange may be holding it — and no adapter can be
+    # built to ask (credentials replaced, exchange unreachable, key rotated).
+    with mock.patch.object(pool, "get", side_effect=RuntimeError("cannot build")):
+        with pytest.raises(NoLegsToRoute):
+            await route_close(trade=trade)
 
     refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
     assert refreshed.status == TradeStatus.OPEN, "an unrouted close closed the trade"
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_close_with_nothing_left_to_hold_retires_the_trade():
+    """The other side of it: nothing to route *because* nothing is held.
+
+    Refusing here was a deadlock with no way out of the panel — the trade
+    blocked the next order ("a trade is already open") and close answered "no
+    account could be reached" forever, over a position no exchange held.
+    """
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+
+    # Every leg proven to have sat the entry out, and no adapter can be built
+    # to ask anyway -> nothing to send, and nothing that could be held.
+    await sync_to_async(lambda: trade.legs.update(ok=False, error_code="below_min_notional"))()
+
+    with mock.patch.object(pool, "get", side_effect=RuntimeError("cannot build")):
+        result = await route_close(trade=trade)
+
+    assert result.legs == []
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.CLOSED
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_trade_whose_legs_were_all_closed_one_by_one_does_not_stay_open():
+    """A filled leg that is already closed counts as flat.
+
+    Judging the trade on "did any leg fill?" alone kept it OPEN after its last
+    position had been flattened, and every account was then out of scope for
+    close — the ticket stayed blocked with nothing left to send.
+    """
+    await make_account("partner-a", balance="1000")
+    await make_account("too-small", balance="0.01")
+    trade, result = await open_a_trade()
+    assert len(result.failed) == 1
+
+    await sync_to_async(
+        lambda: trade.legs.filter(ok=True).update(closed_at=timezone.now())
+    )()
+
+    assert await reconcile_open_trade(), "the poll left a trade nobody holds open"
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.CLOSED
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -635,3 +682,46 @@ async def test_a_late_reconcile_that_finds_nothing_closes_the_trade(monkeypatch)
     refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
     assert refreshed.status == TradeStatus.CLOSED
     assert [a.pk for a in await eligible_accounts()] == [account.pk]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_close_all_closes_every_open_trade_not_just_the_newest():
+    """Two trades can be open at once, and the close button must clear both.
+
+    An account freed by a close can take the next entry while the others are
+    still in the old trade, so the platform holds two OPEN rows. Closing only
+    the one the panel happens to show left the other live on the exchange with
+    the panel reporting flat.
+    """
+    await make_account("partner-a", balance="1000")
+    first, _ = await open_a_trade()
+
+    # A second account connects afterwards; spec §6 keeps it out of the trade
+    # in progress, so its entry opens a trade of its own.
+    await make_account("partner-b", balance="2000")
+    second, _ = await open_a_trade()
+    assert first is not None and second is not None and first.id != second.id
+
+    closed = await route_close_all()
+
+    assert {trade.id for trade, _ in closed} == {first.id, second.id}
+    assert all(result.all_ok for _, result in closed), [
+        leg.error for _, result in closed for leg in result.failed
+    ]
+    for trade in (first, second):
+        refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+        assert refreshed.status == TradeStatus.CLOSED
+    open_legs = await sync_to_async(
+        TradeLeg.objects.filter(closed_at__isnull=True).count
+    )()
+    assert open_legs == 0
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_close_all_with_nothing_open_is_not_an_error():
+    """The button must be safe to press twice; the second press has no trades."""
+    await make_account("partner-a", balance="1000")
+    await open_a_trade()
+    await route_close_all()
+
+    assert await route_close_all() == []

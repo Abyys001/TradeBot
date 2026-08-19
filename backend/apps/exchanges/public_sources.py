@@ -26,6 +26,7 @@ from apps.exchanges.feed_base import (
     HttpSource,
     MarketDataError,
     SymbolInfo,
+    SymbolNotListed,
     Ticker,
     split_pair,
 )
@@ -197,7 +198,7 @@ class BybitPublicSource(HttpSource):
         )
         rows = result.get("list") or []
         if not rows:
-            raise MarketDataError("bybit: no ticker for that symbol")
+            raise SymbolNotListed("bybit: no ticker for that symbol")
         row = rows[0]
         change = row.get("price24hPcnt")
         return Ticker(
@@ -268,7 +269,7 @@ class OkxPublicSource(HttpSource):
     def _inst_id(self, symbol: str, market: MarketType) -> str:
         pair = split_pair(symbol)
         if pair is None:
-            raise MarketDataError(f"okx: cannot map symbol {symbol}")
+            raise SymbolNotListed(f"okx: cannot map symbol {symbol}")
         base, quote = pair
         return f"{base}-{quote}-SWAP" if market is MarketType.FUTURES else f"{base}-{quote}"
 
@@ -315,7 +316,7 @@ class OkxPublicSource(HttpSource):
             )
         )
         if not rows:
-            raise MarketDataError(f"okx: no ticker for {symbol}")
+            raise SymbolNotListed(f"okx: no ticker for {symbol}")
         row = rows[0]
         last, open24h = D(row.get("last") or "0"), D(row.get("open24h") or "0")
         return Ticker(
@@ -383,12 +384,12 @@ class GateioPublicSource(HttpSource):
     def _contract(self, symbol: str) -> str:
         pair = split_pair(symbol)
         if pair is None:
-            raise MarketDataError(f"gateio: cannot map symbol {symbol}")
+            raise SymbolNotListed(f"gateio: cannot map symbol {symbol}")
         return f"{pair[0]}_{pair[1]}"
 
     def _path(self, market: MarketType, tail: str) -> str:
         if market is MarketType.SPOT:
-            raise MarketDataError("gateio: this feed covers USDT futures only")
+            raise SymbolNotListed("gateio: this feed covers USDT futures only")
         return f"{self._BASE}/api/v4/futures/{self._SETTLE}/{tail}"
 
     def candles(self, *, symbol, interval, market, limit, end=None):
@@ -425,7 +426,7 @@ class GateioPublicSource(HttpSource):
     def ticker(self, *, symbol, market):
         rows = self._tickers(market, self._contract(symbol))
         if not rows:
-            raise MarketDataError(f"gateio: no ticker for {symbol}")
+            raise SymbolNotListed(f"gateio: no ticker for {symbol}")
         row = rows[0]
         change = row.get("change_percentage")
         return Ticker(
@@ -497,7 +498,7 @@ class KucoinPublicSource(HttpSource):
 
     def candles(self, *, symbol, interval, market, limit, end=None):
         if market is MarketType.SPOT:
-            raise MarketDataError("kucoin: this feed covers futures only")
+            raise SymbolNotListed("kucoin: this feed covers futures only")
         limit = min(limit, self.page_limit)
         start, finish = _window(interval, limit, end)
         rows = self._data(
@@ -528,7 +529,7 @@ class KucoinPublicSource(HttpSource):
             self._get(f"{self._BASE}/api/v1/contracts/{self._contract(symbol)}", {})
         )
         if not isinstance(row, dict) or not row.get("lastTradePrice"):
-            raise MarketDataError(f"kucoin: no ticker for {symbol}")
+            raise SymbolNotListed(f"kucoin: no ticker for {symbol}")
         change = row.get("priceChgPct")
         return Ticker(
             symbol=symbol.upper(),
@@ -540,7 +541,7 @@ class KucoinPublicSource(HttpSource):
 
     def symbols(self, *, market):
         if market is MarketType.SPOT:
-            raise MarketDataError("kucoin: this feed covers futures only")
+            raise SymbolNotListed("kucoin: this feed covers futures only")
         rows = self._data(self._get(f"{self._BASE}/api/v1/contracts/active", {})) or []
         out: list[SymbolInfo] = []
         for row in rows:
@@ -579,7 +580,7 @@ class ToobitPublicSource(HttpSource):
             return symbol.upper()
         pair = split_pair(symbol)
         if pair is None:
-            raise MarketDataError(f"toobit: cannot map symbol {symbol}")
+            raise SymbolNotListed(f"toobit: cannot map symbol {symbol}")
         # Toobit perpetuals are named BTC-SWAP-USDT.
         return f"{pair[0]}-SWAP-{pair[1]}"
 
@@ -622,7 +623,7 @@ class ToobitPublicSource(HttpSource):
         rows = payload if isinstance(payload, list) else [payload]
         row = next((r for r in rows if isinstance(r, dict) and r.get("c")), None)
         if row is None:
-            raise MarketDataError(f"toobit: no ticker for {symbol}")
+            raise SymbolNotListed(f"toobit: no ticker for {symbol}")
         open_price = D(str(row.get("o") or "0"))
         last = D(str(row.get("c") or row.get("lastPrice") or "0"))
         return Ticker(
@@ -684,7 +685,7 @@ class LbankPublicSource(HttpSource):
     def _pair(self, symbol: str) -> str:
         split = split_pair(symbol)
         if split is None:
-            raise MarketDataError(f"lbank: cannot map symbol {symbol}")
+            raise SymbolNotListed(f"lbank: cannot map symbol {symbol}")
         return f"{split[0]}_{split[1]}".lower()
 
     def _guard(self, market: MarketType) -> None:
@@ -734,7 +735,7 @@ class LbankPublicSource(HttpSource):
             self._get(f"{self._BASE}/v2/ticker/24hr.do", {"symbol": self._pair(symbol)})
         )
         if not rows:
-            raise MarketDataError(f"lbank: no ticker for {symbol}")
+            raise SymbolNotListed(f"lbank: no ticker for {symbol}")
         quote = rows[0].get("ticker") or {}
         change = quote.get("change")
         return Ticker(
@@ -803,7 +804,7 @@ class HyperliquidPublicSource(HttpSource):
 
     def candles(self, *, symbol, interval, market, limit, end=None):
         if market is MarketType.SPOT:
-            raise MarketDataError("hyperliquid: this feed covers perpetuals only")
+            raise SymbolNotListed("hyperliquid: this feed covers perpetuals only")
         limit = min(limit, self.page_limit)
         start, finish = _window(interval, limit, end)
         rows = self._info(
@@ -863,11 +864,11 @@ class HyperliquidPublicSource(HttpSource):
                 ),
                 at=_now_s(),
             )
-        raise MarketDataError(f"hyperliquid: no market for {symbol}")
+        raise SymbolNotListed(f"hyperliquid: no market for {symbol}")
 
     def symbols(self, *, market):
         if market is MarketType.SPOT:
-            raise MarketDataError("hyperliquid: this feed covers perpetuals only")
+            raise SymbolNotListed("hyperliquid: this feed covers perpetuals only")
         out: list[SymbolInfo] = []
         for asset, context in self._contexts():
             if asset.get("isDelisted"):

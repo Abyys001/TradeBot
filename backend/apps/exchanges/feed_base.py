@@ -48,8 +48,16 @@ INTERVALS: dict[str, int] = {
     "1d": 86400,
 }
 
+#: The most bars a *venue* is asked for in one call. A page of someone else's
+#: HTTP API, on someone else's rate limit.
 MAX_LIMIT = 1000
 DEFAULT_LIMIT = 300
+#: The most bars a request may return once the local archive is allowed to make
+#: up the difference (`exchanges.candlestore`). Far higher than MAX_LIMIT because
+#: this side is an indexed table rather than a rate-limited endpoint, and serving
+#: depth from it is the reason bars are kept at all. Still bounded: the payload
+#: is JSON over the wire and the chart has to paint it.
+STORED_MAX_LIMIT = 5000
 
 #: How long a measured round trip is still worth showing. Past this the panel
 #: shows nothing rather than a number from a link that may since have died.
@@ -58,6 +66,23 @@ RTT_TTL = 60
 
 class MarketDataError(Exception):
     """No provider could answer. There is no fallback — the caller says so."""
+
+
+class SymbolNotListed(MarketDataError):
+    """This venue does not list this pair. A fact about the pair, not an outage.
+
+    The distinction is not cosmetic. ``marketdata._try_providers`` puts a
+    provider that raises into a cooldown, on the assumption that a failure
+    means the venue is unreachable. A pair the venue simply does not list is
+    not that: Hyperliquid answering "no market for BMBUSDC" says nothing about
+    whether it can quote BTC, and with ``MARKET_DATA_PIN`` there is only one
+    provider — so one unlisted pair in the watchlist took the whole feed down
+    for every pair, every poll, and wrote a WARNING each time.
+
+    Raised by a source when it can prove the pair is absent from the venue's
+    own instrument list. Never for a timeout, a 5xx, or an unparsable reply:
+    those really are outages.
+    """
 
 
 @dataclass(frozen=True, slots=True)

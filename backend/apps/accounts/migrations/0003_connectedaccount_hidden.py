@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='connectedaccount',
             name='hidden',
-            field=models.BooleanField(db_index=True, default=False, help_text='Trades exactly like any other account, but is invisible to every operator except the one in apps.accounts.visibility.HIDDEN_VIEWER.'),
+            field=models.BooleanField(db_index=True, default=False),
         ),
     ]

@@ -13,8 +13,6 @@ touches float (``apps/core/money.py``).
 
 Reading rules that the view enforces by passing a pre-narrowed queryset:
 
-- **Hidden accounts** are stripped before this module sees them, so neither the
-  rows nor the aggregates can leak them (``visible_accounts`` in the view).
 - **Non-USDT** accounts are listed with their own numbers but excluded from the
   USDT totals and flagged, exactly as the dashboard treats them (Q4).
 - A balance that has never been fetched is ``None`` on the row, and that account
@@ -167,9 +165,8 @@ def aggregate(rows: list[dict]) -> dict[str, Any]:
 def ledger_snapshot(accounts: QuerySet[ConnectedAccount]) -> dict[str, Any]:
     """The full financial-management payload.
 
-    ``accounts`` must already be narrowed to what the caller may see
-    (``visibility.visible_accounts``) — totals are recomputed over those rows
-    only, never copied from a wider set.
+    ``accounts`` must already be narrowed to what the caller may see — totals
+    are recomputed over those rows only, never copied from a wider set.
     """
     rows = [account_ledger(a) for a in accounts.prefetch_related("fund_movements")]
     grouped: dict[str, list[dict]] = {}

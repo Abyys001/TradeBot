@@ -27,9 +27,10 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections
 from django.utils import timezone
 
+from apps.exchanges import candlestore
 from apps.exchanges.base import MarketType
 from apps.exchanges.feed_base import BACKFILL_TIMEOUT, INTERVALS, MarketDataError, SymbolInfo
 from apps.exchanges.marketdata import connected_exchanges, source_for
@@ -49,9 +50,8 @@ logger = logging.getLogger(__name__)
 #: download and being rate-limited off the exchange would also hurt the panel's
 #: live feed, which shares the same public endpoints.
 REQUEST_PAUSE = 0.12
-#: Rows per INSERT. Big enough to be fast, small enough that a failure loses
-#: little and SQLite's parameter cap is never hit.
-WRITE_BATCH = 2000
+#: Rows per INSERT, owned by the archive itself.
+WRITE_BATCH = candlestore.WRITE_BATCH
 
 
 def catalogue_sources() -> list[str]:
@@ -205,28 +205,18 @@ def top_symbols(exchange: str, market: MarketType, limit: int) -> list[str]:
 
 
 def write_candles(exchange: str, symbol: str, market: MarketType, interval: str, candles) -> int:
-    """Store bars, ignoring ones already downloaded. Returns rows written."""
-    rows = [
-        StoredCandle(
-            exchange=exchange,
-            symbol=symbol,
-            market=market.value,
-            interval=interval,
-            open_time=candle.time,
-            open=candle.open,
-            high=candle.high,
-            low=candle.low,
-            close=candle.close,
-            volume=candle.volume,
-        )
-        for candle in candles
-    ]
-    written = 0
-    for start in range(0, len(rows), WRITE_BATCH):
-        chunk = rows[start : start + WRITE_BATCH]
-        with transaction.atomic():
-            written += len(StoredCandle.objects.bulk_create(chunk, ignore_conflicts=True))
-    return written
+    """Store bars, ignoring ones already downloaded. Returns rows written.
+
+    A thin delegate so the backfill and the two live writers share one archive
+    policy — closed bars only, never pruned. See `exchanges.candlestore`.
+    """
+    return candlestore.persist(
+        exchange=exchange,
+        symbol=symbol,
+        market=market,
+        interval=interval,
+        candles=candles,
+    )
 
 
 def backfill_series(
@@ -483,11 +473,8 @@ def _series_covered(market: str, symbol: str, interval: str, days: int) -> bool:
     pair whose history already covers the span.
     """
     step = INTERVALS.get(interval, INTERVALS["1m"])
-    oldest = (
-        StoredCandle.objects.filter(market=market, symbol=symbol, interval=interval)
-        .order_by("open_time")
-        .values_list("open_time", flat=True)
-        .first()
+    oldest = candlestore.oldest_stored(
+        symbol=symbol, interval=interval, market=MarketType(market)
     )
     return oldest is not None and oldest <= int(time.time()) - days * 86400 + step
 

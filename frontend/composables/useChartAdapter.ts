@@ -65,6 +65,21 @@ export interface ChartAdapter {
   mount(el: HTMLElement): Promise<void>
   setCandles(bars: Bar[]): void
   appendCandle(bar: Bar): void
+  /**
+   * Add older bars to the *front* of the series without moving the view.
+   *
+   * Lightweight Charts pins its time scale to bar indices, so inserting `n`
+   * bars at the head shifts everything on screen `n` places right. This shifts
+   * the visible range back by the same amount, which is what makes scrolling
+   * into history feel continuous rather than jumping.
+   */
+  prependCandles(bars: Bar[]): void
+  /**
+   * Called when the view reaches the left edge of the loaded series — the
+   * chart asking for another page of history. Fires at most once per arrival,
+   * not once per frame of the scroll.
+   */
+  onNeedOlder(cb: () => void | Promise<void>): void
   showPosition(p: { entry: number; liquidation: number | null; side: 'long' | 'short' }): void
   showSLTP(sl: number | null, tp: number | null): void
   /**
@@ -178,6 +193,17 @@ export class LightweightChartAdapter implements ChartAdapter {
   /** The series as given, so autoscale can be reasoned about (see `autoscale`). */
   private bars: Bar[] = []
   private visible: { from: number; to: number } | null = null
+  /** Asked for another page of history; see `onNeedOlder`. */
+  private needOlder: (() => void | Promise<void>) | null = null
+  /** True between asking for a page and the bars for it arriving. */
+  private awaitingOlder = false
+
+  /**
+   * How close to bar 0 the view has to come before another page is requested.
+   * A screen's worth of slack, so the page is on its way before the admin
+   * reaches the end of what is loaded and sees the series stop.
+   */
+  private static readonly PAGE_AHEAD_BARS = 50
 
   /**
    * How far from the visible bars a price line may sit and still stretch the
@@ -229,6 +255,22 @@ export class LightweightChartAdapter implements ChartAdapter {
       // Which labels fit is a function of zoom: bars that were a screen apart
       // are touching two scroll-wheel notches later.
       this.repaintMarkers()
+    })
+    // The *logical* range is in bar indices rather than timestamps, which is
+    // what makes "how close is the view to the start of what we loaded" a
+    // question with an answer. The time range above cannot say that — it
+    // reports timestamps, and the gap between the oldest bar and the left of
+    // the viewport is the same shape whether more history exists or not.
+    this.chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (!range || this.awaitingOlder || !this.needOlder) return
+      if (range.from > LightweightChartAdapter.PAGE_AHEAD_BARS) return
+      this.awaitingOlder = true
+      // Un-latched when the caller settles, whatever it settled as. Clearing it
+      // only on the bars arriving would leave the chart permanently unable to
+      // ask again after one failed page.
+      Promise.resolve(this.needOlder()).finally(() => {
+        this.awaitingOlder = false
+      })
     })
     this.attachDragHandlers()
   }
@@ -293,11 +335,41 @@ export class LightweightChartAdapter implements ChartAdapter {
   }
 
   setCandles(bars: Bar[]) {
+    const grewAtTheFront =
+      this.bars.length > 0 && bars.length > this.bars.length && bars[0].time < this.bars[0].time
+    if (grewAtTheFront) {
+      // A poll that also carries pages the admin scrolled in. Treat it as a
+      // prepend so the view holds still, rather than as a fresh series.
+      this.prependCandles(bars)
+      return
+    }
     this.bars = bars.slice()
     this.series?.setData(bars as CandlestickData[])
     // Which bar a marker belongs to is a fact about *these* bars: a timeframe
     // change re-buckets every one of them.
     this.repaintMarkers()
+  }
+
+  prependCandles(bars: Bar[]) {
+    const added = bars.length - this.bars.length
+    const range = this.chart?.timeScale().getVisibleLogicalRange()
+    this.bars = bars.slice()
+    this.series?.setData(bars as CandlestickData[])
+    // `setData` leaves the logical range alone, and the range is bar *indices*
+    // — so the bars the admin was looking at have just slid `added` places to
+    // the right underneath a viewport that did not move. Shifting the range by
+    // the same amount puts them back where they were.
+    if (range && added > 0) {
+      this.chart?.timeScale().setVisibleLogicalRange({
+        from: range.from + added,
+        to: range.to + added,
+      })
+    }
+    this.repaintMarkers()
+  }
+
+  onNeedOlder(cb: () => void | Promise<void>) {
+    this.needOlder = cb
   }
 
   setTradeMarkers(markers: TradeMarker[]) {

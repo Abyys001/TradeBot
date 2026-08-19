@@ -258,7 +258,7 @@ const pnlSeries = computed(() => {
           v-if="fanoutPoints.length"
           :points="fanoutPoints"
           :reference="trading.fanoutBudgetMs"
-          :reference-label="t('dashboard.budget')"
+          :reference-label="t('dashboard.budget', { s: trading.fanoutBudgetMs / 1000 })"
           :height="150"
         >
           <template #caption>{{ t('dashboard.latencyCaption') }}</template>

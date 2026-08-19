@@ -66,6 +66,14 @@ export const usePositionsStore = defineStore('positions', {
      */
     feedError: (s) => s.snapshot?.feed_error ?? '',
 
+    /**
+     * Open trades running that this panel does not draw. Not a normal state:
+     * it means an entry went out while an earlier trade was still open, so the
+     * platform holds two. The close button flattens both — this is what stops
+     * the second one from being invisible until then.
+     */
+    otherOpenTrades: (s) => s.snapshot?.other_open_trades ?? 0,
+
     byAccount: (s) => (id: number) => s.snapshot?.legs.find((leg) => leg.account === id) ?? null,
   },
 

@@ -36,6 +36,14 @@ export const useOrderStore = defineStore('order', {
   getters: {
     // Liquidation distance depends on leverage alone: 1/leverage.
     liquidationDistancePct: (s) => 100 / s.leverage,
+
+    /**
+     * Both halves of the protection are set. The server requires them on every
+     * open and every amend — they become real trigger prices sent to the
+     * exchange — so this is what the send and amend buttons gate on rather than
+     * letting the request come back a 400.
+     */
+    hasProtection: (s) => s.slPct !== null && s.tpPct !== null,
     isOpen: (s) => s.entryPrice !== null,
 
     /** The price move the typed percentage actually implies (Q5a). */

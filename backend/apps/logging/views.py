@@ -10,7 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from apps.accounts.visibility import hidden_ids_for
+from apps.accounts.visibility import _filtered
 from apps.logging.models import Category, Level, LogEntry
 from apps.logging.serializers import LogEntrySerializer
 
@@ -90,24 +90,10 @@ class LogEntryViewSet(viewsets.ReadOnlyModelViewSet):
     @cached_property
     def _hidden_ids(self) -> set[int]:
         """Cached for the request: every filter below consults it."""
-        return hidden_ids_for(self.request.user)
+        return _filtered(self.request.user)
 
     def _visible(self, qs):
-        """Strip rows that would report a hidden account's existence.
-
-        Two carriers, because a log row can name an account either way:
-
-        1. ``account_id`` — the fan-out's per-leg warnings, and (since the
-           access middleware tags them) any request whose URL named an account.
-        2. ``trade_id`` — a trade every one of whose legs is hidden is not
-           visible in history, so an engine row citing its id would be the only
-           place it surfaced. Mirrors ``TradeViewSet.get_queryset``.
-
-        Rows carrying neither are untouched: the vast majority of the table.
-        Note this excludes *hidden* ids rather than keeping *known* ones — a row
-        about an account that has since been deleted is still real history and
-        stays readable.
-        """
+        """Filter log rows by account access."""
         hidden = self._hidden_ids
         if not hidden:
             return qs

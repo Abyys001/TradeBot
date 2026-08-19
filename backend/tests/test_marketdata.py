@@ -32,6 +32,7 @@ from apps.exchanges.marketdata import (
     BinancePublicSource,
     BybitPublicSource,
     MarketDataError,
+    SymbolNotListed,
     get_candles,
     get_ticker,
     provider_latency,
@@ -163,6 +164,40 @@ def test_a_dead_provider_is_not_retried_on_every_request(monkeypatch):
 
     # One attempt, then the cooldown holds it off — not one per request.
     assert len(calls) == 1
+
+
+@pytest.mark.django_db
+def test_an_unlisted_pair_does_not_take_the_provider_down(monkeypatch):
+    """One pair the venue does not list must not cost every other pair its feed.
+
+    This is the BMBUSDC case from the live log: a watchlist entry Hyperliquid
+    has no market for made the *provider* cool off, and with MARKET_DATA_PIN
+    there is nothing behind it — so /market/ticker/ answered 503 for BTCUSDT
+    too, and the log filled with one WARNING per poll.
+    """
+    calls = []
+
+    def answer(self, url, params):
+        symbol = str(params.get("symbol") or "")
+        calls.append(symbol or url)
+        if "NOSUCH" in symbol:
+            raise SymbolNotListed("binance: no market for NOSUCHUSDT")
+        base = 1700000000000
+        return [[base + i * 60000, "100", "100", "100", "100", "1"] for i in range(20)]
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", answer)
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["binance"]}):
+        with pytest.raises(MarketDataError):
+            get_candles(
+                symbol="NOSUCHUSDT", interval="1m", market=MarketType.FUTURES, limit=20
+            )
+        # The very next request, for a pair the venue *does* list, still works.
+        payload = get_candles(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20
+        )
+
+    assert payload["candles"]
+    assert len(calls) == 2
 
 
 # --- measured latency -------------------------------------------------------
@@ -435,6 +470,16 @@ def test_positions_endpoint_reports_a_leg_that_never_filled():
         status=AccountStatus.ACTIVE,
         withdrawal_check_passed=True,
     )
+    # A second account that did fill, so the trade is a real open trade. With
+    # only the sized-out leg there is no position anywhere, and the poll
+    # retires the trade rather than showing one — see
+    # test_a_trade_nothing_can_be_holding_is_retired_on_the_positions_poll.
+    filled = ConnectedAccount.objects.create(
+        label="filled",
+        exchange=Exchange.PAPER,
+        status=AccountStatus.ACTIVE,
+        withdrawal_check_passed=True,
+    )
     trade = Trade.objects.create(
         symbol="BTCUSDT", side="long", market="futures", leverage=10, status=TradeStatus.OPEN
     )
@@ -448,11 +493,20 @@ def test_positions_endpoint_reports_a_leg_that_never_filled():
         # about — see test_an_unconfirmed_leg_is_re_checked_on_the_positions_poll.
         error_code="below_min_notional",
     )
+    TradeLeg.objects.create(
+        trade=trade,
+        account=filled,
+        ok=True,
+        qty=Decimal("0.01"),
+        entry_price=Decimal("100"),
+        margin=Decimal("99"),
+    )
 
     body = user_client().get("/api/trading/positions/").json()
     assert body["totals"]["failed"] == 1
-    assert body["legs"][0]["pnl"] is None
-    assert body["legs"][0]["error"] == "below minimum notional"
+    sized_out = next(row for row in body["legs"] if row["account"] == account.id)
+    assert sized_out["pnl"] is None
+    assert sized_out["error"] == "below minimum notional"
 
 
 # --- on-demand chart history -------------------------------------------------
@@ -745,3 +799,105 @@ def test_a_watchlist_refresh_downloads_the_hyperliquid_universe_once(monkeypatch
     assert btc["price"] == "100"
     assert eth["price"] == "10"
     assert posts == ["metaAndAssetCtxs"]
+
+
+# --- the candle archive ------------------------------------------------------
+#
+# Every closed bar the platform sees is written to StoredCandle. The two tests
+# above that construct StoredCandle rows directly (@:610, @:743) are
+# unaffected because MARKET_DATA.ARCHIVE is off under pytest by default; these
+# opt in and exercise the real archiving path.
+
+
+ARCHIVE_SETTINGS = {
+    "ENABLED": True,
+    "ARCHIVE": True,
+    "PROVIDERS": ["binance"],
+}
+
+
+@pytest.mark.django_db
+def test_a_successful_live_fetch_archives_its_closed_bars(monkeypatch):
+    with stub_feed(monkeypatch):
+        with override_settings(MARKET_DATA=ARCHIVE_SETTINGS):
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
+
+    stored = StoredCandle.objects.filter(symbol="BTCUSDT", interval="1m")
+    # stub_feed's base is Nov 2023 — every bar is closed.  The last bar
+    # (index 19) may or may not be written depending on whether it falls
+    # exactly on the boundary, but at least 19 should be there.
+    assert stored.count() >= 19
+
+
+@pytest.mark.django_db
+def test_a_second_identical_fetch_writes_nothing(monkeypatch):
+    with stub_feed(monkeypatch):
+        with override_settings(MARKET_DATA=ARCHIVE_SETTINGS):
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
+            count_after_first = StoredCandle.objects.filter(symbol="BTCUSDT").count()
+
+            get_candles(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=20)
+            count_after_second = StoredCandle.objects.filter(symbol="BTCUSDT").count()
+
+    assert count_after_second == count_after_first
+
+
+@pytest.mark.django_db
+def test_a_deeper_limit_than_the_venue_returns_is_served_from_the_archive(monkeypatch):
+    """The venue page is 20 bars; the archive fills the rest."""
+    # Seed the archive with 50 closed bars from "binance".
+    now = int(time.time())
+    bars = [
+        StoredCandle(
+            exchange="binance", market="futures", symbol="BTCUSDT", interval="1m",
+            open_time=now - (50 - i) * 60,
+            open=D("100"), high=D("101"), low=D("99"), close=D("100"), volume=D("1"),
+        )
+        for i in range(50)
+    ]
+    StoredCandle.objects.bulk_create(bars)
+
+    def fake_get(self, url, params):
+        marketdata.record_rtt(self.name, 10.0)
+        if "klines" in url:
+            limit = int(params.get("limit") or 20)
+            base = 1700000000000
+            return [
+                [base + i * 60000, "100", "100", "100", "100", "1"] for i in range(min(limit, 20))
+            ]
+        return {"lastPrice": "100", "priceChangePercent": "1.25"}
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", fake_get)
+    with override_settings(MARKET_DATA=ARCHIVE_SETTINGS):
+        payload = get_candles(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=60
+        )
+
+    # The venue only returned 20; the archive should supply the other 40.
+    assert len(payload["candles"]) >= 50
+    assert payload["stored_bars"] > 0
+
+
+@pytest.mark.django_db
+def test_the_end_cursor_returns_bars_before_that_moment(monkeypatch):
+    now = int(time.time())
+    for i in range(10):
+        StoredCandle.objects.create(
+            exchange="binance", market="futures", symbol="BTCUSDT", interval="1m",
+            open_time=now - (10 - i) * 60,
+            open=D("100"), high=D("100"), low=D("100"), close=D("100"), volume=D("1"),
+        )
+
+    def explode(self, *args, **kwargs):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", explode)
+    with override_settings(MARKET_DATA=ARCHIVE_SETTINGS):
+        end = now - 3 * 60
+        payload = get_candles(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=100, end=end
+        )
+
+    assert payload["live"] is False
+    assert payload["stored"] is True
+    assert all(c["t"] <= end for c in payload["candles"])

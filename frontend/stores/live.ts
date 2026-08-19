@@ -320,6 +320,15 @@ export const useLiveStore = defineStore('live', {
         useSystemLogStore().receive(payload)
         return
       }
+      if (payload.type === 'positions_changed') {
+        // The server re-read the exchanges and found the panel's picture wrong:
+        // a stop fired, a position was liquidated, or one the platform had
+        // written off turned out to be live. Whatever is on screen is stale by
+        // definition, so re-read now instead of at the next poll tick — the row
+        // may be a position that no longer exists.
+        usePositionsStore().load()
+        return
+      }
       if (payload.type === 'notification') {
         useNotificationStore().receive({
           id: payload.id ?? `ws-${Date.now()}-${Math.random()}`,

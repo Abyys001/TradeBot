@@ -290,6 +290,19 @@ Spec §7 recommends a "stop all" and left the shape open. Decided:
   `test_sltp_can_still_be_amended_while_halted`.)
 - When the switch cannot be read at all (database down), routing is treated as
   **halted**. Failing open would route partner capital on a guess.
+- **Amended in use (2026-08-19).** The panel's Stop-all now *also flattens*:
+  one request that halts routing and then market-closes every open trade. The
+  admin's reading of the control is the operative one — stopping the next order
+  does nothing about the leveraged position already running, which is the
+  situation the button is reached for. The halt is applied first so nothing can
+  be routed into the gap while the close fans out, and a leg the exchange would
+  not flatten leaves its trade OPEN with its own §4 notice rather than being
+  reported as closed.
+  The API keeps the old meaning by default: flattening happens only when the
+  caller sends `close_positions: true` (what the button sends), so a halt
+  flipped by anything else still touches nothing that is already live.
+  Pinned by `test_stop_all_can_flatten_every_open_trade` and
+  `test_a_plain_halt_still_leaves_open_positions_alone`.
 
 ## Q15. One open trade per account ✅ Enforced server-side, per account
 

@@ -632,7 +632,9 @@ class BinanceAdapter(BinanceStyleAdapter):
     async def close_position(self, symbol: str) -> OrderResult:
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"binance: no open position to close on {symbol}")
+            raise AdapterError(
+                f"binance: no open position to close on {symbol}", code="no_position"
+            )
         body: dict[str, Any] = {
             "symbol": symbol,
             "side": "SELL" if position.side is Side.LONG else "BUY",
@@ -1035,7 +1037,9 @@ class ToobitAdapter(BinanceStyleAdapter):
         contract, _ = await self._contract(symbol)
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"{self.name}: no open position to close on {symbol}")
+            raise AdapterError(
+                f"{self.name}: no open position to close on {symbol}", code="no_position"
+            )
         data = await self.request(
             "POST",
             f"{self.futures_prefix}/flashClose",

@@ -370,7 +370,9 @@ class OkxAdapter(RestAdapter):
         inst_id = self._inst_id(symbol, MarketType.FUTURES)
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"okx: no open position to close on {symbol}")
+            raise AdapterError(
+                f"okx: no open position to close on {symbol}", code="no_position"
+            )
         data = await self.request(
             "POST",
             "/api/v5/trade/close-position",

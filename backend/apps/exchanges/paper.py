@@ -217,7 +217,7 @@ class PaperAdapter(ExchangeAdapter):
         await self._tick("close_position")
         pos = self._position
         if pos is None:
-            raise AdapterError("no open position to close")
+            raise AdapterError("no open position to close", code="no_position")
         self._position = None
         self._state["sltp"] = (None, None)
         return OrderResult(order_id=str(next(_ids)), filled_qty=pos.size, avg_price=self._mark)

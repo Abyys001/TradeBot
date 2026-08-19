@@ -17,6 +17,7 @@ MONEY_ENDPOINTS = [
     "/api/trading/orders/open/",
     "/api/trading/orders/1/amend/",
     "/api/trading/orders/1/close/",
+    "/api/trading/orders/close-all/",
     "/api/trading/balances/refresh/",
 ]
 
@@ -128,7 +129,17 @@ async def test_a_staff_user_can_route_an_order():
 
     response = await client.post(
         "/api/trading/orders/open/",
-        data=json.dumps({"symbol": "BTCUSDT", "side": "long", "leverage": 5}),
+        # Both percentages are mandatory: an order without them is refused
+        # before it reaches an adapter (order_views._percent).
+        data=json.dumps(
+            {
+                "symbol": "BTCUSDT",
+                "side": "long",
+                "leverage": 5,
+                "sl_pct": "0.5",
+                "tp_pct": "1",
+            }
+        ),
         content_type="application/json",
     )
     assert response.status_code == 200

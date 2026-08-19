@@ -16,10 +16,7 @@ from apps.logging.context import new_request_id, reset_request_id, set_request_i
 #: themselves explicitly (see ``LogEntryViewSet.prune``), so nothing is lost.
 SKIP_PATHS = ("/api/health/", "/ws/", "/api/logging/")
 
-#: The account a request is *about*, when the URL names one. Without this the
-#: row carries ``account_id=None`` and the hidden-account filter in
-#: ``LogEntryViewSet`` has nothing to match on, so ``GET /api/accounts/7/`` would
-#: report the existence of hidden account 7 to a reader who may not see it.
+#: The account a request is *about*, when the URL names one.
 _ACCOUNT_IN_PATH = re.compile(r"/accounts/(\d+)(?:/|$)")
 
 #: Methods that change something. A *successful* request with any other method

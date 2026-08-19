@@ -327,7 +327,9 @@ class GateioAdapter(RestAdapter):
         contract = self._contract(symbol)
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"gateio: no open position to close on {symbol}")
+            raise AdapterError(
+                f"gateio: no open position to close on {symbol}", code="no_position"
+            )
         data = await self.request(
             "POST",
             f"/api/v4/futures/{SETTLE}/orders",

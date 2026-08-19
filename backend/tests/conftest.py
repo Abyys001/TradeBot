@@ -1,7 +1,10 @@
+import logging
+
 import pytest
 from django.core.cache import cache
 
 from apps.exchanges.paper import reset_paper_state
+from apps.logging.handlers import DatabaseHandler
 
 
 @pytest.fixture(autouse=True)
@@ -24,3 +27,24 @@ def _clean_cache():
     cache.clear()
     yield
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _detach_log_writer():
+    """Keep the ``/logs`` handler off the root logger while tests run.
+
+    ``DatabaseHandler`` writes a ``LogEntry`` row per record, and from the
+    event loop it does so on its own writer thread — a second sqlite connection
+    inserting rows while the test's transaction is open. That is fine in
+    production and poison in a test run: the writes land mid-teardown and the
+    table locks, failing whichever test happened to log at the wrong moment.
+    The handler's own behaviour is covered by ``test_logging_handler.py``,
+    which builds one directly and is unaffected by this.
+    """
+    root = logging.getLogger()
+    detached = [h for h in root.handlers if isinstance(h, DatabaseHandler)]
+    for handler in detached:
+        root.removeHandler(handler)
+    yield
+    for handler in detached:
+        root.addHandler(handler)

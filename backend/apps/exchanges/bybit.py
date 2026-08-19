@@ -277,7 +277,9 @@ class BybitAdapter(RestAdapter):
     async def close_position(self, symbol: str) -> OrderResult:
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"bybit: no open position to close on {symbol}")
+            raise AdapterError(
+                f"bybit: no open position to close on {symbol}", code="no_position"
+            )
         data = await self.request(
             "POST",
             "/v5/order/create",

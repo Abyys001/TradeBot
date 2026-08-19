@@ -184,9 +184,12 @@ async function closeAll() {
           {{ t('position.editedFrom', { source: t(`position.source.${order.lastEditedFrom}`) }) }}
         </span>
 
+        <!-- Enabled whenever *anything* is open, from either source: the close
+             now flattens every open trade server-side, so gating it on this
+             tab's own trade id is what left a live position unreachable. -->
         <button
           class="btn-danger btn-sm"
-          :disabled="!trading.hasOpenTrade || closing"
+          :disabled="closing || !(trading.hasOpenTrade || open || positions.otherOpenTrades > 0)"
           @click="confirmClose = true"
         >
           {{ closing ? t('position.closing') : t('position.close') }}
@@ -202,6 +205,16 @@ async function closeAll() {
     >
       <UiIcon name="alert" :size="14" class="shrink-0" />
       {{ t('position.unprotected', { n: positions.unprotected.length }) }}
+    </p>
+
+    <!-- This bar draws one trade. A second one running is not a detail to leave
+         off the screen — the panel would be reporting flat on live exposure. -->
+    <p
+      v-if="positions.otherOpenTrades"
+      class="alert px-3 sm:px-4 py-2 text-xs flex items-center gap-2"
+    >
+      <UiIcon name="alert" :size="14" class="shrink-0" />
+      {{ t('position.otherOpenTrades', { n: positions.otherOpenTrades }) }}
     </p>
 
     <!-- Closing hits every account at market. It asks once. -->

@@ -27,6 +27,18 @@ import { defineStore } from 'pinia'
  * The polling cadence is deliberately modest — this is a chart, not the order
  * path. Nothing here shares a budget with the fan-out.
  */
+/**
+ * Bars asked for on load, and per page when scrolling back.
+ *
+ * 1000 is the server's cap on what a *venue* is asked for; beyond that the
+ * backend fills the window out of the stored archive, which is where the real
+ * depth is. The chart used to open on 300 and had no way to ask for more, so a
+ * year of downloaded history was on disk and unreachable.
+ */
+const CANDLE_LIMIT = 1000
+/** One page of older bars, fetched when the view reaches the left edge. */
+const CANDLE_PAGE = 1000
+
 const CANDLE_POLL_MS = 15000
 const TICKER_POLL_MS = 3000
 /** While bars are streaming, the poll is only a safety net against gaps. */
@@ -56,6 +68,11 @@ export interface Candle {
   high: number
   low: number
   close: number
+}
+
+/** One wire candle to one chart bar. Strings on the wire stay Decimal-safe there. */
+function toCandle(c: { t: number; o: string; h: string; l: string; c: string }): Candle {
+  return { time: c.t, open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c) }
 }
 
 /** Interval length in seconds — used to place a live tick in the right bar. */
@@ -100,6 +117,19 @@ export const useMarketStore = defineStore('market', {
     candles: [] as Candle[],
     price: null as number | null,
     changePct: null as number | null,
+
+    /**
+     * False once the archive has run out of older bars for this series, so
+     * scrolling further back stops asking. Reset with the series itself.
+     */
+    hasMore: true,
+    /** A page of history is in flight; the left edge must not re-trigger. */
+    loadingOlder: false,
+    /**
+     * How many of the bars on screen came out of the stored archive rather than
+     * the live response. The depth the admin is actually scrolling through.
+     */
+    storedBars: 0,
 
     /** True once real exchange data has arrived. Never true for anything else. */
     live: false,
@@ -197,6 +227,16 @@ export const useMarketStore = defineStore('market', {
      * yanked the chart back to the newest candle mid-inspection.
      */
     seriesKey: (s) => `${s.symbol}|${s.interval}|${s.market}`,
+
+    /**
+     * The most bars to keep in memory: everything paged in so far, plus one
+     * more page for the live tail to grow into. Grows as the admin scrolls
+     * back, so history is never trimmed off the front by `applyTick`.
+     */
+    windowCap: (s) => Math.max(CANDLE_LIMIT, s.candles.length) + CANDLE_PAGE,
+
+    /** The oldest bar on screen — where the next page back starts from. */
+    oldestCandle: (s): Candle | null => s.candles[0] ?? null,
 
     /**
      * Stale means the feed stopped answering; the panel greys the price.
@@ -358,23 +398,26 @@ export const useMarketStore = defineStore('market', {
           symbol: this.symbol,
           interval: this.interval,
           market: this.market,
+          limit: CANDLE_LIMIT,
         })
         // A late response for a symbol the admin already switched away from
         // must not repaint the chart with the wrong instrument.
         if (feed.symbol !== this.symbol || feed.interval !== this.interval) return
-        this.candles = feed.candles.map((c) => ({
-          time: c.t,
-          open: Number(c.o),
-          high: Number(c.h),
-          low: Number(c.l),
-          close: Number(c.c),
-        }))
+        const fresh = feed.candles.map(toCandle)
+        // A refresh used to replace the series outright, which was harmless
+        // while there was only ever one window of it. Now that older pages can
+        // be scrolled in, replacing would throw them away every fifteen
+        // seconds; anything older than this window is kept in front of it.
+        const from = fresh[0]?.time ?? 0
+        const older = this.candles.filter((c) => c.time < from)
+        this.candles = older.concat(fresh)
         // Stored bars are real and old; the panel says which of the two it is
         // looking at rather than letting the ticker's freshness cover for them.
         // `live` stays the price feed's own flag: a stored series must not turn
         // the badge to "no feed" three times a minute while the ticker is
         // answering perfectly, and the ticker must not badge these bars fresh.
         this.stored = feed.stored === true
+        this.storedBars = feed.stored_bars ?? 0
         if (feed.live) this.live = true
         this.source = feed.source
         this.pinnedSource = feed.pinned ?? this.pinnedSource
@@ -398,6 +441,53 @@ export const useMarketStore = defineStore('market', {
         this.error = errorMessage(e)
       } finally {
         this.loading = false
+      }
+    },
+
+    /**
+     * One page further back, out of the stored archive.
+     *
+     * Called when the chart's view reaches its left edge. `end` is the bar
+     * before the oldest one on screen, so pages butt up against each other with
+     * no gap and no overlap; the backend serves the window from `StoredCandle`
+     * once the venue's own page limit runs out.
+     *
+     * A short page means the archive has nothing older, and `hasMore` stops the
+     * chart asking again — otherwise every further scroll is a round trip that
+     * can only ever return the same nothing.
+     */
+    async loadOlder() {
+      const oldest = this.oldestCandle
+      if (this.loadingOlder || !this.hasMore || !oldest) return
+      const series = this.seriesKey
+      this.loadingOlder = true
+      try {
+        const feed = await useApi().candles({
+          symbol: this.symbol,
+          interval: this.interval,
+          market: this.market,
+          limit: CANDLE_PAGE,
+          end: oldest.time - 1,
+        })
+        // The admin can change instrument while a page is in flight; painting
+        // it would splice another pair's bars onto this one's series.
+        if (series !== this.seriesKey) return
+        const older = feed.candles.map(toCandle).filter((c) => c.time < oldest.time)
+        if (!older.length) {
+          this.hasMore = false
+          return
+        }
+        this.candles = older.concat(this.candles)
+        this.storedBars += older.length
+        // Short of a full page: that is the bottom of the archive.
+        if (older.length < CANDLE_PAGE / 2) this.hasMore = false
+        this.revision++
+      } catch {
+        // A failed page is not a broken chart — the bars already on screen are
+        // untouched and the next scroll retries. `hasMore` deliberately stays
+        // true so a transient 503 does not permanently end the scrollback.
+      } finally {
+        this.loadingOlder = false
       }
     },
 
@@ -474,8 +564,13 @@ export const useMarketStore = defineStore('market', {
       if (bucket > last.time + seconds) return
       if (bucket > last.time) {
         this.candles.push({ time: bucket, open: price, high: price, low: price, close: price })
-        // Keep the series bounded; the chart never shows more than this anyway.
-        if (this.candles.length > 600) this.candles.shift()
+        // The series used to be trimmed to 600 bars here, which was fine while
+        // 300 was all the chart could ever hold — and fatal once it can page
+        // back into the archive, because every bar `loadOlder` prepended was
+        // shifted straight back off the front by the next tick. What actually
+        // needs bounding is the *live* tail this line appends to, so the cap is
+        // the loaded window plus room for it to grow, not a flat 600.
+        if (this.candles.length > this.windowCap) this.candles.shift()
       } else if (bucket === last.time) {
         last.close = price
         last.high = Math.max(last.high, price)
@@ -490,6 +585,8 @@ export const useMarketStore = defineStore('market', {
       this.price = null
       this.candles = []
       this.stored = false
+      this.hasMore = true
+      this.storedBars = 0
       this.applyHistory()
       this.resubscribe()
       // Persist so the chart opens on the same pair after a refresh.
@@ -503,6 +600,8 @@ export const useMarketStore = defineStore('market', {
       this.interval = interval
       this.candles = []
       this.stored = false
+      this.hasMore = true
+      this.storedBars = 0
       this.applyHistory()
       this.resubscribe()
       await this.loadCandles()
@@ -513,6 +612,8 @@ export const useMarketStore = defineStore('market', {
       this.market = market
       this.candles = []
       this.stored = false
+      this.hasMore = true
+      this.storedBars = 0
       this.applyHistory()
       this.resubscribe()
       await Promise.all([this.loadCandles(), this.loadTicker()])

@@ -152,13 +152,24 @@ class ExchangeSymbol(models.Model):
 
 
 class StoredCandle(models.Model):
-    """A downloaded bar. Real exchange data, kept so the chart can look back.
+    """One closed bar, kept forever. The chart's scrollback is this table.
 
-    The live feed answers "what is it now"; a year of history cannot be pulled
-    on every chart pan, so it is downloaded once per pair per interval
-    (``exchanges.catalogue``) and read from here when the chart pans back or
-    the live feed is down. Provenance stays attached (``exchange``) — a stored
-    bar is old, never invented, and the payload is labelled ``live: false``.
+    Everything the platform sees is written here, whichever path brought it in:
+    the two backfill jobs in ``exchanges.catalogue``, the chart's own REST poll,
+    and the exchange WebSocket behind ``trading.streamhub``. So the archive
+    deepens on its own while a panel is open, rather than only when a download
+    was explicitly asked for.
+
+    **Append-only, by design.** Nothing prunes this table and there is no
+    retention setting; ``docs/deploy.md`` covers what it costs on disk. Only
+    *closed* bars are admitted — a partial bar written now could never be
+    corrected, because the unique constraint below would reject the finished
+    version of it. ``exchanges.candlestore`` is the single writer that enforces
+    both rules.
+
+    Provenance stays attached (``exchange``) — a stored bar is old, never
+    invented, and a payload built from these is labelled ``live: false`` or
+    counted in ``stored_bars``.
     """
 
     exchange = models.CharField(max_length=20)
@@ -182,7 +193,17 @@ class StoredCandle(models.Model):
                 name="unique_bar_per_series",
             )
         ]
-        indexes = [models.Index(fields=["symbol", "interval", "market", "open_time"])]
+        indexes = [
+            models.Index(fields=["symbol", "interval", "market", "open_time"]),
+            # Every read is "the newest N bars at or before `end`", which wants
+            # the series columns leading and open_time *descending*. The index
+            # above ascends, so a deep scrollback query walked the series from
+            # its oldest bar to find its newest.
+            models.Index(
+                fields=["market", "symbol", "interval", "-open_time"],
+                name="candle_series_recent_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.symbol} {self.interval} @{self.open_time}"

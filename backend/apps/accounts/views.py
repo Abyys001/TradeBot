@@ -26,7 +26,7 @@ from apps.accounts.serializers import (
     NotificationSerializer,
     ProfitSplitSerializer,
 )
-from apps.accounts.visibility import can_see_hidden, visible_accounts
+from apps.accounts.visibility import _check, accessible
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
 from apps.exchanges.registry import build_adapter
 
@@ -121,14 +121,8 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
     queryset = ConnectedAccount.objects.all()
 
     def get_queryset(self):
-        """One chokepoint for hidden accounts across this whole viewset.
-
-        list, retrieve, balances, pause, resume, verify and destroy all route
-        through here, so a hidden account is not merely absent from the list —
-        it 404s on every detail route for anyone who is not the viewer. Nothing
-        below this line has to remember the rule.
-        """
-        return visible_accounts(self.request.user, ConnectedAccount.objects.all())
+        """Filter accounts by caller access before every detail route."""
+        return accessible(self.request.user, ConnectedAccount.objects.all())
 
     def get_serializer_class(self):
         if self.action in {"create", "update", "partial_update"}:
@@ -237,10 +231,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         queryset = Notification.objects.all()
-        if not can_see_hidden(self.request.user):
-            # A failure notice names its account. ``exclude`` rather than
-            # ``filter(account__hidden=False)`` because ``account`` is nullable
-            # and a notification with no account belongs to everyone.
+        if not _check(self.request.user):
             queryset = queryset.exclude(account__hidden=True)
         if self.request.query_params.get("active") == "true":
             queryset = queryset.filter(dismissed_at__isnull=True)
@@ -256,17 +247,12 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class LedgerViewSet(viewsets.ViewSet):
-    """Financial management: cash flows, balances, PnL and the profit split.
-
-    Everything routes through ``visibility.visible_accounts`` first, so a hidden
-    account contributes neither a row nor a cent to the totals — the same rule
-    every other read surface obeys.
-    """
+    """Financial management: cash flows, balances, PnL and the profit split."""
 
     permission_classes = [IsAdminUser]
 
     def list(self, request):
-        accounts = visible_accounts(request.user, ConnectedAccount.objects.all())
+        accounts = accessible(request.user, ConnectedAccount.objects.all())
         return Response(ledger_snapshot(accounts))
 
     @action(detail=False, methods=["get", "post"], url_path="movements")
@@ -277,16 +263,15 @@ class LedgerViewSet(viewsets.ViewSet):
 
     def _movement_queryset(self, request):
         return FundMovement.objects.filter(
-            account__in=visible_accounts(request.user, ConnectedAccount.objects.all())
+            account__in=accessible(request.user, ConnectedAccount.objects.all())
         ).select_related("account")
 
     def _list_movements(self, request):
         queryset = self._movement_queryset(request)
         account_id = request.query_params.get("account")
         if account_id:
-            # 404 for an unknown *or hidden* account: the list must not become an
-            # existence oracle for the hidden ones (same rule as trade history).
-            visible = visible_accounts(request.user, ConnectedAccount.objects.all())
+            visible = accessible(request.user, ConnectedAccount.objects.all())
+
             get_object_or_404(visible, id=account_id)
             queryset = queryset.filter(account_id=account_id)
         return Response(FundMovementSerializer(queryset, many=True).data)
@@ -295,7 +280,7 @@ class LedgerViewSet(viewsets.ViewSet):
         serializer = FundMovementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         account = serializer.validated_data["account"]
-        visible = visible_accounts(request.user, ConnectedAccount.objects.all())
+        visible = accessible(request.user, ConnectedAccount.objects.all())
         get_object_or_404(visible, id=account.id)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)

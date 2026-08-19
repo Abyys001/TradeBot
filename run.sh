@@ -43,11 +43,110 @@ ensure_env() {
     key="$("$PY" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
     sed -i "s|^CREDENTIAL_ENCRYPTION_KEYS=.*|CREDENTIAL_ENCRYPTION_KEYS=$key|" "$ROOT/.env"
   fi
-  # Local runs use SQLite so no database server is needed.
-  sed -i 's|^USE_SQLITE=.*|USE_SQLITE=true|' "$ROOT/.env"
+  # This used to force USE_SQLITE=true on every start. There is no SQLite path
+  # any more — a local run on a different engine to production is exactly the
+  # gap this move closed — so the line is gone and `ensure_db` provisions a real
+  # PostgreSQL instead. A leftover flag in an old .env is stripped so it cannot
+  # look like it still does something.
+  sed -i '/^USE_SQLITE=/d' "$ROOT/.env"
+  # Outside a container the database is on this machine, not on a compose
+  # service called `db`. Only rewritten when it still says `db`, so a host
+  # deliberately pointed elsewhere is left alone.
+  sed -i 's|^POSTGRES_HOST=db$|POSTGRES_HOST=127.0.0.1|' "$ROOT/.env"
   # Redis is only the channel layer; without it Channels falls back to
   # in-memory, which is fine for a single-process local run.
   sed -i 's|^REDIS_URL=.*|REDIS_URL=|' "$ROOT/.env"
+}
+
+# Read one key out of .env, without sourcing it (values contain '=' and '#').
+env_value() {
+  sed -n "s|^$1=||p" "$ROOT/.env" | tail -1
+}
+
+# Make sure the configured PostgreSQL exists and answers.
+#
+# The database is no longer a file that appears on demand, so this is the step
+# that replaces "nothing to do". It provisions the role and database on a local
+# server when one is installed, and otherwise says exactly what to install —
+# never falls back to something that merely starts, because a local run that
+# quietly differs from production is what this whole move was about.
+ensure_db() {
+  local host port db user pass
+  host="$(env_value POSTGRES_HOST)"; host="${host:-127.0.0.1}"
+  port="$(env_value POSTGRES_PORT)"; port="${port:-5432}"
+  db="$(env_value POSTGRES_DB)";     db="${db:-walletmanager}"
+  user="$(env_value POSTGRES_USER)"; user="${user:-walletmanager}"
+  pass="$(env_value POSTGRES_PASSWORD)"
+
+  if [ -n "$(env_value DATABASE_URL)" ]; then
+    say "using DATABASE_URL from .env"
+    return 0
+  fi
+
+  if PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -tAc 'select 1' >/dev/null 2>&1; then
+    say "database $db is up at $host:$port"
+    return 0
+  fi
+
+  command -v psql >/dev/null || die "PostgreSQL is not installed. Install it with:
+    sudo apt install postgresql postgresql-client"
+
+  if ! pg_isready -h "$host" -p "$port" -q 2>/dev/null; then
+    die "nothing is listening on $host:$port. Start the server with:
+    sudo systemctl start postgresql
+  Then re-run ./run.sh setup."
+  fi
+
+  # The server answers but our role or database is missing. Creating either
+  # needs a superuser, which on a Debian/Kali package install is the `postgres`
+  # peer account rather than anything reachable over TCP.
+  say "creating role '$user' and database '$db'"
+  if ! sudo -u postgres psql -p "$port" -v ON_ERROR_STOP=1 >/dev/null <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$user') THEN
+    CREATE ROLE "$user" LOGIN PASSWORD '$pass';
+  ELSE
+    ALTER ROLE "$user" LOGIN PASSWORD '$pass';
+  END IF;
+END \$\$;
+SQL
+  then
+    die "could not create the role. Do it by hand, then re-run ./run.sh setup:
+    sudo -u postgres createuser --login --pwprompt $user
+    sudo -u postgres createdb --owner $user $db"
+  fi
+  # CREATE DATABASE cannot run inside the DO block above, and re-running setup
+  # must not fail on a database that already exists.
+  sudo -u postgres psql -p "$port" -tAc \
+    "SELECT 1 FROM pg_database WHERE datname='$db'" | grep -q 1 ||
+    sudo -u postgres createdb -p "$port" --owner "$user" "$db"
+  # pytest builds its own `test_<db>` and needs the right to do so.
+  sudo -u postgres psql -p "$port" -qc "ALTER ROLE \"$user\" CREATEDB" >/dev/null
+
+  PGPASSWORD="$pass" psql -h "$host" -p "$port" -U "$user" -d "$db" -tAc 'select 1' >/dev/null ||
+    die "the database was created but still will not accept a connection from $user@$host:$port"
+  say "database $db ready at $host:$port"
+}
+
+# Offer to carry a pre-Postgres db.sqlite3 across, once, into an empty target.
+offer_sqlite_import() {
+  [ -f "$BACKEND/db.sqlite3" ] || return 0
+  local rows
+  rows="$(cd "$BACKEND" && "$PY" manage.py shell -c "
+from apps.trading.models import Trade
+from apps.accounts.models import ConnectedAccount
+print(Trade.objects.count() + ConnectedAccount.objects.count())
+" 2>/dev/null | tail -1)"
+  [ "${rows:-0}" = "0" ] || return 0
+
+  say "found backend/db.sqlite3 and the PostgreSQL database is empty"
+  (cd "$BACKEND" && "$PY" manage.py sqlite_to_postgres --dry-run)
+  printf 'Copy these rows into PostgreSQL? [y/N] '
+  local answer; read -r answer
+  case "$answer" in
+    y|Y|yes|YES) (cd "$BACKEND" && "$PY" manage.py sqlite_to_postgres) ;;
+    *) say "skipped — run it later with: cd backend && .venv/bin/python manage.py sqlite_to_postgres" ;;
+  esac
 }
 
 setup() {
@@ -60,9 +159,12 @@ setup() {
   "$VENV/bin/pip" install -q -r "$BACKEND/requirements-dev.txt"
 
   ensure_env
+  ensure_db
 
   say "applying migrations"
   (cd "$BACKEND" && "$PY" manage.py migrate --noinput)
+
+  offer_sqlite_import
 
   if ! (cd "$BACKEND" && "$PY" -c "
 import django, os
@@ -127,6 +229,11 @@ start_backend() {
   [ -x "$PY" ] || die "run ./run.sh setup first"
   check_port "$BACKEND_PORT" "backend"
   ensure_env
+  # Not `ensure_db`: starting the panel is not the moment to be prompted for a
+  # sudo password. This only waits, and says plainly what to run if there is
+  # nothing to wait for.
+  (cd "$BACKEND" && "$PY" manage.py wait_for_db --timeout 20) ||
+    die "no database — run ./run.sh setup to create one"
   (cd "$BACKEND" && "$PY" manage.py migrate --noinput >/dev/null)
   say "backend on http://localhost:$BACKEND_PORT"
   (cd "$BACKEND" && exec "$VENV/bin/daphne" -b 0.0.0.0 -p "$BACKEND_PORT" config.asgi:application) \

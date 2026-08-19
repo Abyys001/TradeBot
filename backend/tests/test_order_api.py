@@ -25,6 +25,7 @@ from django.test import Client, override_settings
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange
 from apps.core.money import D
+from apps.trading.models import Trade, TradeStatus
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -145,6 +146,39 @@ def test_a_typo_is_refused_before_it_becomes_an_order(field, value):
     assert post(client, order(**{field: value})).status_code == 400
 
 
+@pytest.mark.parametrize("field", ["sl_pct", "tp_pct"])
+def test_an_order_without_protection_is_refused(field):
+    """Both percentages are part of the order, not options on top of it.
+
+    They become real trigger prices per account and are sent to the exchange,
+    so an entry at leverage across partner capital never goes out with one
+    side of the protection missing.
+    """
+    account("partner")
+    client = staff_client()
+    body = order()
+    del body[field]
+    response = post(client, body)
+    assert response.status_code == 400
+    assert field in response.json()["detail"]
+
+
+@pytest.mark.parametrize("field", ["sl_pct", "tp_pct"])
+def test_an_amend_without_protection_is_refused(field):
+    """An amend replaces what rests on the exchange — one side alone deletes the other."""
+    account("partner")
+    client = staff_client()
+    trade_id = post(client, order()).json()["trade_id"]
+
+    body = {"sl_pct": "0.5", "tp_pct": "1"}
+    del body[field]
+    response = client.post(
+        f"/api/trading/orders/{trade_id}/amend/", body, content_type="application/json"
+    )
+    assert response.status_code == 400
+    assert field in response.json()["detail"]
+
+
 def test_a_generous_take_profit_is_not_a_typo():
     """No ceiling on the upside — a 250% target is a real thing to ask for."""
     account("partner")
@@ -198,3 +232,46 @@ def test_an_account_already_in_a_trade_is_left_out_not_refused():
     account("fresh")
     second = post(client, order()).json()
     assert len(second["succeeded"]) == 1
+
+
+# --- closing everything -----------------------------------------------------
+
+
+def test_the_close_all_endpoint_closes_every_open_trade():
+    """One press flattens the platform, whatever the panel happens to show."""
+    account("partner-a")
+    client = staff_client()
+    first = post(client, order()).json()["trade_id"]
+
+    account("partner-b", balance="2000")
+    second = post(client, order()).json()["trade_id"]
+    assert first != second
+
+    response = client.post("/api/trading/orders/close-all/", content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert sorted(body["trade_ids"]) == sorted([first, second])
+    assert body["closed"] is True
+    assert not body["failed"]
+    assert Trade.objects.filter(status=TradeStatus.OPEN).count() == 0
+
+
+def test_close_all_with_nothing_open_answers_plainly():
+    """Pressing it on a flat platform is a no-op, not a 409."""
+    account("partner")
+    client = staff_client()
+
+    response = client.post("/api/trading/orders/close-all/", content_type="application/json")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "detail": "no open trade to close",
+        "code": "no_open_trades",
+        "closed": True,
+        "trade_ids": [],
+        "total_ms": 0.0,
+        "within_budget": True,
+        "succeeded": [],
+        "failed": [],
+    }

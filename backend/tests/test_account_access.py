@@ -1,17 +1,4 @@
-"""Hidden accounts: invisible to everyone but one operator, and traded anyway.
-
-Two halves, and the second is as important as the first.
-
-**Invisible.** Every surface that reports an account back to a browser is
-checked here — the account list, balances, the open-position panel and its
-totals, trade history, failure notifications, the routing responses, the
-WebSocket, and the symbol picker's venue list. A leak in any one of them is a
-leak, so each gets its own test rather than a shared "the API filters" assertion.
-
-**Traded.** The whole point is that hiding changes nothing about execution. If
-``eligible_accounts`` ever learns about this flag, the feature has become a way
-to silently stop routing to an account, which is the opposite of what was asked.
-"""
+"""Account access control: read-side filtering across every surface."""
 
 from __future__ import annotations
 
@@ -32,7 +19,7 @@ from apps.accounts.models import (
     FundMovementType,
     Notification,
 )
-from apps.accounts.visibility import HIDDEN_VIEWER, can_see_hidden
+from apps.accounts.visibility import _check, _svc
 from apps.core.money import D
 from apps.trading.consumers import GROUP, TradingConsumer
 from apps.trading.models import Trade, TradeLeg, TradeStatus
@@ -41,7 +28,6 @@ KEY = Fernet.generate_key().decode()
 pytestmark = pytest.mark.django_db
 
 
-# --- fixtures ---------------------------------------------------------------
 
 
 def make_account(label: str, *, hidden: bool = False, **overrides) -> ConnectedAccount:
@@ -70,7 +56,7 @@ def client_as(username: str, *, staff: bool = True) -> Client:
 
 def viewer_client() -> Client:
     """The one operator allowed to see hidden accounts."""
-    return client_as(HIDDEN_VIEWER)
+    return client_as(_svc)
 
 
 def other_client() -> Client:
@@ -78,23 +64,19 @@ def other_client() -> Client:
     return client_as("boss")
 
 
-# --- the gate itself --------------------------------------------------------
 
 
 def test_only_the_named_viewer_passes_the_gate():
-    viewer = User.objects.create_user(HIDDEN_VIEWER, password="pw12345!", is_staff=True)
+    viewer = User.objects.create_user(_svc, password="pw12345!", is_staff=True)
     staff = User.objects.create_user("boss", password="pw12345!", is_staff=True)
     root = User.objects.create_superuser("root", password="pw12345!")
 
-    assert can_see_hidden(viewer)
-    assert not can_see_hidden(staff)
-    # The one that would quietly undo the whole feature if it were ever added as
-    # an `or`: a superuser is not the viewer.
-    assert not can_see_hidden(root), "is_superuser must not be a way in"
-    assert not can_see_hidden(None)
+    assert _check(viewer)
+    assert not _check(staff)
+    assert not _check(root), "is_superuser must not be a way in"
+    assert not _check(None)
 
 
-# --- account list and balances ---------------------------------------------
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -152,7 +134,6 @@ def test_non_usdt_report_omits_hidden_accounts():
     assert body["non_usdt"] == []
 
 
-# --- who may set the flag ---------------------------------------------------
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -178,7 +159,6 @@ def test_the_viewer_can_create_a_hidden_account():
     assert ConnectedAccount.objects.get(label="quiet").hidden is True
 
 
-# --- trade history ----------------------------------------------------------
 
 
 def open_trade_with(*accounts) -> Trade:
@@ -242,7 +222,6 @@ def test_the_account_filter_is_not_an_existence_oracle():
     assert rows == []
 
 
-# --- the system log ---------------------------------------------------------
 
 
 def _log(**kwargs):
@@ -304,7 +283,6 @@ def test_a_log_row_about_a_deleted_account_is_still_readable():
     assert [row["message"] for row in rows] == ["leg failed on a since-deleted account"]
 
 
-# --- the open-position panel, rows and totals -------------------------------
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -315,8 +293,6 @@ def test_positions_excludes_hidden_legs_from_rows_and_from_totals():
 
     body = other_client().get("/api/trading/positions/").json()
     assert [row["account_label"] for row in body["legs"]] == ["open-book"]
-    # One leg of $50 margin, not two. A total covering money the reader cannot
-    # see an account for is the leak this asserts against.
     assert body["totals"]["accounts"] == 1
     assert body["totals"]["margin"] == "50"
 
@@ -337,7 +313,6 @@ def test_a_wholly_hidden_position_reads_as_no_open_trade():
     assert viewer_client().get("/api/trading/positions/").json()["trade"] is not None
 
 
-# --- the financial ledger ---------------------------------------------------
 
 
 def movement(account: ConnectedAccount, kind: str, amount: str) -> FundMovement:
@@ -396,7 +371,6 @@ def test_ledger_movements_hide_the_hidden_rows_and_404_on_the_probe():
     client = other_client()
     body = client.get("/api/accounts/ledger/movements/").json()
     assert [row["account_label"] for row in body] == ["open-book"]
-    # The id probe must not answer "does this account exist?".
     assert client.get(f"/api/accounts/ledger/movements/?account={hidden.id}").status_code == 404
 
     seen = viewer_client().get("/api/accounts/ledger/movements/").json()
@@ -434,7 +408,6 @@ def test_the_split_is_global_and_visible_to_everyone():
     assert viewer_client().get("/api/accounts/ledger/split/").json() == body
 
 
-# --- notifications ----------------------------------------------------------
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -453,7 +426,6 @@ def test_failure_notices_for_a_hidden_account_are_not_listed():
     assert "secret failure" in seen
 
 
-# --- execution is untouched -------------------------------------------------
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -487,7 +459,6 @@ def test_balance_polling_still_covers_hidden_accounts():
     assert hidden.id in polled
 
 
-# --- the WebSocket ----------------------------------------------------------
 
 
 @database_sync_to_async
@@ -544,8 +515,6 @@ async def test_socket_strips_hidden_legs_balances_and_notices():
     message = await communicator.receive_json_from()
     assert [row["id"] for row in message["accounts"]] == [visible_id]
 
-    # A notice naming a hidden account is dropped whole; the next one still lands,
-    # which is what proves the socket was filtered rather than merely stalled.
     await layer.group_send(
         GROUP,
         {
@@ -563,6 +532,50 @@ async def test_socket_strips_hidden_legs_balances_and_notices():
     message = await communicator.receive_json_from()
     assert message["message"] == "shown"
 
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_the_position_sync_event_names_no_hidden_account():
+    """``positions_changed`` is a read surface: it carries account ids."""
+    user, visible_id, hidden_id = await _make_socket_fixtures("boss")
+    communicator = await _open(user)
+    layer = get_channel_layer()
+
+    await layer.group_send(
+        GROUP,
+        {
+            "type": "positions_changed",
+            "payload": {
+                "closed": [hidden_id],
+                "adopted": [],
+                "drifted": [],
+                "untracked": [f"{hidden_id}:BTCUSDT"],
+                "reopened": 7,
+            },
+        },
+    )
+    await layer.group_send(
+        GROUP,
+        {
+            "type": "positions_changed",
+            "payload": {
+                "closed": [hidden_id, visible_id],
+                "adopted": [],
+                "drifted": [],
+                "untracked": [f"{hidden_id}:ETHUSDT"],
+                "reopened": 8,
+            },
+        },
+    )
+
+    message = await communicator.receive_json_from()
+    assert message["type"] == "positions_changed"
+    assert message["closed"] == [visible_id]
+    assert message["untracked"] == []
+    assert "reopened" not in message
     await communicator.disconnect()
 
 
@@ -621,7 +634,7 @@ async def test_a_wholly_hidden_fanout_sends_nothing_at_all():
 @pytest.mark.asyncio
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
 async def test_the_viewers_socket_receives_everything():
-    user, visible_id, hidden_id = await _make_socket_fixtures(HIDDEN_VIEWER)
+    user, visible_id, hidden_id = await _make_socket_fixtures(_svc)
     communicator = await _open(user)
 
     await get_channel_layer().group_send(

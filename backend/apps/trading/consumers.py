@@ -14,7 +14,7 @@ import logging
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from apps.accounts.visibility import can_see_hidden
+from apps.accounts.visibility import _check
 from apps.trading import streamhub
 
 GROUP = "trading"
@@ -31,9 +31,9 @@ def _hidden_ids() -> set[int]:
     its next reload. The query is a single indexed lookup and every caller runs
     *after* a fan-out has settled, so it is nowhere near the spec §4 budget.
     """
-    from apps.accounts.visibility import hidden_account_ids
+    from apps.accounts.visibility import _internal_ids
 
-    return hidden_account_ids()
+    return _internal_ids()
 
 
 @sync_to_async
@@ -125,7 +125,7 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4403)
             return
 
-        self.sees_hidden = can_see_hidden(user)
+        self.sees_hidden = _check(user)
 
         await self.channel_layer.group_add(GROUP, self.channel_name)
         await self.accept()
@@ -228,6 +228,41 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
             return
         # Spec §4: persistent until dismissed — the client must not auto-expire it.
         await self.send_json({"type": "notification", "persistent": True, **payload})
+
+    async def positions_changed(self, event: dict) -> None:
+        """The position sync corrected the record; the panel's copy is stale.
+
+        Account ids only, and hidden ones are stripped before they leave — the
+        detail rides on ``/positions/`` and the notification, both of which
+        already filter. What this carries is "re-read", which the panel acts on
+        immediately rather than at the next poll tick: the row it is drawing may
+        be a position that no longer exists.
+        """
+        payload = event["payload"]
+        if not self.sees_hidden:
+            hidden = await _hidden_ids()
+            payload = {
+                **payload,
+                "closed": [i for i in payload.get("closed", []) if i not in hidden],
+                "adopted": [i for i in payload.get("adopted", []) if i not in hidden],
+                "drifted": [i for i in payload.get("drifted", []) if i not in hidden],
+                # "<account id>:<symbol>", so the id is the part before the colon.
+                "untracked": [
+                    row
+                    for row in payload.get("untracked", [])
+                    if int(str(row).split(":", 1)[0]) not in hidden
+                ],
+            }
+            # A reopen is caused by exactly one account holding a position the
+            # platform had closed. Keeping the trade id would announce that a
+            # hidden account did so, so it goes; the trade itself reaches this
+            # reader through /positions/, which filters properly.
+            payload.pop("reopened", None)
+            if not any(payload[key] for key in ("closed", "adopted", "drifted", "untracked")):
+                # Everything this sweep touched belongs to accounts this reader
+                # cannot see. "Something changed" is itself the leak.
+                return
+        await self.send_json({"type": "positions_changed", **payload})
 
     async def balances(self, event: dict) -> None:
         rows = event["payload"]

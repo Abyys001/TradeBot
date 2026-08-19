@@ -33,7 +33,13 @@ A main trading page, similar in layout to a standard exchange:
 - **Chart**: connected to TradingView.
 - **Order entry**: market orders and limit orders.
 - **Leverage**: adjustable, range 1–10x.
-- **Stop-loss / Take-profit**: set at order entry.
+- **Stop-loss / Take-profit**: set at order entry — **both are required**. An
+  order with either missing is refused before it reaches an adapter, and an
+  amend carrying only one side is refused too (it would replace the resting
+  pair on the exchange and so remove the other). The percentages become
+  trigger prices per account and are **sent to the exchange**: on the entry
+  order where the venue accepts them, placed and read back immediately after
+  the fill where it does not. They are never held only inside the platform.
 - **SL/TP must be editable from three separate places**:
   1. At initial order entry.
   2. Directly from the chart (e.g., drag or click to adjust the SL/TP line).
@@ -139,6 +145,14 @@ A main trading page, similar in layout to a standard exchange:
   control that immediately halts new order routing platform-wide, for use
   if something goes wrong and immediate action is needed across every
   account at once.)*
+
+  > **Amended in use (`questions.md` Q14).** The panel's Stop-all halts **and
+  > flattens**: it stops new routing and then market-closes every open trade in
+  > the same request. Halting alone leaves the leveraged position that is
+  > already running exactly where it was, which is not what "immediate action
+  > across every account" means to the admin who presses it. The API only
+  > flattens when asked to (`close_positions: true`), so a halt set by anything
+  > else keeps the narrower meaning.
 
 ## 8. Trade History & Reporting
 

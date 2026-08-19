@@ -11,6 +11,7 @@ from apps.trading.market_views import (
 )
 from apps.trading.order_views import (
     amend_position,
+    close_all_positions,
     close_position,
     open_position,
     refresh_balances_view,
@@ -28,6 +29,7 @@ urlpatterns = [
     path("orders/open/", open_position, name="order-open"),
     path("orders/<int:pk>/amend/", amend_position, name="order-amend"),
     path("orders/<int:pk>/close/", close_position, name="order-close"),
+    path("orders/close-all/", close_all_positions, name="order-close-all"),
     path("balances/refresh/", refresh_balances_view, name="balances-refresh"),
     # Market data (spec §3): public prices, no credentials involved.
     path("market/candles/", candles, name="market-candles"),

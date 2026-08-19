@@ -37,6 +37,7 @@ from apps.exchanges.gateio import GateioAdapter
 from apps.exchanges.kucoin import KucoinAdapter
 from apps.exchanges.lbank import LbankAdapter
 from apps.exchanges.okx import OkxAdapter
+from apps.exchanges.paper import PaperAdapter
 
 pytestmark = pytest.mark.asyncio
 
@@ -146,6 +147,30 @@ async def test_bybit_parses_a_position():
     assert position.size == D("0.5")
     assert position.liquidation_price == D("90000")
     assert position.leverage == 10
+
+
+async def test_a_flat_close_is_reported_as_no_position_not_as_a_bare_failure():
+    """"Nothing to close" is the desired end state, and says so in its code.
+
+    ``services._persist_close`` reads ``no_position`` as "this account is
+    flat"; anything else means the exchange still holds the leg and the trade
+    stays OPEN. Left as a bare ``AdapterError`` — the class name — a flat
+    account looked like an unflattened one on every venue but Hyperliquid, so
+    close could never finish and the ticket stayed blocked.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return json_response({"retCode": 0, "result": {"list": []}})
+
+    adapter = BybitAdapter(api_key=KEY, api_secret=SECRET, client=mock(handler))
+    with pytest.raises(AdapterError) as caught:
+        await adapter.close_position("BTCUSDT")
+    assert caught.value.code == "no_position"
+    await adapter.close()
+
+    paper = PaperAdapter(balance=D("1000"))
+    with pytest.raises(AdapterError) as flat:
+        await paper.close_position("BTCUSDT")
+    assert flat.value.code == "no_position"
 
 
 async def test_bybit_treats_leverage_not_modified_as_success():
@@ -1832,6 +1857,164 @@ async def test_hyperliquid_sends_sl_and_tp_in_one_action():
         assert request["is_buy"] is False
         assert request["reduce_only"] is True
         assert request["limit_px"] < request["order_type"]["trigger"]["triggerPx"]
+
+
+async def test_hyperliquid_sends_the_entry_and_its_protection_in_one_action():
+    """The position is never live on the exchange without its stop and target.
+
+    Attaching after the fill was a second signed round trip with a leveraged
+    position running in between. ``normalTpsl`` is the OCO grouping the
+    Hyperliquid order form itself sends: one action carrying the entry and both
+    children, so there is no window where the entry landed and the protection
+    did not.
+    """
+    from apps.exchanges.base import MarketType, OrderType, Side
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.01"),
+        order_type=OrderType.LIMIT,
+        limit_price=D("60000"),
+        stop_loss=D("57000"),
+        take_profit=D("66000"),
+    )
+
+    assert stub.orders == [], "the entry must not go out on its own"
+    assert len(stub.bulk) == 1, "entry and protection belong in one signed action"
+    requests, grouping = stub.bulk[0]
+    assert grouping == "normalTpsl"
+    assert len(requests) == 3, "entry, stop loss and take profit"
+
+    entry, *children = requests
+    assert entry["is_buy"] is True and entry["reduce_only"] is False
+    assert [child["order_type"]["trigger"]["tpsl"] for child in children] == ["sl", "tp"]
+    for child in children:
+        # Exit side of a long, sized to the entry, and never able to open.
+        assert child["is_buy"] is False
+        assert child["reduce_only"] is True
+        assert child["sz"] == entry["sz"]
+
+
+async def test_hyperliquid_reads_back_protection_in_the_shape_the_api_returns():
+    """Regression: the read-back parsed a shape ``frontendOpenOrders`` never sends.
+
+    The rows are flat — ``triggerPx`` and ``orderType`` at the top level — and
+    the old parser looked for a nested ``order.trigger.triggerPx`` with a
+    ``tpsl`` tag. It therefore found nothing on every account, so protection
+    resting on the exchange read back as absent and the Q5e policy closed a
+    perfectly good position at market.
+    """
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+
+    class _Orders(_TpslSdk):
+        def frontend_open_orders(self, address: str) -> list:
+            return [
+                {
+                    "coin": "BTC",
+                    "oid": 1,
+                    "isTrigger": True,
+                    "reduceOnly": True,
+                    "orderType": "Stop Market",
+                    "triggerPx": "57000.0",
+                    "children": [],
+                },
+                {
+                    "coin": "BTC",
+                    "oid": 2,
+                    "isTrigger": True,
+                    "reduceOnly": True,
+                    "orderType": "Take Profit Market",
+                    "triggerPx": "66000.0",
+                    "children": [],
+                },
+                # An unrelated resting entry the partner placed by hand.
+                {
+                    "coin": "BTC",
+                    "oid": 3,
+                    "isTrigger": False,
+                    "reduceOnly": False,
+                    "orderType": "Limit",
+                    "triggerPx": "0.0",
+                    "children": [],
+                },
+            ]
+
+    stub = _Orders(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    state = await adapter.get_sltp("BTCUSDT")
+    assert state.stop_loss == D("57000")
+    assert state.take_profit == D("66000")
+
+    # ...and the Q5d snapshot still cancels only the two trigger orders.
+    assert await adapter.list_conditional_orders("BTCUSDT") == ["1", "2"]
+
+
+async def test_hyperliquid_counts_protection_riding_on_an_unfilled_entry():
+    """A child on a resting parent is protection the exchange holds.
+
+    Reporting it as absent would make a resting limit order look unprotected,
+    and the Q5e policy answers "unprotected" by closing at market.
+    """
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+
+    class _Orders(_TpslSdk):
+        def frontend_open_orders(self, address: str) -> list:
+            return [
+                {
+                    "coin": "BTC",
+                    "oid": 9,
+                    "isTrigger": False,
+                    "reduceOnly": False,
+                    "orderType": "Limit",
+                    "triggerPx": "0.0",
+                    "children": [
+                        {
+                            "coin": "BTC",
+                            "isTrigger": True,
+                            "reduceOnly": True,
+                            "orderType": "Stop Market",
+                            "triggerPx": "57000.0",
+                        },
+                        {
+                            "coin": "BTC",
+                            "isTrigger": True,
+                            "reduceOnly": True,
+                            "orderType": "Take Profit Market",
+                            "triggerPx": "66000.0",
+                        },
+                    ],
+                }
+            ]
+
+    stub = _Orders(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    state = await adapter.get_sltp("BTCUSDT")
+    assert state.stop_loss == D("57000")
+    assert state.take_profit == D("66000")
+    # The children are not separately cancellable — the parent owns them.
+    assert await adapter.list_conditional_orders("BTCUSDT") == []
 
 
 async def test_hyperliquid_reports_no_position_with_a_code():

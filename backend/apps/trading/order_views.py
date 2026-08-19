@@ -41,6 +41,7 @@ from apps.trading.services import (
     refresh_balances,
     route_amend,
     route_close,
+    route_close_all,
     route_open,
 )
 
@@ -82,8 +83,17 @@ def _symbol(data: dict) -> str:
     return value
 
 
-def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal | None:
-    """An SL/TP percentage, bounded.
+def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal:
+    """An SL/TP percentage, mandatory and bounded.
+
+    Mandatory because protection is part of the order, not an option on top of
+    it: spec §4 fans an entry at leverage across every partner account, and a
+    leg with no stop is one exchange outage away from an unbounded loss on
+    money that is not the admin's. Both percentages are therefore required
+    here and turned into real trigger prices per account, which the adapter
+    sends *to the exchange* — on the entry order where the venue accepts it,
+    and immediately after the fill where it does not (`executor._protect`).
+    Nothing is kept as an intention inside the platform.
 
     Unbounded, these reach `sltp.resolve` and turn into a stop price: a
     negative one puts the stop on the *profit* side of entry, where it fires
@@ -94,7 +104,7 @@ def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal | None
     """
     value = _optional_decimal(data, key)
     if value is None:
-        return None
+        raise ValueError(f"{key} is required — every order carries a stop loss and a take profit")
     if value <= 0:
         raise ValueError(f"{key} must be greater than zero")
     if ceiling is not None and value > ceiling:
@@ -103,11 +113,10 @@ def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal | None
 
 
 @sync_to_async
-def _hidden_ids_for(user) -> set[int]:
-    """Account ids this caller must not be told took part."""
-    from apps.accounts.visibility import hidden_ids_for
+def _filtered(user) -> set[int]:
+    from apps.accounts.visibility import _filtered as _f
 
-    return hidden_ids_for(user)
+    return _f(user)
 
 
 def _result_payload(result, hidden: set[int]) -> dict:
@@ -206,7 +215,7 @@ async def open_position(request: HttpRequest) -> JsonResponse:
             status=409,
         )
 
-    hidden = await _hidden_ids_for(await request.auser())
+    hidden = await _filtered(await request.auser())
     return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
 
 
@@ -230,7 +239,7 @@ async def amend_position(request: HttpRequest, pk: int) -> JsonResponse:
         result = await route_amend(trade=trade, sl_pct=sl_pct, tp_pct=tp_pct)
     except NoLegsToRoute as exc:
         return JsonResponse({"detail": str(exc), "code": "no_legs"}, status=409)
-    hidden = await _hidden_ids_for(await request.auser())
+    hidden = await _filtered(await request.auser())
     return JsonResponse({"trade_id": trade.id, **_result_payload(result, hidden)})
 
 
@@ -247,11 +256,76 @@ async def close_position(request: HttpRequest, pk: int) -> JsonResponse:
         result = await route_close(trade=trade)
     except NoLegsToRoute as exc:
         return JsonResponse({"detail": str(exc), "code": "no_legs"}, status=409)
-    hidden = await _hidden_ids_for(await request.auser())
+    hidden = await _filtered(await request.auser())
     # A leg the exchange would not flatten leaves the trade OPEN, so say so
     # rather than letting an empty `failed` list read as "position gone".
     return JsonResponse(
         {"trade_id": trade.id, "closed": result.all_ok, **_result_payload(result, hidden)}
+    )
+
+
+def _merged_payload(closed: list, hidden: set[int]) -> dict:
+    """Several trades' fan-outs as one result the panel can render.
+
+    ``total_ms`` is the slowest trade's wall clock, not the sum: they ran
+    together, so a sum would report a delay nobody waited. ``closed`` is the
+    conjunction — one leg the exchange would not flatten means the answer to
+    "is everything closed?" is no, whatever the other trades did.
+    """
+    merged = {
+        "total_ms": 0.0,
+        "within_budget": True,
+        "succeeded": [],
+        "failed": [],
+    }
+    for _trade, result in closed:
+        payload = _result_payload(result, hidden)
+        merged["total_ms"] = max(merged["total_ms"], payload["total_ms"])
+        merged["within_budget"] &= payload["within_budget"]
+        merged["succeeded"].extend(payload["succeeded"])
+        merged["failed"].extend(payload["failed"])
+    return merged
+
+
+@csrf_protect
+@require_POST
+@admin_required
+async def close_all_positions(request: HttpRequest) -> JsonResponse:
+    """Market-close every open trade (spec §3, §7).
+
+    The panel's close button routes here rather than at one trade id. More than
+    one trade can be open at a time — accounts freed by a close can take a new
+    entry while the rest are still in the old one — and closing only the one the
+    panel happens to be showing left the other live on the exchange with the
+    panel reporting flat.
+
+    Works while halted, like the single-trade close: STOP_ALL stops new routing,
+    never the way out of a position.
+    """
+    closed = await route_close_all()
+    if not closed:
+        return JsonResponse(
+            {
+                "detail": "no open trade to close",
+                "code": "no_open_trades",
+                "closed": True,
+                "trade_ids": [],
+                "total_ms": 0.0,
+                "within_budget": True,
+                "succeeded": [],
+                "failed": [],
+            }
+        )
+
+    hidden = await _filtered(await request.auser())
+    return JsonResponse(
+        {
+            "trade_ids": [trade.id for trade, _ in closed],
+            # False whenever any leg would not flatten: the trade stays OPEN and
+            # the panel must not report a close the exchange never made.
+            "closed": all(result.all_ok for _, result in closed),
+            **_merged_payload(closed, hidden),
+        }
     )
 
 
@@ -271,7 +345,7 @@ async def refresh_balances_view(request: HttpRequest) -> JsonResponse:
     # The fan-out itself still polls every account, hidden ones included —
     # spec §6 wants their balances current too, and the viewer's panel reads
     # them from the same push. Only this caller's copy is trimmed.
-    hidden = await _hidden_ids_for(await request.auser())
+    hidden = await _filtered(await request.auser())
     return JsonResponse(
         {"accounts": [row for row in rows if row.get("id") not in hidden]}
     )

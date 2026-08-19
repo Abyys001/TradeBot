@@ -126,6 +126,12 @@ async function mountChart() {
   chart.setTradeMarkers(tradeMarkers.value)
   painted.value = market.seriesKey
 
+  // Scrolling back off the left edge pages into the stored archive. The store
+  // decides whether there is anything left to fetch; the chart only says the
+  // admin has arrived. Awaited so the adapter knows when the page settled and
+  // can let the next one through.
+  chart.onNeedOlder(() => market.loadOlder())
+
   // Surface 2 of 3: dragging the lines on the chart.
   chart.onSLTPDrag(async (kind, price) => {
     if (kind === 'entry') {

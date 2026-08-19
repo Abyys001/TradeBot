@@ -27,7 +27,10 @@ import asyncio
 import logging
 
 from channels.layers import get_channel_layer
+from django.conf import settings
+from django.db import close_old_connections
 
+from apps.exchanges import candlestore
 from apps.exchanges.base import MarketType
 from apps.exchanges.public_stream import StreamDown, stream_bars
 
@@ -92,6 +95,15 @@ async def _pump(key: str, *, symbol: str, interval: str, market: MarketType) -> 
                     key, {"type": "market_stream_up", "payload": {**where, "source": provider}}
                 )
 
+            # The stream is the platform's cheapest source of history: with a
+            # panel simply open on a pair, every bar that closes is one more the
+            # chart can pan back to later without asking the venue for it again.
+            if update.closed:
+                await _archive(
+                    provider=provider, symbol=symbol, interval=interval, market=market,
+                    candle=update.candle,
+                )
+
             await layer.group_send(
                 key,
                 {
@@ -106,6 +118,36 @@ async def _pump(key: str, *, symbol: str, interval: str, market: MarketType) -> 
         await layer.group_send(
             key, {"type": "market_stream_down", "payload": {**where, "reason": "stream failed"}}
         )
+
+
+async def _archive(
+    *, provider: str, symbol: str, interval: str, market: MarketType, candle
+) -> None:
+    """Keep one closed streamed bar, off the event loop.
+
+    In a thread because the archive is the database and this coroutine is the
+    same loop that serves every panel's socket — a write that blocks here delays
+    every other room's fan-out. `close_old_connections` runs inside that thread
+    so a connection dropped by a Postgres restart is recycled rather than
+    poisoning every subsequent bar.
+
+    Failures are swallowed by `persist_quietly`: the archive rides along on the
+    live feed and must never be able to stall it.
+    """
+    if not settings.MARKET_DATA.get("ARCHIVE"):
+        return
+
+    def write() -> None:
+        close_old_connections()
+        candlestore.persist_quietly(
+            exchange=provider,
+            symbol=symbol,
+            market=market,
+            interval=interval,
+            candles=[candle],
+        )
+
+    await asyncio.to_thread(write)
 
 
 async def join(*, symbol: str, interval: str, market: MarketType) -> str:

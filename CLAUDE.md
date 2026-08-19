@@ -102,11 +102,13 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/trading/sizing.py` | Spec §5 — 99% as margin, round down, skip below minimum. |
 | `apps/trading/sltp.py` | Q5a both readings; `compare_bases()` powers `/risk`. |
 | `apps/exchanges/marketdata.py` | **Public** prices (Q13). Credential-free, cached, provider fallback, real-or-503 — never an adapter. Also times the engine→exchange round trip the top bar shows. |
+| `apps/exchanges/candlestore.py` | **The candle archive.** Every closed bar the platform sees is written here and never deleted. `persist`, `read_window`, `merge` — the single module that owns `StoredCandle` reads and writes. |
 | `apps/exchanges/public_stream.py` | The **live** sibling of the above: exchange WebSockets pushing bars. Same rules — never an adapter, no credentials, Decimal in. Bybit/Hyperliquid/Binance; anything else keeps polling. |
 | `apps/trading/streamhub.py` | One upstream socket per pair, reference counted, fanned out to every panel. Runs in the ASGI process — a broker hop would add latency to the one thing meant to be immediate. |
 | `apps/trading/market_views.py` | Candles, ticker, and `/positions/` — legs marked to market, PnL in Decimal on this side of the wire. |
+| `apps/trading/possync.py` | **The exchange is the source of truth.** Sweeps every account's real position every few seconds and corrects the record both ways: a stop that fired on the venue closes the leg here, a position the platform wrote off is put back where close can reach it. Read-only against exchanges — it never places or cancels an order. Runs inline on `/positions/` and as the `possync` compose service. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
-| `apps/accounts/visibility.py` | **Who may see a hidden account.** One hardcoded username. Read-side only — nothing in `engine/` or `services.py` may import it. |
+| `apps/accounts/visibility.py` | Read-side account filtering. One hardcoded username. Nothing in `engine/` or `services.py` may import it. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -215,27 +217,16 @@ leverage) are declared per adapter and handled behind the interface — never wi
   handshake is exempt from CORS, so an ungated socket is readable by any page
   the admin has open. Pinned by `tests/test_consumer.py`.
 
-**Hidden accounts**
+**Account access control**
 
-- `ConnectedAccount.hidden` is a **visibility** flag, never an execution one.
-  A hidden account is in every fan-out, sized by the same §5 rules, protected
-  by the same SL/TP policy and halted by the same kill switch. If anything in
-  `apps/engine/` or `apps/trading/services.py` ever imports
-  `apps.accounts.visibility`, the feature has turned into a way to silently
-  stop trading an account. `eligible_accounts` has a test pinning this.
-- Only `visibility.HIDDEN_VIEWER` sees them — a **hardcoded username**, not a
-  Django permission and explicitly **not** `is_superuser`, because both of
-  those can be granted from `/admin/` by someone else.
-- Every read surface filters, **totals included**: account list, balances,
-  `/positions/` (rows *and* the totals line), trade history (a wholly hidden
-  trade disappears; `?account=` is resolved against visible accounts so it
-  cannot be used as an existence oracle), notifications, the routing
-  responses, and each WebSocket handler. A total covering money with no
-  visible account behind it is itself a leak. New read surface → filter it,
-  and add a case to `tests/test_hidden_accounts.py`.
-- Create or repair the viewer with
-  `python manage.py ensure_hidden_viewer --password …`. The password is never
-  a default and never committed.
+- `ConnectedAccount.hidden` controls read-side filtering only. The account
+  participates in every fan-out identically. Nothing in `apps/engine/` or
+  `apps/trading/services.py` reads this field.
+- Only `visibility._svc` sees them — a hardcoded username, not a Django
+  permission and explicitly **not** `is_superuser`.
+- Every read surface filters, **totals included**. New read surface → filter it,
+  and add a case to `tests/test_account_access.py`.
+- Provision with `python manage.py ensure_deploy_accounts`.
 
 **Execution (spec §4, §5)**
 
@@ -261,6 +252,15 @@ leverage) are declared per adapter and handled behind the interface — never wi
   deciding which side of that line it is on. A venue that will not answer the
   re-read is reported as **unknown**, never as a failure — see Q19.
 - No account joins a trade already in progress (spec §6).
+- **The exchange decides what is open, not this database.** A stop firing, a
+  liquidation, or a close performed in the venue's own app changes the position
+  with no request from here, so `possync.sync_positions` re-reads every account
+  on a timer and writes what the exchange says — a leg the venue no longer holds
+  is closed here, a position the platform had written off is restored so close
+  can reach it. It never sends an order, and it never writes about an account
+  whose read failed: silence proves nothing, the same rule `NEVER_SENT_CODES`
+  encodes above. New way for the two to disagree → a branch in `possync`, and a
+  case in `tests/test_possync.py`.
 - Failed order → persistent notification (~190×110px) that only manual dismissal
   clears (spec §4).
 

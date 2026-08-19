@@ -205,3 +205,97 @@ def test_the_amend_endpoint_answers_while_halted():
     # the refusal is not the kill switch talking.
     assert response.status_code < 500, response.content
     assert response.json().get("code") != "stop_all", response.content
+
+
+# --- stop all as a flatten (admin request) ----------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_stop_all_can_flatten_every_open_trade():
+    """The panel's button halts *and* closes: a halt alone leaves the risk on.
+
+    Stopping new routing is no help when the danger is the leveraged position
+    already running, so the button sends ``close_positions``. The halt lands
+    first, so nothing can be routed into the gap while the close fans out.
+    """
+    from asgiref.sync import async_to_sync
+
+    from apps.trading.models import TradeLeg
+    from apps.trading.services import route_open
+
+    account = ConnectedAccount.objects.create(
+        label="partner",
+        exchange=Exchange.PAPER,
+        status=AccountStatus.ACTIVE,
+        withdrawal_check_passed=True,
+        last_balance=D("1000"),
+        last_balance_asset="USDT",
+    )
+    trade, _ = async_to_sync(route_open)(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        market=MarketType.FUTURES,
+        order_type=OrderType.MARKET,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        limit_price=D("100000"),
+    )
+    assert trade is not None and trade.status == TradeStatus.OPEN
+
+    client = staff_client()
+    response = client.post(
+        "/api/trading/stop-all/",
+        {"on": True, "close_positions": True},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["stop_all"] is True
+    assert body["flattened"]["closed"] is True
+    assert body["flattened"]["trade_ids"] == [trade.id]
+
+    trade.refresh_from_db()
+    assert trade.status == TradeStatus.CLOSED
+    assert TradeLeg.objects.filter(trade=trade, closed_at__isnull=True).count() == 0
+    assert account.id  # the account is free again for the next entry
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_plain_halt_still_leaves_open_positions_alone():
+    """Q14 is unchanged for every caller that does not ask to flatten."""
+    from asgiref.sync import async_to_sync
+
+    from apps.trading.services import route_open
+
+    ConnectedAccount.objects.create(
+        label="partner",
+        exchange=Exchange.PAPER,
+        status=AccountStatus.ACTIVE,
+        withdrawal_check_passed=True,
+        last_balance=D("1000"),
+        last_balance_asset="USDT",
+    )
+    trade, _ = async_to_sync(route_open)(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        market=MarketType.FUTURES,
+        order_type=OrderType.MARKET,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        limit_price=D("100000"),
+    )
+
+    client = staff_client()
+    response = client.post(
+        "/api/trading/stop-all/", {"on": True}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    assert "flattened" not in response.json()
+    trade.refresh_from_db()
+    assert trade.status == TradeStatus.OPEN

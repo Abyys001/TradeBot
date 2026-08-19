@@ -11,12 +11,13 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 
-from apps.accounts.visibility import can_see_hidden, visible_accounts
+from apps.accounts.visibility import _check, accessible
 from apps.core.money import D
 from apps.exchanges.base import Side
 from apps.trading import killswitch
 from apps.trading.models import Trade, TradeLeg
 from apps.trading.serializers import TradeSerializer
+from apps.trading.services import route_close_all
 from apps.trading.sizing import balance_fraction
 from apps.trading.sltp import compare_bases, liquidation_price
 
@@ -45,7 +46,7 @@ class TradeViewSet(viewsets.ReadOnlyModelViewSet):
            existence oracle for hidden account ids.
         """
         user = self.request.user
-        sees_hidden = can_see_hidden(user)
+        sees_hidden = _check(user)
 
         legs = TradeLeg.objects.all() if sees_hidden else TradeLeg.objects.filter(
             account__hidden=False
@@ -58,7 +59,7 @@ class TradeViewSet(viewsets.ReadOnlyModelViewSet):
 
         account_id = self.request.query_params.get("account")
         if account_id:
-            if not visible_accounts(user).filter(id=account_id).exists():
+            if not accessible(user).filter(id=account_id).exists():
                 return queryset.none()
             queryset = queryset.filter(legs__account_id=account_id).distinct()
         return queryset
@@ -179,6 +180,18 @@ def stop_all(request):
     Closing and amending open positions keep working while it is on; that is the
     design, not an oversight. A halt that stranded open leveraged positions
     without a way out would be more dangerous than the thing it stops.
+
+    ``close_positions`` (what the panel's Stop-all button sends, with ``on``
+    true) also **flattens every open trade** — the halt alone stops the next
+    order, which is no help when the danger is the position already running at
+    leverage. The halt is applied *first* so nothing new can be routed into the
+    gap while the close fans out, and the close is reported back rather than
+    assumed: a leg the exchange would not flatten leaves its trade OPEN and
+    raises its own spec §4 notice.
+
+    It is a parameter and not the default because this endpoint is not only the
+    button: a halt flipped by anything else must keep Q14's meaning — stop new
+    routing, touch nothing that is already live.
     """
     if request.method == "GET":
         return Response(killswitch.state())
@@ -196,11 +209,35 @@ def stop_all(request):
     except PermissionError as exc:
         return Response({"detail": str(exc), "code": "stop_all_locked"}, status=409)
 
+    flattened: dict | None = None
+    if requested and bool(request.data.get("close_positions")):
+        closed = async_to_sync(route_close_all)()
+        flattened = {
+            "trade_ids": [trade.id for trade, _ in closed],
+            "closed": all(result.all_ok for _, result in closed),
+            "failed": [
+                {"account_id": leg.account_id, "error": leg.error, "code": leg.error_code}
+                for _trade, result in closed
+                for leg in result.failed
+            ],
+        }
+
     # Every open panel must show the halt, not just the tab that flipped it.
     layer = get_channel_layer()
     if layer is not None:
         payload = {**state, "updated_at": str(state["updated_at"])}
         async_to_sync(layer.group_send)("trading", {"type": "stop_all", "payload": payload})
+    if flattened is not None:
+        # Hidden accounts are filtered on the read surfaces; this response only
+        # ever reaches the staff caller that pressed the button, and the leg
+        # detail it carries is the same the notification centre already filters.
+        from apps.accounts.visibility import _filtered
+
+        hidden = _filtered(request.user)
+        flattened["failed"] = [
+            leg for leg in flattened["failed"] if leg["account_id"] not in hidden
+        ]
+        return Response({**state, "flattened": flattened})
     return Response(state)
 
 

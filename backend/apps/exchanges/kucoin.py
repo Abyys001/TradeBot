@@ -487,7 +487,9 @@ class KucoinAdapter(RestAdapter):
         contract = self._contract(symbol)
         position = await self.get_position(symbol)
         if position is None:
-            raise AdapterError(f"kucoin: no open position to close on {symbol}")
+            raise AdapterError(
+                f"kucoin: no open position to close on {symbol}", code="no_position"
+            )
         data = await self.request(
             "POST",
             "/api/v1/orders",

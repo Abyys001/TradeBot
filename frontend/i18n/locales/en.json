@@ -59,7 +59,7 @@
   "policy": {
     "stopAllActive": "Routing halted",
     "stopAll": "Stop all",
-    "stopAllHint": "Halt new order routing on every connected account, immediately.",
+    "stopAllHint": "Halt new order routing on every connected account and market-close every open trade, immediately.",
     "stopAllLocked": "STOP_ALL is pinned on by the server environment. It cannot be cleared from the panel.",
     "resume": "Resume routing",
     "resumeHint": "Routing is halted. Click to resume.",
@@ -151,7 +151,8 @@
     "useMark": "Mark",
     "totalMargin": "Total margin",
     "totalNotional": "Total notional",
-    "alreadyOpen": "A trade is already open. Each account commits 99% of its balance, so only one runs at a time — close it first."
+    "alreadyOpen": "A trade is already open. Each account commits 99% of its balance, so only one runs at a time — close it first.",
+    "sltpRequired": "Stop loss and take profit are both required. They are sent to the exchange with the order — an entry at leverage never goes out unprotected."
   },
   "position": {
     "entry": "Entry",
@@ -180,7 +181,9 @@
     "flatTitle": "No open position",
     "flatBody": "Send an order and every account's own position appears here, marked to the live price.",
     "confirmCloseTitle": "Close on every account?",
-    "confirmCloseBody": "This market-closes {symbol} on all {n} accounts holding it, at once. It cannot be undone."
+    "confirmCloseBody": "This market-closes {symbol} on all {n} accounts holding it, at once — and any other trade still open. It cannot be undone.",
+    "sltpRequired": "A stop loss and a take profit are both required: an amend replaces the protection resting on the exchange, so leaving one blank would remove it.",
+    "otherOpenTrades": "{n} more trade(s) are open on other accounts and are not shown here. Close flattens those too."
   },
   "fanout": {
     "title": "Last fan-out",
@@ -223,7 +226,7 @@
     "latency": "Fan-out time",
     "latencyHint": "Every account reached, per trade",
     "latencyCaption": "Most recent trades, oldest first. The dashed line is the fan-out deadline.",
-    "budget": "deadline",
+    "budget": "deadline {s}s",
     "breaches": "{n} over budget",
     "worst": "worst {ms}ms",
     "noLatencyTitle": "Nothing measured yet",
@@ -671,8 +674,7 @@
     "amended": "SL/TP updated on {n} account(s)",
     "closed": "Position closed on {n} account(s)",
     "detail": "{ms}ms · {failed} failed",
-    "closePartial": "The position was NOT closed on every account — the exchange still holds it. Check the failure notices and try again.",
-    "closeNothing": "There is no open trade to close. If an exchange still shows a position, it was opened outside this panel — close it there and check the failure notices."
+    "closePartial": "The position was NOT closed on every account — the exchange still holds it. Check the failure notices and try again."
   },
   "logs": {
     "title": "System Log",
