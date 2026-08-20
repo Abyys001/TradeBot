@@ -162,6 +162,15 @@ def aggregate(rows: list[dict]) -> dict[str, Any]:
     }
 
 
+def pending_detections(accounts: QuerySet[ConnectedAccount]) -> int:
+    """How many proposed movements are still waiting on an operator."""
+    from apps.accounts.models import DetectedMovement, DetectionStatus
+
+    return DetectedMovement.objects.filter(
+        account__in=accounts, status=DetectionStatus.PENDING
+    ).count()
+
+
 def ledger_snapshot(accounts: QuerySet[ConnectedAccount]) -> dict[str, Any]:
     """The full financial-management payload.
 
@@ -186,6 +195,10 @@ def ledger_snapshot(accounts: QuerySet[ConnectedAccount]) -> dict[str, Any]:
         "exchanges": exchanges,
         "totals": aggregate(rows),
         "split": {role: str(pct) for role, pct in split_pcts().items()},
+        # How many balance changes are waiting for an answer. A count rather
+        # than the rows: the dashboard needs to say "something needs you", the
+        # finance page fetches the detail.
+        "pending_detections": pending_detections(accounts),
         "non_usdt": [
             {"account": row["account"], "label": row["label"], "asset": row["asset"]}
             for row in rows

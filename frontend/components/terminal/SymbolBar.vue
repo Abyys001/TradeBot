@@ -22,17 +22,15 @@ const intervals: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
 
 const matches = computed(() => {
   const needle = query.value.trim().toUpperCase()
-  const list = market.symbols
-  const filtered = needle
-    ? list.filter((s) => s.symbol.includes(needle) || s.base.includes(needle))
-    : list
-  // Pinned pairs always appear first, in the canonical order.
-  const pinned: SymbolInfo[] = []
-  const rest: SymbolInfo[] = []
-  for (const s of filtered) {
-    if (PINNED_SYMBOLS.includes(s.symbol)) pinned.push(s)
-    else rest.push(s)
-  }
+  const known = new Map(market.symbols.map((s) => [s.symbol, s]))
+  const hit = (s: SymbolInfo) => !needle || s.symbol.includes(needle) || s.base.includes(needle)
+  // The pins are the platform's list, not the venue's: they head the picker in
+  // their canonical order whether or not the catalogue has answered yet, so a
+  // slow or partial `/symbols/` cannot make one of them vanish.
+  const pinned = PINNED_SYMBOLS.map(
+    (symbol) => known.get(symbol) ?? { symbol, ...splitSymbol(symbol) },
+  ).filter(hit)
+  const rest = market.symbols.filter((s) => !PINNED_SYMBOLS.includes(s.symbol) && hit(s))
   return { pinned, rest }
 })
 
@@ -107,16 +105,18 @@ async function submitQuery() {
 </script>
 
 <template>
-  <div class="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 h-14 border-b border-line shrink-0">
+  <div class="flex items-center gap-1.5 xs:gap-2 sm:gap-3 px-2 xs:px-3 sm:px-4 h-14
+              border-b border-line shrink-0 min-w-0">
     <!-- Symbol -->
-    <div class="relative shrink-0">
+    <div class="relative min-w-0">
       <button
-        class="flex items-center gap-1.5 rounded-lg px-2 py-1 hover:bg-raised transition-colors"
+        class="flex items-center gap-1.5 rounded-lg px-1.5 xs:px-2 py-1 max-w-full
+               hover:bg-raised transition-colors"
         :aria-expanded="picking"
         @click="picking = !picking"
       >
-        <span class="num text-sm font-semibold">{{ market.symbol }}</span>
-        <UiIcon name="chevronDown" :size="14" class="text-ink-faint" />
+        <span class="num text-sm font-semibold truncate">{{ market.symbol }}</span>
+        <UiIcon name="chevronDown" :size="14" class="text-ink-faint shrink-0" />
       </button>
 
       <!-- Click-away layer: a dropdown that only closes by re-clicking the
@@ -125,7 +125,8 @@ async function submitQuery() {
 
       <div
         v-if="picking"
-        class="absolute z-40 mt-1 w-60 panel shadow-lift p-2 max-h-80 overflow-y-auto"
+        class="absolute z-40 mt-1 w-[min(15rem,calc(100vw-2rem))] panel shadow-lift p-2
+               max-h-80 overflow-y-auto"
       >
         <input
           v-model="query"
@@ -170,7 +171,7 @@ async function submitQuery() {
     </div>
 
     <!-- Price -->
-    <div class="min-w-0">
+    <div class="shrink-0">
       <p
         class="num text-sm font-semibold transition-colors"
         :class="[
@@ -193,7 +194,7 @@ async function submitQuery() {
     </UiBadge>
 
     <!-- Timeframe -->
-    <div class="ms-auto flex items-center gap-1 sm:gap-2">
+    <div class="ms-auto shrink-0 flex items-center gap-1 sm:gap-2">
       <div class="hidden sm:flex items-center gap-0.5 rounded-lg bg-sunken border border-line p-0.5">
         <button
           v-for="option in intervals"

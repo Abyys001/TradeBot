@@ -76,7 +76,7 @@ function onMove(event: PointerEvent) {
       :viewBox="`0 0 ${W} ${H}`"
       preserveAspectRatio="none"
       class="w-full block"
-      :style="{ height: `${H}px` }"
+      :style="{ height: `clamp(${Math.round(H * 0.7)}px, 18vh, ${Math.round(H * 1.35)}px)` }"
       role="img"
       :aria-label="`Cumulative result, ${format(last)}`"
     >

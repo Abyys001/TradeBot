@@ -339,8 +339,11 @@
   }
 
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-tick
+    @apply inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-tick
            uppercase tracking-wider;
+    /* Exchange names and error codes are unbounded text. A chip that cannot
+       fit wraps inside its own pill rather than pushing the page sideways. */
+    flex-wrap: wrap;
   }
 
   .skeleton {

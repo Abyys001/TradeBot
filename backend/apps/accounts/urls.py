@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from apps.accounts.auth_views import csrf, login_view, logout_view, me
+from apps.accounts.auth_views import csrf, login_view, logout_view, me, sessions_view
 from apps.accounts.views import ConnectedAccountViewSet, LedgerViewSet, NotificationViewSet
 
 router = DefaultRouter()
@@ -14,5 +14,6 @@ urlpatterns = [
     path("auth/login/", login_view, name="login"),
     path("auth/logout/", logout_view, name="logout"),
     path("auth/me/", me, name="me"),
+    path("auth/sessions/", sessions_view, name="sessions"),
     *router.urls,
 ]

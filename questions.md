@@ -554,3 +554,47 @@ splits profit by role. Four decisions, now binding:
 Backed by `backend/apps/accounts/ledger.py`, `/accounts/ledger/*` endpoints
 (`tests/test_ledger.py`, `tests/test_hidden_accounts.py`) and the `/finance`
 page + Settings "Profit split" card.
+
+### Detecting a cash flow the exchange will not report (2026-08-20)
+
+An amendment to decision 1 above, not a reversal. Cash flows are still recorded
+by a person — §7 keys are trade-only and no import API exists — but the platform
+no longer stays silent when it can see money move. It subtracts:
+
+```
+equity now − equity at the last flat reading
+  − PnL of the legs it closed itself in that window       (A: a trade result)
+  − deposits and withdrawals already recorded in it       (already explained)
+  = unexplained                                            (B: out, C: in)
+```
+
+Five decisions, now binding:
+
+1. **Equity, not available balance.** Available drops the moment margin is
+   locked into a position, which would read as a withdrawal on every entry.
+   `ConnectedAccount.last_equity` is the exchange's `Balance.total`.
+2. **Flat to flat only.** Equity carries unrealised PnL, so mid-trade it moves
+   with the market. `ledger_cursor_*` only advances on a reading taken while the
+   account holds no open leg, so no window can contain a market swing.
+3. **Proposed, never booked.** A `DetectedMovement` is a queue item. Invested
+   capital changes only when an operator accepts it, and they may correct the
+   direction and the amount on the way in — the platform inferred both by
+   subtraction, and the person who moved the money knows better.
+4. **A threshold, not exactness.** Fees, funding and exchange rounding move
+   equity without anyone moving money. `LEDGER_DETECT_MIN_USDT` (a floor) and
+   `LEDGER_DETECT_MIN_PCT` (a share of the account), larger wins. Below it the
+   cursor still advances, so the noise never accumulates into a false proposal.
+5. **Every write is attributed.** `LedgerEvent` is append-only and records the
+   actor, the action, and the before/after of the fields that actually changed
+   — including deletions, which outlive the row they describe. A blank actor
+   means the platform itself, which is only ever the `detected` action.
+
+Open, and deliberately a setting rather than a guess: whether the threshold
+should be per-exchange. Funding on a perpetual venue is a larger and more
+regular drift than on spot, and one global percentage serves both badly. Left
+global until real venue data says what the spread actually is.
+
+Backed by `backend/apps/accounts/detection.py`, `backend/apps/accounts/
+bookkeeping.py`, `/accounts/ledger/detections/*` and `/accounts/ledger/events/`
+(`tests/test_ledger_detection.py`), and the `/finance` page's "Unexplained
+balance changes" and "Who changed what" cards.

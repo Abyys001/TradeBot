@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { PINNED_SYMBOLS } from './market'
 
 /**
  * The admin's own list of pairs to keep an eye on.
@@ -12,10 +13,14 @@ import { defineStore } from 'pinia'
  * Prices come from one batched request for the whole list (`market/tickers/`).
  * One request per row would be ten round trips every few seconds from every
  * open panel, and each quote is already cached server-side.
+ *
+ * The pinned pairs (`PINNED_SYMBOLS`, the same list the picker pins) are not
+ * part of the cookie: they head the list on every panel, cannot be removed or
+ * reordered away, and a stale cookie from before a pair was pinned cannot hide
+ * one. The cookie holds only what the admin added on top of them.
  */
 const POLL_MS = 5000
 const MAX = 20
-const DEFAULT_SYMBOLS = ['BTCUSDC', 'SOLUSDC', 'HYPEUSDC', 'LITUSDC', 'PUMPUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BNBUSDC', 'WLDUSDC']
 
 export interface WatchRow {
   symbol: string
@@ -31,8 +36,9 @@ let timer: ReturnType<typeof setInterval> | null = null
 let subscribers = 0
 
 export const useWatchlistStore = defineStore('watchlist', () => {
+  // Only the admin's own additions live here; the pins are code, not cookie.
   const stored = useCookie<string[]>('watchlist', {
-    default: () => [...DEFAULT_SYMBOLS],
+    default: () => [],
     maxAge: 60 * 60 * 24 * 365,
     sameSite: 'lax',
   })
@@ -41,7 +47,9 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   const loading = ref(false)
   const error = ref('')
 
-  const symbols = computed(() => stored.value ?? [])
+  const isPinned = (symbol: string) => PINNED_SYMBOLS.includes(symbol.toUpperCase())
+  const extras = computed(() => (stored.value ?? []).filter((s) => !isPinned(s)))
+  const symbols = computed(() => [...PINNED_SYMBOLS, ...extras.value])
   const rows = computed<WatchRow[]>(() =>
     symbols.value.map(
       (symbol) =>
@@ -93,13 +101,14 @@ export const useWatchlistStore = defineStore('watchlist', () => {
     // list — but a stray "btc " or "btc/usdt" would just render as a dead row.
     if (!/^[A-Z0-9]{4,20}$/.test(next)) return false
     if (has(next) || isFull.value) return false
-    stored.value = [...symbols.value, next]
+    stored.value = [...extras.value, next]
     load()
     return true
   }
 
   function remove(symbol: string) {
-    stored.value = symbols.value.filter((s) => s !== symbol.toUpperCase())
+    if (isPinned(symbol)) return
+    stored.value = extras.value.filter((s) => s !== symbol.toUpperCase())
     const { [symbol.toUpperCase()]: _dropped, ...rest } = quotes.value
     quotes.value = rest
   }
@@ -110,7 +119,9 @@ export const useWatchlistStore = defineStore('watchlist', () => {
 
   /** Reordering by drag on a phone is a fight; two buttons are not. */
   function move(symbol: string, delta: number) {
-    const list = [...symbols.value]
+    // The pinned block is fixed, so only the admin's own rows reorder.
+    if (isPinned(symbol)) return
+    const list = [...extras.value]
     const from = list.indexOf(symbol.toUpperCase())
     const to = from + delta
     if (from === -1 || to < 0 || to >= list.length) return
@@ -119,7 +130,7 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   }
 
   function reset() {
-    stored.value = [...DEFAULT_SYMBOLS]
+    stored.value = []
     load()
   }
 
@@ -140,6 +151,8 @@ export const useWatchlistStore = defineStore('watchlist', () => {
 
   return {
     symbols,
+    pinned: PINNED_SYMBOLS,
+    isPinned,
     rows,
     quotes,
     loading,

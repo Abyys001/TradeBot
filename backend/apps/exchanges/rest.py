@@ -139,7 +139,7 @@ class RestAdapter(ExchangeAdapter):
         self._client = client or httpx.AsyncClient(
             base_url=self._url,
             timeout=_httpx_timeout(self._timeout),
-            headers={"User-Agent": "WalletManager-CopyTrader/1.0"},
+            headers={"User-Agent": "TradeBot/1.0"},
             # Adapters outlive an action (apps.exchanges.pool), so this pool is
             # what carries a warm connection into the next order.
             limits=_LIMITS,
@@ -164,7 +164,7 @@ class RestAdapter(ExchangeAdapter):
             self._extra_clients[url] = httpx.AsyncClient(
                 base_url=url,
                 timeout=_httpx_timeout(self._timeout),
-                headers={"User-Agent": "WalletManager-CopyTrader/1.0"},
+                headers={"User-Agent": "TradeBot/1.0"},
                 limits=_LIMITS,
                 trust_env=False,
                 proxy=exchange_proxy(),

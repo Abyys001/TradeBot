@@ -37,7 +37,7 @@ const TONE: Record<string, string> = {
       v-for="option in options"
       :key="option.value"
       type="button"
-      class="flex-1 rounded-[0.4rem] border transition-all duration-150 font-medium whitespace-nowrap"
+      class="flex-1 min-w-0 truncate rounded-[0.4rem] border transition-all duration-150 font-medium"
       :class="[
         size === 'sm' ? 'text-xs py-1 px-2' : 'text-sm py-1.5 px-3',
         model === option.value

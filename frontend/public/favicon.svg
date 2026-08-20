@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="WalletManager">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TradeBot">
   <!-- One source fanning out to three destinations: one admin action, many
        accounts. Same geometry as the PNG icon set (see tools/make_icons.py in
        the job scratch, mirrored here so both stay identical). -->

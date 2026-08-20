@@ -1,7 +1,7 @@
 {
   "app": {
-    "name": "WalletManager CopyTrader",
-    "short": "CopyTrader"
+    "name": "TradeBot",
+    "short": "TradeBot"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -143,7 +143,6 @@
     "rewardLabel": "Reward on the account",
     "rr": "Risk / reward",
     "slBeyondLiquidation": "This stop sits at or beyond the liquidation price. It can never trigger — the position liquidates first.",
-    "sizingNote": "Each account commits 99% of its own USDT balance. Sizes differ; leverage and SL/TP percentages do not. An account below the exchange minimum is skipped, never rounded up.",
     "submitSide": "{side} · send to {n} accounts",
     "sending": "Sending to all accounts…",
     "haltedNote": "Routing is halted platform-wide. Closing an open position still works.",
@@ -249,6 +248,31 @@
       "overBudget": "over the deadline",
       "withinBudget": "within the deadline",
       "noTrades": "no trades yet"
+    },
+    "sessions": "Signed in",
+    "sessionsHint": "Everyone uses the same login, so this lists browsers, not people. An unexpected row means someone else holds the password.",
+    "sessionsOnline": "{n} online",
+    "sessionOnline": "Online",
+    "sessionIdle": "Idle",
+    "sessionYou": "This browser",
+    "sessionSince": "since {when}",
+    "sessionSeen": "seen {when}",
+    "sessionUnknownDevice": "Unknown device",
+    "noSessionsTitle": "No active sessions",
+    "noSessionsBody": "Nobody is signed in to the panel right now.",
+    "split": {
+      "title": "Profit and shares",
+      "hint": "From financial management — the same numbers, not a second calculation.",
+      "open": "Open finance",
+      "pending": "{n} unexplained",
+      "profit": "Profit since inception",
+      "dividing": "Divided between the three roles below.",
+      "nothingToDivide": "Nothing to divide — shares apply to profit only.",
+      "return": "Return",
+      "counted": "Accounts counted",
+      "accounts": "of {n}",
+      "emptyTitle": "No ledger yet",
+      "emptyBody": "Record a deposit on the finance page and the split appears here."
     }
   },
   "alerts": {
@@ -283,7 +307,7 @@
   },
   "risk": {
     "title": "What does a percentage cost?",
-    "intro": "The same SL percentage means two very different things depending on what it measures. Both readings are shown below for the same inputs, so the choice can be made against numbers.",
+    "intro": "The same stop percentage means two different things. Here is what each one costs, in dollars.",
     "balance": "Account balance",
     "leverage": "Leverage",
     "entry": "Entry price",
@@ -296,14 +320,13 @@
     "qty": "Quantity",
     "liquidation": "Liquidation price",
     "liqDistance": "Distance to liquidation",
-    "headline": "Read as a percentage of price, this stop costs {multiple}× what it costs read as a percentage of margin. The multiple is the leverage.",
     "basis": {
       "price": "Percent of price",
       "margin": "Percent of margin"
     },
     "basisHint": {
-      "price": "The number is a move in the underlying price. A 2% stop means price moves 2%.",
-      "margin": "The number is a fraction of the money committed. A 2% stop means losing 2% of margin, which at 10x is a 0.2% price move."
+      "price": "The number is a move in the underlying price.",
+      "margin": "The number is a share of the money committed."
     },
     "inForce": "In force",
     "priceMove": "Price move",
@@ -313,7 +336,14 @@
     "lossPct": "Loss as % of account",
     "profitAtTp": "Profit at take profit",
     "unreachable": "This stop sits at or beyond liquidation. It can never trigger — the position liquidates first.",
-    "footnote": "Liquidation is simplified: it ignores maintenance margin, fees and funding, so the real liquidation price is slightly closer to entry than shown."
+    "answer": {
+      "costs": "A {pct}% stop costs",
+      "ofAccount": "{pct} of the account",
+      "pays": "It pays",
+      "atTp": "at a {pct}% take profit",
+      "otherWay": "Read as {basis}, the same stop costs ${amount} — {multiple}× less. The multiple is the leverage."
+    },
+    "liqNote": "Liquidation is simplified — it ignores maintenance margin, fees and funding."
   },
   "accounts": {
     "title": "Connected accounts",
@@ -398,6 +428,18 @@
       "winRateSub": "{wins} of {n} scored legs",
       "breaches": "Over budget",
       "breachesSub": "fan-outs past the deadline"
+    },
+    "account": {
+      "manage": "Manage",
+      "balance": "Balance",
+      "invested": "Net invested",
+      "sinceInception": "PnL since inception",
+      "realised": "Realised here",
+      "legsCounted": "{n} legs",
+      "failed": "Failed legs",
+      "ofTrades": "of {n} trades",
+      "unchecked": "This account has never had its key permissions checked (spec §7).",
+      "checkedAt": "Key permissions checked {when}"
     }
   },
   "finance": {
@@ -443,7 +485,10 @@
       "emptyBody": "Deposits and withdrawals are entered by hand — the keys cannot move money.",
       "add": "Add movement",
       "deposit": "Deposit",
-      "withdrawal": "Withdrawal"
+      "withdrawal": "Withdrawal",
+      "detected": "Detected",
+      "edit": "Edit",
+      "by": "by {who}"
     },
     "addTitle": "Record a movement",
     "form": {
@@ -455,12 +500,47 @@
       "noteHint": "what this money was for",
       "notePlaceholder": "optional",
       "save": "Record movement",
-      "invalid": "Choose an account and enter a positive amount."
+      "invalid": "Choose an account and enter a positive amount.",
+      "accountLocked": "Fixed. Delete and re-record it to move it to another account."
     },
     "deleteTitle": "Delete this movement?",
     "deleteBody": "This removes the {kind} of {amount} for {account}. PnL and totals recompute.",
     "empty": "No accounts yet",
-    "emptyBody": "Connect an account before recording cash flows."
+    "emptyBody": "Connect an account before recording cash flows.",
+    "editTitle": "Correct a movement",
+    "detect": {
+      "title": "Unexplained balance changes",
+      "subtitle": "Money moved that the closed trades do not account for. Nothing here is booked until you accept it.",
+      "waiting": "{n} waiting",
+      "equity": "Equity",
+      "moved": "Moved",
+      "trades": "Trades explain",
+      "recorded": "Already recorded",
+      "accept": "Accept",
+      "edit": "Edit…",
+      "dismiss": "Dismiss",
+      "editTitle": "Accept with a correction",
+      "editBody": "The platform inferred this by subtraction. Change it to what actually happened.",
+      "dismissTitle": "Dismiss this change?",
+      "dismissBody": "Nothing is recorded. The proposal is kept with your reason so the same change is not raised again.",
+      "dismissPlaceholder": "Why this is not a deposit or withdrawal"
+    },
+    "audit": {
+      "title": "Who changed what",
+      "subtitle": "Every entry, edit and deletion, with the values before and after.",
+      "platform": "The platform",
+      "empty": "Nothing recorded yet",
+      "emptyBody": "The first deposit, withdrawal or split change will appear here.",
+      "action": {
+        "detected": "Detected",
+        "created": "Recorded",
+        "edited": "Edited",
+        "deleted": "Deleted",
+        "accepted": "Accepted",
+        "dismissed": "Dismissed",
+        "split": "Split changed"
+      }
+    }
   },
   "settings": {
     "title": "Settings in force",

@@ -13,6 +13,7 @@
 const { t } = useI18n()
 const api = useApi()
 const accounts = useAccountsStore()
+const trading = useTradingStore()
 const { money, ms, qty, dateTime } = useFormat()
 
 useHead({ title: t('nav.history') })
@@ -63,9 +64,14 @@ const summary = computed(() => {
   const wins = legs.filter((leg) => Number(leg.pnl ?? 0) > 0).length
   const scored = legs.filter((leg) => leg.pnl !== null && Number(leg.pnl) !== 0).length
   const failed = legs.filter((leg) => !leg.ok).length
-  const breaches = visible.value.filter((trade) => (trade.fanout_ms ?? 0) > 1000).length
+  const breaches = visible.value.filter(
+    (trade) => (trade.fanout_ms ?? 0) > trading.fanoutBudgetMs,
+  ).length
   return { pnl, wins, scored, failed, breaches, legs: legs.length }
 })
+
+/** What the account panel above the log reports, under the current filters. */
+const panelStats = computed(() => ({ ...summary.value, trades: visible.value.length }))
 
 const sideOptions = computed(() => [
   { value: 'all', label: t('history.all') },
@@ -100,7 +106,7 @@ function tradePnl(trade: Trade) {
       </div>
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
       <UiStat
         :label="t('history.stat.pnl')"
         :value="`${summary.pnl >= 0 ? '+' : ''}$${money(summary.pnl)}`"
@@ -154,6 +160,14 @@ function tradePnl(trade: Trade) {
       </button>
     </div>
 
+    <!-- Narrowed to one account, the next question is about the account. -->
+    <HistoryAccountPanel
+      v-if="accountFilter !== null"
+      :key="accountFilter"
+      :account-id="accountFilter"
+      :stats="panelStats"
+    />
+
     <p v-if="error" class="alert p-3 text-xs">{{ error }}</p>
 
     <div v-if="loading" class="space-y-3">
@@ -194,7 +208,9 @@ function tradePnl(trade: Trade) {
 
             <span
               class="num text-xs"
-              :class="(trade.fanout_ms ?? 0) > 1000 ? 'text-signal' : 'text-ink-muted'"
+              :class="
+                (trade.fanout_ms ?? 0) > trading.fanoutBudgetMs ? 'text-signal' : 'text-ink-muted'
+              "
             >
               {{ ms(trade.fanout_ms) }}
             </span>

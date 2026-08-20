@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
@@ -11,26 +12,45 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
-from apps.accounts.ledger import get_split, ledger_snapshot
+from apps.accounts import bookkeeping
+from apps.accounts.ledger import ROLES, get_split, ledger_snapshot
 from apps.accounts.models import (
     AccountStatus,
     ConnectedAccount,
+    DetectedMovement,
+    DetectionStatus,
     Exchange,
     FundMovement,
+    LedgerEvent,
     Notification,
 )
 from apps.accounts.serializers import (
     ConnectedAccountCreateSerializer,
     ConnectedAccountSerializer,
+    DetectedMovementSerializer,
+    FundMovementEditSerializer,
     FundMovementSerializer,
+    LedgerEventSerializer,
     NotificationSerializer,
     ProfitSplitSerializer,
 )
 from apps.accounts.visibility import _check, accessible
+from apps.core.money import D
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
 from apps.exchanges.registry import build_adapter
 
 logger = logging.getLogger(__name__)
+
+#: The audit trail only ever grows. The panel asks for the newest page, so the
+#: view caps itself rather than shipping the whole history on every request —
+#: the same reasoning as ``apps.logging.views``.
+EVENT_LIMIT = 200
+EVENT_MAX = 1000
+
+
+def _split_value(row, role: str) -> str:
+    """One split percentage as the two-decimal string the column stores."""
+    return str(D(getattr(row, role)).quantize(Decimal("0.01")))
 
 
 def verify_account(account: ConnectedAccount) -> tuple[bool, str]:
@@ -279,24 +299,148 @@ class LedgerViewSet(viewsets.ViewSet):
     def _create_movement(self, request):
         serializer = FundMovementSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        account = serializer.validated_data["account"]
+        data = serializer.validated_data
+        account = data["account"]
         visible = accessible(request.user, ConnectedAccount.objects.all())
         get_object_or_404(visible, id=account.id)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        movement = bookkeeping.create_movement(
+            account=account,
+            kind=data["kind"],
+            amount=data["amount"],
+            actor=request.user.get_username(),
+            asset=data.get("asset") or "USDT",
+            occurred_at=data.get("occurred_at"),
+            note=data.get("note", ""),
+        )
+        return Response(
+            FundMovementSerializer(movement).data, status=status.HTTP_201_CREATED
+        )
 
-    @action(detail=False, methods=["delete"], url_path=r"movements/(?P<movement_pk>[0-9]+)")
+    @action(
+        detail=False,
+        methods=["patch", "delete"],
+        url_path=r"movements/(?P<movement_pk>[0-9]+)",
+    )
     def movement_detail(self, request, movement_pk=None):
+        """Edit or delete one recorded cash flow.
+
+        Both are audited rather than silent: a mistyped deposit is exactly the
+        thing an operator needs to be able to fix, and exactly the thing the
+        next person needs to be able to see was fixed.
+        """
         movement = get_object_or_404(self._movement_queryset(request), id=movement_pk)
-        movement.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        actor = request.user.get_username()
+
+        if request.method == "DELETE":
+            bookkeeping.delete_movement(movement, actor=actor)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = FundMovementEditSerializer(movement, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        movement = bookkeeping.edit_movement(
+            movement, actor=actor, changes=serializer.validated_data
+        )
+        return Response(FundMovementSerializer(movement).data)
+
+    # --- auto-detected movements ------------------------------------------
+
+    def _detection_queryset(self, request):
+        return DetectedMovement.objects.filter(
+            account__in=accessible(request.user, ConnectedAccount.objects.all())
+        ).select_related("account")
+
+    @action(detail=False, methods=["get"], url_path="detections")
+    def detections(self, request):
+        """Balance changes the closed trades do not explain (see ``detection``).
+
+        Defaults to the pending ones — the queue that needs an answer. Pass
+        ``?status=all`` for the resolved history alongside them.
+        """
+        queryset = self._detection_queryset(request)
+        wanted = request.query_params.get("status", DetectionStatus.PENDING)
+        if wanted != "all":
+            queryset = queryset.filter(status=wanted)
+        return Response(DetectedMovementSerializer(queryset, many=True).data)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"detections/(?P<detection_pk>[0-9]+)/accept",
+    )
+    def detection_accept(self, request, detection_pk=None):
+        """Book the proposal, with whatever the operator corrected in it."""
+        detection = get_object_or_404(self._detection_queryset(request), id=detection_pk)
+        serializer = FundMovementEditSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        changes = serializer.validated_data
+        try:
+            movement = bookkeeping.accept_detection(
+                detection,
+                actor=request.user.get_username(),
+                kind=changes.get("kind"),
+                amount=changes.get("amount"),
+                occurred_at=changes.get("occurred_at"),
+                note=changes.get("note", ""),
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(FundMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"detections/(?P<detection_pk>[0-9]+)/dismiss",
+    )
+    def detection_dismiss(self, request, detection_pk=None):
+        detection = get_object_or_404(self._detection_queryset(request), id=detection_pk)
+        try:
+            detection = bookkeeping.dismiss_detection(
+                detection,
+                actor=request.user.get_username(),
+                note=str(request.data.get("note", ""))[:200],
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(DetectedMovementSerializer(detection).data)
+
+    # --- audit trail -------------------------------------------------------
+
+    @action(detail=False, methods=["get"], url_path="events")
+    def events(self, request):
+        """Who changed the money record, when, and from what to what.
+
+        Capped rather than paginated, like the system log: this table only
+        grows, and the panel wants the newest page, not all of history.
+        """
+        queryset = LedgerEvent.objects.all()
+        if not _check(request.user):
+            queryset = queryset.exclude(account__hidden=True)
+        account_id = request.query_params.get("account")
+        if account_id:
+            visible = accessible(request.user, ConnectedAccount.objects.all())
+            get_object_or_404(visible, id=account_id)
+            queryset = queryset.filter(account_id=account_id)
+        try:
+            limit = min(int(request.query_params.get("limit", EVENT_LIMIT)), EVENT_MAX)
+        except ValueError:
+            limit = EVENT_LIMIT
+        return Response(LedgerEventSerializer(queryset[:limit], many=True).data)
 
     @action(detail=False, methods=["get", "post"], url_path="split")
     def split(self, request):
         row = get_split()
         if request.method == "POST":
+            # Quantised both sides: the seeded row holds the default as a
+            # string, the saved one a Decimal, and "60" vs "60.00" is not a
+            # change to anybody's share.
+            before = {role: _split_value(row, role) for role in ROLES}
             serializer = ProfitSplitSerializer(row, data=request.data)
             serializer.is_valid(raise_exception=True)
-            serializer.save(updated_by=request.user.get_username())
+            row = serializer.save(updated_by=request.user.get_username())
+            bookkeeping.record_split_change(
+                before=before,
+                after={role: _split_value(row, role) for role in ROLES},
+                actor=request.user.get_username(),
+            )
             return Response(serializer.data)
         return Response(ProfitSplitSerializer(row).data)

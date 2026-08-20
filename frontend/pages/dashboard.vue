@@ -145,7 +145,7 @@ const pnlSeries = computed(() => {
     </div>
 
     <!-- KPIs -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
       <UiStat
         :label="t('dashboard.kpi.capital')"
         :value="`$${compact(accounts.totalUsdt)}`"
@@ -217,12 +217,15 @@ const pnlSeries = computed(() => {
       <MarketWatchlist variant="full" />
     </UiCard>
 
+    <!-- Whose money this is, and what it has made. -->
+    <DashboardProfitSplit />
+
     <!-- Numbers behind it -->
-    <div class="grid gap-3 sm:gap-4 lg:grid-cols-3">
+    <div class="grid gap-3 sm:gap-4 md:grid-cols-3">
       <UiCard
         :title="t('dashboard.capital')"
         :hint="t('dashboard.capitalHint')"
-        class="lg:col-span-1"
+        class="md:col-span-1"
       >
         <div v-if="accounts.initial" class="space-y-3">
           <div v-for="i in 4" :key="i" class="skeleton h-8" />
@@ -243,7 +246,7 @@ const pnlSeries = computed(() => {
       <UiCard
         :title="t('dashboard.latency')"
         :hint="t('dashboard.latencyHint')"
-        class="lg:col-span-2"
+        class="md:col-span-2"
       >
         <template #actions>
           <UiBadge v-if="trading.budgetBreaches" tone="signal">
@@ -272,8 +275,8 @@ const pnlSeries = computed(() => {
       </UiCard>
     </div>
 
-    <div class="grid gap-3 sm:gap-4 lg:grid-cols-3">
-      <DashboardRecentTrades class="lg:col-span-2" />
+    <div class="grid gap-3 sm:gap-4 md:grid-cols-3">
+      <DashboardRecentTrades class="md:col-span-2" />
 
       <UiCard :title="t('dashboard.realised')" :hint="t('dashboard.realisedHint')">
         <template v-if="pnlSeries.length">
@@ -297,6 +300,9 @@ const pnlSeries = computed(() => {
         />
       </UiCard>
     </div>
+
+    <!-- One login, several people: the only place a second browser shows up. -->
+    <DashboardSessions />
 
     <!-- The live channel is what makes every number above trustworthy; when it
          drops, say so here rather than letting stale figures pass as fresh. -->

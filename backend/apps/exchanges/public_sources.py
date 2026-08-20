@@ -784,9 +784,13 @@ class HyperliquidPublicSource(HttpSource):
     limited_history = True
     _BASE = "https://api.hyperliquid.xyz"
     _INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
-    #: The venue quotes perps in USD but every account here is USDT-denominated;
-    #: the canonical symbol keeps the platform's naming.
-    _QUOTE = "USDT"
+    #: Hyperliquid perps are quoted in USD and margined in **USDC** — there is
+    #: no USDT on this venue. The catalogue used to rename them to ``*USDT``
+    #: for "platform naming", which meant the pinned feed published pairs under
+    #: names the venue does not use and the picker could not offer HYPE/USDC.
+    #: The adapter strips USDT/USDC/USD alike, so the name is cosmetic to
+    #: routing; it is not cosmetic to the admin reading it.
+    _QUOTE = "USDC"
     #: One quote costs the *whole* perp universe here (~70 KB, 1.3–2.7s): this
     #: venue has no per-symbol ticker endpoint. A ten-pair watchlist therefore
     #: downloaded it ten times per refresh and spent twenty seconds doing it,

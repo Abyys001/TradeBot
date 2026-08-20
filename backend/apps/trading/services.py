@@ -29,6 +29,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+from apps.accounts import detection
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
 from apps.core.money import D
 from apps.engine.executor import (
@@ -882,6 +883,14 @@ def _save_balances(result: FanOutResult) -> list[dict]:
     accounts = {a.id: a for a in ConnectedAccount.objects.filter(
         id__in=[leg.account_id for leg in result.legs]
     )}
+    # An account holding an open leg is mid-trade, and its equity is carrying
+    # unrealised PnL. The detector must not compare against that (see
+    # apps.accounts.detection), so the set is read once here rather than per leg.
+    busy = set(
+        TradeLeg.objects.filter(
+            ok=True, closed_at__isnull=True, trade__status=TradeStatus.OPEN
+        ).values_list("account_id", flat=True)
+    )
     updated = []
     for leg in result.legs:
         account = accounts.get(leg.account_id)
@@ -892,6 +901,16 @@ def _save_balances(result: FanOutResult) -> list[dict]:
             account.last_balance_asset = leg.value.asset
             account.last_balance_at = now
             account.last_error = ""
+            # Q-ledger: equity, not free margin, is what a cash flow shows up
+            # in. A failed read writes nothing — silence proves nothing, the
+            # same rule the fan-out and possync follow.
+            detection.observe(
+                account,
+                equity=leg.value.total,
+                asset=leg.value.asset,
+                flat=account.id not in busy,
+                at=now,
+            )
         else:
             account.last_error = leg.error
         updated.append(account)
@@ -905,6 +924,13 @@ def _save_balances(result: FanOutResult) -> list[dict]:
             }
         )
     ConnectedAccount.objects.bulk_update(
-        updated, ["last_balance", "last_balance_asset", "last_balance_at", "last_error"]
+        updated,
+        [
+            "last_balance",
+            "last_balance_asset",
+            "last_balance_at",
+            "last_error",
+            *detection.FIELDS,
+        ],
     )
     return rows

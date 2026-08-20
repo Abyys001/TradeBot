@@ -15,7 +15,9 @@
  * Layout is genuinely different per size rather than a shrunk desktop:
  *
  *   lg+      chart + position bar + per-account detail, ticket in a side rail
- *   md       chart on top, ticket beneath it full width
+ *   md       chart full width on top; ticket and routing list side by side
+ *            beneath it. A tablet has the width for both panes at once, so the
+ *            pane switcher would be hiding half a screen of nothing.
  *   phone    one pane at a time, switched by a tab strip — three columns on a
  *            390px screen leaves the chart 90px wide, which is not a chart
  */
@@ -299,8 +301,8 @@ function syncChartLines() {
 
 <template>
   <div class="lg:h-[calc(100dvh-3.5rem)] lg:grid lg:grid-cols-[1fr_22rem] xl:grid-cols-[1fr_24rem]">
-    <!-- Pane switcher: phones only. -->
-    <div class="lg:hidden sticky top-14 z-20 bg-base/90 backdrop-blur border-b border-line p-2">
+    <!-- Pane switcher: phones only. From md up every pane is on screen. -->
+    <div class="md:hidden sticky top-14 z-20 bg-base/90 backdrop-blur border-b border-line p-2">
       <UiSegmented
         :model-value="ui.chartPane"
         :options="paneOptions"
@@ -312,13 +314,14 @@ function syncChartLines() {
     <!-- Chart column -->
     <section
       class="flex flex-col min-w-0 lg:h-full"
-      :class="ui.chartPane === 'chart' ? '' : 'hidden lg:flex'"
+      :class="ui.chartPane === 'chart' ? '' : 'hidden md:flex'"
     >
       <TerminalSymbolBar />
 
       <div
         ref="chartEl"
-        class="chart-surface flex-1 min-h-[320px] lg:min-h-0 touch-pan-y relative"
+        class="chart-surface flex-1 lg:min-h-0 touch-pan-y relative
+               min-h-[min(20rem,58dvh)] sm:min-h-[min(24rem,62dvh)] md:min-h-[min(28rem,65dvh)]"
       >
         <!-- History is being fetched for a pair nothing has ever charted. The
              backend answers 202 while the download runs, so this is a promise
@@ -405,7 +408,7 @@ function syncChartLines() {
 
       <!-- Detail under the chart. On a wide screen there is room for the
            per-account breakdown without hiding it behind a navigation. -->
-      <div class="hidden lg:flex flex-col border-t border-line max-h-[15rem] min-h-0">
+      <div class="hidden md:flex flex-col border-t border-line lg:max-h-[15rem] min-h-0">
         <div class="px-3 py-2 shrink-0">
           <UiSegmented v-model="detail" :options="detailOptions" size="sm" :block="false" />
         </div>
@@ -422,25 +425,26 @@ function syncChartLines() {
       <!-- Phones get the per-account table under the bar, scrolled with the
            page — but only when there is a position; an empty-state card between
            the chart and the ticket on a 390px screen is pure noise. -->
-      <div v-if="positions.hasPosition" class="lg:hidden border-t border-line">
+      <div v-if="positions.hasPosition" class="md:hidden border-t border-line">
         <TerminalPositionsTable />
       </div>
     </section>
 
     <!-- Side rail on desktop; a pane on a phone. -->
     <aside
-      class="border-s border-line lg:h-full lg:overflow-y-auto min-w-0"
-      :class="ui.chartPane === 'ticket' ? '' : 'hidden lg:block'"
+      class="border-t border-line lg:border-t-0 lg:border-s min-w-0
+             md:grid md:grid-cols-2 lg:block lg:h-full lg:overflow-y-auto"
+      :class="ui.chartPane === 'ticket' ? '' : 'hidden md:grid lg:block'"
     >
       <TerminalTicket />
-      <div class="hidden lg:block border-t border-line">
+      <div class="hidden md:block border-s border-line lg:border-s-0 lg:border-t">
         <TerminalAccountsPane />
       </div>
     </aside>
 
     <!-- The routing list gets the phone's third pane: "what else is going on"
          rather than part of the order itself. -->
-    <section class="lg:hidden" :class="ui.chartPane === 'accounts' ? '' : 'hidden'">
+    <section class="md:hidden" :class="ui.chartPane === 'accounts' ? '' : 'hidden'">
       <TerminalAccountsPane />
     </section>
   </div>

@@ -31,7 +31,9 @@ const movementsLoading = ref(false)
 const addOpen = ref(false)
 const saving = ref(false)
 const formError = ref('')
+/** `id` null means "recording a new one"; set means "fixing that one". */
 const form = reactive({
+  id: null as number | null,
   account: null as number | null,
   kind: 'deposit' as 'deposit' | 'withdrawal',
   amount: '',
@@ -40,6 +42,16 @@ const form = reactive({
 
 const pendingDelete = ref<FundMovement | null>(null)
 const deleting = ref(false)
+
+// Both cards own their own fetch; the page only tells them when something it
+// did invalidates what they are showing.
+const detections = ref<{ load: () => Promise<void> } | null>(null)
+const audit = ref<{ load: () => Promise<void> } | null>(null)
+
+/** Any write to the money record moves every number on this page. */
+async function reloadAll() {
+  await Promise.all([load(), loadMovements(), audit.value?.load()])
+}
 
 onMounted(async () => {
   await accounts.ensure()
@@ -106,6 +118,7 @@ function splitValue(): string {
 }
 
 function openAdd() {
+  form.id = null
   form.account = accounts.items[0]?.id ?? null
   form.kind = 'deposit'
   form.amount = ''
@@ -114,7 +127,21 @@ function openAdd() {
   addOpen.value = true
 }
 
-async function createMovement() {
+/**
+ * Fixing a mistake is a first-class action, not a delete-and-retype: the
+ * correction is audited as an edit, so the trail says what the number was.
+ */
+function openEdit(movement: FundMovement) {
+  form.id = movement.id
+  form.account = movement.account
+  form.kind = movement.kind
+  form.amount = movement.amount
+  form.note = movement.note
+  formError.value = ''
+  addOpen.value = true
+}
+
+async function saveMovement() {
   const amount = Number(form.amount)
   if (!form.account || !Number.isFinite(amount) || amount <= 0) {
     formError.value = t('finance.form.invalid')
@@ -123,14 +150,23 @@ async function createMovement() {
   saving.value = true
   formError.value = ''
   try {
-    await api.createMovement({
-      account: form.account,
-      kind: form.kind,
-      amount: form.amount,
-      note: form.note || undefined,
-    })
+    if (form.id === null) {
+      await api.createMovement({
+        account: form.account,
+        kind: form.kind,
+        amount: form.amount,
+        note: form.note || undefined,
+      })
+    } else {
+      // The account is deliberately not editable — see `bookkeeping.EDITABLE`.
+      await api.editMovement(form.id, {
+        kind: form.kind,
+        amount: form.amount,
+        note: form.note,
+      })
+    }
     addOpen.value = false
-    await Promise.all([load(), loadMovements()])
+    await reloadAll()
   } catch (e: any) {
     formError.value = errorMessage(e)
   } finally {
@@ -145,7 +181,7 @@ async function confirmDelete() {
   try {
     await api.deleteMovement(movement.id)
     pendingDelete.value = null
-    await Promise.all([load(), loadMovements()])
+    await reloadAll()
   } catch (e: any) {
     error.value = errorMessage(e)
   } finally {
@@ -168,7 +204,7 @@ async function confirmDelete() {
       </button>
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
       <UiStat
         :label="t('finance.stat.invested')"
         :value="`$${money(snapshot?.totals.net_invested)}`"
@@ -191,12 +227,16 @@ async function confirmDelete() {
         icon="trend"
         :loading="loading"
       />
+      <!-- The only tile carrying three name+amount chips: at half a 320px
+           screen a single chip is wider than the tile, so it takes the whole
+           row until there is a column wide enough for it. -->
       <UiStat
         :label="t('finance.stat.split')"
         :value="splitValue()"
         :sub="t('finance.stat.splitSub')"
         icon="ledger"
         :loading="loading"
+        class="col-span-2 md:col-span-1"
       >
         <!-- The three share chips: who gets what, of this very number. -->
         <div class="flex flex-wrap gap-1.5 mt-2">
@@ -209,6 +249,10 @@ async function confirmDelete() {
     </div>
 
     <p v-if="error" class="alert p-3 text-xs">{{ error }}</p>
+
+    <!-- What the platform noticed and cannot explain. Above the books,
+         because it is the only thing on this page that is waiting on you. -->
+    <FinanceDetectionQueue ref="detections" @resolved="reloadAll" />
 
     <template v-if="loading">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -240,7 +284,7 @@ async function confirmDelete() {
           <template #actions>
             <UiBadge tone="neutral">{{ t('finance.exchangeAccounts', { n: exchange.accounts }) }}</UiBadge>
           </template>
-          <dl class="grid grid-cols-3 gap-3">
+          <dl class="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(7rem,1fr))]">
             <div>
               <dt class="label">{{ t('finance.exchangesInvested') }}</dt>
               <dd class="num mt-1">{{ money(exchange.net_invested) }}</dd>
@@ -318,7 +362,7 @@ async function confirmDelete() {
               <span class="font-medium text-sm">{{ row.label }}</span>
               <span class="text-xs text-ink-muted">{{ row.exchange_label }}</span>
             </div>
-            <dl class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+            <dl class="grid grid-cols-1 xs:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
               <div class="flex justify-between gap-2">
                 <dt class="label">{{ t('finance.table.net') }}</dt>
                 <dd class="num">{{ money(row.net_invested) }}</dd>
@@ -382,10 +426,23 @@ async function confirmDelete() {
             <span class="num text-sm" :class="movement.kind === 'deposit' ? 'text-ok' : 'text-signal'">
               {{ movement.kind === 'deposit' ? '+' : '−' }}{{ money(movement.amount) }}
             </span>
+            <UiBadge v-if="movement.source === 'detected'" tone="brand">
+              {{ t('finance.movements.detected') }}
+            </UiBadge>
             <span v-if="movement.note" class="text-xs text-ink-muted truncate max-w-[16rem]">
               {{ movement.note }}
             </span>
+            <span class="text-[0.65rem] text-ink-faint">
+              {{ t('finance.movements.by', { who: movement.updated_by || movement.created_by || '—' }) }}
+            </span>
             <span class="num text-xs text-ink-faint ms-auto">{{ dateTime(movement.occurred_at) }}</span>
+            <button
+              class="btn-quiet btn-sm btn-icon shrink-0"
+              :aria-label="t('finance.movements.edit')"
+              @click="openEdit(movement)"
+            >
+              <UiIcon name="edit" :size="13" />
+            </button>
             <button
               class="btn-quiet btn-sm btn-icon shrink-0"
               :aria-label="t('accounts.delete')"
@@ -404,14 +461,27 @@ async function confirmDelete() {
           />
         </div>
       </UiCard>
+
+      <!-- Who touched the books. -->
+      <FinanceAuditTrail ref="audit" />
     </template>
 
-    <!-- Record a deposit / withdrawal -->
-    <UiModal v-model="addOpen" :title="t('finance.addTitle')" size="sm">
+    <!-- Record or correct a deposit / withdrawal -->
+    <UiModal
+      v-model="addOpen"
+      :title="form.id === null ? t('finance.addTitle') : t('finance.editTitle')"
+      size="sm"
+    >
       <div class="space-y-4">
-        <UiField :label="t('finance.form.account')">
+        <UiField :label="t('finance.form.account')" :hint="form.id === null ? undefined : t('finance.form.accountLocked')">
           <template #default="{ id, describedBy }">
-            <select :id="id" v-model="form.account" class="field" :aria-describedby="describedBy">
+            <select
+              :id="id"
+              v-model="form.account"
+              class="field"
+              :disabled="form.id !== null"
+              :aria-describedby="describedBy"
+            >
               <option v-for="account in accounts.items" :key="account.id" :value="account.id">
                 {{ account.label }} — {{ account.exchange_label }}
               </option>
@@ -452,7 +522,7 @@ async function confirmDelete() {
       <template #footer>
         <div class="flex gap-2 justify-end">
           <button class="btn-ghost" @click="addOpen = false">{{ t('common.cancel') }}</button>
-          <button class="btn-brand" :disabled="saving" @click="createMovement">
+          <button class="btn-brand" :disabled="saving" @click="saveMovement">
             <UiIcon v-if="saving" name="refresh" :size="14" class="animate-spin" />
             {{ t('finance.form.save') }}
           </button>

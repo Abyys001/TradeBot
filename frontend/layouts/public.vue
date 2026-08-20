@@ -25,9 +25,7 @@ const onLogin = computed(() => route.path === localePath('/login'))
           >
             <UiIcon name="bolt" :size="16" />
           </span>
-          <span class="display text-sm truncate">
-            WalletManager<span class="text-ink-faint">/</span>CopyTrader
-          </span>
+          <span class="display text-sm truncate">{{ t('app.name') }}</span>
         </NuxtLink>
 
         <nav class="ms-auto flex items-center gap-1 sm:gap-2">

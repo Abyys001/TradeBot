@@ -44,7 +44,11 @@ const referenceTop = computed(() =>
 
 <template>
   <figure class="min-w-0">
-    <div class="relative" :style="{ height: `${height}px` }" @pointerleave="hovered = null">
+    <div
+      class="relative"
+      :style="{ height: `clamp(${Math.round(height * 0.7)}px, 20vh, ${Math.round(height * 1.35)}px)` }"
+      @pointerleave="hovered = null"
+    >
       <!-- The budget. Dashed so it reads as a threshold, not as data. -->
       <div
         v-if="referenceTop !== null"

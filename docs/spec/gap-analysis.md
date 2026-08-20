@@ -1,4 +1,4 @@
-# Gap analysis — WalletManager_CopyTrader
+# Gap analysis — TradeBot
 
 Audit against `docs/spec/platform-spec.md` (§1–§11), and the record of what was
 done about it. **Every gap this audit found (G1–G10) is now closed** — the

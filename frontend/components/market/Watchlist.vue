@@ -171,7 +171,7 @@ const changeTone = (value: number | null) =>
       class="overflow-y-auto min-h-0"
       :class="
         full
-          ? 'grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+          ? 'grid gap-2 p-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'
           : 'divide-y divide-line/60'
       "
     >
@@ -206,7 +206,10 @@ const changeTone = (value: number | null) =>
           />
           <span class="min-w-0">
             <span class="num block truncate" :class="full ? 'text-sm' : 'text-xs'">
-              {{ row.symbol.replace(/USDT$/, '') }}<span class="text-ink-faint">/USDT</span>
+              {{ splitSymbol(row.symbol).base
+              }}<span v-if="splitSymbol(row.symbol).quote" class="text-ink-faint">
+                /{{ splitSymbol(row.symbol).quote }}</span
+              >
             </span>
             <!-- A row nobody could quote stays on the list and says so. It is
                  never filled in with a price from anywhere but an exchange. -->
@@ -240,11 +243,12 @@ const changeTone = (value: number | null) =>
         </button>
 
         <!-- Edit controls. Hidden until edit mode so the resting state stays a
-             price list rather than a row of buttons. -->
-        <div v-if="editing" class="flex items-center gap-0.5 shrink-0">
+             price list rather than a row of buttons, and absent on the pinned
+             block, which is not the admin's to reorder or delete. -->
+        <div v-if="editing && !watchlist.isPinned(row.symbol)" class="flex items-center gap-0.5 shrink-0">
           <button
             class="btn-quiet btn-sm px-1.5"
-            :disabled="index === 0"
+            :disabled="index <= watchlist.pinned.length"
             :aria-label="t('watchlist.moveUp')"
             @click="watchlist.move(row.symbol, -1)"
           >
@@ -271,7 +275,7 @@ const changeTone = (value: number | null) =>
       <li
         v-if="!watchlist.rows.length"
         class="px-4 py-6 text-center"
-        :class="full ? 'sm:col-span-2 xl:col-span-3 2xl:col-span-4' : ''"
+        :class="full ? 'sm:col-span-2 md:col-span-3 xl:col-span-4 2xl:col-span-5' : ''"
       >
         <p class="text-xs text-ink-muted">{{ t('watchlist.empty') }}</p>
         <button class="btn-ghost btn-sm mt-2" @click="watchlist.reset()">

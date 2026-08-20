@@ -1,5 +1,5 @@
 {
-  "name": "walletmanager-copytrader-frontend",
+  "name": "tradebot-frontend",
   "private": true,
   "type": "module",
   "scripts": {

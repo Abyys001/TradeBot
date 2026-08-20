@@ -6,6 +6,7 @@ are only ever decrypted inside an adapter at signing time.
 
 from __future__ import annotations
 
+import hashlib
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -79,6 +80,24 @@ class ConnectedAccount(models.Model):
     last_balance_asset = models.CharField(max_length=12, blank=True)
     last_balance_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
+
+    # Equity, not free margin. ``last_balance`` is what the exchange says is
+    # *available*, which drops the moment margin is locked into a position —
+    # useless for spotting a cash flow. Equity only moves on PnL, fees, funding
+    # and money actually entering or leaving, which is what the detector reads
+    # (apps/accounts/detection.py).
+    last_equity = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
+
+    # The detector's cursor: the last reading taken while this account held no
+    # open leg. Both ends of every comparison are flat, so no unrealised PnL is
+    # ever inside the window and a market swing can never read as a deposit.
+    # Null means the ledger has not started for this account yet — the first
+    # flat reading seeds it and proposes nothing, because "from now on" is the
+    # only honest start for a record that has no history behind it.
+    ledger_cursor_equity = models.DecimalField(
+        max_digits=24, decimal_places=8, null=True, blank=True
+    )
+    ledger_cursor_at = models.DateTimeField(null=True, blank=True)
 
     # Spec §6: when this account became eligible to join a trade. Set on
     # connect and moved forward on resume, so the panel and the audit trail can
@@ -186,6 +205,11 @@ class FundMovementType(models.TextChoices):
     WITHDRAWAL = "withdrawal", "Withdrawal"
 
 
+class FundMovementSource(models.TextChoices):
+    MANUAL = "manual", "Recorded by hand"
+    DETECTED = "detected", "Accepted from a detection"
+
+
 class FundMovement(models.Model):
     """One recorded deposit or withdrawal against an account.
 
@@ -193,12 +217,23 @@ class FundMovement(models.Model):
     §7), so no exchange API can tell us who moved money in or out. The account's
     ``last_balance`` stays the exchange's live number; this table is the history
     that turns that number into invested capital and PnL (``apps.accounts.ledger``).
+
+    A row may also arrive from ``DetectedMovement``: the platform notices equity
+    moving by more than the closed trades explain and *proposes* the entry. It
+    is still a human who accepts it, so every row here has an operator behind
+    it, and every change to one is an entry in ``LedgerEvent``.
     """
 
     account = models.ForeignKey(
         ConnectedAccount, on_delete=models.CASCADE, related_name="fund_movements"
     )
     kind = models.CharField(max_length=12, choices=FundMovementType.choices)
+    source = models.CharField(
+        max_length=8,
+        choices=FundMovementSource.choices,
+        default=FundMovementSource.MANUAL,
+        help_text="Typed in by an operator, or accepted from a detection.",
+    )
     amount = models.DecimalField(
         max_digits=24,
         decimal_places=8,
@@ -210,6 +245,11 @@ class FundMovement(models.Model):
     occurred_at = models.DateTimeField(default=timezone.now)
     note = models.CharField(max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    #: Usernames, not FKs: these rows outlive the operator accounts that made
+    #: them, and the full trail lives in ``LedgerEvent`` either way.
+    created_by = models.CharField(max_length=150, blank=True)
+    updated_by = models.CharField(max_length=150, blank=True)
 
     class Meta:
         ordering = ["-occurred_at", "-id"]
@@ -253,3 +293,167 @@ class ProfitSplit(models.Model):
 
     def __str__(self) -> str:
         return f"split investor={self.investor} trader={self.trader} programmer={self.programmer}"
+
+
+class LedgerAction(models.TextChoices):
+    """Every way the money record can change. One row per change, forever."""
+
+    DETECTED = "detected", "Detected by the platform"
+    CREATED = "created", "Recorded by hand"
+    EDITED = "edited", "Edited"
+    DELETED = "deleted", "Deleted"
+    ACCEPTED = "accepted", "Detection accepted"
+    DISMISSED = "dismissed", "Detection dismissed"
+    SPLIT = "split", "Profit split changed"
+
+
+class LedgerEvent(models.Model):
+    """The audit trail: who changed which money record, when, and to what.
+
+    Append-only by convention — nothing in the codebase updates or deletes a
+    row here. The account and movement are recorded as *ids plus labels* rather
+    than only as foreign keys, because the trail has to stay readable after the
+    thing it describes is gone; a deletion is exactly the event worth keeping.
+    """
+
+    actor = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="Username. Blank means the platform itself, not an operator.",
+    )
+    action = models.CharField(max_length=12, choices=LedgerAction.choices)
+    account = models.ForeignKey(
+        ConnectedAccount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ledger_events",
+    )
+    account_label = models.CharField(max_length=80, blank=True)
+    #: Plain integers: the rows they point at may be deleted, and the trail of a
+    #: deletion is worthless if it deletes itself with the row.
+    movement_id = models.IntegerField(null=True, blank=True)
+    detection_id = models.IntegerField(null=True, blank=True)
+    kind = models.CharField(max_length=12, blank=True)
+    amount = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
+    #: The changed fields only, as {field: value}. ``before`` is null on a
+    #: create, ``after`` is null on a delete.
+    before = models.JSONField(null=True, blank=True)
+    after = models.JSONField(null=True, blank=True)
+    note = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["account", "created_at"])]
+
+    def __str__(self) -> str:
+        who = self.actor or "platform"
+        return f"{who} {self.action} {self.kind} {self.amount} @ {self.account_label}"
+
+
+class DetectionStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
+class DetectedMovement(models.Model):
+    """A balance change the platform cannot explain with trades.
+
+    Produced by ``apps.accounts.detection``. It is a *proposal*, never a ledger
+    entry: nothing here reaches ``account_ledger`` until an operator accepts it,
+    because an exchange's own accounting quirk must not silently rewrite how
+    much capital an investor is recorded as having put in.
+
+    The three numbers are kept side by side on purpose — ``delta`` is what the
+    exchange's equity did, ``trade_pnl`` and ``manual_net`` are what the record
+    already explains, and ``unexplained`` is the remainder being proposed. An
+    operator can check the arithmetic without leaving the row.
+    """
+
+    account = models.ForeignKey(
+        ConnectedAccount, on_delete=models.CASCADE, related_name="detections"
+    )
+    previous_equity = models.DecimalField(max_digits=24, decimal_places=8)
+    current_equity = models.DecimalField(max_digits=24, decimal_places=8)
+    delta = models.DecimalField(max_digits=24, decimal_places=8)
+    trade_pnl = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal("0"))
+    manual_net = models.DecimalField(max_digits=24, decimal_places=8, default=Decimal("0"))
+    #: Signed. Positive proposes a deposit, negative a withdrawal.
+    unexplained = models.DecimalField(max_digits=24, decimal_places=8)
+    suggested_kind = models.CharField(max_length=12, choices=FundMovementType.choices)
+    asset = models.CharField(max_length=12, default="USDT")
+
+    #: The window the comparison covers: the last reading the account was flat
+    #: at, to this one. Both ends flat, so no unrealised PnL is inside it.
+    window_start = models.DateTimeField(null=True, blank=True)
+    observed_at = models.DateTimeField(default=timezone.now)
+
+    status = models.CharField(
+        max_length=10, choices=DetectionStatus.choices, default=DetectionStatus.PENDING
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.CharField(max_length=150, blank=True)
+    movement = models.ForeignKey(
+        FundMovement,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="detections",
+    )
+
+    class Meta:
+        ordering = ["-observed_at", "-id"]
+        indexes = [models.Index(fields=["status", "observed_at"])]
+
+    @property
+    def amount(self) -> Decimal:
+        """The proposal as a positive number; the direction is ``suggested_kind``."""
+        return abs(D(self.unexplained))
+
+    def __str__(self) -> str:
+        return f"{self.suggested_kind} {self.amount} @ {self.account_id} ({self.status})"
+
+
+class PanelSession(models.Model):
+    """Who is on the panel right now, one row per browser session.
+
+    Everyone signs in as the same staff user, so "who is logged in" cannot be
+    answered from the user table — it is a question about sessions. This is the
+    per-session half: when that browser signed in, when it was last seen, from
+    where, and on what.
+
+    The session key itself is **never stored**: it is the cookie, and a table of
+    live cookies is a table of ready-made logins. Only its SHA-256 is kept,
+    which is enough to match a request to its row and useless to anyone reading
+    the database.
+    """
+
+    #: sha256 of the Django session key — never the key itself.
+    session_hash = models.CharField(max_length=64, unique=True, editable=False)
+    #: Snapshot, not a join: the name typed at the login prompt stays readable
+    #: after the user row is renamed or deleted.
+    username = models.CharField(max_length=150)
+    user = models.ForeignKey(
+        "auth.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="panel_sessions"
+    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=300, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+
+    def __str__(self) -> str:
+        return f"{self.username} @ {self.ip_address or '?'}"
+
+    @staticmethod
+    def hash_key(session_key: str) -> str:
+        return hashlib.sha256(session_key.encode()).hexdigest()
+
+    @property
+    def is_active(self) -> bool:
+        return self.ended_at is None

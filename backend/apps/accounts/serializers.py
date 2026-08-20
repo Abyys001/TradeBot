@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from apps.accounts.models import ConnectedAccount, FundMovement, Notification, ProfitSplit
+from apps.accounts.models import (
+    ConnectedAccount,
+    DetectedMovement,
+    FundMovement,
+    LedgerEvent,
+    Notification,
+    ProfitSplit,
+)
 from apps.accounts.visibility import _check
 
 
@@ -125,14 +132,105 @@ class FundMovementSerializer(serializers.ModelSerializer):
             "asset",
             "occurred_at",
             "note",
+            "source",
             "created_at",
+            "created_by",
+            "updated_at",
+            "updated_by",
         ]
-        read_only_fields = ["id", "account_label", "created_at"]
+        read_only_fields = [
+            "id",
+            "account_label",
+            "source",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "updated_by",
+        ]
 
     def validate_amount(self, value):
         if value is not None and value <= 0:
             raise serializers.ValidationError("amount must be positive")
         return value
+
+
+class FundMovementEditSerializer(serializers.ModelSerializer):
+    """The edit surface. The account is fixed — see ``bookkeeping.EDITABLE``."""
+
+    class Meta:
+        model = FundMovement
+        fields = ["kind", "amount", "asset", "occurred_at", "note"]
+        extra_kwargs = {field: {"required": False} for field in fields}
+
+    def validate_amount(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("amount must be positive")
+        return value
+
+
+class DetectedMovementSerializer(serializers.ModelSerializer):
+    """A proposal, with the whole subtraction shown so it can be checked.
+
+    ``delta = trade_pnl + manual_net + unexplained`` — the operator can see
+    which part of the balance change the platform could account for and which
+    part it is asking about.
+    """
+
+    account_label = serializers.CharField(source="account.label", read_only=True)
+    exchange = serializers.CharField(source="account.exchange", read_only=True)
+    exchange_label = serializers.CharField(
+        source="account.get_exchange_display", read_only=True
+    )
+    amount = serializers.DecimalField(max_digits=24, decimal_places=8, read_only=True)
+
+    class Meta:
+        model = DetectedMovement
+        fields = [
+            "id",
+            "account",
+            "account_label",
+            "exchange",
+            "exchange_label",
+            "previous_equity",
+            "current_equity",
+            "delta",
+            "trade_pnl",
+            "manual_net",
+            "unexplained",
+            "amount",
+            "suggested_kind",
+            "asset",
+            "window_start",
+            "observed_at",
+            "status",
+            "resolved_at",
+            "resolved_by",
+            "movement",
+        ]
+        read_only_fields = fields
+
+
+class LedgerEventSerializer(serializers.ModelSerializer):
+    """The audit trail, read-only. ``actor`` is blank when the platform acted."""
+
+    class Meta:
+        model = LedgerEvent
+        fields = [
+            "id",
+            "actor",
+            "action",
+            "account",
+            "account_label",
+            "movement_id",
+            "detection_id",
+            "kind",
+            "amount",
+            "before",
+            "after",
+            "note",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
 class ProfitSplitSerializer(serializers.ModelSerializer):

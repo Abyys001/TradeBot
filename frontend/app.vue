@@ -26,7 +26,7 @@ useHead({
     dir: () => direction.value,
     'data-theme': () => theme.value,
   },
-  titleTemplate: (page) => (page ? `${page} · WalletManager` : 'WalletManager CopyTrader'),
+  titleTemplate: (page) => (page ? `${page} · TradeBot` : 'TradeBot'),
   meta: [
     // Colours the browser chrome on mobile; a light bar over a black panel is
     // the most visible seam there is.

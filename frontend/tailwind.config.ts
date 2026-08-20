@@ -28,13 +28,24 @@ import type { Config } from 'tailwindcss'
  */
 export default <Partial<Config>>{
   theme: {
+    /* Declared in full rather than through `extend`, because the order of this
+       object is the order the media queries are emitted in — and equal-weight
+       utilities are resolved by source order, not by breakpoint size. Extending
+       appended `xs` *after* `lg`, so `xs:gap-2 sm:gap-3` gave you the xs value
+       at every width from 640px up. Listing the ladder in ascending order is
+       what makes a chain of breakpoints on one property behave. */
+    screens: {
+      xs: '440px',
+      sm: '640px',
+      md: '768px',
+      lg: '1024px',
+      xl: '1280px',
+      '2xl': '1536px',
+      // Height query: the terminal needs a different layout on a laptop
+      // than on a desk monitor, and width alone does not tell them apart.
+      tall: { raw: '(min-height: 800px)' },
+    },
     extend: {
-      screens: {
-        xs: '440px',
-        // Height query: the terminal needs a different layout on a laptop
-        // than on a desk monitor, and width alone does not tell them apart.
-        tall: { raw: '(min-height: 800px)' },
-      },
       colors: {
         base: 'rgb(var(--c-base) / <alpha-value>)',
         panel: 'rgb(var(--c-panel) / <alpha-value>)',

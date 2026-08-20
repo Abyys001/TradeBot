@@ -52,6 +52,9 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # After AuthenticationMiddleware: it needs `request.user` to know whose
+    # session it is looking at.
+    "apps.accounts.sessions.panel_session_middleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -258,6 +261,22 @@ TRADING = {
     "STOP_ALL": env_bool("STOP_ALL", False),
 }
 
+# --- Financial ledger (deposits, withdrawals, PnL) --------------------------
+# The keys are trade-only (spec §7), so no exchange API can report a transfer.
+# What the platform *can* do is subtract: equity moved by X, the closed legs it
+# placed itself explain Y, the recorded cash flows explain Z, and the remainder
+# is a deposit or a withdrawal nobody wrote down. That remainder is proposed for
+# review, never booked — apps/accounts/detection.py.
+LEDGER = {
+    "DETECT_ENABLED": env_bool("LEDGER_DETECT_ENABLED", True),
+    # Fees, funding and exchange rounding move equity without anyone moving
+    # money. A proposal needs to clear the larger of a flat floor and a share of
+    # the account, so a $50 account is not swamped and a $500k one is not buried
+    # in dust. Both in USDT / percent, parsed as Decimal at the point of use.
+    "DETECT_MIN_USDT": os.getenv("LEDGER_DETECT_MIN_USDT", "1"),
+    "DETECT_MIN_PCT": os.getenv("LEDGER_DETECT_MIN_PCT", "0.25"),
+}
+
 # --- Market data (spec §3) --------------------------------------------------
 # Public price feeds only: no credentials, no signing, never per account.
 # Providers are tried in order. When none answers the API returns 503 and the
@@ -325,7 +344,7 @@ MARKET_DATA = {
         p.strip().upper()
         for p in os.getenv(
             "BACKFILL_PRIORITY_PAIRS",
-            "LIT,BTC,HYPE,PUMP,SOL,ZEC,LINK,KAITO,BNB,WLD",
+            "VVV,BTC,HYPE,PUMP,SOL,ZEC,LINK,KAITO,BNB,WLD,LIT",
         ).split(",")
         if p.strip()
     ],

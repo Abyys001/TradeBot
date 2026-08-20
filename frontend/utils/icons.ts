@@ -35,6 +35,9 @@ export const ICON_PATHS = {
   pause: 'M9 5v14M15 5v14',
   play: 'M7 4l13 8-13 8V4Z',
   trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-13M9 7V4h6v3',
+  // Pencil over a rule: correcting a record that already exists, as
+  // distinct from `plus`, which makes a new one.
+  edit: 'M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3ZM14.5 6.5l3 3',
   sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM12 1v3m0 16v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M1 12h3m16 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z',
   arrowRight: 'M5 12h14M13 6l6 6-6 6',

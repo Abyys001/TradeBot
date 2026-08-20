@@ -35,6 +35,8 @@ export function useApi() {
       }),
     logout: () => request<SessionUser>('/accounts/auth/logout/', { method: 'POST' }),
     me: () => request<SessionUser>('/accounts/auth/me/'),
+    /** Who is signed in — everybody shares one login, so this lists sessions. */
+    sessions: () => request<{ sessions: PanelSession[]; count: number }>('/accounts/auth/sessions/'),
 
     // --- config ---
     policy: () => request<Policy>('/trading/policy/'),
@@ -129,8 +131,26 @@ export function useApi() {
       request<FundMovement[]>(`/accounts/ledger/movements/${accountId ? `?account=${accountId}` : ''}`),
     createMovement: (body: Record<string, unknown>) =>
       request<FundMovement>('/accounts/ledger/movements/', { method: 'POST', body }),
+    editMovement: (id: number, body: Record<string, unknown>) =>
+      request<FundMovement>(`/accounts/ledger/movements/${id}/`, { method: 'PATCH', body }),
     deleteMovement: (id: number) =>
       request<void>(`/accounts/ledger/movements/${id}/`, { method: 'DELETE' }),
+    detections: (status: 'pending' | 'all' = 'pending') =>
+      request<DetectedMovement[]>(`/accounts/ledger/detections/?status=${status}`),
+    acceptDetection: (id: number, body: Record<string, unknown> = {}) =>
+      request<FundMovement>(`/accounts/ledger/detections/${id}/accept/`, {
+        method: 'POST',
+        body,
+      }),
+    dismissDetection: (id: number, note = '') =>
+      request<DetectedMovement>(`/accounts/ledger/detections/${id}/dismiss/`, {
+        method: 'POST',
+        body: { note },
+      }),
+    ledgerEvents: (accountId?: number | null) =>
+      request<LedgerEvent[]>(
+        `/accounts/ledger/events/${accountId ? `?account=${accountId}` : ''}`,
+      ),
     ledgerSplit: () => request<ProfitSplit>('/accounts/ledger/split/'),
     saveLedgerSplit: (body: Record<string, unknown>) =>
       request<ProfitSplit>('/accounts/ledger/split/', { method: 'POST', body }),
@@ -313,6 +333,20 @@ export interface PositionSnapshot {
   } | null
 }
 
+export interface PanelSession {
+  id: number
+  username: string
+  ip_address: string | null
+  user_agent: string
+  /** Coarse "Chrome · Windows"; the raw agent string stays in `user_agent`. */
+  device: string
+  started_at: string
+  last_seen_at: string
+  online: boolean
+  /** The browser making this request, flagged rather than hidden. */
+  current: boolean
+}
+
 export interface SessionUser {
   username?: string
   is_staff?: boolean
@@ -467,7 +501,7 @@ export interface Trade {
 
 // --- the financial ledger ---------------------------------------------------
 
-/** A cash flow, recorded by hand — the keys are trade-only (spec §7). */
+/** A cash flow. Typed in by hand, or accepted from a detection — never guessed. */
 export interface FundMovement {
   id: number
   account: number
@@ -476,6 +510,58 @@ export interface FundMovement {
   amount: string
   asset: string
   occurred_at: string
+  note: string
+  source: 'manual' | 'detected'
+  created_at: string
+  created_by: string
+  updated_at: string
+  updated_by: string
+}
+
+/**
+ * A balance change the closed trades do not explain, waiting for an answer.
+ *
+ * `delta = trade_pnl + manual_net + unexplained`, so the whole subtraction is
+ * on the row: what the exchange's equity did, what the platform's own legs
+ * account for, what was already written down, and what is left over.
+ */
+export interface DetectedMovement {
+  id: number
+  account: number
+  account_label: string
+  exchange: string
+  exchange_label: string
+  previous_equity: string
+  current_equity: string
+  delta: string
+  trade_pnl: string
+  manual_net: string
+  unexplained: string
+  /** The proposal as a positive number; the direction is `suggested_kind`. */
+  amount: string
+  suggested_kind: 'deposit' | 'withdrawal'
+  asset: string
+  window_start: string | null
+  observed_at: string
+  status: 'pending' | 'accepted' | 'dismissed'
+  resolved_at: string | null
+  resolved_by: string
+  movement: number | null
+}
+
+/** One entry in the audit trail. `actor` is blank when the platform acted. */
+export interface LedgerEvent {
+  id: number
+  actor: string
+  action: 'detected' | 'created' | 'edited' | 'deleted' | 'accepted' | 'dismissed' | 'split'
+  account: number | null
+  account_label: string
+  movement_id: number | null
+  detection_id: number | null
+  kind: string
+  amount: string | null
+  before: Record<string, string> | null
+  after: Record<string, string> | null
   note: string
   created_at: string
 }
@@ -528,6 +614,8 @@ export interface LedgerSnapshot {
   totals: LedgerGroup
   split: SplitPercents
   non_usdt: { account: number; label: string; asset: string }[]
+  /** How many detections are waiting — a count, so the dashboard can badge it. */
+  pending_detections: number
 }
 
 export interface ProfitSplit extends SplitPercents {

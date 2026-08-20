@@ -425,7 +425,10 @@ onMounted(async () => {
               <th class="label bg-panel border-b border-line text-start font-normal py-2 w-20">
                 {{ t('logs.level') }}
               </th>
-              <th class="label bg-panel border-b border-line text-start font-normal py-2 w-28">
+              <th
+                class="label bg-panel border-b border-line text-start font-normal py-2 w-28
+                       hidden sm:table-cell"
+              >
                 {{ t('logs.category') }}
               </th>
               <th class="label bg-panel border-b border-line text-start font-normal py-2 w-44 hidden md:table-cell">
@@ -455,7 +458,7 @@ onMounted(async () => {
                     {{ entry.level }}
                   </UiBadge>
                 </td>
-                <td class="num py-1.5">
+                <td class="num py-1.5 hidden sm:table-cell">
                   <button
                     class="text-ink-muted hover:text-ink transition-colors"
                     :class="category === entry.category ? 'text-brand' : ''"
@@ -468,8 +471,8 @@ onMounted(async () => {
                 <td class="num text-ink-faint py-1.5 hidden md:table-cell">
                   <span class="block truncate max-w-[11rem]" :title="entry.source">{{ entry.source }}</span>
                 </td>
-                <td class="text-ink py-1.5 pe-2">
-                  <span class="break-words">{{ entry.message }}</span>
+                <td class="text-ink py-1.5 pe-2 w-full max-w-0">
+                  <span class="[overflow-wrap:anywhere]">{{ entry.message }}</span>
                   <!-- The identifiers a row carries, inline: they are the
                        reason to open a row, so hiding all of them behind
                        opening it made every ERROR a two-click read. -->
@@ -505,6 +508,10 @@ onMounted(async () => {
                 <td colspan="6" class="bg-sunken/60 !py-0">
                   <div class="px-3 py-3 space-y-3">
                     <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div class="sm:hidden">
+                        <dt class="label">{{ t('logs.category') }}</dt>
+                        <dd class="mt-0.5 num text-ink">{{ entry.category }}</dd>
+                      </div>
                       <div class="md:hidden">
                         <dt class="label">{{ t('logs.source') }}</dt>
                         <dd class="mt-0.5 num text-ink break-all">{{ entry.source }}</dd>

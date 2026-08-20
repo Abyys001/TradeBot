@@ -51,7 +51,19 @@ const STREAM_STALE_MS = 90000
  * Pinned pairs that always appear at the top of the symbol picker and always
  * have live ticker data, regardless of which symbol the chart is showing.
  */
-export const PINNED_SYMBOLS = ['BTCUSDC', 'HYPEUSDC', 'PUMPUSDC', 'SOLUSDC', 'ZECUSDC', 'LINKUSDC', 'KAITOUSDC', 'BNBUSDC', 'WLDUSDC', 'LITUSDC']
+export const PINNED_SYMBOLS = [
+  'VVVUSDC',
+  'BTCUSDC',
+  'HYPEUSDC',
+  'PUMPUSDC',
+  'SOLUSDC',
+  'ZECUSDC',
+  'LINKUSDC',
+  'KAITOUSDC',
+  'BNBUSDC',
+  'WLDUSDC',
+  'LITUSDC',
+]
 const PINNED_POLL_MS = 5000
 
 export interface PinnedTicker {
@@ -671,7 +683,9 @@ export const useMarketStore = defineStore('market', {
     /** Background ticker poll for pinned pairs so their prices are always fresh. */
     async loadPinnedTickers() {
       try {
-        const data = await useApi().tickers(PINNED_SYMBOLS, 'spot')
+        // Perps, not spot: the feed is pinned to Hyperliquid, which lists no
+        // spot market at all — asking for one returned nothing for every pin.
+        const data = await useApi().tickers(PINNED_SYMBOLS, 'futures')
         const next: Record<string, PinnedTicker> = {}
         for (const q of data.tickers) {
           next[q.symbol] = {

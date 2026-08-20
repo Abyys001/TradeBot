@@ -58,7 +58,10 @@ onBeforeUnmount(() => {
     <div class="flex-1 flex flex-col min-w-0">
       <AppTopbar />
 
-      <main class="flex-1 min-w-0 pb-[4.5rem] lg:pb-0">
+      <!-- The tab bar is fixed, and it grows by the home-indicator inset on a
+           notched phone. A flat 4.5rem cleared the bar but not the inset, which
+           put the last row of every page under it. -->
+      <main class="flex-1 min-w-0 pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
         <slot />
       </main>
     </div>

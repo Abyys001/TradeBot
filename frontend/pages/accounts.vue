@@ -110,7 +110,7 @@ async function confirmDelete() {
     </div>
 
     <!-- Totals worth seeing before any single row. -->
-    <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
       <UiStat
         :label="t('accounts.stat.tradeable')"
         :value="`$${money(accounts.tradeableUsdt)}`"

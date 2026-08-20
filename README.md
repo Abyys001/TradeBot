@@ -1,4 +1,4 @@
-# WalletManager_CopyTrader
+# TradeBot
 
 Multi-account order-routing platform. The admin trades once through a single
 interface; every action — entry, SL/TP adjustment, close — is mirrored via API to

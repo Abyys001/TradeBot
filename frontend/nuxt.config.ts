@@ -52,7 +52,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       // No static title: app.vue owns it through titleTemplate, and setting one
-      // here makes every page render "WalletManager CopyTrader · WalletManager".
+      // here makes every page render "TradeBot · TradeBot".
       // viewport-fit=cover is what makes env(safe-area-inset-*) non-zero, which
       // the mobile tab bar and the page gutters rely on to clear the notch and
       // the home indicator.
@@ -64,8 +64,8 @@ export default defineNuxtConfig({
         { name: 'mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
-        { name: 'apple-mobile-web-app-title', content: 'WalletManager' },
-        { name: 'application-name', content: 'WalletManager' },
+        { name: 'apple-mobile-web-app-title', content: 'TradeBot' },
+        { name: 'application-name', content: 'TradeBot' },
       ],
       link: [
         // SVG first for the browsers that take it (any size, theme-aware), .ico

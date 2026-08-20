@@ -80,8 +80,8 @@ const localePath = useLocalePath()
       <div
         v-if="open"
         ref="panel"
-        class="absolute z-50 mt-2 end-0 w-[19rem] sm:w-[21rem] panel shadow-pop flex flex-col
-               max-h-[min(28rem,70vh)]"
+        class="absolute z-50 mt-2 end-0 w-[min(21rem,calc(100vw-1.5rem))] panel shadow-pop
+               flex flex-col max-h-[min(28rem,70vh)]"
         role="region"
         :aria-label="t('notifications.region')"
       >

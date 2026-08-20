@@ -1,6 +1,6 @@
 {
-  "name": "WalletManager CopyTrader",
-  "short_name": "WalletManager",
+  "name": "TradeBot",
+  "short_name": "TradeBot",
   "description": "Multi-account order routing: trade once, mirror to every connected account.",
   "id": "/dashboard",
   "start_url": "/dashboard",

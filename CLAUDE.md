@@ -1,4 +1,4 @@
-# WalletManager_CopyTrader
+# TradeBot
 
 Order-routing / execution layer. The admin trades once through one interface;
 every action (entry, SL/TP change, close) fans out over API to N connected
@@ -109,6 +109,9 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/trading/possync.py` | **The exchange is the source of truth.** Sweeps every account's real position every few seconds and corrects the record both ways: a stop that fired on the venue closes the leg here, a position the platform wrote off is put back where close can reach it. Read-only against exchanges — it never places or cancels an order. Runs inline on `/positions/` and as the `possync` compose service. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
 | `apps/accounts/visibility.py` | Read-side account filtering. One hardcoded username. Nothing in `engine/` or `services.py` may import it. |
+| `apps/accounts/sessions.py` | **Who is signed in.** One shared staff login, so access is a list of *sessions*: one row per browser, last-seen throttled to one write a minute, and only the SHA-256 of the session key — never the key. |
+| `apps/accounts/detection.py` | **A trade result vs. somebody's cash.** Subtracts the legs it closed itself, and the flows already on record, from what equity did. The remainder is *proposed*, never booked. Compares flat reading to flat reading, so unrealised PnL is never inside a window. |
+| `apps/accounts/bookkeeping.py` | The only place a money record is written. Every create/edit/delete/accept leaves a `LedgerEvent` with the actor and the before/after. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -118,9 +121,10 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `stores/order.ts` | The working order. All three SL/TP surfaces write here, so they cannot disagree (spec §3). |
 | `stores/market.ts` | One price feed for the whole page: candles, ticker poll, `seriesKey` (which series, so a refresh never moves the admin's view) and `feedDown`. |
 | `stores/positions.ts` | The open position per account, polled from `/positions/`. PnL is never recomputed in the browser. |
-| `stores/watchlist.ts` | The admin's pairs, in a cookie. One batched quote request feeds both watchlists. |
+| `stores/watchlist.ts` | The admin's pairs. The pinned block (`PINNED_SYMBOLS`) is code and always present; the cookie holds only what the admin added on top. One batched quote request feeds both watchlists. |
 | `composables/useChartAdapter.ts` | The chart seam — Lightweight Charts now, Charting Library later. Owns the draggable SL/TP/limit lines. |
 | `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. |
+| `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen. On one password this is the only place a second participant is visible. |
 | `components/app/NotificationCenter.vue` | Spec §4 failure notices (Q16 amendment). Nothing here auto-expires. |
 | `public/manifest.webmanifest`, `public/sw.js` | Installable panel (Q17). The worker never caches `/api` or `/ws`. |
 

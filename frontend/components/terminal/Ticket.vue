@@ -295,7 +295,6 @@ function useMarketPrice() {
       {{ t('ticket.slBeyondLiquidation') }}
     </p>
 
-    <p class="text-xs text-ink-faint leading-relaxed">{{ t('ticket.sizingNote') }}</p>
 
     <div class="space-y-2">
       <button

@@ -37,7 +37,7 @@ const TONE: Record<string, string> = {
   <component
     :is="to ? resolveComponent('NuxtLink') : 'div'"
     :to="to"
-    class="panel p-4 flex flex-col gap-2 min-w-0 transition-colors"
+    class="panel p-3 sm:p-4 flex flex-col gap-1.5 sm:gap-2 min-w-0 transition-colors"
     :class="[to ? 'hover:border-line-strong hover:bg-raised' : '', tone === 'signal' ? 'border-signal/40' : '']"
   >
     <div class="flex items-center gap-2 min-w-0">

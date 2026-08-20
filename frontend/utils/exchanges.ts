@@ -23,3 +23,15 @@ export function exchangeLabel(slug: string): string {
   if (!slug) return ''
   return EXCHANGE_LABELS[slug] ?? slug
 }
+
+/**
+ * Split a canonical pair into base and quote for display.
+ *
+ * The venues this panel quotes settle in USDC (Hyperliquid perps) or USDT, so
+ * the quote is read off the symbol rather than assumed — hardcoding "/USDT"
+ * once rendered `BTCUSDC/USDT` in the watchlist.
+ */
+export function splitSymbol(symbol: string): { base: string; quote: string } {
+  const quote = ['USDC', 'USDT', 'USD'].find((q) => symbol.endsWith(q)) ?? ''
+  return { base: symbol.slice(0, symbol.length - quote.length), quote }
+}

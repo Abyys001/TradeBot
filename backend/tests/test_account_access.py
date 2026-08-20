@@ -11,9 +11,11 @@ from django.contrib.auth.models import User
 from django.test import Client, override_settings
 from django.utils import timezone
 
+from apps.accounts import bookkeeping
 from apps.accounts.models import (
     AccountStatus,
     ConnectedAccount,
+    DetectedMovement,
     Exchange,
     FundMovement,
     FundMovementType,
@@ -397,6 +399,88 @@ def test_ledger_movement_create_404s_for_a_hidden_account():
     )
     assert response.status_code == 404
     assert not FundMovement.objects.exists()
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_detections_for_a_hidden_account_are_not_listed():
+    """A proposed cash flow names the account and the amount — a full leak."""
+    visible = make_account("open-book")
+    hidden = make_account("quiet", hidden=True)
+    for account in (visible, hidden):
+        DetectedMovement.objects.create(
+            account=account,
+            previous_equity=D("1000"),
+            current_equity=D("1500"),
+            delta=D("500"),
+            unexplained=D("500"),
+            suggested_kind=FundMovementType.DEPOSIT,
+        )
+
+    body = other_client().get("/api/accounts/ledger/detections/").json()
+    assert [row["account_label"] for row in body] == ["open-book"]
+    assert len(viewer_client().get("/api/accounts/ledger/detections/").json()) == 2
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_resolving_a_hidden_accounts_detection_404s():
+    hidden = make_account("quiet", hidden=True)
+    proposal = DetectedMovement.objects.create(
+        account=hidden,
+        previous_equity=D("1000"),
+        current_equity=D("1500"),
+        delta=D("500"),
+        unexplained=D("500"),
+        suggested_kind=FundMovementType.DEPOSIT,
+    )
+    client = other_client()
+
+    assert (
+        client.post(f"/api/accounts/ledger/detections/{proposal.id}/accept/").status_code == 404
+    )
+    assert (
+        client.post(f"/api/accounts/ledger/detections/{proposal.id}/dismiss/").status_code == 404
+    )
+    proposal.refresh_from_db()
+    assert proposal.status == "pending", "a non-viewer resolved a hidden account's detection"
+    assert not FundMovement.objects.exists()
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_audit_trail_hides_a_hidden_accounts_entries():
+    """The trail carries labels and amounts, so it filters like every other
+    read surface — including the account probe, which would otherwise be an
+    existence oracle."""
+    visible = make_account("open-book")
+    hidden = make_account("quiet", hidden=True)
+    for account in (visible, hidden):
+        bookkeeping.create_movement(
+            account=account,
+            kind=FundMovementType.DEPOSIT,
+            amount=D("500"),
+            actor="boss",
+        )
+
+    client = other_client()
+    body = client.get("/api/accounts/ledger/events/").json()
+    assert [row["account_label"] for row in body] == ["open-book"]
+    assert client.get(f"/api/accounts/ledger/events/?account={hidden.id}").status_code == 404
+    assert len(viewer_client().get("/api/accounts/ledger/events/").json()) == 2
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_pending_count_in_the_snapshot_omits_hidden_accounts():
+    hidden = make_account("quiet", hidden=True)
+    DetectedMovement.objects.create(
+        account=hidden,
+        previous_equity=D("1000"),
+        current_equity=D("1500"),
+        delta=D("500"),
+        unexplained=D("500"),
+        suggested_kind=FundMovementType.DEPOSIT,
+    )
+
+    assert other_client().get("/api/accounts/ledger/").json()["pending_detections"] == 0
+    assert viewer_client().get("/api/accounts/ledger/").json()["pending_detections"] == 1
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

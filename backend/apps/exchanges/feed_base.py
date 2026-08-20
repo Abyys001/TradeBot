@@ -212,7 +212,7 @@ class HttpSource:
     def _client(self) -> httpx.Client:
         return httpx.Client(
             timeout=httpx.Timeout(self._timeout),
-            headers={"User-Agent": "WalletManager-CopyTrader/1.0"},
+            headers={"User-Agent": "TradeBot/1.0"},
             # Explicit rather than ambient: see resolve_proxy.
             trust_env=False,
             proxy=resolve_proxy(),
