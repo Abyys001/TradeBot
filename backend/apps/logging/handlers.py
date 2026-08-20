@@ -130,6 +130,14 @@ NOISY_LOGGERS = (
     "daphne.http",
     "websockets",
     "hpack",
+    # channels_redis logs "N of M channels over capacity in group trading" at
+    # INFO whenever a socket falls behind. Broadcasting that line — like any
+    # other log entry — sends it right back into the "trading" group it is
+    # complaining about, which can retrigger the same warning and feed back
+    # into itself: one slow client turns into an unbroken burst of identical
+    # log rows. It belongs on the console only, never on the channel it is
+    # reporting on.
+    "channels_redis",
 )
 
 #: `key=value` pairs that must never reach the log table, whatever writes them.
