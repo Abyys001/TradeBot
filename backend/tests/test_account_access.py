@@ -113,9 +113,30 @@ def test_detail_routes_404_rather_than_403_for_a_hidden_account():
     assert client.post(f"/api/accounts/accounts/{hidden.id}/pause/").status_code == 404
     assert client.post(f"/api/accounts/accounts/{hidden.id}/resume/").status_code == 404
     assert client.post(f"/api/accounts/accounts/{hidden.id}/verify/").status_code == 404
+    assert client.get(f"/api/accounts/accounts/{hidden.id}/report/").status_code == 404
     assert client.delete(f"/api/accounts/accounts/{hidden.id}/").status_code == 404
     hidden.refresh_from_db()
     assert hidden.status == AccountStatus.ACTIVE, "a non-viewer changed a hidden account"
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_per_account_report_is_reachable_only_by_who_may_see_the_account():
+    """The report is the widest read surface there is for one account.
+
+    It carries the balance, every cash flow, every leg and every failure notice
+    at once, so a leak here would leak all of them. The viewer gets it; nobody
+    else can reach the row to be shown one.
+    """
+    hidden = make_account("quiet", hidden=True, last_balance="5000")
+    FundMovement.objects.create(
+        account=hidden, kind=FundMovementType.DEPOSIT, amount=D("4200")
+    )
+
+    assert other_client().get(f"/api/accounts/accounts/{hidden.id}/report/").status_code == 404
+
+    body = viewer_client().get(f"/api/accounts/accounts/{hidden.id}/report/").json()
+    assert body["account"]["label"] == "quiet"
+    assert [D(m["amount"]) for m in body["movements"]] == [D("4200")]
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

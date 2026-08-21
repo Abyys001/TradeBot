@@ -68,6 +68,12 @@ export function useApi() {
       request<Account>(`/accounts/accounts/${id}/resume/`, { method: 'POST' }),
     remove: (id: number) => request<void>(`/accounts/accounts/${id}/`, { method: 'DELETE' }),
     /**
+     * One account's whole record — connection, money, every leg it was given.
+     * One request rather than six, so the page cannot render its balance
+     * before its trades and be wrong twice on the way to being right.
+     */
+    accountReport: (id: number) => request<AccountReport>(`/accounts/accounts/${id}/report/`),
+    /**
      * `force` is what the button sends: a human asking for fresh numbers gets
      * them. The background poll leaves it off and is rate-limited server-side,
      * so N open tabs do not mean N fan-outs to every exchange.
@@ -135,12 +141,25 @@ export function useApi() {
       request<FundMovement>(`/accounts/ledger/movements/${id}/`, { method: 'PATCH', body }),
     deleteMovement: (id: number) =>
       request<void>(`/accounts/ledger/movements/${id}/`, { method: 'DELETE' }),
-    detections: (status: 'pending' | 'all' = 'pending') =>
+    detections: (status: 'pending' | 'resolved' | 'all' = 'pending') =>
       request<DetectedMovement[]>(`/accounts/ledger/detections/?status=${status}`),
+    /** Book it as an investor cash flow — invested capital moves. */
     acceptDetection: (id: number, body: Record<string, unknown> = {}) =>
       request<FundMovement>(`/accounts/ledger/detections/${id}/accept/`, {
         method: 'POST',
         body,
+      }),
+    /** Book nothing — capital is untouched, so the change stays in PnL. */
+    attributeDetection: (id: number, note = '') =>
+      request<DetectedMovement>(`/accounts/ledger/detections/${id}/attribute/`, {
+        method: 'POST',
+        body: { note },
+      }),
+    /** Undo a decision, the classifier's own included, and requeue the row. */
+    reopenDetection: (id: number, note = '') =>
+      request<DetectedMovement>(`/accounts/ledger/detections/${id}/reopen/`, {
+        method: 'POST',
+        body: { note },
       }),
     dismissDetection: (id: number, note = '') =>
       request<DetectedMovement>(`/accounts/ledger/detections/${id}/dismiss/`, {
@@ -288,6 +307,12 @@ export interface PositionLeg {
   sltp_attached: boolean
   /** True only when a read-back showed the SL/TP resting on the exchange. */
   sltp_verified: boolean
+  /**
+   * The protection resting on this exchange no longer matches the trade's SL/TP
+   * percentages — an amend that did not land here. Computed on the server
+   * against the same anchor and basis the amend uses.
+   */
+  sltp_stale: boolean
   qty: string | null
   entry_price: string | null
   margin: string | null
@@ -518,12 +543,27 @@ export interface FundMovement {
   updated_by: string
 }
 
+/** Which rule in `apps/accounts/classify.py` decided what this change was. */
+export type ClassificationReason =
+  | 'emptied'
+  | 'funded_from_empty'
+  | 'no_trade'
+  | 'isolated'
+  | 'portfolio_wide'
+  | 'trade_residual'
+  | 'unclear'
+  | ''
+
 /**
- * A balance change the closed trades do not explain, waiting for an answer.
+ * A balance change the closed trades do not explain, and what it probably was.
  *
  * `delta = trade_pnl + manual_net + unexplained`, so the whole subtraction is
  * on the row: what the exchange's equity did, what the platform's own legs
  * account for, what was already written down, and what is left over.
+ *
+ * `suggested_class` is the server's answer to the question that follows —
+ * trade result, or somebody's cash — with the evidence beside it, because a
+ * verdict without its reasoning is something to click past rather than check.
  */
 export interface DetectedMovement {
   id: number
@@ -540,10 +580,22 @@ export interface DetectedMovement {
   /** The proposal as a positive number; the direction is `suggested_kind`. */
   amount: string
   suggested_kind: 'deposit' | 'withdrawal'
+  /** Trade result, or an investor moving their own money. */
+  suggested_class: 'trade' | 'investor'
+  classification_reason: ClassificationReason
+  /** Whether the rule that fired is one the platform acts on by itself. */
+  confident: boolean
+  /** How many other accounts were readable and flat in the same sweep… */
+  peers_observed: number
+  /** …and how many of those moved the same way. A fan-out moves all of them. */
+  peers_moved: number
+  traded_in_window: boolean
+  /** Decided by the classifier, not by a person. Reopen to overturn it. */
+  auto_resolved: boolean
   asset: string
   window_start: string | null
   observed_at: string
-  status: 'pending' | 'accepted' | 'dismissed'
+  status: 'pending' | 'accepted' | 'trade' | 'dismissed'
   resolved_at: string | null
   resolved_by: string
   movement: number | null
@@ -621,6 +673,100 @@ export interface LedgerSnapshot {
 export interface ProfitSplit extends SplitPercents {
   updated_at: string
   updated_by: string
+}
+
+// --- one account's whole record (the per-account page) ----------------------
+
+/** One leg this account was given, with the trade it belonged to folded in. */
+export interface ReportLeg {
+  id: number
+  trade: number
+  symbol: string
+  side: string
+  market: string
+  order_type: string
+  leverage: number
+  sl_pct: string | null
+  tp_pct: string | null
+  sltp_basis: string
+  trade_status: string
+  fanout_ms: number | null
+  ok: boolean
+  error: string
+  error_code: string
+  dispatch_ms: number | null
+  qty: string | null
+  entry_price: string | null
+  exit_price: string | null
+  margin: string | null
+  notional: string | null
+  stop_loss: string | null
+  take_profit: string | null
+  sltp_attached: boolean
+  sltp_verified: boolean
+  pnl: string | null
+  /** Return on the margin this leg locked up — not on the account. */
+  roe_pct: string | null
+  opened_at: string
+  closed_at: string | null
+  open: boolean
+}
+
+/**
+ * What the legs add up to. `null` is unknown, never zero: a leg the venue
+ * never priced is counted in neither the wins nor the losses.
+ */
+export interface ReportTrading {
+  legs: number
+  filled: number
+  failed: number
+  open: number
+  scored: number
+  wins: number
+  losses: number
+  win_rate: string | null
+  realised_pnl: string
+  gross_profit: string
+  gross_loss: string
+  profit_factor: string | null
+  average_pnl: string | null
+  best: string | null
+  worst: string | null
+  volume: string
+  first_trade_at: string | null
+  last_trade_at: string | null
+}
+
+export interface ReportCurvePoint {
+  at: string
+  symbol: string
+  pnl: string
+  cumulative: string
+}
+
+export interface ReportSymbol {
+  symbol: string
+  legs: number
+  wins: number
+  pnl: string
+}
+
+export interface AccountReport {
+  account: Account
+  connected_at: string
+  /** Spec §6: when this account last became eligible to join a trade. */
+  eligible_from: string
+  ledger: LedgerRow
+  split: SplitPercents
+  trading: ReportTrading
+  legs: ReportLeg[]
+  curve: ReportCurvePoint[]
+  symbols: ReportSymbol[]
+  movements: FundMovement[]
+  detections: DetectedMovement[]
+  notifications: ApiNotification[]
+  /** How many legs the payload caps at, so the page can say when it is a page. */
+  leg_limit: number
 }
 
 export interface LogEntry {

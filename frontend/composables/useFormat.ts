@@ -88,5 +88,23 @@ export function useFormat() {
     return t('time.justNow')
   }
 
-  return { money, compact, qty, pct, signed, ms, dateTime, since }
+  /**
+   * A price as a bare editable number: no thousands separators, precision by
+   * magnitude. `money()` is for reading — its separators come straight back in
+   * as `NaN` when the same string is the value of an input the admin edits.
+   */
+  function priceValue(value: string | number | null | undefined): string {
+    const n = Number(value)
+    if (value === null || value === undefined || value === '' || Number.isNaN(n)) return ''
+    const digits = Math.abs(n) >= 1000 ? 2 : Math.abs(n) >= 1 ? 4 : 6
+    return String(Number(n.toFixed(digits)))
+  }
+
+  /** The inverse: what the admin typed into a price box, or null if it is not one. */
+  function parsePrice(raw: string): number | null {
+    const n = Number(raw.replace(/[\s,]/g, ''))
+    return raw.trim() === '' || Number.isNaN(n) || n <= 0 ? null : n
+  }
+
+  return { money, compact, qty, pct, signed, ms, dateTime, since, priceValue, parsePrice }
 }

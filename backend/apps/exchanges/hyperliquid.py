@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import logging
 import time
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -33,6 +34,7 @@ from apps.exchanges.base import (
     AuthError,
     Balance,
     Capabilities,
+    ClosedFill,
     ExchangeAdapter,
     MarketType,
     NotSupported,
@@ -745,6 +747,56 @@ class HyperliquidAdapter(ExchangeAdapter):
                 leverage=int(leverage.get("value", 1)) if isinstance(leverage, dict) else 1,
             )
         return None
+
+    async def get_closed_pnl(self, symbol: str, since: datetime) -> ClosedFill | None:
+        """Rebuild the exit from the venue's own fills (``userFillsByTime``).
+
+        A stop or liquidation on Hyperliquid leaves nothing behind except the
+        fills, and those carry ``closedPnl`` per fill — the exchange's realised
+        PnL, computed against its own entry basis, which is why it is preferred
+        over ``(exit - entry) * qty`` here. ``closedPnl`` is gross, so the fees
+        on the same fills are subtracted to get what the account actually kept.
+
+        Only reducing fills count. Anything that opened or added to the
+        position has ``closedPnl`` of zero and an ``Open``/``Buy`` direction,
+        and averaging its price into the exit would move the exit toward the
+        entry.
+        """
+        coin = self._coin(symbol)
+        start_ms = int(since.timestamp() * 1000)
+        fills = await self._call("user_fills_by_time", self.account_address, start_ms)
+        if not isinstance(fills, list):
+            return None
+
+        notional = D("0")
+        qty = D("0")
+        pnl = D("0")
+        fees = D("0")
+        last_ms = 0
+        for fill in fills:
+            if not isinstance(fill, dict) or fill.get("coin") != coin:
+                continue
+            direction = str(fill.get("dir", ""))
+            if not ("Close" in direction or "Liquidat" in direction or ">" in direction):
+                continue
+            size = D(str(fill.get("sz", "0")))
+            if size <= 0:
+                continue
+            qty += size
+            notional += size * D(str(fill.get("px", "0")))
+            pnl += D(str(fill.get("closedPnl", "0")))
+            fees += D(str(fill.get("fee", "0")))
+            last_ms = max(last_ms, int(fill.get("time", 0)))
+
+        if qty <= 0:
+            return None
+        return ClosedFill(
+            exit_price=notional / qty,
+            qty=qty,
+            realised_pnl=pnl - fees,
+            fees=fees,
+            closed_at=datetime.fromtimestamp(last_ms / 1000, UTC) if last_ms else None,
+        )
 
     async def close_position(self, symbol: str) -> OrderResult:
         position = await self.get_position(symbol)

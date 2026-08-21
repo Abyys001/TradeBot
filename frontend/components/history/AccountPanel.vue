@@ -15,7 +15,16 @@
 const props = defineProps<{
   accountId: number
   /** Computed by the page from the trades it already has, under its filters. */
-  stats: { trades: number; legs: number; failed: number; wins: number; scored: number; pnl: number }
+  stats: {
+    trades: number
+    legs: number
+    settled: number
+    failed: number
+    wins: number
+    scored: number
+    pnl: number
+    margin: number
+  }
 }>()
 
 const { t } = useI18n()
@@ -60,6 +69,13 @@ function pnlText(value: string | null | undefined): string {
 
 const winRate = computed(() =>
   props.stats.scored ? `${Math.round((props.stats.wins / props.stats.scored) * 100)}%` : '—',
+)
+
+/** Return on the margin this account committed to the trades in view. */
+const realisedPct = computed(() =>
+  props.stats.settled && props.stats.margin > 0
+    ? (props.stats.pnl / props.stats.margin) * 100
+    : null,
 )
 </script>
 
@@ -115,19 +131,32 @@ const winRate = computed(() =>
         <dt class="label">{{ t('history.account.realised') }}</dt>
         <dd
           class="num mt-1"
-          :class="stats.pnl === 0 ? 'text-ink' : stats.pnl > 0 ? 'text-long' : 'text-short'"
+          :class="
+            !stats.settled || stats.pnl === 0
+              ? 'text-ink'
+              : stats.pnl > 0
+                ? 'text-long'
+                : 'text-short'
+          "
         >
-          {{ stats.pnl === 0 ? '—' : `${stats.pnl > 0 ? '+' : '−'}$${money(Math.abs(stats.pnl))}` }}
+          {{ stats.settled ? pnlText(String(stats.pnl)) : '—' }}
+          <span v-if="realisedPct !== null" class="text-xs">
+            ({{ realisedPct > 0 ? '+' : '' }}{{ realisedPct.toFixed(2) }}%)
+          </span>
         </dd>
         <dd class="text-[0.65rem] text-ink-faint mt-0.5">
-          {{ t('history.account.legsCounted', { n: stats.legs }) }}
+          {{ t('history.account.legsCounted', { n: stats.settled, total: stats.legs }) }}
         </dd>
       </div>
       <div>
         <dt class="label">{{ t('history.stat.winRate') }}</dt>
         <dd class="num mt-1">{{ winRate }}</dd>
         <dd class="text-[0.65rem] text-ink-faint mt-0.5">
-          {{ t('history.stat.winRateSub', { wins: stats.wins, n: stats.scored }) }}
+          {{
+            stats.scored
+              ? t('history.stat.winRateSub', { wins: stats.wins, n: stats.scored })
+              : t('history.stat.winRateNone')
+          }}
         </dd>
       </div>
       <div>

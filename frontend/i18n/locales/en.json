@@ -151,7 +151,10 @@
     "totalMargin": "Total margin",
     "totalNotional": "Total notional",
     "alreadyOpen": "A trade is already open. Each account commits 99% of its balance, so only one runs at a time — close it first.",
-    "sltpRequired": "Stop loss and take profit are both required. They are sent to the exchange with the order — an entry at leverage never goes out unprotected."
+    "sltpRequired": "Stop loss and take profit are both required. They are sent to the exchange with the order — an entry at leverage never goes out unprotected.",
+    "slPrice": "Stop price",
+    "tpPrice": "Target price",
+    "amendsLive": "A trade is open: changing the stop or target here sends the amendment to every account at once."
   },
   "position": {
     "entry": "Entry",
@@ -182,7 +185,14 @@
     "confirmCloseTitle": "Close on every account?",
     "confirmCloseBody": "This market-closes {symbol} on all {n} accounts holding it, at once — and any other trade still open. It cannot be undone.",
     "sltpRequired": "A stop loss and a take profit are both required: an amend replaces the protection resting on the exchange, so leaving one blank would remove it.",
-    "otherOpenTrades": "{n} more trade(s) are open on other accounts and are not shown here. Close flattens those too."
+    "otherOpenTrades": "{n} more trade(s) are open on other accounts and are not shown here. Close flattens those too.",
+    "priceBox": "price",
+    "slPrice": "Stop price",
+    "tpPrice": "Target price",
+    "stale": "Old level",
+    "staleHint": "This exchange still rests on the previous stop or target — the amendment did not land here.",
+    "staleLegs": "{n} account(s) still rest on the previous stop or target. The amendment did not reach them.",
+    "retryAmend": "Send again"
   },
   "fanout": {
     "title": "Last fan-out",
@@ -402,7 +412,90 @@
     "refresh": "Refresh balances",
     "refreshing": "Refreshing…",
     "confirmDelete": "Delete {label}? The stored credential cannot be recovered, and the account stops receiving orders immediately.",
-    "neverFetched": "Never fetched"
+    "neverFetched": "Never fetched",
+    "openReport": "Open this account's page",
+    "details": "Details",
+    "report": {
+      "back": "All accounts",
+      "unavailable": "This account cannot be shown",
+      "connectedAt": "connected {when}",
+      "connection": "Connection",
+      "connected": "Connected",
+      "eligible": "Eligible since",
+      "fingerprint": "Key fingerprint",
+      "expires": "Credential expires",
+      "asset": "Denominated in",
+      "checkNever": "The permission check has never run against the exchange, so this key cannot route orders.",
+      "checkPassed": "Verified trade-only, no withdrawal rights — checked {when}.",
+      "checkUnprovable": "Checked {when}. This exchange publishes no key-permission endpoint, so trade-only could not be proven either way.",
+      "curve": "Realised result",
+      "curveHint": "cumulative, closed legs only",
+      "noCurve": "Nothing closed yet",
+      "noCurveBody": "The line starts once this account has closed a leg the exchange priced.",
+      "bySymbol": "By pair",
+      "bySymbolHint": "where this account made and lost money",
+      "symbolSub": "{legs} legs · {wins} in profit",
+      "noTrades": "No trades yet",
+      "noTradesBody": "This account joins from the next trade — never one already in progress.",
+      "execution": "Execution",
+      "executionHint": "what the fan-out actually did here",
+      "shares": "Profit split on this account",
+      "failures": "Failures",
+      "failuresHint": "including the ones already dismissed",
+      "noFailures": "No failure has ever been recorded",
+      "noFailuresBody": "Every order routed to this account was accepted by the exchange.",
+      "active": "Unresolved",
+      "dismissed": "Dismissed",
+      "tab": {
+        "overview": "Overview",
+        "trades": "Trades",
+        "cash": "Cash flow",
+        "activity": "Activity"
+      },
+      "stat": {
+        "balance": "Balance",
+        "balanceSub": "as of {when}",
+        "invested": "Net invested",
+        "investedSub": "${in} in · ${out} out",
+        "pnl": "Since inception",
+        "pnlUnknown": "nothing invested to measure against",
+        "realised": "Realised on trades",
+        "realisedSub": "across {n} priced legs"
+      },
+      "trading": {
+        "legs": "Legs",
+        "filled": "Filled",
+        "failed": "Failed",
+        "open": "Open",
+        "volume": "Notional traded",
+        "last": "Last trade",
+        "best": "Best leg",
+        "worst": "Worst leg",
+        "average": "Average",
+        "profitFactor": "Profit factor",
+        "profitFactorSub": "gross profit ÷ gross loss"
+      },
+      "legs": {
+        "closed": "Closed",
+        "failed": "Failed",
+        "capped": "newest {n}",
+        "pair": "Pair",
+        "size": "Size",
+        "entry": "Entry",
+        "exit": "Exit",
+        "margin": "Margin",
+        "pnl": "PnL",
+        "opened": "Opened",
+        "noSltp": "no SL/TP"
+      },
+      "cash": {
+        "title": "Deposits and withdrawals",
+        "hint": "recorded by hand — the keys cannot move money",
+        "record": "Record one",
+        "resolve": "Answer these",
+        "count": "{n} recorded"
+      }
+    }
   },
   "history": {
     "title": "Trade history",
@@ -421,13 +514,16 @@
     "unprotected": "no SL/TP attached",
     "stat": {
       "pnl": "Realised PnL",
-      "pnlSub": "over {n} legs",
+      "pnlSub": "over {n} closed legs",
       "trades": "Trades",
       "tradesSub": "{n} failed legs",
       "winRate": "Win rate",
-      "winRateSub": "{wins} of {n} scored legs",
+      "winRateSub": "{wins} of {n} closed trades",
       "breaches": "Over budget",
-      "breachesSub": "fan-outs past the deadline"
+      "breachesSub": "fan-outs past the deadline",
+      "pnlNone": "nothing closed yet",
+      "tradesSubClean": "{n} legs, none failed",
+      "winRateNone": "no trade has closed yet"
     },
     "account": {
       "manage": "Manage",
@@ -435,11 +531,25 @@
       "invested": "Net invested",
       "sinceInception": "PnL since inception",
       "realised": "Realised here",
-      "legsCounted": "{n} legs",
+      "legsCounted": "{n} of {total} legs closed",
       "failed": "Failed legs",
       "ofTrades": "of {n} trades",
       "unchecked": "This account has never had its key permissions checked (spec §7).",
       "checkedAt": "Key permissions checked {when}"
+    },
+    "margin": "Margin",
+    "return": "Return",
+    "byAccount": {
+      "title": "Profit by account",
+      "hint": "What each account made over the trades in view. The percentage is the return on the margin that account committed, so accounts of different size compare.",
+      "account": "Account",
+      "legs": "Legs",
+      "wins": "Wins",
+      "margin": "Margin used",
+      "pnl": "Profit",
+      "return": "Return",
+      "legsCount": "{n} legs",
+      "noneSettled": "nothing closed yet"
     }
   },
   "finance": {
@@ -510,20 +620,45 @@
     "editTitle": "Correct a movement",
     "detect": {
       "title": "Unexplained balance changes",
-      "subtitle": "Money moved that the closed trades do not account for. Nothing here is booked until you accept it.",
-      "waiting": "{n} waiting",
+      "subtitle": "The platform works out what each one was — the trade, or somebody's cash — and books it. Only what it could not call waits here.",
+      "waiting": "{n} need you",
       "equity": "Equity",
       "moved": "Moved",
       "trades": "Trades explain",
       "recorded": "Already recorded",
-      "accept": "Accept",
-      "edit": "Edit…",
-      "dismiss": "Dismiss",
-      "editTitle": "Accept with a correction",
-      "editBody": "The platform inferred this by subtraction. Change it to what actually happened.",
+      "dismiss": "Not a real change",
       "dismissTitle": "Dismiss this change?",
-      "dismissBody": "Nothing is recorded. The proposal is kept with your reason so the same change is not raised again.",
-      "dismissPlaceholder": "Why this is not a deposit or withdrawal"
+      "dismissBody": "Nothing is recorded and nothing is credited to the trade. Use this only when the change was an exchange artefact.",
+      "dismissPlaceholder": "Why this is neither a trade result nor a transfer",
+      "question": "What was this?",
+      "classTrade": "The trade",
+      "classTradeHint": "Nothing is recorded. Invested capital stays as it is and the change shows up in PnL.",
+      "classInvestorDeposit": "Investor put money in",
+      "classInvestorWithdrawal": "Investor took money out",
+      "classInvestorHint": "Recorded as a cash flow. Invested capital changes, so PnL does not count it.",
+      "confirm": "Confirm",
+      "verdict": "The platform reads this as",
+      "reason": {
+        "emptied": "The account was emptied — nobody trades a balance to nothing.",
+        "funded_from_empty": "The account had nothing in it and now has money.",
+        "no_trade": "Nothing traded on this account anywhere near the change, so there is no trade it could have come from.",
+        "isolated": "Only this account moved. {peers} other accounts were readable and sat still — a trade would have moved all of them.",
+        "portfolio_wide": "{moved} of {peers} other accounts moved the same way at the same moment. That is a fan-out, not {moved} people transferring at once.",
+        "trade_residual": "Small next to the trade's own result — fees, funding and the exchange's rounding.",
+        "unclear": "Nothing settled it either way, so the standing default applies: a balance that moves on a trading account moved because of the trade.",
+        "unclassified": "Not classified."
+      },
+      "amountHint": "Change the figure if you know the real one.",
+      "decidedTitle": "Decided automatically",
+      "decidedHint": "{n} recent changes the platform called by itself. Change any of them if it got one wrong.",
+      "decidedAs": {
+        "accepted": "Investor cash",
+        "trade": "The trade",
+        "dismissed": "Dismissed"
+      },
+      "reopen": "Change",
+      "empty": "Everything is accounted for",
+      "emptyBody": "Every balance change so far was either a trade the platform placed or a transfer it recognised."
     },
     "audit": {
       "title": "Who changed what",
@@ -538,7 +673,9 @@
         "deleted": "Deleted",
         "accepted": "Accepted",
         "dismissed": "Dismissed",
-        "split": "Split changed"
+        "split": "Split changed",
+        "attributed": "Credited to the trade",
+        "reopened": "Reopened"
       }
     }
   },

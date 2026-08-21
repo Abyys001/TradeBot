@@ -10,6 +10,8 @@
  * once. Twenty trades across ten accounts is two hundred rows, and none of them
  * answers the first question the page is opened with.
  */
+import type { AccountRow } from '~/components/history/AccountBreakdown.vue'
+
 const { t } = useI18n()
 const api = useApi()
 const accounts = useAccountsStore()
@@ -51,24 +53,105 @@ const visible = computed(() =>
 )
 
 /**
+ * A leg is **settled** when the server has written a PnL for it: the exchange
+ * confirmed an exit and said what it was worth. Anything else — still open, or
+ * closed on the venue before the fill record could be read — has no number, and
+ * counting it as zero is what made this page read as "0%" over trades that were
+ * never scored at all. Unsettled legs are excluded from every figure below and
+ * render as an em dash, never a zero.
+ */
+function settledLegs(trade: Trade) {
+  return legsOf(trade).filter((leg) => leg.pnl !== null)
+}
+
+/**
  * Summaries respect the filter. A "total PnL" that ignores the account you
  * just selected is worse than no total at all.
  */
 const summary = computed(() => {
-  const legs = visible.value.flatMap((trade) =>
-    accountFilter.value === null
-      ? trade.legs
-      : trade.legs.filter((leg) => leg.account === accountFilter.value),
-  )
-  const pnl = legs.reduce((sum, leg) => sum + Number(leg.pnl ?? 0), 0)
-  const wins = legs.filter((leg) => Number(leg.pnl ?? 0) > 0).length
-  const scored = legs.filter((leg) => leg.pnl !== null && Number(leg.pnl) !== 0).length
+  const legs = visible.value.flatMap(legsOf)
+  const settled = legs.filter((leg) => leg.pnl !== null)
+  const pnl = settled.reduce((sum, leg) => sum + Number(leg.pnl), 0)
+  const margin = settled.reduce((sum, leg) => sum + Number(leg.margin ?? 0), 0)
+  // Win rate is per *trade*, not per leg. One decision fanned out to ten
+  // accounts is one call that was right or wrong; scoring it ten times just
+  // reports the account count.
+  const scored = visible.value.filter((trade) => settledLegs(trade).length > 0)
+  const wins = scored.filter((trade) => tradePnl(trade) > 0).length
   const failed = legs.filter((leg) => !leg.ok).length
   const breaches = visible.value.filter(
     (trade) => (trade.fanout_ms ?? 0) > trading.fanoutBudgetMs,
   ).length
-  return { pnl, wins, scored, failed, breaches, legs: legs.length }
+  return {
+    pnl,
+    margin,
+    wins,
+    scored: scored.length,
+    failed,
+    breaches,
+    legs: legs.length,
+    settled: settled.length,
+  }
 })
+
+/** Return on the margin actually committed. `null` when nothing has settled. */
+const returnPct = computed(() =>
+  summary.value.settled && summary.value.margin > 0
+    ? (summary.value.pnl / summary.value.margin) * 100
+    : null,
+)
+
+/**
+ * One row per account, over the trades in view. Spec §8 asks for a per-account
+ * log; this is the same data asked the other way round — per account, what did
+ * it make — which is the question the trade-shaped list cannot answer without
+ * expanding every row and adding legs up by eye.
+ */
+const byAccount = computed(() => {
+  const rows = new Map<number, AccountRow>()
+  for (const trade of visible.value) {
+    for (const leg of legsOf(trade)) {
+      let row = rows.get(leg.account)
+      if (!row) {
+        row = {
+          account: leg.account,
+          label: leg.account_label,
+          exchange: leg.exchange,
+          legs: 0,
+          settled: 0,
+          wins: 0,
+          failed: 0,
+          pnl: 0,
+          margin: 0,
+        }
+        rows.set(leg.account, row)
+      }
+      row.legs += 1
+      if (!leg.ok) row.failed += 1
+      if (leg.pnl === null) continue
+      row.settled += 1
+      row.pnl += Number(leg.pnl)
+      row.margin += Number(leg.margin ?? 0)
+      if (Number(leg.pnl) > 0) row.wins += 1
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.pnl - a.pnl)
+})
+
+/** What one leg made, against the margin that leg committed. */
+function legReturn(leg: TradeLeg): number | null {
+  const margin = Number(leg.margin ?? 0)
+  if (leg.pnl === null || !margin) return null
+  return (Number(leg.pnl) / margin) * 100
+}
+
+function signedMoney(value: number): string {
+  return `${value > 0 ? '+' : value < 0 ? '−' : ''}$${money(Math.abs(value))}`
+}
+
+function signedPct(value: number): string {
+  return `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value).toFixed(2)}%`
+}
 
 /** What the account panel above the log reports, under the current filters. */
 const panelStats = computed(() => ({ ...summary.value, trades: visible.value.length }))
@@ -93,7 +176,18 @@ function legsOf(trade: Trade) {
 }
 
 function tradePnl(trade: Trade) {
-  return legsOf(trade).reduce((sum, leg) => sum + Number(leg.pnl ?? 0), 0)
+  return settledLegs(trade).reduce((sum, leg) => sum + Number(leg.pnl), 0)
+}
+
+/** The trade's return on the margin its settled legs committed. */
+function tradeReturn(trade: Trade): number | null {
+  const margin = settledLegs(trade).reduce((sum, leg) => sum + Number(leg.margin ?? 0), 0)
+  return margin > 0 ? (tradePnl(trade) / margin) * 100 : null
+}
+
+function legTone(leg: TradeLeg): string {
+  if (leg.pnl === null || Number(leg.pnl) === 0) return 'text-ink-faint'
+  return Number(leg.pnl) > 0 ? 'text-long' : 'text-short'
 }
 </script>
 
@@ -109,23 +203,37 @@ function tradePnl(trade: Trade) {
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
       <UiStat
         :label="t('history.stat.pnl')"
-        :value="`${summary.pnl >= 0 ? '+' : ''}$${money(summary.pnl)}`"
-        :sub="t('history.stat.pnlSub', { n: summary.legs })"
-        :tone="summary.pnl === 0 ? 'default' : summary.pnl > 0 ? 'long' : 'short'"
+        :value="summary.settled ? signedMoney(summary.pnl) : '—'"
+        :unit="returnPct === null ? '' : signedPct(returnPct)"
+        :sub="
+          summary.settled
+            ? t('history.stat.pnlSub', { n: summary.settled })
+            : t('history.stat.pnlNone')
+        "
+        :tone="!summary.settled || summary.pnl === 0 ? 'default' : summary.pnl > 0 ? 'long' : 'short'"
         icon="wallet"
         :loading="loading"
       />
       <UiStat
         :label="t('history.stat.trades')"
         :value="visible.length"
-        :sub="t('history.stat.tradesSub', { n: summary.failed })"
+        :sub="
+          summary.failed
+            ? t('history.stat.tradesSub', { n: summary.failed })
+            : t('history.stat.tradesSubClean', { n: summary.legs })
+        "
+        :tone="summary.failed ? 'signal' : 'default'"
         icon="history"
         :loading="loading"
       />
       <UiStat
         :label="t('history.stat.winRate')"
         :value="summary.scored ? `${Math.round((summary.wins / summary.scored) * 100)}%` : '—'"
-        :sub="t('history.stat.winRateSub', { wins: summary.wins, n: summary.scored })"
+        :sub="
+          summary.scored
+            ? t('history.stat.winRateSub', { wins: summary.wins, n: summary.scored })
+            : t('history.stat.winRateNone')
+        "
         icon="check"
         :loading="loading"
       />
@@ -160,6 +268,15 @@ function tradePnl(trade: Trade) {
       </button>
     </div>
 
+    <p v-if="error" class="alert p-3 text-xs">{{ error }}</p>
+
+    <!-- Fanned out across accounts, the money question is "who made what". -->
+    <HistoryAccountBreakdown
+      v-if="byAccount.length && (accountFilter === null || byAccount.length > 1)"
+      :rows="byAccount"
+      :loading="loading"
+    />
+
     <!-- Narrowed to one account, the next question is about the account. -->
     <HistoryAccountPanel
       v-if="accountFilter !== null"
@@ -167,8 +284,6 @@ function tradePnl(trade: Trade) {
       :account-id="accountFilter"
       :stats="panelStats"
     />
-
-    <p v-if="error" class="alert p-3 text-xs">{{ error }}</p>
 
     <div v-if="loading" class="space-y-3">
       <div v-for="i in 3" :key="i" class="skeleton h-20 rounded-panel" />
@@ -216,16 +331,24 @@ function tradePnl(trade: Trade) {
             </span>
 
             <span
-              class="num text-sm w-24 text-end"
+              class="num text-sm w-28 text-end"
               :class="
-                tradePnl(trade) === 0
+                !settledLegs(trade).length
                   ? 'text-ink-faint'
                   : tradePnl(trade) > 0
                     ? 'text-long'
-                    : 'text-short'
+                    : tradePnl(trade) < 0
+                      ? 'text-short'
+                      : 'text-ink-faint'
               "
             >
-              {{ tradePnl(trade) === 0 ? '—' : `${tradePnl(trade) > 0 ? '+' : ''}$${money(tradePnl(trade))}` }}
+              <template v-if="settledLegs(trade).length">
+                {{ signedMoney(tradePnl(trade)) }}
+                <span v-if="tradeReturn(trade) !== null" class="block text-[0.65rem]">
+                  {{ signedPct(tradeReturn(trade)!) }}
+                </span>
+              </template>
+              <template v-else>—</template>
             </span>
           </button>
 
@@ -240,7 +363,9 @@ function tradePnl(trade: Trade) {
                     <th class="label text-end font-normal py-2">{{ t('dashboard.qty') }}</th>
                     <th class="label text-end font-normal py-2">{{ t('dashboard.entry') }}</th>
                     <th class="label text-end font-normal py-2">{{ t('history.exit') }}</th>
+                    <th class="label text-end font-normal py-2">{{ t('history.margin') }}</th>
                     <th class="label text-end font-normal py-2">{{ t('history.pnl') }}</th>
+                    <th class="label text-end font-normal py-2">{{ t('history.return') }}</th>
                     <th class="label text-start font-normal px-4 py-2">{{ t('history.note') }}</th>
                   </tr>
                 </thead>
@@ -251,11 +376,15 @@ function tradePnl(trade: Trade) {
                     <td class="num text-end py-2">{{ qty(leg.qty) }}</td>
                     <td class="num text-end py-2">{{ money(leg.entry_price) }}</td>
                     <td class="num text-end py-2">{{ money(leg.exit_price) }}</td>
+                    <td class="num text-end py-2 text-ink-muted">{{ money(leg.margin) }}</td>
                     <td
-                      class="num text-end py-2"
-                      :class="Number(leg.pnl ?? 0) >= 0 ? 'text-long' : 'text-short'"
+                      class="num text-end py-2 font-medium"
+                      :class="legTone(leg)"
                     >
-                      {{ leg.pnl === null ? '—' : money(leg.pnl) }}
+                      {{ leg.pnl === null ? '—' : signedMoney(Number(leg.pnl)) }}
+                    </td>
+                    <td class="num text-end py-2" :class="legTone(leg)">
+                      {{ legReturn(leg) === null ? '—' : signedPct(legReturn(leg)!) }}
                     </td>
                     <td class="px-4 py-2">
                       <span v-if="!leg.ok" class="text-short">{{ leg.error }}</span>
@@ -273,16 +402,17 @@ function tradePnl(trade: Trade) {
               <li v-for="leg in legsOf(trade)" :key="leg.id" class="px-4 py-3 space-y-1">
                 <div class="flex items-baseline justify-between gap-2">
                   <span class="text-xs">{{ leg.account_label }}</span>
-                  <span
-                    class="num text-xs"
-                    :class="Number(leg.pnl ?? 0) >= 0 ? 'text-long' : 'text-short'"
-                  >
-                    {{ leg.pnl === null ? '—' : money(leg.pnl) }}
+                  <span class="num text-xs font-medium" :class="legTone(leg)">
+                    {{ leg.pnl === null ? '—' : signedMoney(Number(leg.pnl)) }}
+                    <template v-if="legReturn(leg) !== null">
+                      ({{ signedPct(legReturn(leg)!) }})
+                    </template>
                   </span>
                 </div>
                 <p class="num text-[0.65rem] text-ink-faint">
                   {{ qty(leg.qty) }} @ {{ money(leg.entry_price) }}
                   <template v-if="leg.exit_price"> → {{ money(leg.exit_price) }}</template>
+                  <template v-if="leg.margin"> · {{ t('history.margin') }} ${{ money(leg.margin) }}</template>
                 </p>
                 <p v-if="!leg.ok" class="text-[0.65rem] text-short">{{ leg.error }}</p>
                 <p v-else-if="!leg.sltp_attached" class="text-[0.65rem] text-signal">

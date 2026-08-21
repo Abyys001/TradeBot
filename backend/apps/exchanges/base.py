@@ -15,6 +15,7 @@ from __future__ import annotations
 import abc
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -92,6 +93,24 @@ class Position:
     liquidation_price: Decimal | None
     unrealized_pnl: Decimal
     leverage: int
+
+
+@dataclass(frozen=True, slots=True)
+class ClosedFill:
+    """What the venue says an exit was actually worth.
+
+    Recovered from the exchange's own fill record, so it is the only honest
+    answer for a position that left the platform's sight — a stop that fired, a
+    liquidation, a close done in the venue's own app. ``realised_pnl`` is the
+    exchange's number with fees already deducted; ``fees`` is carried
+    separately so the panel can show where it differs from raw price maths.
+    """
+
+    exit_price: Decimal
+    qty: Decimal
+    realised_pnl: Decimal
+    fees: Decimal
+    closed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +331,22 @@ class ExchangeAdapter(abc.ABC):
         qty is notional / price, and the notional comes from the balance. When
         an adapter cannot answer, the caller supplies the price from the public
         market-data feed instead (see ``apps.trading.services.route_open``).
+        """
+        return None
+
+    async def get_closed_pnl(self, symbol: str, since: datetime) -> ClosedFill | None:
+        """The venue's own record of how a position was closed, after ``since``.
+
+        A position can end without this platform sending anything — a stop
+        firing, a liquidation, a close made in the exchange's own app — and then
+        the exit price and PnL exist only on the venue. ``possync`` asks here
+        before it writes such a leg off, so the trade log carries real numbers
+        instead of a dash.
+
+        The default is ``None`` = "cannot answer", the same contract as
+        ``get_sltp``. An adapter that cannot enumerate its fills leaves the exit
+        unknown; nothing is estimated from a mark price, because a number the
+        exchange did not say is not a fill.
         """
         return None
 

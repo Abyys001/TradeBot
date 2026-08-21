@@ -48,3 +48,16 @@ def _detach_log_writer():
     yield
     for handler in detached:
         root.addHandler(handler)
+
+
+def ledger_settings(**overrides) -> dict:
+    """``settings.LEDGER`` with a few keys changed, and the rest real.
+
+    ``override_settings(LEDGER={...})`` replaces the whole dict, so a test that
+    wanted to move one threshold used to delete every other key with it — and a
+    new key would then only fail once someone read it. Merging onto the live
+    defaults keeps ``config/settings.py`` the one place the values live.
+    """
+    from django.conf import settings
+
+    return {**settings.LEDGER, **overrides}

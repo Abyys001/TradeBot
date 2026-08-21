@@ -54,6 +54,16 @@ export const usePositionsStore = defineStore('positions', {
       return this.legs.filter((leg) => leg.ok && leg.sltp_attached && !leg.sltp_verified)
     },
 
+    /**
+     * Legs still resting on the *previous* SL/TP — an amend that failed on this
+     * account alone. The whole point of moving a stop mid-trade is that every
+     * exchange moves with it, so the one that did not has to be named rather
+     * than left looking like the rest.
+     */
+    stale(): PositionLeg[] {
+      return this.legs.filter((leg) => leg.ok && leg.sltp_stale)
+    },
+
     pnl: (s) => (s.snapshot?.totals?.pnl == null ? null : Number(s.snapshot.totals.pnl)),
     roePct: (s) =>
       s.snapshot?.totals?.roe_pct == null ? null : Number(s.snapshot.totals.roe_pct),
@@ -83,6 +93,15 @@ export const usePositionsStore = defineStore('positions', {
       try {
         this.snapshot = await useApi().positions()
         this.error = ''
+        // The poll is the panel's most reliable news of an open trade, so it is
+        // also what keeps the editing surfaces pointed at a real one: the id
+        // every amend is sent against (`trading.adopt`), and the percentages
+        // that amend carries (`order.adoptTrade`). Without this a position
+        // opened in another browser is drawn, marked to market and completely
+        // un-amendable.
+        const open = this.snapshot?.trade ?? null
+        useTradingStore().adopt(open?.id ?? null)
+        if (open) useOrderStore().adoptTrade(open)
       } catch (e: any) {
         this.error = errorMessage(e)
       } finally {

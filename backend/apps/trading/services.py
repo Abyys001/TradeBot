@@ -29,7 +29,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from apps.accounts import detection
+from apps.accounts import classify, detection
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
 from apps.core.money import D
 from apps.engine.executor import (
@@ -879,6 +879,10 @@ def eligible_accounts_for_balances() -> list[ConnectedAccount]:
 @sync_to_async
 def _save_balances(result: FanOutResult) -> list[dict]:
     now = timezone.now()
+    # One instant, every account: that is what lets the classifier say "only
+    # this one moved" (apps.accounts.classify). Readings taken minutes apart
+    # could not be compared to each other.
+    sweep = detection.Sweep(at=now)
     rows = []
     accounts = {a.id: a for a in ConnectedAccount.objects.filter(
         id__in=[leg.account_id for leg in result.legs]
@@ -910,6 +914,7 @@ def _save_balances(result: FanOutResult) -> list[dict]:
                 asset=leg.value.asset,
                 flat=account.id not in busy,
                 at=now,
+                sweep=sweep,
             )
         else:
             account.last_error = leg.error
@@ -933,4 +938,7 @@ def _save_balances(result: FanOutResult) -> list[dict]:
             *detection.FIELDS,
         ],
     )
+    # After the cursors are saved, never before: a verdict may book a movement,
+    # and the window it was decided from has to be on record first.
+    classify.resolve_sweep(sweep)
     return rows

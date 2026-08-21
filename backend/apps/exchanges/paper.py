@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from apps.core.money import D, floor_to_step
@@ -21,6 +22,7 @@ from apps.exchanges.base import (
     Balance,
     BelowMinimumNotional,
     Capabilities,
+    ClosedFill,
     ExchangeAdapter,
     MarketType,
     OrderResult,
@@ -218,9 +220,34 @@ class PaperAdapter(ExchangeAdapter):
         pos = self._position
         if pos is None:
             raise AdapterError("no open position to close", code="no_position")
+        self._settle(pos, self._mark)
+        return OrderResult(order_id=str(next(_ids)), filled_qty=pos.size, avg_price=self._mark)
+
+    def _settle(self, pos: Position, price: Decimal) -> None:
+        """Flatten and keep the fill, the way a real venue keeps its trade log."""
+        direction = D("1") if pos.side is Side.LONG else D("-1")
+        self._state["last_close"] = ClosedFill(
+            exit_price=price,
+            qty=pos.size,
+            realised_pnl=(price - pos.entry_price) * pos.size * direction,
+            fees=D("0"),
+            closed_at=datetime.now(UTC),
+        )
         self._position = None
         self._state["sltp"] = (None, None)
-        return OrderResult(order_id=str(next(_ids)), filled_qty=pos.size, avg_price=self._mark)
+
+    def settle_on_exchange(self, price: Decimal) -> None:
+        """Demo stand-in for a stop firing: the venue closes, nothing is sent."""
+        pos = self._position
+        if pos is not None:
+            self._settle(pos, D(price))
+
+    async def get_closed_pnl(self, symbol: str, since: datetime) -> ClosedFill | None:
+        await self._tick("get_closed_pnl")
+        fill = self._state.get("last_close")
+        if fill is None or (fill.closed_at is not None and fill.closed_at < since):
+            return None
+        return fill
 
     async def stream_events(self) -> AsyncIterator[dict]:
         return

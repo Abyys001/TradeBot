@@ -31,6 +31,8 @@ export const useOrderStore = defineStore('order', {
     liquidationPrice: null as number | null,
     lastEditedFrom: null as EditSource | null,
     lastEditedAt: null as number | null,
+    /** The open trade these numbers describe, so a poll re-hydrates only once. */
+    hydratedTradeId: null as number | null,
   }),
 
   getters: {
@@ -113,22 +115,25 @@ export const useOrderStore = defineStore('order', {
     },
 
     /**
-     * Q5c: a chart drag gives an absolute price. Convert it to a percentage off
-     * the admin's own entry so it can be re-applied to each account's own fill.
+     * Q5c: a chart drag — and now a typed price box — gives an absolute price.
+     * Convert it to a percentage off the admin's own entry so it can be
+     * re-applied to each account's own fill. `from` names the surface, because
+     * the price boxes on the ticket and the position row write through here too
+     * and "last edited from the chart" would be a lie.
      */
-    setSLFromPrice(price: number) {
+    setSLFromPrice(price: number, from: EditSource = 'chart') {
       const entry = this.entryPrice
       if (!entry) return
       const move = this.side === 'long' ? (entry - price) / entry : (price - entry) / entry
       const pct = move * 100
-      this.setSL(round4(this.basis === 'margin' ? pct * this.leverage : pct), 'chart')
+      this.setSL(round4(this.basis === 'margin' ? pct * this.leverage : pct), from)
     },
-    setTPFromPrice(price: number) {
+    setTPFromPrice(price: number, from: EditSource = 'chart') {
       const entry = this.entryPrice
       if (!entry) return
       const move = this.side === 'long' ? (price - entry) / entry : (entry - price) / entry
       const pct = move * 100
-      this.setTP(round4(this.basis === 'margin' ? pct * this.leverage : pct), 'chart')
+      this.setTP(round4(this.basis === 'margin' ? pct * this.leverage : pct), from)
     },
 
     priceFor(kind: 'sl' | 'tp'): number | null {
@@ -148,8 +153,32 @@ export const useOrderStore = defineStore('order', {
       this.basis = next
     },
 
+    /**
+     * Take on a trade the panel was not already editing.
+     *
+     * Called from the positions poll, so it runs on every page and covers the
+     * case a reload does not: a trade opened in another browser, or one
+     * `possync` restored, arriving while this ticket holds numbers from a
+     * previous trade. Those numbers matter — an amend sends *both* sides, so
+     * dragging the stop on an adopted trade would otherwise push a take profit
+     * this panel invented.
+     *
+     * A recent edit is never overwritten. The poll is three seconds behind and
+     * an amend takes a moment to persist; adopting on top of a level the admin
+     * has just set would put the old one back in front of them while the
+     * exchanges rest on the new one.
+     */
+    adoptTrade(trade: HydratableTrade) {
+      if (this.hydratedTradeId === trade.id) return
+      if (this.lastEditedAt !== null && Date.now() - this.lastEditedAt < ADOPT_GRACE_MS) {
+        this.hydratedTradeId = trade.id
+        return
+      }
+      this.hydrateFromTrade(trade)
+    },
+
     /** Adopt an open trade after a page reload so the terminal is not blank. */
-    hydrateFromTrade(trade: Trade) {
+    hydrateFromTrade(trade: HydratableTrade) {
       this.symbol = trade.symbol
       this.side = trade.side === 'short' ? 'short' : 'long'
       this.market = trade.market === 'spot' ? 'spot' : 'futures'
@@ -159,6 +188,7 @@ export const useOrderStore = defineStore('order', {
       this.tpPct = trade.tp_pct === null ? null : Number(trade.tp_pct)
       if (trade.admin_entry_price) this.entryPrice = Number(trade.admin_entry_price)
       this.lastEditedFrom = null
+      this.hydratedTradeId = trade.id
     },
 
     reset() {
@@ -167,9 +197,31 @@ export const useOrderStore = defineStore('order', {
       this.liquidationPrice = null
       this.lastEditedFrom = null
       this.lastEditedAt = null
+      this.hydratedTradeId = null
     },
   },
 })
+
+/**
+ * Everything hydration reads. Both `Trade` and the leaner trade the positions
+ * snapshot carries satisfy it, which is the point — the poll is the panel's
+ * most current news of an open trade and should not need the full shape.
+ */
+type HydratableTrade = Pick<
+  Trade,
+  | 'id'
+  | 'symbol'
+  | 'side'
+  | 'market'
+  | 'leverage'
+  | 'sl_pct'
+  | 'tp_pct'
+  | 'sltp_basis'
+  | 'admin_entry_price'
+>
+
+/** How long a fresh edit is protected from the poll's older view of the trade. */
+const ADOPT_GRACE_MS = 15_000
 
 /** Chart drags produce long floats; four decimals is past any exchange's tick. */
 function round4(n: number): number {

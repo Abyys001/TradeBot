@@ -62,6 +62,14 @@ def flatten_on_exchange(account: ConnectedAccount) -> None:
     _SHARED_STATE[f"account-{account.id}"]["position"] = None
 
 
+def stop_fires_on_exchange(account: ConnectedAccount, price: str) -> None:
+    """The same thing, but on a venue that keeps a trade log: a fill remains."""
+    from apps.exchanges.paper import PaperAdapter
+
+    adapter = PaperAdapter(state_key=f"account-{account.id}")
+    adapter.settle_on_exchange(D(price))
+
+
 def hold_on_exchange(account: ConnectedAccount, **kwargs) -> None:
     """The other direction: the venue holds something the platform does not."""
     _SHARED_STATE.setdefault(f"account-{account.id}", {})["position"] = Position(
@@ -379,3 +387,36 @@ async def test_the_opposite_side_on_the_pair_is_reported_not_matched():
     leg = await leg_for(trade, account)
     assert leg.closed_at is None and leg.ok
     assert len(await notices("side_mismatch")) == 1
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_an_exit_the_platform_never_sent_is_priced_from_the_venue():
+    """A stop that fires leaves the money only in the exchange's fill record."""
+    account = await make_account("partner-a")
+    trade, _ = await open_a_trade()
+    await age_legs(trade)
+
+    stop_fires_on_exchange(account, "101000")
+    report = await sync_positions(force=True)
+
+    leg = await leg_for(trade, account)
+    assert leg.id in report.priced
+    assert leg.exit_price == D("101000")
+    # Long, entry 100000: the venue's own realised number, not a guess.
+    assert leg.pnl == (D("101000") - leg.entry_price) * leg.qty
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_venue_with_no_fill_record_leaves_the_exit_unknown():
+    """No fill is not a zero. A dash is the honest answer (spec §4 reasoning)."""
+    account = await make_account("partner-a")
+    trade, _ = await open_a_trade()
+    await age_legs(trade)
+
+    flatten_on_exchange(account)
+    report = await sync_positions(force=True)
+
+    leg = await leg_for(trade, account)
+    assert report.priced == []
+    assert leg.exit_price is None
+    assert leg.pnl is None

@@ -222,6 +222,24 @@ export const useTradingStore = defineStore('trading', {
       }
     },
 
+    /**
+     * Adopt an open trade this tab did not start.
+     *
+     * `tradeId` used to be set only by `loadTrades()` and by a submit from this
+     * very tab, so a position opened in another browser — or one `possync`
+     * restored after the platform had written it off — left every amend surface
+     * pointing at `null`, where `amend()` returns early and the drag silently
+     * did nothing while the exchanges held the old stop. The positions poll
+     * knows the id every three seconds; this is where it lands.
+     *
+     * Adoption only ever *sets*. Clearing on a poll that reports flat would
+     * race a fresh submit, and close already handles a trade this tab does not
+     * know about.
+     */
+    adopt(id: number | null) {
+      if (id !== null && id !== this.tradeId) this.tradeId = id
+    },
+
     async amend(slPct: number | null, tpPct: number | null) {
       if (this.tradeId === null) return null
       // An amend replaces the protection resting on the exchange wholesale, so

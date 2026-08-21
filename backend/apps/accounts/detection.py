@@ -9,10 +9,8 @@ The exchange reports one number — equity — and three different things move i
 * **C. a capital injection** — money arrived, same blind spot.
 
 So B and C are inferred by subtraction: whatever equity did that A, plus the
-cash flows already on record, does not explain. The remainder is *proposed*, not
-booked — see ``DetectedMovement``. An operator accepts it, and only then does
-invested capital change. A guess about how much an investor put in is not
-something to write into the books unasked.
+cash flows already on record, does not explain. The remainder is a
+``DetectedMovement`` — a question, not yet an entry.
 
 Two rules keep the subtraction honest:
 
@@ -23,10 +21,16 @@ holds no open leg, and both ends of every window are such a reading.
 
 **Never propose against an unknown start.** An account with no cursor yet is
 seeded silently. The ledger starts from now, exactly as the manual one does.
+
+What the remainder *was* — the trade, or somebody's cash — is not decided here.
+This module only measures; ``apps.accounts.classify`` reads the whole sweep and
+calls it, because "only this account moved" is a fact about the set of accounts
+and cannot be seen one row at a time.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -46,6 +50,23 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from datetime import datetime
 
     from apps.accounts.models import ConnectedAccount
+
+
+@dataclass
+class Sweep:
+    """One pass over every account's balance, as the classifier needs it.
+
+    ``observed`` is the part that cannot be reconstructed afterwards: the
+    accounts that were readable, in USDT and flat at this instant — the ones
+    whose silence is evidence. An account that failed its balance read, or that
+    is holding a position, is absent from both sets, because it did not say
+    anything either way and silence proves nothing (the ``NEVER_SENT_CODES``
+    rule, applied to money).
+    """
+
+    at: datetime
+    observed: set[int] = field(default_factory=set)
+    detections: list[DetectedMovement] = field(default_factory=list)
 
 
 def threshold(equity: Decimal) -> Decimal:
@@ -108,6 +129,7 @@ def observe(
     asset: str,
     flat: bool,
     at: datetime | None = None,
+    sweep: Sweep | None = None,
 ) -> DetectedMovement | None:
     """Record one equity reading and, if it is unexplained, propose a movement.
 
@@ -117,6 +139,11 @@ def observe(
 
     The caller is responsible for saving ``account``; the fields written here
     are named in ``FIELDS`` so a ``bulk_update`` can carry them.
+
+    ``sweep`` collects what the whole pass saw, so ``classify.resolve_sweep``
+    can tell an account that moved alone from one that moved with the others.
+    Pass it from a caller that reads every account at once; without it the rows
+    are still created, just left for a person to classify.
     """
     now = at or timezone.now()
     account.last_equity = equity
@@ -135,6 +162,8 @@ def observe(
     since = account.ledger_cursor_at
     account.ledger_cursor_equity = equity
     account.ledger_cursor_at = now
+    if sweep is not None:
+        sweep.observed.add(account.id)
     if previous is None or since is None:
         return None
 
@@ -186,13 +215,14 @@ def observe(
         (
             f"Unexplained balance change on {account.label}: equity moved "
             f"{delta:+} USDT, closed trades explain {trade_pnl:+}, recorded cash "
-            f"{manual_net:+} — proposing a {detection.suggested_kind} of "
-            f"{detection.amount}"
+            f"{manual_net:+}, leaving {unexplained:+} unaccounted for"
         ),
         source="apps.accounts.detection",
         account_id=account.id,
         exchange=account.exchange,
     )
+    if sweep is not None:
+        sweep.detections.append(detection)
     return detection
 
 

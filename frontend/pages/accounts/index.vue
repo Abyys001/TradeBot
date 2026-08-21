@@ -7,6 +7,7 @@
  * is where the "status" column goes to die.
  */
 const { t } = useI18n()
+const localePath = useLocalePath()
 const accounts = useAccountsStore()
 const { money, since } = useFormat()
 
@@ -173,7 +174,12 @@ async function confirmDelete() {
               >
                 <td class="px-4 py-3 min-w-0">
                   <div class="flex items-center gap-2 min-w-0">
-                    <span class="truncate font-medium">{{ account.label }}</span>
+                    <NuxtLink
+                      :to="localePath(`/accounts/${account.id}`)"
+                      class="truncate font-medium hover:text-brand transition-colors"
+                    >
+                      {{ account.label }}
+                    </NuxtLink>
                     <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
                     <!-- Only ever rendered for the one operator who can see the
                          account at all: no other session receives the row. -->
@@ -214,6 +220,17 @@ async function confirmDelete() {
                 </td>
                 <td class="px-4 py-3">
                   <div class="flex items-center justify-end gap-1.5">
+                    <!-- The account's own page: when it was connected, what it
+                         was paid, every leg it was given. The list can only
+                         ever answer "is it connected and what is it worth". -->
+                    <NuxtLink
+                      :to="localePath(`/accounts/${account.id}`)"
+                      class="btn-quiet btn-sm"
+                      :title="t('accounts.openReport')"
+                    >
+                      <UiIcon name="external" :size="13" />
+                      <span class="hidden lg:inline">{{ t('accounts.details') }}</span>
+                    </NuxtLink>
                     <!-- Pause is amber because a paused account is the same
                          "not trading" state the badges use; resume is the
                          healthy green. Same colour, same meaning, everywhere. -->
@@ -266,7 +283,12 @@ async function confirmDelete() {
           <li v-for="account in filtered" :key="account.id" class="p-4 space-y-3">
             <div class="flex items-start gap-2">
               <div class="min-w-0 flex-1">
-                <p class="font-medium truncate">{{ account.label }}</p>
+                <NuxtLink
+                  :to="localePath(`/accounts/${account.id}`)"
+                  class="font-medium truncate block hover:text-brand transition-colors"
+                >
+                  {{ account.label }}
+                </NuxtLink>
                 <p class="text-xs text-ink-muted">{{ account.exchange_label }}</p>
               </div>
               <div class="text-end">
@@ -289,6 +311,13 @@ async function confirmDelete() {
             <p v-if="account.last_error" class="text-xs text-signal">{{ account.last_error }}</p>
 
             <div class="flex gap-2">
+              <NuxtLink
+                :to="localePath(`/accounts/${account.id}`)"
+                class="btn-quiet btn-sm flex-1 justify-center"
+              >
+                <UiIcon name="external" :size="13" />
+                {{ t('accounts.details') }}
+              </NuxtLink>
               <button
                 :class="account.status === 'active' ? 'btn-warn' : 'btn-ok'"
                 class="btn-sm flex-1"

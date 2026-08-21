@@ -106,12 +106,14 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/exchanges/public_stream.py` | The **live** sibling of the above: exchange WebSockets pushing bars. Same rules — never an adapter, no credentials, Decimal in. Bybit/Hyperliquid/Binance; anything else keeps polling. |
 | `apps/trading/streamhub.py` | One upstream socket per pair, reference counted, fanned out to every panel. Runs in the ASGI process — a broker hop would add latency to the one thing meant to be immediate. |
 | `apps/trading/market_views.py` | Candles, ticker, and `/positions/` — legs marked to market, PnL in Decimal on this side of the wire. |
-| `apps/trading/possync.py` | **The exchange is the source of truth.** Sweeps every account's real position every few seconds and corrects the record both ways: a stop that fired on the venue closes the leg here, a position the platform wrote off is put back where close can reach it. Read-only against exchanges — it never places or cancels an order. Runs inline on `/positions/` and as the `possync` compose service. |
+| `apps/trading/possync.py` | **The exchange is the source of truth.** Sweeps every account's real position every few seconds and corrects the record both ways: a stop that fired on the venue closes the leg here, a position the platform wrote off is put back where close can reach it. Read-only against exchanges — it never places or cancels an order. It also **recovers the exit**: a leg the venue closed by itself has its exit price and realised PnL read back out of the exchange's own fills (`get_closed_pnl`), so the trade log carries money rather than a dash. Runs inline on `/positions/` and as the `possync` compose service. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
 | `apps/accounts/visibility.py` | Read-side account filtering. One hardcoded username. Nothing in `engine/` or `services.py` may import it. |
 | `apps/accounts/sessions.py` | **Who is signed in.** One shared staff login, so access is a list of *sessions*: one row per browser, last-seen throttled to one write a minute, and only the SHA-256 of the session key — never the key. |
-| `apps/accounts/detection.py` | **A trade result vs. somebody's cash.** Subtracts the legs it closed itself, and the flows already on record, from what equity did. The remainder is *proposed*, never booked. Compares flat reading to flat reading, so unrealised PnL is never inside a window. |
-| `apps/accounts/bookkeeping.py` | The only place a money record is written. Every create/edit/delete/accept leaves a `LedgerEvent` with the actor and the before/after. |
+| `apps/accounts/detection.py` | **How much is unexplained.** Subtracts the legs it closed itself, and the flows already on record, from what equity did. Compares flat reading to flat reading, so unrealised PnL is never inside a window. Measures only — it does not decide what the remainder *was*. |
+| `apps/accounts/classify.py` | **Which of the two it was, without asking.** The platform trades every account at once, so a change that hit the whole set is the trade and one that hit a single account is somebody's own money. Plus: an emptied account is a withdrawal, and money arriving while nothing has traded is a deposit. Ordered rules, each with a reason code the panel shows. `LEDGER_AUTO_RESOLVE` decides how much it may book by itself; everything it books is a `LedgerEvent` and is reopenable. |
+| `apps/accounts/bookkeeping.py` | The only place a money record is written. Every create/edit/delete/accept/attribute/reopen leaves a `LedgerEvent` with the actor — blank for the platform — and the before/after. |
+| `apps/accounts/report.py` | **One account, whole.** The per-account page's single payload: connection, ledger row, every leg with what it returned, the realised curve, cash flows and detections. Derives, never decides — the money is `ledger.py`'s arithmetic and the trades are the account's own legs. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -122,7 +124,9 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `stores/market.ts` | One price feed for the whole page: candles, ticker poll, `seriesKey` (which series, so a refresh never moves the admin's view) and `feedDown`. |
 | `stores/positions.ts` | The open position per account, polled from `/positions/`. PnL is never recomputed in the browser. |
 | `stores/watchlist.ts` | The admin's pairs. The pinned block (`PINNED_SYMBOLS`) is code and always present; the cookie holds only what the admin added on top. One batched quote request feeds both watchlists. |
+| `composables/useSltpAmend.ts` | The one path a mid-trade SL/TP change takes. Ticket, chart drag and position row all call it; one fan-out is in the air at a time and the last edit wins, because a run of drags must not let an older amend land last. |
 | `composables/useChartAdapter.ts` | The chart seam — Lightweight Charts now, Charting Library later. Owns the draggable SL/TP/limit lines. |
+| `pages/accounts/[id].vue` | One connection's own page, reached from every row of the accounts list: when it connected, what was paid in and out, every leg it was given and what each returned. One request (`/accounts/accounts/<id>/report/`); nothing is recomputed in the browser. |
 | `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. |
 | `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen. On one password this is the only place a second participant is visible. |
 | `components/app/NotificationCenter.vue` | Spec §4 failure notices (Q16 amendment). Nothing here auto-expires. |
@@ -197,7 +201,8 @@ Every exchange implements the same interface; the engine knows nothing about any
 specific exchange. Minimum surface, derived from the spec:
 
 `get_balance` · `set_leverage` · `place_market` · `place_limit` ·
-`set_sltp` · `amend_sltp` · `close_position` · `get_position` · `stream_events`
+`set_sltp` · `amend_sltp` · `close_position` · `get_position` · `get_closed_pnl` ·
+`stream_events`
 
 Capability differences (native SL/TP vs emulated, per-symbol vs per-account
 leverage) are declared per adapter and handled behind the interface — never with
@@ -272,6 +277,15 @@ leverage) are declared per adapter and handled behind the interface — never wi
 
 - `Decimal` everywhere for prices, sizes, balances. No floats. Round to each
   exchange's tick/step rules *before* sending, never after.
+- **A trade result and a transfer are different events, not two readings of
+  one.** PnL is `balance - net invested`, so attributing a change to trading
+  means writing *nothing* — leaving capital alone is exactly what puts the
+  change in PnL — while a transfer moves capital so PnL does not count it.
+  Booking either as the other is a wrong PnL. `classify` decides which, the
+  panel offers both answers, and `bookkeeping.reopen_detection` undoes any
+  decision, the platform's own included. New signal for telling them apart →
+  a rule in `classify`, in its precedence order, and a case in
+  `tests/test_ledger_classify.py`.
 
 ## Build path
 

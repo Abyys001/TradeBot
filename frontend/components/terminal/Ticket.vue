@@ -3,6 +3,13 @@
  * Surface 1 of 3 for SL/TP editing (spec §3). Writes to the order store, which
  * is what keeps it, the chart and the position bar from disagreeing.
  *
+ * It edits the *working* order and the *open* one. Mid-trade every change here
+ * fans out as an amendment, exactly as a chart drag does — the boxes used to
+ * accept a new stop while a position was live and send it nowhere, which is the
+ * worst of the three outcomes: the panel showed a level the exchanges had never
+ * been told about. The push happens on `change`, not per keystroke: one change
+ * is N orders to N exchanges.
+ *
  * The panel's job is to make the cost of the numbers obvious *before* they are
  * sent. Under the price basis at 10x, a "2%" stop is a 20% account loss — so
  * that figure is rendered next to the input, in dollars where a balance is
@@ -15,7 +22,8 @@ const trading = useTradingStore()
 const accounts = useAccountsStore()
 const market = useMarketStore()
 const positions = usePositionsStore()
-const { money, pct } = useFormat()
+const { money, pct, priceValue, parsePrice } = useFormat()
+const { pushAmend, canAmend } = useSltpAmend()
 
 const sideOptions = computed(() => [
   { value: 'long', label: t('side.long'), tone: 'long' as const },
@@ -104,6 +112,22 @@ async function submit() {
     // The store holds the message; per-account failures arrive as spec §4
     // notifications, which outlive this component.
   }
+}
+
+/**
+ * The absolute-price twin of the percentage boxes. Same conversion as a chart
+ * drag (Q5c): a level, measured off the admin's own entry, re-applied to each
+ * account's own fill. While flat the anchor is the live mark, so typing a level
+ * here answers "what percentage is that from here?" before anything is sent.
+ */
+function setPrice(kind: 'sl' | 'tp', raw: string) {
+  const price = parsePrice(raw)
+  if (price === null) {
+    kind === 'sl' ? order.setSL(null, 'ticket') : order.setTP(null, 'ticket')
+    return
+  }
+  if (kind === 'sl') order.setSLFromPrice(price, 'ticket')
+  else order.setTPFromPrice(price, 'ticket')
 }
 
 /** A limit order with no price typed defaults to the market — never to zero. */
@@ -197,6 +221,15 @@ function useMarketPrice() {
           class="field"
           inputmode="decimal"
           @input="order.setSL(Number(($event.target as HTMLInputElement).value) || null, 'ticket')"
+          @change="pushAmend"
+        />
+        <input
+          :value="priceValue(order.slPrice)"
+          class="field num mt-1.5 py-1 text-xs"
+          inputmode="decimal"
+          :placeholder="t('ticket.slPrice')"
+          :aria-label="t('ticket.slPrice')"
+          @change="setPrice('sl', ($event.target as HTMLInputElement).value); pushAmend()"
         />
         <div class="flex gap-1 mt-1.5">
           <button
@@ -205,7 +238,7 @@ function useMarketPrice() {
             class="num flex-1 text-[0.65rem] py-0.5 rounded-md border border-line
                    text-ink-muted hover:text-short hover:border-short/50 transition-colors"
             :class="order.slPct === preset ? 'text-short border-short/60 bg-short-dim' : ''"
-            @click="order.setSL(preset, 'ticket')"
+            @click="order.setSL(preset, 'ticket'); pushAmend()"
           >
             {{ preset }}%
           </button>
@@ -218,6 +251,15 @@ function useMarketPrice() {
           class="field"
           inputmode="decimal"
           @input="order.setTP(Number(($event.target as HTMLInputElement).value) || null, 'ticket')"
+          @change="pushAmend"
+        />
+        <input
+          :value="priceValue(order.tpPrice)"
+          class="field num mt-1.5 py-1 text-xs"
+          inputmode="decimal"
+          :placeholder="t('ticket.tpPrice')"
+          :aria-label="t('ticket.tpPrice')"
+          @change="setPrice('tp', ($event.target as HTMLInputElement).value); pushAmend()"
         />
         <div class="flex gap-1 mt-1.5">
           <button
@@ -226,7 +268,7 @@ function useMarketPrice() {
             class="num flex-1 text-[0.65rem] py-0.5 rounded-md border border-line
                    text-ink-muted hover:text-long hover:border-long/50 transition-colors"
             :class="order.tpPct === preset ? 'text-long border-long/60 bg-long-dim' : ''"
-            @click="order.setTP(preset, 'ticket')"
+            @click="order.setTP(preset, 'ticket'); pushAmend()"
           >
             {{ preset }}%
           </button>
@@ -315,6 +357,11 @@ function useMarketPrice() {
 
       <p v-if="halted" class="alert p-2.5 text-xs">{{ t('ticket.haltedNote') }}</p>
       <p v-else-if="alreadyInTrade" class="alert p-2.5 text-xs">{{ t('ticket.alreadyOpen') }}</p>
+      <!-- The boxes above are live wiring while a trade runs. Saying so is the
+           difference between "why did nothing happen" and "why did that go out". -->
+      <p v-if="canAmend" class="text-xs text-ink-faint leading-relaxed px-0.5">
+        {{ t('ticket.amendsLive') }}
+      </p>
       <p v-else-if="noAccounts" class="alert p-2.5 text-xs">{{ t('ticket.noAccounts') }}</p>
       <p v-if="trading.error" class="text-xs text-short">{{ trading.error }}</p>
     </div>

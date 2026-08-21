@@ -1666,6 +1666,10 @@ class _StubSdk:
         self.calls.append(("user_state", address))
         return self._state
 
+    def user_fills_by_time(self, address: str, start_time: int) -> list:
+        self.calls.append(("user_fills_by_time", address, start_time))
+        return self._state
+
 
 def _hyperliquid(state: dict) -> tuple:
     from apps.exchanges.hyperliquid import HyperliquidAdapter
@@ -2032,3 +2036,49 @@ async def test_hyperliquid_reports_no_position_with_a_code():
     with pytest.raises(AdapterError) as caught:
         await adapter.close_position("BTCUSDT")
     assert caught.value.code == "no_position"
+
+
+async def test_hyperliquid_reads_the_exit_out_of_its_own_fills():
+    """A stop that fired left no order behind — only fills carry the money.
+
+    ``closedPnl`` is the venue's gross realised PnL, so the fees on the same
+    fills come off it; the exit price is the size-weighted average of the
+    reducing fills only.
+    """
+    from datetime import UTC, datetime
+
+    adapter, stub = _hyperliquid(
+        [
+            # The entry. Averaging its price in would drag the exit backwards.
+            {"coin": "BTC", "dir": "Open Long", "px": "100000", "sz": "1",
+             "closedPnl": "0.0", "fee": "1", "time": 1000},
+            {"coin": "BTC", "dir": "Close Long", "px": "101000", "sz": "0.5",
+             "closedPnl": "500", "fee": "2", "time": 2000},
+            {"coin": "BTC", "dir": "Close Long", "px": "103000", "sz": "0.5",
+             "closedPnl": "1500", "fee": "3", "time": 3000},
+            # Another pair on the same account, closed in the same window.
+            {"coin": "ETH", "dir": "Close Short", "px": "4000", "sz": "2",
+             "closedPnl": "-40", "fee": "1", "time": 2500},
+        ]
+    )
+
+    fill = await adapter.get_closed_pnl("BTCUSDT", datetime.fromtimestamp(1, UTC))
+
+    assert fill is not None
+    assert fill.qty == D("1")
+    assert fill.exit_price == D("102000")
+    assert fill.realised_pnl == D("1995")  # 2000 gross - 5 in fees
+    assert fill.closed_at == datetime.fromtimestamp(3, UTC)
+    assert stub.calls == [("user_fills_by_time", "0xabc", 1000)]
+
+
+async def test_hyperliquid_reports_no_fill_rather_than_a_zero_exit():
+    """No reducing fill means the venue cannot answer — never a PnL of zero."""
+    from datetime import UTC, datetime
+
+    adapter, _ = _hyperliquid(
+        [{"coin": "BTC", "dir": "Open Long", "px": "100000", "sz": "1",
+          "closedPnl": "0.0", "fee": "1", "time": 1000}]
+    )
+
+    assert await adapter.get_closed_pnl("BTCUSDT", datetime.fromtimestamp(1, UTC)) is None

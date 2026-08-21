@@ -36,9 +36,10 @@ from apps.exchanges.marketdata import (
     normalise_market,
     pinned_provider,
 )
-from apps.trading.models import ExchangeSymbol, Trade, TradeStatus
+from apps.trading.models import ExchangeSymbol, Trade, TradeLeg, TradeStatus
 from apps.trading.possync import sync_positions
 from apps.trading.services import reconcile_open_trade
+from apps.trading.sltp import anchor_price, basis, resolve
 
 #: Returned when no exchange is reachable. 503, not 200-with-a-number: the panel
 #: has to be able to tell "no feed" from "a price", and every price it draws has
@@ -268,6 +269,68 @@ def market_sync(request):
     return Response(sync_state())
 
 
+#: How far a resting trigger may sit from the intended level before the leg is
+#: reported as carrying stale protection. Wide enough to absorb each exchange's
+#: own price tick and rounding, tight enough that a stop left on the previous
+#: level always shows.
+SLTP_DRIFT_TOLERANCE = D("0.0015")
+
+
+def _sltp_stale(trade: Trade, leg: TradeLeg) -> bool:
+    """Is this leg resting on a level the current SL/TP percentages do not imply?
+
+    An amend is a fan-out, and a fan-out has failures. When one account's amend
+    does not land, the trade carries the new percentages and that leg still
+    carries the old prices — the panel would otherwise draw one line and the
+    exchange would hold another, which is the desync the per-leg read-back
+    exists to make visible.
+
+    Computed here, in Decimal, against the same anchor and basis the amend
+    itself uses (Q5a/Q5b), for the same reason PnL is: one implementation of the
+    arithmetic, on the side of the wire where Decimal exists.
+
+    A leg with nothing read back cannot be judged, and unknown is never stale —
+    ``sltp_verified`` already says the protection was never confirmed.
+    """
+    if not leg.sltp_attached or leg.entry_price is None:
+        return False
+    if trade.sl_pct is None and trade.tp_pct is None:
+        return False
+    line = resolve(
+        side=Side(trade.side),
+        entry=anchor_price(
+            admin_entry=trade.admin_entry_price or leg.entry_price,
+            own_entry=leg.entry_price,
+        ),
+        leverage=trade.leverage or 1,
+        margin=D("0"),
+        notional=D("0"),
+        sl_pct=trade.sl_pct,
+        tp_pct=trade.tp_pct,
+        reading=trade.sltp_basis or basis(),
+        # No exchange tick to round to here — each leg's venue has its own, and
+        # rounding to a default one would make a cheap symbol look drifted.
+        # The tolerance below is wider than any tick anyway.
+        price_tick=D("1E-8"),
+    )
+    return _drifted(leg.stop_loss, line.stop_price) or _drifted(
+        leg.take_profit, line.take_profit_price
+    )
+
+
+def _drifted(resting: Decimal | None, intended: Decimal | None) -> bool:
+    """One side of the protection, compared.
+
+    A level nobody recorded is *unknown*, not wrong — the same rule the engine
+    applies to a leg it could not re-read. Every path that marks a leg attached
+    writes both prices with it, so a null here means the record cannot answer,
+    and a badge nobody can ever clear is worse than no badge.
+    """
+    if intended is None or resting is None:
+        return False
+    return abs(D(resting) - intended) / intended > SLTP_DRIFT_TOLERANCE
+
+
 @api_view(["GET"])
 def positions(request):
     """The open trade, per account, marked to market (spec §3 positions panel).
@@ -357,6 +420,7 @@ def positions(request):
                     "error_code": leg.error_code,
                     "sltp_attached": leg.sltp_attached,
                     "sltp_verified": leg.sltp_verified,
+                    "sltp_stale": False,
                     "qty": None,
                     "entry_price": None,
                     "margin": None,
@@ -391,6 +455,7 @@ def positions(request):
                 "error_code": "",
                 "sltp_attached": leg.sltp_attached,
                 "sltp_verified": leg.sltp_verified,
+                "sltp_stale": _sltp_stale(trade, leg),
                 "qty": _s(qty),
                 "entry_price": _s(entry),
                 "margin": _s(margin),

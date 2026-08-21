@@ -85,7 +85,13 @@ export function useNavigation() {
   /** Locale-prefixed routes arrive as "accounts___fa"; the base name is enough. */
   const current = computed(() => String(route.name ?? '').split('___')[0])
 
-  const isActive = (item: NavItem) => current.value === item.name
+  /**
+   * A nested route belongs to its section: `/accounts/12` is still Accounts,
+   * and a rail that goes blank the moment a detail page opens reads as if the
+   * page left the app.
+   */
+  const isActive = (item: NavItem) =>
+    current.value === item.name || current.value.startsWith(`${item.name}-`)
 
   return { items, current, isActive }
 }

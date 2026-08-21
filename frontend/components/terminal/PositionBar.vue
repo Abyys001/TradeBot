@@ -22,9 +22,9 @@ const trading = useTradingStore()
 const positions = usePositionsStore()
 const market = useMarketStore()
 const accounts = useAccountsStore()
-const { money, pct, qty } = useFormat()
+const { money, pct, qty, priceValue, parsePrice } = useFormat()
+const { pushAmend, amending } = useSltpAmend()
 
-const amending = ref(false)
 const closing = ref(false)
 const confirmClose = ref(false)
 
@@ -44,17 +44,21 @@ const pnlTone = computed(() =>
   pnl.value === null || pnl.value === 0 ? 'text-ink' : pnl.value > 0 ? 'text-long' : 'text-short',
 )
 
-async function pushAmend() {
-  if (!trading.hasOpenTrade) return
-  amending.value = true
-  try {
-    await trading.amend(order.slPct, order.tpPct)
-    await positions.load()
-  } catch {
-    // Surfaced by the store; per-account failures raise §4 notifications.
-  } finally {
-    amending.value = false
+/**
+ * The price boxes are the same edit as the percentage boxes, entered the other
+ * way round: an absolute level, converted against the admin's own entry so it
+ * re-applies to each account's own fill (Q5c). A price the wrong side of entry
+ * comes back as a null percentage and the box clears — the same refusal a chart
+ * drag across entry gets, rather than a stop placed on the profit side.
+ */
+function setPrice(kind: 'sl' | 'tp', raw: string) {
+  const price = parsePrice(raw)
+  if (price === null) {
+    kind === 'sl' ? order.setSL(null, 'position') : order.setTP(null, 'position')
+    return
   }
+  if (kind === 'sl') order.setSLFromPrice(price, 'position')
+  else order.setTPFromPrice(price, 'position')
 }
 
 async function closeAll() {
@@ -131,15 +135,20 @@ async function closeAll() {
         <div class="flex items-baseline gap-1.5">
           <input
             :value="order.slPct"
-            class="field mt-0.5 py-1 w-20 text-xs"
+            class="field mt-0.5 py-1 w-16 text-xs"
             inputmode="decimal"
             :aria-label="t('ticket.sl')"
             @input="order.setSL(Number(($event.target as HTMLInputElement).value) || null, 'position')"
             @change="pushAmend"
           />
-          <span v-if="order.slPrice" class="num text-[0.65rem] text-ink-faint">
-            {{ money(order.slPrice, 1) }}
-          </span>
+          <input
+            :value="priceValue(order.slPrice)"
+            class="field mt-0.5 py-1 w-24 text-xs num"
+            inputmode="decimal"
+            :placeholder="t('position.priceBox')"
+            :aria-label="t('position.slPrice')"
+            @change="setPrice('sl', ($event.target as HTMLInputElement).value); pushAmend()"
+          />
         </div>
       </div>
       <div class="shrink-0">
@@ -147,15 +156,20 @@ async function closeAll() {
         <div class="flex items-baseline gap-1.5">
           <input
             :value="order.tpPct"
-            class="field mt-0.5 py-1 w-20 text-xs"
+            class="field mt-0.5 py-1 w-16 text-xs"
             inputmode="decimal"
             :aria-label="t('ticket.tp')"
             @input="order.setTP(Number(($event.target as HTMLInputElement).value) || null, 'position')"
             @change="pushAmend"
           />
-          <span v-if="order.tpPrice" class="num text-[0.65rem] text-ink-faint">
-            {{ money(order.tpPrice, 1) }}
-          </span>
+          <input
+            :value="priceValue(order.tpPrice)"
+            class="field mt-0.5 py-1 w-24 text-xs num"
+            inputmode="decimal"
+            :placeholder="t('position.priceBox')"
+            :aria-label="t('position.tpPrice')"
+            @change="setPrice('tp', ($event.target as HTMLInputElement).value); pushAmend()"
+          />
         </div>
       </div>
 
@@ -205,6 +219,20 @@ async function closeAll() {
     >
       <UiIcon name="alert" :size="14" class="shrink-0" />
       {{ t('position.unprotected', { n: positions.unprotected.length }) }}
+    </p>
+
+    <!-- An amend is a fan-out, so it can land on five exchanges and miss the
+         sixth. The account still resting on the old level is named here; the
+         positions table shows which price it holds. -->
+    <p
+      v-if="positions.stale.length"
+      class="alert px-3 sm:px-4 py-2 text-xs flex items-center gap-2"
+    >
+      <UiIcon name="alert" :size="14" class="shrink-0" />
+      {{ t('position.staleLegs', { n: positions.stale.length }) }}
+      <button class="btn-ghost btn-sm ms-auto" :disabled="amending" @click="pushAmend">
+        {{ t('position.retryAmend') }}
+      </button>
     </p>
 
     <!-- This bar draws one trade. A second one running is not a detail to leave

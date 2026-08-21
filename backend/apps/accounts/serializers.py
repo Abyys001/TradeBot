@@ -174,6 +174,12 @@ class DetectedMovementSerializer(serializers.ModelSerializer):
     ``delta = trade_pnl + manual_net + unexplained`` — the operator can see
     which part of the balance change the platform could account for and which
     part it is asking about.
+
+    ``suggested_class`` and its evidence (``classification_reason``, the peer
+    counts, ``traded_in_window``) come from ``apps.accounts.classify``. They are
+    sent so the panel can pre-select the answer *and* show what it was pre-
+    selected from — a verdict without its reasoning is something to click past,
+    not something to check.
     """
 
     account_label = serializers.CharField(source="account.label", read_only=True)
@@ -198,6 +204,13 @@ class DetectedMovementSerializer(serializers.ModelSerializer):
             "manual_net",
             "unexplained",
             "amount",
+            "suggested_class",
+            "classification_reason",
+            "confident",
+            "peers_observed",
+            "peers_moved",
+            "traded_in_window",
+            "auto_resolved",
             "suggested_kind",
             "asset",
             "window_start",

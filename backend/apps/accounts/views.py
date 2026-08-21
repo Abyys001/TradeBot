@@ -24,6 +24,7 @@ from apps.accounts.models import (
     LedgerEvent,
     Notification,
 )
+from apps.accounts.report import account_report
 from apps.accounts.serializers import (
     ConnectedAccountCreateSerializer,
     ConnectedAccountSerializer,
@@ -45,6 +46,10 @@ logger = logging.getLogger(__name__)
 #: view caps itself rather than shipping the whole history on every request —
 #: the same reasoning as ``apps.logging.views``.
 EVENT_LIMIT = 200
+
+#: How many already-decided detections the panel gets back. Enough to review
+#: an unattended day of classifier verdicts, not the whole archive.
+RESOLVED_LIMIT = 25
 EVENT_MAX = 1000
 
 
@@ -227,6 +232,16 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
         account.save(update_fields=["status", "eligible_from", "updated_at"])
         return Response(ConnectedAccountSerializer(account).data)
 
+    @action(detail=True, methods=["get"])
+    def report(self, request, pk=None):
+        """Everything this one connection has done — the per-account page.
+
+        Detail route, so ``get_queryset`` has already narrowed it to what the
+        caller may see: an account they cannot list is a 404 here too, not a
+        readable report behind a guessed id.
+        """
+        return Response(account_report(self.get_object()))
+
     @action(detail=False, methods=["get"])
     def balances(self, request):
         """Spec §6: the admin sees every account's balance at all times."""
@@ -358,7 +373,15 @@ class LedgerViewSet(viewsets.ViewSet):
         """
         queryset = self._detection_queryset(request)
         wanted = request.query_params.get("status", DetectionStatus.PENDING)
-        if wanted != "all":
+        if wanted == "resolved":
+            # The classifier decides most of these by itself, so "what did it
+            # decide while I was away" is a real question. Capped, newest first:
+            # the panel wants the recent calls it might want to overturn, not
+            # the archive.
+            queryset = queryset.exclude(status=DetectionStatus.PENDING).order_by(
+                "-resolved_at", "-id"
+            )[:RESOLVED_LIMIT]
+        elif wanted != "all":
             queryset = queryset.filter(status=wanted)
         return Response(DetectedMovementSerializer(queryset, many=True).data)
 
@@ -385,6 +408,44 @@ class LedgerViewSet(viewsets.ViewSet):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(FundMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"detections/(?P<detection_pk>[0-9]+)/attribute",
+    )
+    def detection_attribute(self, request, detection_pk=None):
+        """Resolve it as the trade's own doing — no cash flow is recorded.
+
+        The other half of the answer the panel offers. Accepting books a deposit
+        or withdrawal and moves invested capital; this leaves capital alone so
+        the change lands in PnL, which is where a trade result belongs.
+        """
+        detection = get_object_or_404(self._detection_queryset(request), id=detection_pk)
+        try:
+            detection = bookkeeping.attribute_detection(
+                detection,
+                actor=request.user.get_username(),
+                note=str(request.data.get("note", ""))[:200],
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(DetectedMovementSerializer(detection).data)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path=r"detections/(?P<detection_pk>[0-9]+)/reopen",
+    )
+    def detection_reopen(self, request, detection_pk=None):
+        """Put a resolved row back in the queue, undoing anything it booked."""
+        detection = get_object_or_404(self._detection_queryset(request), id=detection_pk)
+        detection = bookkeeping.reopen_detection(
+            detection,
+            actor=request.user.get_username(),
+            note=str(request.data.get("note", ""))[:200],
+        )
+        return Response(DetectedMovementSerializer(detection).data)
 
     @action(
         detail=False,

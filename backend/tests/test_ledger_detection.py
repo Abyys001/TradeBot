@@ -38,6 +38,7 @@ from apps.accounts.models import (
 )
 from apps.core.money import D
 from apps.trading.models import Trade, TradeLeg, TradeStatus
+from tests.conftest import ledger_settings
 
 KEY = Fernet.generate_key().decode()
 pytestmark = pytest.mark.django_db
@@ -82,13 +83,15 @@ def closed_leg(account: ConnectedAccount, pnl: str, *, at=None) -> TradeLeg:
     trade = Trade.objects.create(
         symbol="BTCUSDT", side="long", leverage=10, status=TradeStatus.CLOSED
     )
-    return TradeLeg.objects.create(
-        trade=trade,
-        account=account,
-        ok=True,
-        pnl=D(pnl),
-        closed_at=at or timezone.now(),
+    when = at or timezone.now()
+    leg = TradeLeg.objects.create(
+        trade=trade, account=account, ok=True, pnl=D(pnl), closed_at=when
     )
+    # ``opened_at`` is auto_now_add, so a backdated leg would otherwise look
+    # like it opened today and closed last week.
+    TradeLeg.objects.filter(pk=leg.pk).update(opened_at=when)
+    leg.opened_at = when
+    return leg
 
 
 # --- the detector ----------------------------------------------------------
@@ -188,9 +191,7 @@ def test_an_open_position_never_moves_the_cursor():
     assert observe(account, "1400") is None
 
 
-@override_settings(
-    LEDGER={"DETECT_ENABLED": True, "DETECT_MIN_USDT": "1", "DETECT_MIN_PCT": "0.25"}
-)
+@override_settings(LEDGER=ledger_settings())
 def test_fees_and_funding_dust_stays_below_the_threshold():
     account = make_account()
     observe(account, "1000", at=timezone.now() - timedelta(hours=1))
@@ -200,9 +201,7 @@ def test_fees_and_funding_dust_stays_below_the_threshold():
     assert account.ledger_cursor_equity == D("998.20"), "the cursor must still advance"
 
 
-@override_settings(
-    LEDGER={"DETECT_ENABLED": False, "DETECT_MIN_USDT": "1", "DETECT_MIN_PCT": "0.25"}
-)
+@override_settings(LEDGER=ledger_settings(DETECT_ENABLED=False))
 def test_the_detector_can_be_switched_off_entirely():
     account = make_account()
     observe(account, "1000", at=timezone.now() - timedelta(hours=1))

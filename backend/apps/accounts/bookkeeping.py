@@ -204,12 +204,18 @@ def accept_detection(
     amount: Decimal | None = None,
     occurred_at: datetime | None = None,
     note: str = "",
+    auto: bool = False,
 ) -> FundMovement:
     """Turn a proposal into a real cash flow, with the operator's corrections.
 
     The proposal is a starting point, not a verdict: the operator may change the
     direction and the figure — the platform inferred both by subtraction, and
     the person who moved the money knows better than the arithmetic does.
+
+    ``auto`` marks a booking the classifier made by itself. The row is written
+    identically either way — the flag is there so the panel can show which
+    decisions nobody has looked at, and so ``reopen_detection`` has something to
+    undo.
     """
     if detection.status != DetectionStatus.PENDING:
         raise ValueError("this detection has already been resolved")
@@ -232,7 +238,10 @@ def accept_detection(
     detection.resolved_at = timezone.now()
     detection.resolved_by = actor
     detection.movement = movement
-    detection.save(update_fields=["status", "resolved_at", "resolved_by", "movement"])
+    detection.auto_resolved = auto
+    detection.save(
+        update_fields=["status", "resolved_at", "resolved_by", "movement", "auto_resolved"]
+    )
 
     event = _event(
         actor=actor,
@@ -251,6 +260,87 @@ def accept_detection(
     )
     _log(event, "accepted a detected")
     return movement
+
+
+@transaction.atomic
+def attribute_detection(
+    detection: DetectedMovement, *, actor: str, note: str = "", auto: bool = False
+) -> DetectedMovement:
+    """Resolve a proposal as the trade's own doing. Nothing is booked.
+
+    This is not a dismissal, and the difference matters to the numbers. PnL is
+    ``current balance - net invested`` (``apps.accounts.ledger``), so a change
+    attributed to trading needs no entry at all: leaving invested capital alone
+    is exactly what makes the move land in PnL, which is where a trade result
+    belongs. Booking it as a deposit instead would hide a win; booking a real
+    deposit here would show one that never happened.
+    """
+    if detection.status != DetectionStatus.PENDING:
+        raise ValueError("this detection has already been resolved")
+
+    detection.status = DetectionStatus.ATTRIBUTED
+    detection.resolved_at = timezone.now()
+    detection.resolved_by = actor
+    detection.auto_resolved = auto
+    detection.save(
+        update_fields=["status", "resolved_at", "resolved_by", "auto_resolved"]
+    )
+    event = _event(
+        actor=actor,
+        action=LedgerAction.ATTRIBUTED,
+        account=detection.account,
+        detection=detection,
+        kind="",
+        amount=detection.amount,
+        before={
+            "suggested_kind": detection.suggested_kind,
+            "suggested_amount": str(detection.amount),
+        },
+        after={"classification": "trade", "reason": detection.classification_reason},
+        note=note,
+    )
+    _log(event, "attributed to trading a")
+    return detection
+
+
+@transaction.atomic
+def reopen_detection(
+    detection: DetectedMovement, *, actor: str, note: str = ""
+) -> DetectedMovement:
+    """Undo a resolution and put the row back in the queue.
+
+    The classifier decides by itself (``apps.accounts.classify``), so there has
+    to be a way back: a verdict nobody can overturn is worse than the manual
+    queue it replaced. A booking it made is deleted through ``delete_movement``,
+    which means the reversal leaves its own event rather than quietly erasing
+    the first one.
+    """
+    if detection.status == DetectionStatus.PENDING:
+        return detection
+
+    movement = detection.movement
+    detection.status = DetectionStatus.PENDING
+    detection.resolved_at = None
+    detection.resolved_by = ""
+    detection.auto_resolved = False
+    detection.movement = None
+    detection.save(
+        update_fields=["status", "resolved_at", "resolved_by", "auto_resolved", "movement"]
+    )
+    if movement is not None:
+        delete_movement(movement, actor=actor)
+
+    event = _event(
+        actor=actor,
+        action=LedgerAction.REOPENED,
+        account=detection.account,
+        detection=detection,
+        kind=detection.suggested_kind,
+        amount=detection.amount,
+        note=note,
+    )
+    _log(event, "reopened a resolved")
+    return detection
 
 
 @transaction.atomic

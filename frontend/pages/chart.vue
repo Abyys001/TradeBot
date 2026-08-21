@@ -25,6 +25,7 @@ const { t } = useI18n()
 const order = useOrderStore()
 const trading = useTradingStore()
 const positions = usePositionsStore()
+const { pushAmend } = useSltpAmend()
 const market = useMarketStore()
 const ui = useUiStore()
 const { isDark } = useTheme()
@@ -146,11 +147,10 @@ async function mountChart() {
     }
     if (kind === 'sl') order.setSLFromPrice(price)
     else order.setTPFromPrice(price)
-    // A drag on an open trade is a mid-trade amendment (spec §4).
-    if (trading.hasOpenTrade) {
-      await trading.amend(order.slPct, order.tpPct)
-      await positions.load()
-    }
+    // A drag on an open trade is a mid-trade amendment (spec §4). The push is
+    // serialised in `useSltpAmend` — a run of quick drags must not put two
+    // fan-outs in the air, where the older one can land last.
+    await pushAmend()
   })
 
   syncChartLines()

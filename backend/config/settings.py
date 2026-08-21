@@ -275,6 +275,23 @@ LEDGER = {
     # in dust. Both in USDT / percent, parsed as Decimal at the point of use.
     "DETECT_MIN_USDT": os.getenv("LEDGER_DETECT_MIN_USDT", "1"),
     "DETECT_MIN_PCT": os.getenv("LEDGER_DETECT_MIN_PCT", "0.25"),
+    # --- telling a trade result from somebody's cash (apps/accounts/classify) --
+    "CLASSIFY_ENABLED": env_bool("LEDGER_CLASSIFY_ENABLED", True),
+    # off  — classify nothing, every change waits for a person (the old behaviour)
+    # safe — act on the confident rules; only a genuinely ambiguous change queues
+    # all  — act on everything, the standing "it was the trade" default included
+    "AUTO_RESOLVE": os.getenv("LEDGER_AUTO_RESOLVE", "safe"),
+    # How close to a trade a balance change has to be for the trade to be a
+    # candidate explanation at all. Money that moves while nothing has traded
+    # for this long came from outside. Default 15 minutes: "a few minutes after
+    # the trade" is still the trade's neighbourhood, an hour later is not.
+    "TRADE_WINDOW_SECONDS": os.getenv("LEDGER_TRADE_WINDOW_SECONDS", "900"),
+    # A leftover this small next to the trade's own PnL is fees, funding and the
+    # exchange's rounding — the trade, not a transfer.
+    "TRADE_TOLERANCE_PCT": os.getenv("LEDGER_TRADE_TOLERANCE_PCT", "10"),
+    # What counts as an emptied account. Exchanges leave dust behind on a full
+    # withdrawal, and nobody trades to exactly zero.
+    "EMPTY_PCT": os.getenv("LEDGER_EMPTY_PCT", "2"),
 }
 
 # --- Market data (spec §3) --------------------------------------------------

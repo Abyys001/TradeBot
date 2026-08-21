@@ -61,7 +61,7 @@ from django.utils import timezone
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
 from apps.engine.fanout import FanOutResult, fan_out
-from apps.exchanges.base import ExchangeAdapter, Position
+from apps.exchanges.base import ClosedFill, ExchangeAdapter, Position
 from apps.trading.models import Trade, TradeLeg, TradeStatus
 
 logger = logging.getLogger(__name__)
@@ -119,6 +119,7 @@ class SyncReport:
     drifted: list[int] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
     unreachable: list[int] = field(default_factory=list)
+    priced: list[int] = field(default_factory=list)
     trade_retired: bool = False
     reopened: int | None = None
 
@@ -126,6 +127,7 @@ class SyncReport:
     def changed(self) -> bool:
         return bool(
             self.closed
+            or self.priced
             or self.adopted
             or self.drifted
             or self.untracked
@@ -614,18 +616,20 @@ async def sync_positions(*, force: bool = False, deep: bool | None = None) -> Sy
         trade.id if trade is not None else None, held
     )
     report.unreachable = unreachable
+    report.priced = await _recover_exits(adapters)
 
     for notice in notices:
         await _broadcast("notification", notice)
     if report.changed:
         logger.warning(
             "position sync corrected the record: closed=%s adopted=%s drifted=%s "
-            "untracked=%s reopened=%s",
+            "untracked=%s reopened=%s priced=%s",
             report.closed,
             report.adopted,
             report.drifted,
             report.untracked,
             report.reopened,
+            report.priced,
         )
         await _broadcast(
             "positions_changed",
@@ -635,9 +639,103 @@ async def sync_positions(*, force: bool = False, deep: bool | None = None) -> Sy
                 "drifted": report.drifted,
                 "untracked": report.untracked,
                 "reopened": report.reopened,
+                "priced": report.priced,
             },
         )
     return report
+
+
+# --- exit recovery ----------------------------------------------------------
+#
+# A leg the exchange closed by itself has a ``closed_at`` and nothing else: the
+# stop fired on the venue, so the exit price and the realised PnL exist only in
+# the venue's fill record. Leaving them null is honest but useless — the trade
+# log then reports a dash where the money went. So after a sweep, any closed leg
+# still missing its PnL is asked about directly.
+#
+# This is a read, like everything else here, and it is skipped entirely when
+# every closed leg already has its numbers, which is the normal case.
+
+
+@sync_to_async
+def _unpriced(cutoff) -> list[tuple[int, int, str, object]]:
+    """``(leg_id, account_id, symbol, opened_at)`` for exits with no PnL yet."""
+    rows = (
+        TradeLeg.objects.filter(
+            ok=True,
+            closed_at__isnull=False,
+            closed_at__gte=cutoff,
+            pnl__isnull=True,
+        )
+        .select_related("trade")
+        .order_by("id")
+    )
+    return [(leg.id, leg.account_id, leg.trade.symbol, leg.opened_at) for leg in rows]
+
+
+def _fills(adapter: ExchangeAdapter, rows: list[tuple[int, int, str, object]]):
+    """One account's fill lookups, as a coroutine factory for ``fan_out``."""
+
+    async def op() -> dict[int, ClosedFill]:
+        found: dict[int, ClosedFill] = {}
+        for leg_id, _account_id, symbol, opened_at in rows:
+            fill = await adapter.get_closed_pnl(symbol, opened_at)
+            # A fill that predates the entry belongs to an earlier position on
+            # the same pair. Writing it here would book somebody else's money.
+            if fill is None or (fill.closed_at is not None and fill.closed_at < opened_at):
+                continue
+            found[leg_id] = fill
+        return found
+
+    return op
+
+
+@transaction.atomic
+def _write_exits(found: dict[int, ClosedFill]) -> list[int]:
+    legs = {leg.id: leg for leg in TradeLeg.objects.filter(id__in=found, pnl__isnull=True)}
+    updated = []
+    for leg_id, fill in found.items():
+        leg = legs.get(leg_id)
+        if leg is None:
+            continue
+        leg.exit_price = fill.exit_price
+        leg.pnl = fill.realised_pnl
+        # The sweep stamped ``closed_at`` when it *noticed*; the venue knows
+        # when it actually happened, and the trade log reads better for it.
+        if fill.closed_at is not None:
+            leg.closed_at = fill.closed_at
+        updated.append(leg)
+    if updated:
+        TradeLeg.objects.bulk_update(updated, ["exit_price", "pnl", "closed_at"])
+    return [leg.id for leg in updated]
+
+
+async def _recover_exits(adapters: list[tuple[int, ExchangeAdapter]]) -> list[int]:
+    pending = await _unpriced(timezone.now() - LOOKBACK)
+    if not pending:
+        return []
+    by_account: dict[int, list[tuple[int, int, str, object]]] = {}
+    for row in pending:
+        by_account.setdefault(row[1], []).append(row)
+    tasks = [
+        (account_id, _fills(adapter, by_account[account_id]))
+        for account_id, adapter in adapters
+        if account_id in by_account
+    ]
+    if not tasks:
+        return []
+    result: FanOutResult[dict[int, ClosedFill]] = await fan_out(
+        tasks,
+        timeout=settings.TRADING["FANOUT_TIMEOUT_SECONDS"],
+        respect_stop_all=False,
+    )
+    found: dict[int, ClosedFill] = {}
+    for leg in result.legs:
+        if leg.ok and isinstance(leg.value, dict):
+            found.update(leg.value)
+    if not found:
+        return []
+    return await sync_to_async(_write_exits)(found)
 
 
 def _claim() -> bool:

@@ -219,9 +219,11 @@ class FundMovement(models.Model):
     that turns that number into invested capital and PnL (``apps.accounts.ledger``).
 
     A row may also arrive from ``DetectedMovement``: the platform notices equity
-    moving by more than the closed trades explain and *proposes* the entry. It
-    is still a human who accepts it, so every row here has an operator behind
-    it, and every change to one is an entry in ``LedgerEvent``.
+    moving by more than the closed trades explain, works out that it was a
+    transfer rather than the trade (``apps.accounts.classify``) and books it.
+    ``created_by`` is blank on those — the platform, not an operator — and the
+    decision is reversible from the panel. Either way every change to a row here
+    is an entry in ``LedgerEvent``.
     """
 
     account = models.ForeignKey(
@@ -304,6 +306,8 @@ class LedgerAction(models.TextChoices):
     DELETED = "deleted", "Deleted"
     ACCEPTED = "accepted", "Detection accepted"
     DISMISSED = "dismissed", "Detection dismissed"
+    ATTRIBUTED = "attributed", "Attributed to trading"
+    REOPENED = "reopened", "Decision reopened"
     SPLIT = "split", "Profit split changed"
 
 
@@ -352,19 +356,34 @@ class LedgerEvent(models.Model):
         return f"{who} {self.action} {self.kind} {self.amount} @ {self.account_label}"
 
 
+class MovementClass(models.TextChoices):
+    """What an unexplained balance change actually was.
+
+    The two are not opinions about the same event, they are different
+    events: ``TRADE`` means the exchange's number moved because the
+    position did, so invested capital is untouched and PnL already carries
+    it; ``INVESTOR`` means somebody moved cash, so capital changes and PnL
+    must not absorb it. Booking one as the other is a wrong PnL either way.
+    """
+
+    TRADE = "trade", "Trade result"
+    INVESTOR = "investor", "Investor cash flow"
+
+
 class DetectionStatus(models.TextChoices):
     PENDING = "pending", "Pending"
-    ACCEPTED = "accepted", "Accepted"
+    ACCEPTED = "accepted", "Booked as a cash flow"
+    ATTRIBUTED = "trade", "Attributed to the trade"
     DISMISSED = "dismissed", "Dismissed"
 
 
 class DetectedMovement(models.Model):
     """A balance change the platform cannot explain with trades.
 
-    Produced by ``apps.accounts.detection``. It is a *proposal*, never a ledger
-    entry: nothing here reaches ``account_ledger`` until an operator accepts it,
-    because an exchange's own accounting quirk must not silently rewrite how
-    much capital an investor is recorded as having put in.
+    Produced by ``apps.accounts.detection``, then answered by
+    ``apps.accounts.classify``: was it the trade, or somebody's cash? Nothing
+    here reaches ``account_ledger`` until that question is resolved — by the
+    classifier where the evidence is clear, by a person where it is not.
 
     The three numbers are kept side by side on purpose — ``delta`` is what the
     exchange's equity did, ``trade_pnl`` and ``manual_net`` are what the record
@@ -384,6 +403,34 @@ class DetectedMovement(models.Model):
     unexplained = models.DecimalField(max_digits=24, decimal_places=8)
     suggested_kind = models.CharField(max_length=12, choices=FundMovementType.choices)
     asset = models.CharField(max_length=12, default="USDT")
+
+    # --- what the platform thinks this was (apps.accounts.classify) --------
+    #: Trade result or somebody's cash. ``TRADE`` is the standing default: a
+    #: balance that moves on a trading account moved because of the trade
+    #: unless something says otherwise.
+    suggested_class = models.CharField(
+        max_length=10, choices=MovementClass.choices, default=MovementClass.TRADE
+    )
+    #: Which rule decided it, as a code the panel translates. Kept rather than
+    #: a sentence so the reasoning survives a language change and can be
+    #: grepped when a verdict looks wrong.
+    classification_reason = models.CharField(max_length=32, blank=True)
+    #: Whether the rule that fired is one the platform may act on by itself.
+    #: A low-confidence verdict is still shown and still pre-selected; it just
+    #: waits for a person under the default ``LEDGER_AUTO_RESOLVE=safe``.
+    confident = models.BooleanField(default=False)
+    #: The isolation evidence, kept as the counts it was decided from: how many
+    #: *other* accounts were readable and flat in the same sweep, and how many
+    #: of those moved the same way. One account moving while its peers did not
+    #: is the signature of an investor transfer; a fan-out moves all of them.
+    peers_observed = models.PositiveSmallIntegerField(default=0)
+    peers_moved = models.PositiveSmallIntegerField(default=0)
+    #: Did this account have any trade activity near the window at all. No
+    #: trade means nothing but a transfer can have moved the number.
+    traded_in_window = models.BooleanField(default=False)
+    #: Resolved by the classifier rather than by a person. The row still shows
+    #: up in the panel, and the decision can be reopened.
+    auto_resolved = models.BooleanField(default=False)
 
     #: The window the comparison covers: the last reading the account was flat
     #: at, to this one. Both ends flat, so no unrealised PnL is inside it.
@@ -411,6 +458,10 @@ class DetectedMovement(models.Model):
     def amount(self) -> Decimal:
         """The proposal as a positive number; the direction is ``suggested_kind``."""
         return abs(D(self.unexplained))
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status == DetectionStatus.PENDING
 
     def __str__(self) -> str:
         return f"{self.suggested_kind} {self.amount} @ {self.account_id} ({self.status})"

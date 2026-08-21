@@ -29,6 +29,19 @@ the sizing layer in base units, so `apps/trading/sizing.py` stays
 exchange-agnostic. A wrong multiplier is a 10x or 100x position, so these
 conversions are unit-tested explicitly.
 
+**Exit recovery is not uniform.** When a position ends on the venue rather than
+from the panel — a stop or take profit firing, a liquidation, a close made in
+the exchange's own app — the exit price and the realised PnL exist only in that
+exchange's fill record. `possync` asks for them through
+`ExchangeAdapter.get_closed_pnl`, which **only Hyperliquid** (via
+`userFillsByTime`, whose per-fill `closedPnl` is the venue's own realised
+number, fees subtracted here) and the paper adapter implement today. Every
+other adapter inherits the default `None` = "cannot answer", and on those the
+trade log shows an em dash for that leg's exit and PnL. That is deliberate:
+nothing is estimated from a mark price, because a number the exchange did not
+say is not a fill. Adding a venue means one method on its adapter — the branch
+in `possync` is already there.
+
 **Spec §7 verification is not uniform.** Bybit, OKX, Binance and KuCoin expose
 API-key permissions, so those four can *prove* a key is non-withdrawable.
 Binance exposes it on the **spot** host (`api.binance.com/sapi/v1/account/

@@ -463,6 +463,95 @@ def test_positions_endpoint_reports_the_position_but_no_pnl_with_no_feed():
 
 @pytest.mark.django_db
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_positions_endpoint_names_the_leg_an_amend_did_not_reach():
+    """An amend is a fan-out, so it can miss one account.
+
+    The trade carries the new percentages the moment the amend is saved; a leg
+    whose own amend failed keeps the prices it actually holds. Without a flag
+    the panel draws the new line over an exchange resting on the old one — the
+    exact desync the per-leg read-back exists to expose.
+    """
+    moved, missed = (
+        ConnectedAccount.objects.create(
+            label=label,
+            exchange=Exchange.PAPER,
+            status=AccountStatus.ACTIVE,
+            withdrawal_check_passed=True,
+        )
+        for label in ("moved", "missed")
+    )
+    trade = Trade.objects.create(
+        symbol="BTCUSDT",
+        side="long",
+        market="futures",
+        leverage=10,
+        status=TradeStatus.OPEN,
+        sl_pct=D("2"),
+        tp_pct=D("4"),
+        sltp_basis="price",
+        admin_entry_price=D("100"),
+    )
+    # Both filled at 100, so a 2% price stop is 98 and a 4% target is 104.
+    for account, stop in ((moved, D("98")), (missed, D("99"))):
+        TradeLeg.objects.create(
+            trade=trade,
+            account=account,
+            ok=True,
+            qty=D("0.1"),
+            entry_price=D("100"),
+            margin=D("1"),
+            sltp_attached=True,
+            sltp_verified=True,
+            stop_loss=stop,
+            take_profit=D("104"),
+        )
+
+    legs = {
+        leg["account_label"]: leg
+        for leg in user_client().get("/api/trading/positions/").json()["legs"]
+    }
+
+    assert legs["moved"]["sltp_stale"] is False
+    assert legs["missed"]["sltp_stale"] is True
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_leg_with_no_protection_read_back_is_not_called_stale():
+    """Unknown is not stale — ``sltp_verified`` already says it was never confirmed."""
+    account = ConnectedAccount.objects.create(
+        label="silent",
+        exchange=Exchange.PAPER,
+        status=AccountStatus.ACTIVE,
+        withdrawal_check_passed=True,
+    )
+    trade = Trade.objects.create(
+        symbol="BTCUSDT",
+        side="long",
+        market="futures",
+        leverage=10,
+        status=TradeStatus.OPEN,
+        sl_pct=D("2"),
+        tp_pct=D("4"),
+        admin_entry_price=D("100"),
+    )
+    TradeLeg.objects.create(
+        trade=trade,
+        account=account,
+        ok=True,
+        qty=D("0.1"),
+        entry_price=D("100"),
+        margin=D("1"),
+        sltp_attached=False,
+    )
+
+    leg = user_client().get("/api/trading/positions/").json()["legs"][0]
+
+    assert leg["sltp_stale"] is False
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
 def test_positions_endpoint_reports_a_leg_that_never_filled():
     account = ConnectedAccount.objects.create(
         label="too-small",
