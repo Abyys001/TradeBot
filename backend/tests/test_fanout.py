@@ -227,13 +227,18 @@ class StackingAdapter(PaperAdapter):
         super().__init__(**kwargs)
         self.live: list[str] = []
         self.trace: list[str] = []
+        self.reads = 0
         self._next = 0
 
-    async def set_sltp(self, *, symbol, stop_loss, take_profit) -> None:
+    async def set_sltp(self, *, symbol, stop_loss, take_profit, position=None) -> None:
         await super().set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
         self._next += 1
         self.live.append(f"stop-{self._next}")
         self.trace.append("place")
+
+    async def get_position(self, symbol: str):
+        self.reads += 1
+        return await super().get_position(symbol)
 
     async def list_conditional_orders(self, symbol: str) -> list[str]:
         self.trace.append("list")
@@ -279,6 +284,43 @@ async def test_an_amend_leaves_exactly_one_pair_of_stops_alive():
         assert (await amend(adapter, percent)).all_ok
 
     assert adapter.live == ["stop-3"], f"stale stops left live: {adapter.live}"
+
+
+async def test_an_amend_asks_the_exchange_once_before_it_places_anything():
+    """Q19/§4: the reads an amend needs all travel in one flight.
+
+    The position (for the trigger prices), the symbol rules (for the rounding)
+    and the Q5d stale snapshot depend on nothing but the symbol, and the amend
+    used to take all three one after another — three exchange round trips
+    before the first order went out. On Hyperliquid, roughly a second a call,
+    that spent the whole per-leg budget on reads and the leg was cancelled
+    mid-attach: the admin saw "the amendment did not reach them" while the
+    position went on resting on its old stop.
+
+    Pinned as "the snapshot is still taken, and still before the place" rather
+    than as a call count, because that ordering is what Q5d depends on.
+    """
+    adapter = await stacked_adapter()
+    await amend(adapter)
+    adapter.trace.clear()
+    adapter.reads = 0
+
+    await amend(adapter)
+
+    assert adapter.trace == ["list", "place", "cancel"]
+    assert adapter.reads == 1, "the position was read more than once"
+
+
+async def test_a_venue_that_amends_in_place_is_never_asked_for_a_stale_set():
+    """Bybit and Toobit overwrite the protection as a whole, so ``apply_sltp``
+    cancels nothing on them. Snapshotting anyway is a round trip spent inside
+    the §4 deadline on an answer nobody reads."""
+    adapter = await stacked_adapter()
+    adapter.capabilities = replace(adapter.capabilities, native_sltp_amend=True)
+    adapter.trace.clear()
+
+    assert (await amend(adapter)).all_ok
+    assert adapter.trace == ["place"]
 
 
 async def test_place_then_cancel_places_before_it_cancels():
@@ -633,7 +675,7 @@ class LateSltpAdapter(PaperAdapter):
         super().__init__(*args, **kwargs)
         self._slow = True
 
-    async def set_sltp(self, *, symbol, stop_loss, take_profit):
+    async def set_sltp(self, *, symbol, stop_loss, take_profit, position=None):
         await super().set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
         if self._slow:
             self._slow = False
@@ -672,7 +714,7 @@ async def test_an_amend_that_landed_is_reapplied_and_confirmed():
 class CloseDuringAmendAdapter(PaperAdapter):
     """The position's own stop fires while the amend is still in flight."""
 
-    async def set_sltp(self, *, symbol, stop_loss, take_profit):
+    async def set_sltp(self, *, symbol, stop_loss, take_profit, position=None):
         self._position = None
         await asyncio.sleep(5.0)
 

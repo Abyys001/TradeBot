@@ -200,7 +200,12 @@ class PaperAdapter(ExchangeAdapter):
         return entry - move if side is Side.LONG else entry + move
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         await self._tick("set_sltp")
         self._state["sltp"] = (stop_loss, take_profit)

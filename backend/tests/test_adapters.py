@@ -1795,6 +1795,7 @@ class _TpslSdk(_StubSdk):
         self.fail_second = fail_second
         self.orders: list[tuple] = []
         self.bulk: list[tuple] = []
+        self.cancels: list[list] = []
 
     def meta(self) -> dict:
         return {"universe": [{"name": "BTC", "szDecimals": 3, "maxLeverage": 40}]}
@@ -1808,6 +1809,11 @@ class _TpslSdk(_StubSdk):
     def bulk_orders(self, requests, builder=None, grouping="na") -> dict:
         self.bulk.append((requests, grouping))
         statuses = [{"resting": {"oid": i}} for i, _ in enumerate(requests)]
+        return {"status": "ok", "response": {"data": {"statuses": statuses}}}
+
+    def bulk_cancel(self, requests) -> dict:
+        self.cancels.append(requests)
+        statuses = ["success" for _ in requests]
         return {"status": "ok", "response": {"data": {"statuses": statuses}}}
 
 
@@ -2082,3 +2088,57 @@ async def test_hyperliquid_reports_no_fill_rather_than_a_zero_exit():
     )
 
     assert await adapter.get_closed_pnl("BTCUSDT", datetime.fromtimestamp(1, UTC)) is None
+
+
+async def test_hyperliquid_cancels_the_whole_stale_set_in_one_action():
+    """Regression: an amend timed out and the leg kept its previous stop.
+
+    ``Exchange.cancel`` is a one-element ``bulk_cancel``, so cancelling the
+    stale pair one id at a time was two sequential signed round trips inside
+    the spec §4 per-leg deadline — on a venue answering in about a second a
+    call, the difference between the amend landing and being cut off. One
+    action carries every id.
+    """
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    await adapter.cancel_orders("BTCUSDT", ["11", "12"])
+
+    assert stub.cancels == [[{"coin": "BTC", "oid": 11}, {"coin": "BTC", "oid": 12}]]
+
+
+async def test_hyperliquid_does_not_re_read_a_position_the_caller_already_has():
+    """The amend path reads the position to price the triggers; ``set_sltp``
+    took it again, which is a whole ``user_state`` round trip inside the §4
+    deadline for an answer already in hand."""
+    from apps.exchanges.base import Position, Side
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    position = Position(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        size=D("0.01"),
+        entry_price=D("60000"),
+        liquidation_price=None,
+        unrealized_pnl=D("0"),
+        leverage=10,
+    )
+    await adapter.set_sltp(
+        symbol="BTCUSDT", stop_loss=D("57000"), take_profit=D("66000"), position=position
+    )
+
+    assert stub.bulk, "the protection still goes out"
+    assert not [call for call in stub.calls if call[0] == "user_state"]

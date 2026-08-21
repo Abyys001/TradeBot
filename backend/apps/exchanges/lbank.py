@@ -236,7 +236,12 @@ class LbankAdapter(RestAdapter):
         )
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         raise NotSupported(
             "lbank: no SL/TP on spot via the documented API, and futures is unavailable. "

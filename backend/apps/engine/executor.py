@@ -24,8 +24,10 @@ from apps.exchanges.base import (
     ExchangeAdapter,
     MarketType,
     OrderType,
+    Position,
     Side,
     SLTPState,
+    SymbolRules,
 )
 from apps.trading.sizing import SizingRejection, size_order
 from apps.trading.sltp import SLTPRejection, anchor_price, resolve_active
@@ -240,6 +242,8 @@ async def apply_sltp(
     symbol: str,
     stop_loss: Decimal | None,
     take_profit: Decimal | None,
+    position: Position | None = None,
+    stale: list[str] | None = None,
 ) -> None:
     """Place SL/TP, honouring the Q5d amend strategy.
 
@@ -264,22 +268,37 @@ async def apply_sltp(
     The stale set is snapshotted **before** placing, so the orders just placed
     are never in it. Adapters that cannot list conditional orders inherit the
     no-op default and behave exactly as before.
+
+    ``position`` and ``stale`` are answers the caller already has. The amend
+    path reads the position to compute the trigger prices and can read the
+    stale set alongside it, so both arrive here for free; taking them again
+    here cost two sequential exchange round trips out of the spec §4 per-leg
+    deadline — which is what pushed an amend past it on a venue answering in
+    ~1s per call. ``stale=None`` means "not snapshotted yet", which is not the
+    same as ``stale=[]`` ("nothing was resting").
     """
     if adapter.capabilities.native_sltp_amend:
-        await adapter.set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+        await adapter.set_sltp(
+            symbol=symbol, stop_loss=stop_loss, take_profit=take_profit, position=position
+        )
         return
 
     strategy = settings.TRADING["SLTP_AMEND_STRATEGY"]
     if strategy not in ("place_then_cancel", "cancel_then_place"):
         raise ValueError(f"unknown SLTP_AMEND_STRATEGY: {strategy!r}")
 
-    stale = await adapter.list_conditional_orders(symbol)
+    if stale is None:
+        stale = await adapter.list_conditional_orders(symbol)
     if strategy == "cancel_then_place":
         await adapter.cancel_orders(symbol, stale)
-        await adapter.set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+        await adapter.set_sltp(
+            symbol=symbol, stop_loss=stop_loss, take_profit=take_profit, position=position
+        )
         return
 
-    await adapter.set_sltp(symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+    await adapter.set_sltp(
+        symbol=symbol, stop_loss=stop_loss, take_profit=take_profit, position=position
+    )
     if stale:
         # The new orders are live; the old ones are now the dangerous half.
         # A failure here is loud: a stale stop at a replaced price is exactly
@@ -340,6 +359,9 @@ async def _apply_and_verify(
     symbol: str,
     stop_loss: Decimal | None,
     take_profit: Decimal | None,
+    *,
+    position: Position | None = None,
+    stale: list[str] | None = None,
 ) -> SltpResult:
     """Place protection, then read it back in the same step.
 
@@ -348,7 +370,14 @@ async def _apply_and_verify(
     its failure policy. Returns attached=True/verified=False for an exchange
     that cannot be read back (honest unconfirmed, not a lie).
     """
-    await apply_sltp(adapter, symbol=symbol, stop_loss=stop_loss, take_profit=take_profit)
+    await apply_sltp(
+        adapter,
+        symbol=symbol,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        position=position,
+        stale=stale,
+    )
     state, ok = await _verify_sltp(adapter, symbol, stop_loss, take_profit)
     if state is None:
         return SltpResult(stop_loss, take_profit, attached=True, verified=False)
@@ -441,9 +470,16 @@ async def _protect(
 #: deadline cannot stretch the response the admin is waiting on. The ceiling
 #: has to clear a real exchange round trip on a venue that is already answering
 #: slowly — that is the only venue this code ever runs against.
-_RECONCILE_FRACTION = 0.4
+#:
+#: The amend reconcile is the demanding one: it does not merely *look*, it
+#: re-applies the protection, which is a read, a place, a cancel and a
+#: read-back. At 0.4 of a 10s deadline that was 4s for four round trips on a
+#: venue that had just failed to answer four of them inside 10s — the re-apply
+#: could not finish, and the admin got "check the position's protection" on an
+#: amend that only needed a few hundred milliseconds more.
+_RECONCILE_FRACTION = 0.5
 _RECONCILE_FLOOR = 0.5
-_RECONCILE_CEIL = 6.0
+_RECONCILE_CEIL = 8.0
 
 
 def _reconcile_budget(deadline: float) -> float:
@@ -747,14 +783,25 @@ async def _reconcile_amend(
     budget: float,
     deadline: float,
 ) -> Reconcile | None:
-    """Did a timed-out amend land, and is the protection what was asked for?"""
+    """Did a timed-out amend land, and is the protection what was asked for?
+
+    Waits for anything the adapter still has in the air first, for the same
+    reason ``_reconcile_open`` does and with a sharper consequence here: an
+    abandoned ``set_sltp`` call is a *place*, so a snapshot taken while it is
+    still on the wire misses the orders it is about to create. The Q5d cancel
+    would then leave them resting alongside the pair this re-apply places, and
+    the position would carry two stops — the exact state Q5d exists to prevent.
+    """
+    started = time.perf_counter()
     try:
-        position, rules = await asyncio.wait_for(
-            asyncio.gather(
-                adapter.get_position(symbol),
-                adapter.get_symbol_rules(symbol, MarketType.FUTURES),
-            ),
-            timeout=budget,
+        await adapter.settle_inflight(budget * 0.5)
+    except Exception as exc:  # noqa: BLE001 - never worse than not having waited
+        logger.warning("reconcile amend settle account=%s: %s", leg.account_id, exc)
+    budget = max(_RECONCILE_FLOOR, budget - (time.perf_counter() - started))
+
+    try:
+        position, rules, stale = await asyncio.wait_for(
+            _amend_reads(adapter, symbol), timeout=budget
         )
     except TimeoutError:
         return None
@@ -784,7 +831,14 @@ async def _reconcile_amend(
     )
     try:
         protection = await asyncio.wait_for(
-            _apply_and_verify(adapter, symbol, risk.stop_price, risk.take_profit_price),
+            _apply_and_verify(
+                adapter,
+                symbol,
+                risk.stop_price,
+                risk.take_profit_price,
+                position=position,
+                stale=stale,
+            ),
             timeout=budget,
         )
     except TimeoutError:
@@ -909,6 +963,37 @@ async def confirm_open(
     return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
 
 
+async def _amend_reads(
+    adapter: ExchangeAdapter, symbol: str
+) -> tuple[Position | None, SymbolRules, list[str] | None]:
+    """Everything an amend needs before it may place anything, in one flight.
+
+    None of the three depends on another: the trigger prices need the position,
+    the rounding needs the symbol rules, and the Q5d cancel needs the set that
+    is resting *before* the new protection goes out — which running it here, at
+    the very start, is exactly what guarantees.
+
+    Serially that was three exchange round trips before the first order left.
+    On Hyperliquid, answering in about a second a call, the amend spent its
+    whole spec §4 per-leg budget on reads and was cancelled mid-attach: the
+    admin saw "the amendment did not reach them" and the leg went on resting on
+    its old stop. Concurrently the three cost one round trip.
+
+    The stale snapshot is skipped on a venue that amends in place (Bybit,
+    Toobit): ``apply_sltp`` cancels nothing there, so asking would be a round
+    trip spent on an answer nobody reads. ``None`` says "not snapshotted",
+    which is not ``[]`` — "nothing was resting".
+    """
+    calls: list[Awaitable[Any]] = [
+        adapter.get_position(symbol),
+        adapter.get_symbol_rules(symbol, MarketType.FUTURES),
+    ]
+    if not adapter.capabilities.native_sltp_amend:
+        calls.append(adapter.list_conditional_orders(symbol))
+    position, rules, *rest = await asyncio.gather(*calls)
+    return position, rules, (rest[0] if rest else None)
+
+
 async def amend_sltp(
     accounts: list[tuple[object, ExchangeAdapter]],
     *,
@@ -941,14 +1026,7 @@ async def amend_sltp(
 
     def make(account_id, adapter):
         async def op() -> SltpResult:
-            # Two independent reads, so they travel together rather than back to
-            # back — one full exchange round trip handed back to the §4 budget
-            # on every amend. The position lookup cannot short-circuit the rules
-            # read, but that read is harmless when no position exists.
-            position, rules = await asyncio.gather(
-                adapter.get_position(symbol),
-                adapter.get_symbol_rules(symbol, MarketType.FUTURES),
-            )
+            position, rules, stale = await _amend_reads(adapter, symbol)
             if position is None:
                 raise AdapterError(
                     "no open position on this account", code="no_position"
@@ -971,9 +1049,11 @@ async def amend_sltp(
             )
             return await _apply_and_verify(
                 adapter,
-                symbol=symbol,
-                stop_loss=risk.stop_price,
-                take_profit=risk.take_profit_price,
+                symbol,
+                risk.stop_price,
+                risk.take_profit_price,
+                position=position,
+                stale=stale,
             )
 
         return op

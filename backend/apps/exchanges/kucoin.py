@@ -55,6 +55,7 @@ from apps.exchanges.base import (
     SLTPState,
     SymbolRules,
     WithdrawalPermissionError,
+    place_both,
 )
 from apps.exchanges.rest import RestAdapter
 
@@ -396,7 +397,12 @@ class KucoinAdapter(RestAdapter):
                 logger.info("kucoin: order %s was already gone", order_id)
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Places new stop orders. The old ones are cancelled by the Q5d
         strategy in ``executor.apply_sltp``, never here.
@@ -406,7 +412,7 @@ class KucoinAdapter(RestAdapter):
         not accepted here.
         """
         contract = self._contract(symbol)
-        position = await self.get_position(symbol)
+        position = position or await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"kucoin: no open position on {symbol}")
         exit_side = "sell" if position.side is Side.LONG else "buy"
@@ -417,24 +423,28 @@ class KucoinAdapter(RestAdapter):
             (stop_loss, "down" if long else "up"),
             (take_profit, "up" if long else "down"),
         )
+        calls = []
         for price, direction in triggers:
             if price is None:
                 continue
-            await self.request(
-                "POST",
-                "/api/v1/orders",
-                body={
-                    "clientOid": str(time.time_ns()),
-                    "symbol": contract,
-                    "side": exit_side,
-                    "type": "market",
-                    "stop": direction,
-                    "stopPrice": f"{price:f}",
-                    "stopPriceType": "MP",
-                    "marginMode": self.margin_mode,
-                    "closeOrder": True,
-                },
+            calls.append(
+                self.request(
+                    "POST",
+                    "/api/v1/orders",
+                    body={
+                        "clientOid": str(time.time_ns()),
+                        "symbol": contract,
+                        "side": exit_side,
+                        "type": "market",
+                        "stop": direction,
+                        "stopPrice": f"{price:f}",
+                        "stopPriceType": "MP",
+                        "marginMode": self.margin_mode,
+                        "closeOrder": True,
+                    },
+                )
             )
+        await place_both(*calls)
 
     async def get_sltp(self, symbol: str) -> SLTPState:
         """The untriggered stop orders, split into stop and take-profit.

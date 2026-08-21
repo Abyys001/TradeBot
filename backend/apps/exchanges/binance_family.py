@@ -50,6 +50,7 @@ from apps.exchanges.base import (
     SLTPState,
     SymbolRules,
     WithdrawalPermissionError,
+    place_both,
 )
 from apps.exchanges.rest import RestAdapter
 
@@ -539,7 +540,12 @@ class BinanceAdapter(BinanceStyleAdapter):
         )
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Reduce-only conditional orders — Binance has no amend in place.
 
@@ -551,12 +557,13 @@ class BinanceAdapter(BinanceStyleAdapter):
         tracks the position if it is ever partially closed, and it is mutually
         exclusive with both ``quantity`` and ``reduceOnly``.
         """
-        position = await self.get_position(symbol)
+        position = position or await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"binance: no open position on {symbol}")
         exit_side = "SELL" if position.side is Side.LONG else "BUY"
         hedge = await self._hedge_mode()
 
+        calls = []
         for price, order_type in (
             (stop_loss, "STOP_MARKET"),
             (take_profit, "TAKE_PROFIT_MARKET"),
@@ -576,7 +583,10 @@ class BinanceAdapter(BinanceStyleAdapter):
             }
             if hedge:
                 body["positionSide"] = self._position_side(position.side)
-            await self.request("POST", f"{self.futures_prefix}/order", body=body, weight=2)
+            calls.append(
+                self.request("POST", f"{self.futures_prefix}/order", body=body, weight=2)
+            )
+        await place_both(*calls)
 
     async def get_sltp(self, symbol: str) -> SLTPState:
         """What is actually resting: the ``closePosition`` market triggers.
@@ -959,7 +969,12 @@ class ToobitAdapter(BinanceStyleAdapter):
         )
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Replace SL/TP in place via ``position/trading-stop`` (native amend).
 
@@ -968,7 +983,7 @@ class ToobitAdapter(BinanceStyleAdapter):
         is overwritten as a whole and there is nothing to cancel.
         """
         contract, _ = await self._contract(symbol)
-        position = await self.get_position(symbol)
+        position = position or await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"{self.name}: no open position on {symbol}")
         await self.request(

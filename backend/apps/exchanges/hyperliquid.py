@@ -660,18 +660,33 @@ class HyperliquidAdapter(ExchangeAdapter):
         return price or None
 
     async def cancel_orders(self, symbol: str, order_ids: list[str]) -> None:
+        """The whole stale set in **one** signed action.
+
+        ``Exchange.cancel`` is a one-element ``bulk_cancel``, so a loop over it
+        was N sequential round trips inside the spec §4 per-leg deadline — on a
+        venue answering in ~1s that is what pushed an amend past the deadline
+        and left the leg on its previous stop. One action, N ids.
+        """
+        if not order_ids:
+            return
         coin = self._coin(symbol)
-        for order_id in order_ids:
-            try:
-                await self._call("cancel", coin, int(order_id))
-            except (AdapterError, ValueError) as exc:
-                # "Order was never placed, already canceled, or filled" — the
-                # trigger fired between the snapshot and this call.
-                if "never placed" not in str(exc).lower():
-                    raise
+        try:
+            await self._call(
+                "bulk_cancel", [{"coin": coin, "oid": int(order_id)} for order_id in order_ids]
+            )
+        except (AdapterError, ValueError) as exc:
+            # "Order was never placed, already canceled, or filled" — the
+            # trigger fired between the snapshot and this call.
+            if "never placed" not in str(exc).lower():
+                raise
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Places new trigger orders. Hyperliquid has no amend for these, so the
         previous pair is cancelled by ``executor.apply_sltp`` (Q5d).
@@ -692,11 +707,14 @@ class HyperliquidAdapter(ExchangeAdapter):
         coin = self._coin(symbol)
         # Neither read depends on the other, and this runs inside the §4 per-leg
         # deadline with a signed L1 action still to come — a serial pair here was
-        # a whole round trip out of the budget for nothing.
-        position, rules = await asyncio.gather(
-            self.get_position(symbol),
-            self.get_symbol_rules(symbol, MarketType.FUTURES),
-        )
+        # a whole round trip out of the budget for nothing. A ``position`` the
+        # amend path already read drops the ``user_state`` call entirely; the
+        # rules read is served from the cached asset metadata.
+        rules_call = self.get_symbol_rules(symbol, MarketType.FUTURES)
+        if position is None:
+            position, rules = await asyncio.gather(self.get_position(symbol), rules_call)
+        else:
+            rules = await rules_call
         if position is None:
             raise AdapterError(
                 f"hyperliquid: no open position on {symbol}", code="no_position"

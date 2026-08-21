@@ -301,13 +301,18 @@ class OkxAdapter(RestAdapter):
                 raise
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Places a **new** OCO algo order — OKX does not amend this one in
         place. The previous OCO is cancelled by the Q5d strategy in
         ``executor.apply_sltp``."""
         inst_id = self._inst_id(symbol, MarketType.FUTURES)
-        position = await self.get_position(symbol)
+        position = position or await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"okx: no open position on {symbol}")
         body: dict[str, Any] = {

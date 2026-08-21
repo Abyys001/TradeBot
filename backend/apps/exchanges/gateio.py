@@ -32,6 +32,7 @@ from apps.exchanges.base import (
     Side,
     SLTPState,
     SymbolRules,
+    place_both,
 )
 from apps.exchanges.rest import RestAdapter
 
@@ -234,12 +235,17 @@ class GateioAdapter(RestAdapter):
                     raise
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Places new price-triggered orders. Cancelling what they replace is
         the Q5d strategy's job (``executor.apply_sltp``), not this method's."""
         contract = self._contract(symbol)
-        position = await self.get_position(symbol)
+        position = position or await self.get_position(symbol)
         if position is None:
             raise AdapterError(f"gateio: no open position on {symbol}")
         long = position.side is Side.LONG
@@ -248,29 +254,33 @@ class GateioAdapter(RestAdapter):
             (stop_loss, 2 if long else 1),
             (take_profit, 1 if long else 2),
         )
+        calls = []
         for price, rule in triggers:
             if price is None:
                 continue
-            await self.request(
-                "POST",
-                f"/api/v4/futures/{SETTLE}/price_orders",
-                body={
-                    "initial": {
-                        "contract": contract,
-                        "size": 0,  # 0 with close=true means the whole position
-                        "price": "0",
-                        "close": True,
-                        "tif": "ioc",
-                        "reduce_only": True,
+            calls.append(
+                self.request(
+                    "POST",
+                    f"/api/v4/futures/{SETTLE}/price_orders",
+                    body={
+                        "initial": {
+                            "contract": contract,
+                            "size": 0,  # 0 with close=true means the whole position
+                            "price": "0",
+                            "close": True,
+                            "tif": "ioc",
+                            "reduce_only": True,
+                        },
+                        "trigger": {
+                            "strategy_type": 0,
+                            "price_type": 1,  # mark price
+                            "price": f"{price:f}",
+                            "rule": rule,
+                        },
                     },
-                    "trigger": {
-                        "strategy_type": 0,
-                        "price_type": 1,  # mark price
-                        "price": f"{price:f}",
-                        "rule": rule,
-                    },
-                },
+                )
             )
+        await place_both(*calls)
 
     async def get_sltp(self, symbol: str) -> SLTPState:
         """The open price-triggered orders, split into stop and take-profit.

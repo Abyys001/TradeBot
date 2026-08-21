@@ -219,7 +219,12 @@ class BybitAdapter(RestAdapter):
         return OrderResult(order_id=order_id, filled_qty=qty, avg_price=D(avg or 0), raw=data)
 
     async def set_sltp(
-        self, *, symbol: str, stop_loss: Decimal | None, take_profit: Decimal | None
+        self,
+        *,
+        symbol: str,
+        stop_loss: Decimal | None,
+        take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """True amend in place — no cancel/replace, so no unprotected window."""
         body: dict[str, Any] = {

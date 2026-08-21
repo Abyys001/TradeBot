@@ -13,7 +13,8 @@ fan-out and blows the per-leg deadline in spec §4.
 from __future__ import annotations
 
 import abc
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -181,6 +182,26 @@ class NotSupported(AdapterError):
 # --- The interface ----------------------------------------------------------
 
 
+async def place_both(*calls: Awaitable[object]) -> None:
+    """Fire the stop and the take-profit together, and let both settle.
+
+    One ``await`` per leg spent an exchange round trip per trigger inside the
+    spec §4 per-leg deadline, and it failed asymmetrically: whatever stopped
+    the second call — the fan-out cancelling the leg, a rejection, a dropped
+    connection — left the position carrying a stop and no target. Firing them
+    together halves the latency.
+
+    ``return_exceptions=True`` is the other half of that. Plain ``gather``
+    cancels the sibling the moment one leg raises, and a cancelled coroutine
+    cannot unsend a request the exchange already has — so the outcome of the
+    other trigger would be unknowable. Both settle, then the first failure is
+    raised, and ``executor._apply_and_verify`` reads back what actually rests.
+    """
+    for result in await asyncio.gather(*calls, return_exceptions=True):
+        if isinstance(result, BaseException):
+            raise result
+
+
 class ExchangeAdapter(abc.ABC):
     """One instance per connected account. Never shared between accounts.
 
@@ -273,6 +294,7 @@ class ExchangeAdapter(abc.ABC):
         symbol: str,
         stop_loss: Decimal | None,
         take_profit: Decimal | None,
+        position: Position | None = None,
     ) -> None:
         """Place SL/TP for the open position.
 
@@ -284,6 +306,13 @@ class ExchangeAdapter(abc.ABC):
         the old orders out is the Q5d amend strategy and lives in one place,
         ``apps.engine.executor.apply_sltp``, which drives the two methods
         below. Never call ``set_sltp`` directly on an amend path.
+
+        ``position`` is the position the caller has **already read**. Most
+        venues need the position's side (and sometimes its size) to write a
+        reduce-only trigger, and the amend path reads it one call earlier to
+        compute the trigger prices — so re-reading it here was a whole exchange
+        round trip, inside the spec §4 per-leg deadline, for an answer already
+        in hand. Adapters must treat it as a hint: when it is None, read it.
         """
 
     async def list_conditional_orders(self, symbol: str) -> list[str]:
