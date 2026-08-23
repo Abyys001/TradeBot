@@ -688,8 +688,6 @@ class Statement:
                     (self.t("fact_asset"), self.data["ledger"]["asset"]),
                 ]
             ),
-            Spacer(1, 9),
-            self.para(self.t("intro"), self.sheet.muted),
         ]
 
     def headline(self) -> list[Any]:
@@ -969,17 +967,6 @@ class Statement:
             ),
         ]
 
-    def notes(self) -> list[Any]:
-        story: list[Any] = [self.section(self.t("sec_notes")), Spacer(1, 5)]
-        for index, text in enumerate(self.lang.copy["notes"], start=1):
-            numbered = (
-                f"{index}.  {text}"
-                if self.lang.rtl
-                else f"<b>{index}.</b>&nbsp;&nbsp;{text}"
-            )
-            story += [self.para(numbered, self.sheet.note), Spacer(1, 3)]
-        return story
-
     # --- the whole document -----------------------------------------------
 
     def story(self) -> list[Any]:
@@ -993,7 +980,7 @@ class Statement:
                 # one, which reads as an empty section followed by an unlabelled
                 # table — so demand room for the heading plus its first rows.
                 story += [Spacer(1, 10), CondPageBreak(64), *block]
-        return [*story, Spacer(1, 12), KeepTogether(self.notes())]
+        return story
 
     def meta(self) -> dict[str, str]:
         """The canvas furniture, pre-shaped — the canvas draws, it does not lay out."""

@@ -148,16 +148,6 @@ EN: dict[str, Any] = {
     "status_active": "Active",
     "status_paused": "Paused",
     "status_error": "Error",
-    "intro": "This statement is issued by <b>TradeBot</b>, the automated "
-             "order-routing platform that trades the account named above. Every "
-             "position listed here was opened, protected, amended and closed by "
-             "the <b>bot</b> — no order on this statement was placed by hand in "
-             "the account. The bot receives one instruction from the operator "
-             "and fans it out to every connected account at once, using the "
-             "same leverage and the same protective stop-loss and take-profit "
-             "levels for all of them; only the position size differs, because "
-             "it is sized from this account's own available balance.",
-
     # --- headline ---
     "sec_result": "Result for this period",
     "sec_result_hint": "closed by the bot, realised in this window",
@@ -253,24 +243,6 @@ EN: dict[str, Any] = {
     "role_investor": "Investor",
     "role_trader": "Trader",
     "role_programmer": "Programmer",
-
-    # --- notes ---
-    "sec_notes": "How to read this statement",
-    "notes": [
-        "Figures come from the exchange's own fills and are stated in USDT. A "
-        "trade the exchange has not priced is shown as “—” and is counted in "
-        "neither the profit nor the loss totals.",
-        "A position is counted in the period it was <b>closed</b> in, because "
-        "that is when the result was realised. A position still open at the end "
-        "of the period is listed separately and contributes nothing to the "
-        "period result.",
-        "“Balance”, “net invested” and “return since connected” describe the "
-        "account as a whole and are not limited to this period.",
-        "Deposits and withdrawals are transfers of your own capital. They are "
-        "never counted as trading profit or loss.",
-        "TradeBot holds trade-only API credentials for this account. They "
-        "cannot withdraw funds, and they are stored encrypted.",
-    ],
 }
 
 
@@ -307,15 +279,6 @@ FA: dict[str, Any] = {
     "status_active": "فعال",
     "status_paused": "متوقف‌شده",
     "status_error": "خطا",
-    "intro": "این صورت‌حساب توسط <b>TradeBot</b> صادر شده است؛ سامانه‌ای خودکار "
-             "که سفارش‌ها را برای حساب نام‌برده اجرا می‌کند. هر معامله‌ای که در "
-             "این سند آمده است، توسط <b>ربات</b> باز، محافظت، اصلاح و بسته شده "
-             "است و هیچ سفارشی در این حساب به‌صورت دستی ثبت نشده است. ربات یک "
-             "دستور را از اپراتور می‌گیرد و آن را در همان لحظه به تمام حساب‌های "
-             "متصل ارسال می‌کند؛ اهرم و سطوح حد ضرر و حد سود برای همه حساب‌ها "
-             "یکسان است و تنها حجم معامله متفاوت است، چون حجم از موجودی در "
-             "دسترسِ همین حساب محاسبه می‌شود.",
-
     # --- headline ---
     "sec_result": "نتیجه این دوره",
     "sec_result_hint": "معاملاتی که ربات در این بازه بسته و تسویه کرده است",
@@ -413,23 +376,6 @@ FA: dict[str, Any] = {
     "role_investor": "سرمایه‌گذار",
     "role_trader": "معامله‌گر",
     "role_programmer": "برنامه‌نویس",
-
-    # --- notes ---
-    "sec_notes": "راهنمای خواندن این صورت‌حساب",
-    "notes": [
-        "ارقام از معاملات ثبت‌شده در خودِ صرافی گرفته شده و بر حسب USDT است. "
-        "معامله‌ای که صرافی برای آن قیمتی اعلام نکرده باشد با «—» نشان داده "
-        "می‌شود و نه در جمع سود و نه در جمع زیان محاسبه نمی‌شود.",
-        "هر موقعیت در دوره‌ای شمرده می‌شود که در آن <b>بسته</b> شده است، چون "
-        "نتیجه در همان لحظه تسویه می‌شود. موقعیتی که در پایان دوره هنوز باز "
-        "بوده، جداگانه فهرست شده و در نتیجه این دوره اثری ندارد.",
-        "«موجودی کنونی»، «سرمایه خالص» و «بازده از زمان اتصال» وضعیت کل حساب را "
-        "توصیف می‌کنند و محدود به این دوره نیستند.",
-        "واریز و برداشت، جابه‌جایی سرمایه خود شماست و هرگز به‌عنوان سود یا زیان "
-        "معاملاتی محاسبه نمی‌شود.",
-        "کلیدهای API نگهداری‌شده برای این حساب فقط اجازه معامله دارند، امکان "
-        "برداشت وجه ندارند و به‌صورت رمزنگاری‌شده ذخیره می‌شوند.",
-    ],
 }
 
 
