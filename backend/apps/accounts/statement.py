@@ -986,7 +986,7 @@ class Statement:
         story: list[Any] = [*self.identity(), Spacer(1, 10), *self.headline(),
                             Spacer(1, 10), *self.trades()]
         for block in (self.open_positions(), self.failures(), self.pairs(),
-                      self.cash(), self.split()):
+                      self.cash()):
             if block:
                 # A heading is not a section. Left to fall where it lands it
                 # ends the page alone and the table it names opens the next
