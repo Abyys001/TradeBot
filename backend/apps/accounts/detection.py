@@ -69,17 +69,26 @@ class Sweep:
     detections: list[DetectedMovement] = field(default_factory=list)
 
 
-def threshold(equity: Decimal) -> Decimal:
+def threshold(equity: Decimal, exchange: str = "") -> Decimal:
     """How far equity may drift before it counts as a cash flow.
 
     Fees, funding and the exchange's own rounding move equity by small amounts
     that belong to no deposit and to no trade. The floor is absolute so a tiny
     account is not swamped by it, and proportional so a large one is not buried
     in proposals for rounding dust; the larger of the two wins.
+
+    Q28: the pair is read **per exchange** first. What is being measured differs
+    by venue — a perpetual venue pays funding several times a day and a spot
+    venue pays none — so one global percentage either hides real transfers on
+    spot or proposes funding as a withdrawal on perps. An exchange with no
+    override falls back to the global pair, which is what every venue used
+    before and what an untuned one still uses.
     """
     config = settings.LEDGER
-    floor = D(config["DETECT_MIN_USDT"])
-    proportional = abs(equity) * D(config["DETECT_MIN_PCT"]) / Decimal("100")
+    override = config["DETECT_PER_EXCHANGE"].get(exchange, {}) if exchange else {}
+    floor = D(override.get("DETECT_MIN_USDT", config["DETECT_MIN_USDT"]))
+    pct = D(override.get("DETECT_MIN_PCT", config["DETECT_MIN_PCT"]))
+    proportional = abs(equity) * pct / Decimal("100")
     return max(floor, proportional)
 
 
@@ -173,7 +182,7 @@ def observe(
     manual_net = _recorded_cash(account, since, now)
     unexplained = delta - trade_pnl - manual_net
 
-    if abs(unexplained) < threshold(equity):
+    if abs(unexplained) < threshold(equity, account.exchange):
         return None
 
     detection = DetectedMovement.objects.create(

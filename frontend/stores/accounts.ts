@@ -14,6 +14,9 @@ export const useAccountsStore = defineStore('accounts', {
   state: () => ({
     items: [] as Account[],
     nonUsdt: [] as { id: number; label: string; asset: string }[],
+    /** Credentials inside the warning window or already past it, soonest
+     * first. Computed server-side so the panel and the notice agree. */
+    expiring: [] as ExpiringCredential[],
     loading: false,
     /** True only for the very first load, so refreshes don't blank the page. */
     initial: true,
@@ -30,6 +33,14 @@ export const useAccountsStore = defineStore('accounts', {
     active: (s) => s.items.filter((a) => a.status === 'active'),
     paused: (s) => s.items.filter((a) => a.status === 'paused'),
     failing: (s) => s.items.filter((a) => a.status === 'error'),
+
+    /**
+     * Already past its date. Separated from `expiring` because the two are
+     * different events: one is a reminder, the other is an account that has
+     * stopped trading and cannot say so — Hyperliquid prunes the agent wallet
+     * at expiry rather than refusing the request.
+     */
+    expired: (s) => s.expiring.filter((e) => e.state === 'expired'),
 
     // No `unverified` getter. Spec §7 enforcement is unchanged and lives in the
     // backend — a key that *proves* withdrawal rights is still refused at
@@ -77,6 +88,7 @@ export const useAccountsStore = defineStore('accounts', {
         const data = await useApi().balances()
         this.items = data.accounts
         this.nonUsdt = data.non_usdt
+        this.expiring = data.expiring_credentials ?? []
         this.error = ''
         this.loadedAt = Date.now()
       } catch (e: any) {

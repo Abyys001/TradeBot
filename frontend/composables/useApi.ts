@@ -74,6 +74,33 @@ export function useApi() {
      */
     accountReport: (id: number) => request<AccountReport>(`/accounts/accounts/${id}/report/`),
     /**
+     * The same record as a printable PDF statement, for one period.
+     *
+     * `$fetch.raw` rather than `request` because the server names the file —
+     * it is the only side that knows the period, the account and the issue
+     * time — and a statement whose filename does not say what it covers is one
+     * more thing for whoever receives it to get wrong. `start`/`end` are
+     * inclusive `YYYY-MM-DD` days; either may be empty for an open side, and
+     * `lang` is the language the *recipient* reads — not the panel's own.
+     */
+    accountStatement: async (id: number, start = '', end = '', lang = 'en') => {
+      const query = new URLSearchParams()
+      if (start) query.set('start', start)
+      if (end) query.set('end', end)
+      query.set('lang', lang)
+      const suffix = query.toString() ? `?${query}` : ''
+      const response = await $fetch.raw<Blob>(
+        `${base}/accounts/accounts/${id}/statement/${suffix}`,
+        { credentials: 'include', responseType: 'blob' },
+      )
+      const disposition = response.headers.get('content-disposition') ?? ''
+      const named = /filename="?([^"]+)"?/.exec(disposition)
+      return {
+        blob: response._data as Blob,
+        filename: named?.[1] ?? `tradebot-statement-${id}.pdf`,
+      }
+    },
+    /**
      * `force` is what the button sends: a human asking for fresh numbers gets
      * them. The background poll leaves it off and is rate-limited server-side,
      * so N open tabs do not mean N fan-outs to every exchange.
@@ -464,13 +491,35 @@ export interface Account {
    * unprovable" is a real state. */
   withdrawal_checked_at: string | null
   credential_expires_at: string | null
+  /** Whole days until `credential_expires_at`; null when no date is recorded.
+   * Negative once it has passed, so the panel can say how long an account has
+   * been dead rather than clamping at zero. */
+  credential_days_left: number | null
+  /** '' | 'expiring' | 'expired'. Reported, never enforced — an expiring
+   * credential still trades. */
+  credential_state: CredentialState
   last_error: string
   created_at?: string
+}
+
+export type CredentialState = '' | 'expiring' | 'expired'
+
+/** One account's credential countdown, as the server computed it. */
+export interface ExpiringCredential {
+  id: number
+  label: string
+  exchange: string
+  expires_at: string
+  days_left: number
+  state: CredentialState
 }
 
 export interface BalancesResponse {
   accounts: Account[]
   non_usdt: { id: number; label: string; asset: string }[]
+  /** Spec §7: a Hyperliquid agent approval is pruned at expiry with no error
+   * from the exchange, so the countdown is the only warning there is. */
+  expiring_credentials: ExpiringCredential[]
 }
 
 /** The wire shape. The store enriches it with the account's label. */

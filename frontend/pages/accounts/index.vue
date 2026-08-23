@@ -9,7 +9,7 @@
 const { t } = useI18n()
 const localePath = useLocalePath()
 const accounts = useAccountsStore()
-const { money, since } = useFormat()
+const { money, since, dateTime } = useFormat()
 
 useHead({ title: t('nav.accounts') })
 
@@ -27,7 +27,10 @@ const filtered = computed(() => {
   if (filter.value === 'paused') return rows.filter((a) => a.status === 'paused')
   if (filter.value === 'attention') {
     return rows.filter(
-      (a) => a.status === 'error' || (a.last_balance_asset && !a.balance_is_usdt),
+      (a) =>
+        a.status === 'error' ||
+        (a.last_balance_asset && !a.balance_is_usdt) ||
+        a.credential_state !== '',
     )
   }
   return rows
@@ -39,11 +42,43 @@ const filterOptions = computed(() => [
   { value: 'paused', label: `${t('accounts.filter.paused')} ${accounts.paused.length}` },
   {
     value: 'attention',
-    label: `${t('accounts.filter.attention')} ${accounts.failing.length}`,
+    label: `${t('accounts.filter.attention')} ${attention.value.length}`,
   },
 ])
 
 const STATUS_TONE = { active: 'ok', paused: 'neutral', error: 'short' } as const
+
+/**
+ * Everything the admin should look at: a failing account, one holding a
+ * non-USDT balance, and — spec §7 — one whose credential is running out.
+ *
+ * The third is the only one the exchange will never report. A Hyperliquid agent
+ * approval is *pruned* at its expiry rather than refused, so the account stops
+ * trading and nothing anywhere says why. The countdown is the warning.
+ */
+const attention = computed(() =>
+  accounts.items.filter(
+    (a) =>
+      a.status === 'error' ||
+      (a.last_balance_asset && !a.balance_is_usdt) ||
+      a.credential_state !== '',
+  ),
+)
+
+/** Expired reads as a failure, expiring as a heads-up. Never the same colour. */
+const EXPIRY_TONE = { expiring: 'signal', expired: 'short' } as const
+
+/**
+ * "in 6 days" / "3 days ago". The server counts the days — a browser clock that
+ * is a day out would otherwise disagree with the notice in the top bar about
+ * the same account.
+ */
+function expiryLabel(days: number | null): string {
+  if (days === null) return ''
+  return days < 0
+    ? t('accounts.expiry.expired', { n: Math.abs(days) })
+    : t('accounts.expiry.days', { n: days })
+}
 
 /**
  * Older than three refresh cycles. The panel refreshes every 45s, so anything
@@ -140,6 +175,45 @@ async function confirmDelete() {
       {{ accounts.error || actionError }}
     </p>
 
+    <!-- Spec §7. Renewal is not a button here: it needs the partner to approve
+         a new agent wallet, which is a conversation, not a click. So this says
+         how long there is to start that conversation, and keeps saying it. -->
+    <UiCard v-if="accounts.expiring.length" tone="signal">
+      <template #header>
+        <div class="flex items-center gap-2">
+          <UiIcon name="alert" :size="14" class="text-signal shrink-0" />
+          <h2 class="text-sm font-medium">
+            {{
+              accounts.expired.length
+                ? t('accounts.expiry.titleExpired', { n: accounts.expired.length })
+                : t('accounts.expiry.title', { n: accounts.expiring.length })
+            }}
+          </h2>
+        </div>
+      </template>
+      <p class="text-xs text-ink-muted mb-3">{{ t('accounts.expiry.body') }}</p>
+      <ul class="space-y-1.5">
+        <li
+          v-for="row in accounts.expiring"
+          :key="row.id"
+          class="flex items-center justify-between gap-3 text-xs"
+        >
+          <NuxtLink
+            :to="localePath(`/accounts/${row.id}`)"
+            class="truncate font-medium hover:text-brand transition-colors"
+          >
+            {{ row.label }}
+          </NuxtLink>
+          <span class="flex items-center gap-2 shrink-0">
+            <span class="text-ink-faint num">{{ dateTime(row.expires_at) }}</span>
+            <UiBadge :tone="EXPIRY_TONE[row.state as 'expiring' | 'expired']">
+              {{ expiryLabel(row.days_left) }}
+            </UiBadge>
+          </span>
+        </li>
+      </ul>
+    </UiCard>
+
     <UiCard flush>
       <template #header>
         <div class="overflow-x-auto no-scrollbar -my-1 py-1">
@@ -215,6 +289,13 @@ async function confirmDelete() {
                     </UiBadge>
                     <UiBadge v-if="account.last_balance_asset && !account.balance_is_usdt" tone="signal">
                       {{ account.last_balance_asset }}
+                    </UiBadge>
+                    <UiBadge
+                      v-if="account.credential_state"
+                      :tone="EXPIRY_TONE[account.credential_state as 'expiring' | 'expired']"
+                      :title="t('accounts.expiry.hint')"
+                    >
+                      {{ expiryLabel(account.credential_days_left) }}
                     </UiBadge>
                   </div>
                 </td>
@@ -305,6 +386,12 @@ async function confirmDelete() {
               <UiBadge v-if="account.hidden" tone="signal">
                 <UiIcon name="eyeOff" :size="12" />
                 {{ t('accounts.hidden') }}
+              </UiBadge>
+              <UiBadge
+                v-if="account.credential_state"
+                :tone="EXPIRY_TONE[account.credential_state as 'expiring' | 'expired']"
+              >
+                {{ expiryLabel(account.credential_days_left) }}
               </UiBadge>
             </div>
 

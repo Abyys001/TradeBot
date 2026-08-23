@@ -155,6 +155,25 @@ class ConnectedAccount(models.Model):
         # Q4: non-USDT accounts are surfaced on the dashboard, not traded.
         return (self.last_balance_asset or "").upper() == "USDT"
 
+    @property
+    def credential_days_left(self) -> int | None:
+        """Whole days until ``credential_expires_at``; ``None`` when unset."""
+        from apps.accounts import credentials
+
+        return credentials.days_left(self)
+
+    @property
+    def credential_state(self) -> str:
+        """``""`` / ``"expiring"`` / ``"expired"`` — see ``accounts.credentials``.
+
+        Reported, never enforced. An expiring credential still trades, and an
+        expired one fails at the exchange through the same path as any other
+        failed leg. Nothing here excludes an account from a fan-out.
+        """
+        from apps.accounts import credentials
+
+        return credentials.state(self)
+
     def clean(self) -> None:
         """Spec §7: no real account routes orders unchecked.
 

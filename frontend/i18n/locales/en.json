@@ -495,7 +495,47 @@
         "resolve": "Answer these",
         "count": "{n} recorded"
       }
-    }
+    },
+    "statement": {
+      "action": "Statement",
+      "title": "Download a statement",
+      "intro": "A PDF receipt for {label}: every trade the bot opened and closed in the period you choose, what each one returned, and the deposits and withdrawals alongside them. Pick the period before it is generated — the file says which dates it covers.",
+      "presets": "Period",
+      "preset": {
+        "d7": "Last 7 days",
+        "d30": "Last 30 days",
+        "month": "This month",
+        "lastMonth": "Last month",
+        "quarter": "Last 3 months",
+        "ytd": "This year",
+        "all": "Since connected"
+      },
+      "from": "From",
+      "to": "To",
+      "fromHint": "First day included. Leave empty for everything up to the end date.",
+      "toHint": "Last day included, in full.",
+      "backwards": "This period ends before it starts.",
+      "summaryRange": "The statement will cover {from} to {to}, both days included.",
+      "summaryFrom": "The statement will cover {from} up to today.",
+      "summaryUntil": "The statement will cover everything up to and including {to}.",
+      "summaryAll": "The statement will cover this account's whole history.",
+      "beforeConnection": "This period starts before the account was connected ({when}). The statement covers it from the day it joined.",
+      "language": "Document language",
+      "languageHint": "The language of the PDF itself, not of the panel — issue it in the language its recipient reads.",
+      "pdfNote": "PDF · {language}",
+      "download": "Download PDF",
+      "building": "Generating…"
+    },
+    "expiry": {
+      "title": "{n} credential(s) expiring",
+      "titleExpired": "{n} credential(s) have expired",
+      "body": "An agent approval is removed at its expiry rather than refused, so the account stops trading and the exchange reports nothing. Renewal needs the partner to approve a new agent wallet — start before the date, not on it.",
+      "days": "in {n}d",
+      "expired": "{n}d ago",
+      "hint": "This credential expires soon. The exchange will not warn you."
+    },
+    "expiresAt": "Agent approval expires",
+    "expiresAtHint": "Optional. The valid_until you set when approving the agent — at most 180 days out. Left blank, the panel cannot warn you before it lapses."
   },
   "history": {
     "title": "Trade history",

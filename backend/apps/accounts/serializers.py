@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.accounts.models import (
@@ -19,6 +20,10 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
     exchange_label = serializers.CharField(source="get_exchange_display", read_only=True)
     balance_is_usdt = serializers.BooleanField(read_only=True)
     is_tradeable = serializers.BooleanField(read_only=True)
+    # Spec §7: a Hyperliquid agent approval expires and is then pruned in
+    # silence. The countdown is the only warning there is.
+    credential_days_left = serializers.IntegerField(read_only=True)
+    credential_state = serializers.CharField(read_only=True)
 
     class Meta:
         model = ConnectedAccount
@@ -32,6 +37,8 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
             "hidden",
             "wallet_address",
             "credential_expires_at",
+            "credential_days_left",
+            "credential_state",
             "key_fingerprint",
             "withdrawal_check_passed",
             # When the spec §7 check last ran. Distinct from the verdict: five
@@ -71,6 +78,28 @@ class ConnectedAccountCreateSerializer(serializers.ModelSerializer):
             "api_secret",
             "api_passphrase",
         ]
+
+    def validate_credential_expires_at(self, value):
+        """Spec §7: the date has to be one the exchange could actually have granted.
+
+        Hyperliquid caps ``approveAgent``'s ``valid_until`` at 180 days, so a
+        date past that ceiling is a typo, and a date already gone describes a
+        credential that is pruned before it is ever used. Both are refused here
+        rather than accepted and warned about later — the whole point of the
+        field is that the countdown can be trusted.
+        """
+        if value is None:
+            return value
+        from apps.accounts import credentials
+
+        now = timezone.now()
+        if value <= now:
+            raise serializers.ValidationError("That expiry is already in the past.")
+        if value > credentials.ceiling(now):
+            raise serializers.ValidationError(
+                f"An agent approval lasts at most {credentials.max_agent_days()} days."
+            )
+        return value
 
     def validate_hidden(self, value: bool) -> bool:
         """Only the one viewer may mark an account hidden, or unmark one.

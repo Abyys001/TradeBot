@@ -23,3 +23,14 @@ hyperliquid-python-sdk==0.24.0
 # Serves Django's own static files (the admin UI) in production — Django
 # refuses to serve them itself when DEBUG=false. Dev (runserver) is unaffected.
 whitenoise==6.8.2
+# The downloadable per-account PDF statement (apps/accounts/statement.py).
+# Pure-python wheel, so it needs no system libraries in the image — which is
+# exactly why it is here rather than WeasyPrint.
+reportlab==4.2.5
+# Persian statements. ReportLab draws glyphs in the order it is given them, so
+# Arabic script needs two passes before it reaches the canvas: reshaping picks
+# the contextual (initial/medial/final) form of each letter, and the bidi
+# algorithm reorders the run right-to-left. Neither is in reportlab, and doing
+# it by hand is a Unicode annex, not a helper.
+arabic-reshaper==3.0.0
+python-bidi==0.6.6

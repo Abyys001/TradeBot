@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from asgiref.sync import async_to_sync
 from django.conf import settings
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 
-from apps.accounts import bookkeeping
+from apps.accounts import bookkeeping, credentials
 from apps.accounts.ledger import ROLES, get_split, ledger_snapshot
 from apps.accounts.models import (
     AccountStatus,
@@ -24,7 +27,7 @@ from apps.accounts.models import (
     LedgerEvent,
     Notification,
 )
-from apps.accounts.report import account_report
+from apps.accounts.report import account_report, statement_report
 from apps.accounts.serializers import (
     ConnectedAccountCreateSerializer,
     ConnectedAccountSerializer,
@@ -35,6 +38,8 @@ from apps.accounts.serializers import (
     NotificationSerializer,
     ProfitSplitSerializer,
 )
+from apps.accounts.statement import build_statement_pdf, statement_filename
+from apps.accounts.statement_text import DEFAULT_LANGUAGE
 from apps.accounts.visibility import _check, accessible
 from apps.core.money import D
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
@@ -140,6 +145,44 @@ def _refuse(account: ConnectedAccount, exc: Exception) -> None:
     )
 
 
+
+def _window_bound(raw: str, *, end: bool) -> datetime:
+    """One ``?start=``/``?end=`` value as an aware instant.
+
+    A bare date is the operator's plain meaning: ``start=2026-01-01`` is that
+    day from midnight, ``end=2026-01-31`` is that day *included*, so the
+    exclusive bound is the midnight after it. Anything else is a 400 rather
+    than a silently different period on a statement somebody will act on.
+    """
+    # The bare-date case is tested *first*, deliberately: ``parse_datetime``
+    # accepts ``2026-03-31`` too (it is a valid ISO string) and hands back that
+    # day's midnight, which would silently drop the last day of every window
+    # the operator asks for by calendar date.
+    date = parse_date(raw)
+    if date is not None:
+        parsed = datetime.combine(date + (timedelta(days=1) if end else timedelta()), time.min)
+    else:
+        parsed = parse_datetime(raw)
+        if parsed is None:
+            raise serializers.ValidationError(
+                {"detail": f"'{raw}' is not a date (expected YYYY-MM-DD)."}
+            )
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+    return parsed
+
+
+def statement_window(request) -> tuple[datetime | None, datetime | None]:
+    """The ``[start, end)`` the caller asked for; either side may be open."""
+    start = request.query_params.get("start", "").strip()
+    end = request.query_params.get("end", "").strip()
+    since = _window_bound(start, end=False) if start else None
+    until = _window_bound(end, end=True) if end else None
+    if since and until and since >= until:
+        raise serializers.ValidationError({"detail": "The period ends before it starts."})
+    return since, until
+
+
 class ConnectedAccountViewSet(viewsets.ModelViewSet):
     """Spec §6: add, pause, resume, delete — each its own control in the UI."""
 
@@ -242,10 +285,48 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
         """
         return Response(account_report(self.get_object()))
 
+    @action(detail=True, methods=["get"])
+    def statement(self, request, pk=None):
+        """The same record as ``report``, windowed, as a downloadable PDF.
+
+        ``?start=``/``?end=`` are inclusive calendar dates (or full ISO
+        instants); omitting both is the account's whole life. The window is a
+        deliberate prompt in the panel rather than a default, because a
+        statement handed to a partner has to say exactly which period it
+        covers.
+
+        ``?lang=`` is ``en`` or ``fa`` — the language the *recipient* reads,
+        which is not necessarily the one the panel is in, so the operator picks
+        it per download. An unknown value falls back to English rather than
+        400ing: a statement in the wrong language is something the operator can
+        see and redo, no statement at all is not.
+
+        Detail route, so the visibility filter has already run: an account the
+        caller cannot list is a 404 here too, not a PDF of it.
+        """
+        start, end = statement_window(request)
+        lang = request.query_params.get("lang", DEFAULT_LANGUAGE).strip().lower()
+        data = statement_report(self.get_object(), start=start, end=end)
+        pdf = build_statement_pdf(data, lang)
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{statement_filename(data, lang)}"'
+        )
+        response["Content-Length"] = str(len(pdf))
+        # The figures are as of now and the window can be reopened at any time;
+        # a cached copy would hand back yesterday's statement.
+        response["Cache-Control"] = "no-store"
+        return response
+
     @action(detail=False, methods=["get"])
     def balances(self, request):
         """Spec §6: the admin sees every account's balance at all times."""
         accounts = self.get_queryset()
+        # Spec §7: the credential countdown is swept here rather than on a timer.
+        # This endpoint is what the panel polls, so the notice appears the first
+        # time anybody looks — and a renewal clears it just as promptly. It is a
+        # comparison against a stored date, not a call to any exchange.
+        credentials.sync_notifications()
         return Response(
             {
                 "accounts": ConnectedAccountSerializer(accounts, many=True).data,
@@ -254,6 +335,21 @@ class ConnectedAccountViewSet(viewsets.ModelViewSet):
                     {"id": a.id, "label": a.label, "asset": a.last_balance_asset}
                     for a in accounts
                     if a.last_balance_asset and not a.balance_is_usdt
+                ],
+                # An agent approval that lapses is a silent disconnection, so
+                # the panel is given the countdown rather than left to compute
+                # it from a date. Filtered exactly like `accounts` above: it is
+                # built from the same queryset, hidden rows already gone.
+                "expiring_credentials": [
+                    {
+                        "id": e.account_id,
+                        "label": e.label,
+                        "exchange": e.exchange,
+                        "expires_at": e.expires_at,
+                        "days_left": e.days_left,
+                        "state": e.state,
+                    }
+                    for e in credentials.expiring(accounts)
                 ],
             }
         )

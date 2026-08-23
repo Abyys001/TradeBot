@@ -33,6 +33,7 @@ const form = reactive({
   api_secret: '',
   api_passphrase: '',
   wallet_address: '',
+  credential_expires_at: '',
 })
 
 onMounted(async () => {
@@ -48,6 +49,13 @@ const isWallet = computed(() => selected.value?.wallet_based_auth ?? false)
 const needsPassphrase = computed(() => ['okx', 'kucoin'].includes(form.exchange))
 const isPaper = computed(() => form.exchange === 'paper')
 
+/** Hyperliquid's own ceiling on `approveAgent`'s `valid_until`. The server
+ *  refuses anything past it too — this only saves a round trip. */
+const MAX_AGENT_DAYS = 180
+const maxExpiry = computed(
+  () => new Date(Date.now() + MAX_AGENT_DAYS * 86_400_000).toISOString().slice(0, 10),
+)
+
 function reset() {
   Object.assign(form, {
     label: '',
@@ -56,6 +64,7 @@ function reset() {
     api_secret: '',
     api_passphrase: '',
     wallet_address: '',
+    credential_expires_at: '',
   })
   reveal.secret = false
   reveal.passphrase = false
@@ -66,7 +75,14 @@ async function submit() {
   submitting.value = true
   error.value = ''
   try {
-    await api.createAccount({ ...form })
+    // An empty date is *no date*, not the epoch. The countdown stays silent
+    // rather than warning about a credential nobody said anything about.
+    await api.createAccount({
+      ...form,
+      credential_expires_at: form.credential_expires_at
+        ? new Date(form.credential_expires_at).toISOString()
+        : null,
+    })
     reset()
     open.value = false
     await accounts.load()
@@ -150,6 +166,25 @@ async function submit() {
             :hint="t('accounts.masterAddressHint')"
           >
             <input :id="id" v-model="form.wallet_address" class="field" placeholder="0x…" required />
+          </UiField>
+
+          <!-- Spec §7. The exchange caps an agent approval at 180 days and then
+               prunes the wallet without refusing anything, so an approval whose
+               date nobody records ends as a silent disconnection. Optional
+               because it is the partner's `valid_until`, not ours to invent —
+               left blank, the panel says nothing rather than guessing. -->
+          <UiField
+            v-slot="{ id }"
+            :label="t('accounts.expiresAt')"
+            :hint="t('accounts.expiresAtHint')"
+          >
+            <input
+              :id="id"
+              v-model="form.credential_expires_at"
+              type="date"
+              class="field"
+              :max="maxExpiry"
+            />
           </UiField>
         </template>
 

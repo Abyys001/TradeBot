@@ -22,6 +22,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from django.db.models import Q
+
 from apps.accounts.ledger import account_ledger, split_pcts
 from apps.accounts.models import (
     ConnectedAccount,
@@ -225,4 +227,87 @@ def account_report(account: ConnectedAccount) -> dict[str, Any]:
         "detections": DetectedMovementSerializer(detections, many=True).data,
         "notifications": NotificationSerializer(notifications, many=True).data,
         "leg_limit": LEG_LIMIT,
+    }
+
+
+# --- the statement window -------------------------------------------------
+#
+# The page above answers "everything, ever". A statement answers "this account,
+# between these two dates", which is a different question and has one trap in
+# it: a lifetime figure printed under a period heading is a lie. So the window
+# narrows the *events* — legs and cash flows — and every whole-life figure
+# (balance, net invested, PnL since inception) is carried through unchanged and
+# labelled as what it is.
+#
+# A leg belongs to the window it was **realised** in, not the one it was opened
+# in: that is when the money moved. A leg that was live during the window but
+# had not closed by ``end`` is listed as open and contributes nothing to the
+# period's result, and a leg that never got sent is listed as the failure it
+# was.
+
+
+def _in_window(value, start, end) -> bool:
+    if value is None:
+        return False
+    if start is not None and value < start:
+        return False
+    return not (end is not None and value >= end)
+
+
+def statement_report(account: ConnectedAccount, start=None, end=None) -> dict[str, Any]:
+    """One account between two instants — the payload the PDF receipt prints.
+
+    ``start``/``end`` are timezone-aware and half-open (``start <= t < end``);
+    either may be None for an open-ended side, and both None is the account's
+    whole life.
+    """
+    legs = TradeLeg.objects.filter(account=account).select_related("trade")
+    # Anything that was live at some point inside the window: opened before it
+    # ended, and either closed inside it or still running when it ended.
+    if end is not None:
+        legs = legs.filter(opened_at__lt=end)
+    if start is not None:
+        legs = legs.filter(
+            Q(opened_at__gte=start) | Q(closed_at__isnull=True) | Q(closed_at__gte=start)
+        )
+    rows = [_leg_row(leg) for leg in legs.order_by("opened_at", "id")]
+
+    # Three disjoint sets, because they answer three different questions and
+    # summing them together would answer none of them.
+    closed = [row for row in rows if row["ok"] and _in_window(row["closed_at"], start, end)]
+    realised_ids = {row["id"] for row in closed}
+    still_open = [row for row in rows if row["ok"] and row["id"] not in realised_ids]
+    failed = [row for row in rows if not row["ok"]]
+
+    movements = list(
+        FundMovement.objects.filter(account=account)
+        .filter(**{k: v for k, v in (("occurred_at__gte", start), ("occurred_at__lt", end)) if v})
+        .order_by("occurred_at", "id")
+    )
+    deposits = sum((D(m.amount) for m in movements if m.kind == "deposit"), ZERO)
+    withdrawals = sum((D(m.amount) for m in movements if m.kind != "deposit"), ZERO)
+
+    return {
+        "account": ConnectedAccountSerializer(account).data,
+        "connected_at": account.created_at,
+        "eligible_from": account.eligible_from,
+        "period": {"start": start, "end": end},
+        # Whole-life, deliberately: what the account is worth and what it has
+        # returned since inception cannot be windowed, and the receipt says so.
+        "ledger": account_ledger(account),
+        "split": {role: str(value) for role, value in split_pcts().items()},
+        # Period result: realised legs only. An open position has not returned
+        # anything yet and an unsent order returned nothing at all.
+        "trading": trading_summary(closed),
+        "closed": closed,
+        "open": still_open,
+        "failed": failed,
+        "symbols": by_symbol(closed),
+        "movements": FundMovementSerializer(movements, many=True).data,
+        "flows": {
+            "deposits": str(deposits),
+            "withdrawals": str(withdrawals),
+            "net": str(deposits - withdrawals),
+            "count": len(movements),
+        },
     }

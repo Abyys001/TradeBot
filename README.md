@@ -32,7 +32,8 @@ Nuxt bundle, no exposed backend). Runbook in [`docs/deploy.md`](docs/deploy.md).
 | [`CLAUDE.md`](CLAUDE.md) | Project init — architecture, invariants, build path. **Start here.** |
 | `backend/` | Django 5 + DRF + Channels + async fan-out engine |
 | `frontend/` | Nuxt 3 + TypeScript + Tailwind + Pinia, EN/FA |
-| [`questions.md`](questions.md) | Decisions taken + what is still open (Q5, Q10, Q11, Q12) |
+| [`questions.md`](questions.md) | Open questions — currently none |
+| [`docs/decisions.md`](docs/decisions.md) | Every closed question, Q1–Q28, with the setting or module that implements it |
 | [`docs/spec/platform-spec.md`](docs/spec/platform-spec.md) | Authoritative requirements |
 | [`docs/spec/conformance.md`](docs/spec/conformance.md) | Every spec clause → where it is implemented → the test that proves it |
 | [`docs/exchanges/coverage.md`](docs/exchanges/coverage.md) | All 8 exchanges: build order, testnet, blockers |
@@ -55,7 +56,9 @@ snap-Docker workaround, in [`docs/running.md`](docs/running.md).
 
 ## Next step
 
-1. Answer Q5 + Q12 in `questions.md` (`/risk` in the panel shows the numbers).
+1. Record each Hyperliquid account's agent-approval expiry when connecting it —
+   the approval lapses silently at 180 days and the panel can only warn about a
+   date it was given (`docs/decisions.md` Q11).
 2. Start the two lead-time items: the TradingView Charting Library application
    and the LBank futures docs request.
 3. Run every adapter on testnet per `docs/adapters.md` before real capital.

@@ -322,19 +322,24 @@ class HyperliquidAdapter(ExchangeAdapter):
                 "master address is correct and the agent wallet is approved."
             )
         # The state read proves the agent is approved for this master account.
-        # It proves nothing about withdrawal rights: the docs do not state
-        # whether an agent wallet can sign a withdrawal (questions.md Q11).
-        # Returning normally would mark the account "§7 verified" off a check
-        # that never ran, so report the gap — the account connects, flagged.
+        # It proves nothing about withdrawal rights: the exchange publishes no
+        # permission endpoint, so there is nothing here to read (docs/decisions.md
+        # Q11). Returning normally would mark the account "§7 verified" off a
+        # check that never ran, so report the gap — the account connects, flagged.
+        #
+        # Q11 is answered — an agent wallet has no withdrawal function to sign
+        # with — but that is the admin's determination, not something this code
+        # can verify per connection. The behaviour is therefore unchanged: the
+        # check is still reported as unprovable rather than quietly passed.
         logger.warning(
-            "hyperliquid: agent-wallet withdrawal rights are unverified (questions.md Q11); "
+            "hyperliquid: no permission endpoint to check (docs/decisions.md Q11); "
             "account %s connected without a spec §7 permission check",
             self.account_address,
         )
         raise NotSupported(
-            "hyperliquid: the agent wallet is approved, but whether an agent can "
-            "sign withdrawals is not documented (questions.md Q11), so §7 cannot "
-            "be proven. Verify on testnet before connecting real capital."
+            "hyperliquid: the agent wallet is approved, but the exchange publishes "
+            "no permission endpoint, so §7 cannot be proven per connection "
+            "(docs/decisions.md Q11)."
         )
 
     async def get_balance(self, asset: str = "USDT") -> Balance:

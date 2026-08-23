@@ -267,6 +267,26 @@ TRADING = {
 # placed itself explain Y, the recorded cash flows explain Z, and the remainder
 # is a deposit or a withdrawal nobody wrote down. That remainder is proposed for
 # review, never booked — apps/accounts/detection.py.
+def _detect_overrides() -> dict[str, dict[str, str]]:
+    """Per-exchange detection thresholds, read from the environment.
+
+    ``LEDGER_DETECT_MIN_USDT_<EXCHANGE>`` and ``LEDGER_DETECT_MIN_PCT_<EXCHANGE>``,
+    where ``<EXCHANGE>`` is the code in ``accounts.models.Exchange`` upper-cased.
+    Returned as strings and parsed as Decimal at the point of use, like the
+    globals they override — a float here would be a float in the money path.
+
+    Read from ``os.environ`` rather than a fixed list of exchanges so adding a
+    venue needs no change here; an unknown name is simply never looked up.
+    """
+    out: dict[str, dict[str, str]] = {}
+    for key, value in os.environ.items():
+        for suffix, field in (("USDT", "DETECT_MIN_USDT"), ("PCT", "DETECT_MIN_PCT")):
+            prefix = f"LEDGER_DETECT_MIN_{suffix}_"
+            if key.startswith(prefix) and value.strip():
+                out.setdefault(key[len(prefix) :].lower(), {})[field] = value.strip()
+    return out
+
+
 LEDGER = {
     "DETECT_ENABLED": env_bool("LEDGER_DETECT_ENABLED", True),
     # Fees, funding and exchange rounding move equity without anyone moving
@@ -275,6 +295,17 @@ LEDGER = {
     # in dust. Both in USDT / percent, parsed as Decimal at the point of use.
     "DETECT_MIN_USDT": os.getenv("LEDGER_DETECT_MIN_USDT", "1"),
     "DETECT_MIN_PCT": os.getenv("LEDGER_DETECT_MIN_PCT", "0.25"),
+    # Q28: the same two numbers, per exchange, because the drift they are
+    # measuring is not the same everywhere. Funding on a perpetual venue moves
+    # equity several times a day; a spot venue has none of it. One global
+    # percentage therefore serves both badly — set for perps it hides small
+    # real transfers on spot, set for spot it proposes funding as a withdrawal
+    # on perps. Anything absent here falls back to the global pair above, so a
+    # venue nobody has tuned behaves exactly as it did before.
+    #
+    #   LEDGER_DETECT_MIN_PCT_HYPERLIQUID=0.5
+    #   LEDGER_DETECT_MIN_USDT_BYBIT=2
+    "DETECT_PER_EXCHANGE": _detect_overrides(),
     # --- telling a trade result from somebody's cash (apps/accounts/classify) --
     "CLASSIFY_ENABLED": env_bool("LEDGER_CLASSIFY_ENABLED", True),
     # off  — classify nothing, every change waits for a person (the old behaviour)
@@ -292,6 +323,22 @@ LEDGER = {
     # What counts as an emptied account. Exchanges leave dust behind on a full
     # withdrawal, and nobody trades to exactly zero.
     "EMPTY_PCT": os.getenv("LEDGER_EMPTY_PCT", "2"),
+}
+
+# --- Credential lifetime (spec §7) ------------------------------------------
+# A credential can stop working without the exchange ever refusing a request.
+# Hyperliquid agent approvals carry an expiry — at most 180 days out — and an
+# expired agent is *pruned*, not rejected with a message: the account simply
+# stops trading. Nothing announces it, so the platform tracks the date it was
+# given at connect time and counts down to it.
+CREDENTIALS = {
+    # How long before expiry the panel starts warning. Renewal is not a button
+    # here — it needs the partner to approve a new agent — so the window has to
+    # be long enough to reach a person, remind them, and survive a weekend.
+    "EXPIRY_WARN_DAYS": int(os.getenv("CREDENTIAL_EXPIRY_WARN_DAYS", "21")),
+    # Hyperliquid's own ceiling on approveAgent's valid_until. Used to sanity
+    # check a date typed at connect time, not to invent one.
+    "MAX_AGENT_DAYS": int(os.getenv("CREDENTIAL_MAX_AGENT_DAYS", "180")),
 }
 
 # --- Market data (spec §3) --------------------------------------------------

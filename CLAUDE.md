@@ -29,21 +29,29 @@ accounts of $10 / $50 / $100 produced margins of $9.90 (rejected — below the
 exchange step), $49.50 and $99.00, fanned out in 0.3ms, amended, and closed,
 with the skipped account raising a persistent notification.
 
-**Not yet done** — see `questions.md` and the caveats in `docs/adapters.md`:
+**Not yet done** — see the caveats in `docs/adapters.md`
+(every question is answered; `docs/decisions.md` holds them):
 
 - Real exchange adapters are written from the vendored docs and unit-tested
   against mocked transports, but **none has been run against a live exchange or
   testnet**. Do that on testnet before any real capital.
 - LBank futures is impossible to implement (Q10); the adapter raises
   `NotSupported` rather than guessing.
-- Hyperliquid agent-wallet withdrawal rights are still unverified (Q11). The
-  panel no longer *shows* an "unverified" state: four exchanges (Hyperliquid,
-  LBank, Gate, Toobit) publish no permission endpoint, so the flag could never
-  be cleared on them and had become a permanent warning nobody could act on.
-  Enforcement is unchanged — a key that proves withdrawal rights is still
-  refused at connect time, and `ConnectedAccount.clean()` still blocks
-  activating an unchecked credential. Do not read the missing badge as a
-  dropped check.
+- Hyperliquid **agent wallets cannot withdraw** — answered by the admin, Q11,
+  and no testnet drill gates the release. **Do not modify the Hyperliquid
+  adapter.** Enforcement is unchanged: four exchanges (Hyperliquid, LBank, Gate,
+  Toobit) publish no permission endpoint, so `verify_credentials` still reports
+  the check as unprovable rather than quietly passing it, a key that proves
+  withdrawal rights is still refused at connect time, and
+  `ConnectedAccount.clean()` still blocks activating an unchecked credential.
+  The panel shows no "unverified" badge — a permanent warning nobody can act on
+  is alarm fatigue, not a dropped check.
+- What Hyperliquid access *does* need watching is **expiry**: an agent approval
+  lasts at most 180 days and the exchange **prunes** the wallet rather than
+  refusing it, so a lapse is a silent disconnection. `apps/accounts/credentials.py`
+  counts down to `ConnectedAccount.credential_expires_at`, raises a persistent
+  notice inside `CREDENTIAL_EXPIRY_WARN_DAYS` (21) and clears it on renewal.
+  Reported, never enforced — an expiring credential still trades.
 - Market data is a **public** feed (no credentials, Q13). It is **pinned to
   Hyperliquid** by default (`MARKET_DATA_PIN`): one venue, no hand-off, so the
   chart cannot change exchange behind the admin's back when an account is
@@ -87,7 +95,10 @@ docs/
   spec/exchange_list.original.txt    admin's raw exchange list, verbatim
   exchanges/coverage.md              exchange matrix + per-exchange capability checklist
   frontend/tradingview.md            chart setup: Lightweight Charts now, Charting Library later
-questions.md                         decisions + remaining open questions
+  bot-mode.md                        Pine Script bot mode: the eleven-phase plan and why (nothing built yet)
+  bot-plan.md                        the execution plan under it — file manifest, settings, the test per item
+  decisions.md                       every closed question, Q1–Q28, with the setting that implements it
+questions.md                         open questions only — currently Q29; new ones start at Q30
 reference/                           read-only vendored exchange docs & SDKs — never imported
 ```
 
@@ -109,11 +120,14 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/trading/possync.py` | **The exchange is the source of truth.** Sweeps every account's real position every few seconds and corrects the record both ways: a stop that fired on the venue closes the leg here, a position the platform wrote off is put back where close can reach it. Read-only against exchanges — it never places or cancels an order. It also **recovers the exit**: a leg the venue closed by itself has its exit price and realised PnL read back out of the exchange's own fills (`get_closed_pnl`), so the trade log carries money rather than a dash. Runs inline on `/positions/` and as the `possync` compose service. |
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
 | `apps/accounts/visibility.py` | Read-side account filtering. One hardcoded username. Nothing in `engine/` or `services.py` may import it. |
+| `apps/accounts/credentials.py` | **When a credential stops working.** A Hyperliquid agent approval is *pruned* at its expiry, not refused, so a lapse is a silent disconnection. Counts down to the recorded date, raises one persistent notice, escalates it on expiry and clears it on renewal. Measures and reports only — it never pauses an account or drops one from a fan-out. |
 | `apps/accounts/sessions.py` | **Who is signed in.** One shared staff login, so access is a list of *sessions*: one row per browser, last-seen throttled to one write a minute, and only the SHA-256 of the session key — never the key. |
 | `apps/accounts/detection.py` | **How much is unexplained.** Subtracts the legs it closed itself, and the flows already on record, from what equity did. Compares flat reading to flat reading, so unrealised PnL is never inside a window. Measures only — it does not decide what the remainder *was*. |
 | `apps/accounts/classify.py` | **Which of the two it was, without asking.** The platform trades every account at once, so a change that hit the whole set is the trade and one that hit a single account is somebody's own money. Plus: an emptied account is a withdrawal, and money arriving while nothing has traded is a deposit. Ordered rules, each with a reason code the panel shows. `LEDGER_AUTO_RESOLVE` decides how much it may book by itself; everything it books is a `LedgerEvent` and is reopenable. |
 | `apps/accounts/bookkeeping.py` | The only place a money record is written. Every create/edit/delete/accept/attribute/reopen leaves a `LedgerEvent` with the actor — blank for the platform — and the before/after. |
 | `apps/accounts/report.py` | **One account, whole.** The per-account page's single payload: connection, ledger row, every leg with what it returned, the realised curve, cash flows and detections. Derives, never decides — the money is `ledger.py`'s arithmetic and the trades are the account's own legs. |
+| `apps/accounts/statement.py` | **The same account, as a document that leaves the platform.** Windowed by the two dates the operator picks, laid out with ReportLab and handed over as a PDF. It talks in money only — **no percentage appears anywhere in it**, because a rate on a page invites the reader to apply it to a number that is not there — and it says throughout that the bot placed every order. Derives nothing: `report.statement_report` does the arithmetic. |
+| `apps/accounts/statement_text.py` | **Both languages, side by side.** Every phrase in the statement in English and Persian, so a wording change cannot land in one and miss the other. Also owns what makes Persian *render*: the embedded Vazirmatn faces (Helvetica has no Arabic glyphs) and `shape()`, which reshapes and reorders a run — and deliberately leaves a run with no Arabic letter alone, since running bidi over `+$1,234.00` moves the sign to the wrong end. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -127,6 +141,7 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `composables/useSltpAmend.ts` | The one path a mid-trade SL/TP change takes. Ticket, chart drag and position row all call it; one fan-out is in the air at a time and the last edit wins, because a run of drags must not let an older amend land last. |
 | `composables/useChartAdapter.ts` | The chart seam — Lightweight Charts now, Charting Library later. Owns the draggable SL/TP/limit lines. |
 | `pages/accounts/[id].vue` | One connection's own page, reached from every row of the accounts list: when it connected, what was paid in and out, every leg it was given and what each returned. One request (`/accounts/accounts/<id>/report/`); nothing is recomputed in the browser. |
+| `components/accounts/StatementDialog.vue` | The dialog in front of that page's download: which period, and which language the *recipient* reads — asked rather than assumed, because the file is what a partner is sent and it opens on the panel's language only as the likelier answer. |
 | `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. |
 | `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen. On one password this is the only place a second participant is visible. |
 | `components/app/NotificationCenter.vue` | Spec §4 failure notices (Q16 amendment). Nothing here auto-expires. |
@@ -291,12 +306,12 @@ leverage) are declared per adapter and handled behind the interface — never wi
 
 Nothing here is runnable yet. In order:
 
-0. **Start the two external lead-time items today** — they block nothing locally
-   but take days-to-weeks: apply for the TradingView Charting Library
-   (`docs/frontend/tradingview.md`), and email LBank for private futures API
-   docs (`questions.md` Q10).
-1. Answer `questions.md` Q5 and Q12 — they set SL/TP semantics and exact sizing,
-   which the adapter interface encodes.
+0. **Start the external lead-time item** — it blocks nothing locally but takes
+   days-to-weeks: apply for the TradingView Charting Library
+   (`docs/frontend/tradingview.md`). LBank private futures docs are the other
+   one (`docs/decisions.md` Q10), shipped around rather than waited on.
+1. Answer Q5 and Q12 — they set SL/TP semantics and exact sizing, which the
+   adapter interface encodes. *(Both answered; see `docs/decisions.md`.)*
 2. Scaffold `backend/` (Django + DRF + Channels) and `frontend/` (Nuxt 3),
    Docker-first: `cp .env.example .env` → `docker compose up -d --build`.
 3. Build the Adapter interface + an in-memory **paper adapter** first — it is
@@ -318,5 +333,6 @@ Nothing here is runnable yet. In order:
   get recorded there, not silently in code.
 - Exchange API facts come from `reference/` or the `hyperliquid-docs` MCP server,
   not from memory. Exchange APIs drift.
-- New ambiguity found mid-task → append to `questions.md`, keep building the
+- New ambiguity found mid-task → append to `questions.md` (numbered from Q30),
+  and move it to `docs/decisions.md` once answered. Keep building the
   parts that don't depend on the answer.

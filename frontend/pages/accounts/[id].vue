@@ -30,6 +30,7 @@ const error = ref('')
 const busy = ref(false)
 const actionError = ref('')
 const pendingDelete = ref(false)
+const pendingStatement = ref(false)
 const tab = ref<'overview' | 'trades' | 'cash' | 'activity'>('overview')
 
 const account = computed(() => report.value?.account ?? null)
@@ -227,6 +228,12 @@ const checkText = computed(() => {
             <UiIcon name="shield" :size="13" />
             <span class="hidden sm:inline">{{ t('accounts.verify') }}</span>
           </button>
+          <!-- The one control here that produces something to hand to somebody
+               else, so it asks for the period first rather than guessing. -->
+          <button class="btn-brand btn-sm" @click="pendingStatement = true">
+            <UiIcon name="download" :size="13" />
+            <span class="hidden sm:inline">{{ t('accounts.statement.action') }}</span>
+          </button>
           <button class="btn-danger btn-sm btn-icon" :aria-label="t('accounts.delete')" @click="pendingDelete = true">
             <UiIcon name="trash" :size="13" />
           </button>
@@ -365,7 +372,23 @@ const checkText = computed(() => {
               </div>
               <div v-if="account.credential_expires_at" class="flex items-baseline gap-3">
                 <dt class="label shrink-0 w-32">{{ t('accounts.report.expires') }}</dt>
-                <dd class="min-w-0 num">{{ dateTime(account.credential_expires_at) }}</dd>
+                <!-- The date alone is not a warning. An agent approval is
+                     pruned at expiry with no error from the exchange, so the
+                     countdown beside it is what says the account is about to
+                     stop trading in silence (spec §7). -->
+                <dd class="min-w-0 num flex items-center gap-2">
+                  {{ dateTime(account.credential_expires_at) }}
+                  <UiBadge
+                    v-if="account.credential_state"
+                    :tone="account.credential_state === 'expired' ? 'short' : 'signal'"
+                  >
+                    {{
+                      (account.credential_days_left ?? 0) < 0
+                        ? t('accounts.expiry.expired', { n: Math.abs(account.credential_days_left ?? 0) })
+                        : t('accounts.expiry.days', { n: account.credential_days_left ?? 0 })
+                    }}
+                  </UiBadge>
+                </dd>
               </div>
               <div class="flex items-baseline gap-3">
                 <dt class="label shrink-0 w-32">{{ t('accounts.report.asset') }}</dt>
@@ -448,6 +471,14 @@ const checkText = computed(() => {
       <!-- ── Activity ───────────────────────────────────────────────── -->
       <AccountsReportActivity v-else :report="report" />
     </template>
+
+    <AccountsStatementDialog
+      v-if="account"
+      v-model="pendingStatement"
+      :account-id="id"
+      :label="account.label"
+      :connected-at="report!.connected_at"
+    />
 
     <UiModal
       :model-value="pendingDelete"

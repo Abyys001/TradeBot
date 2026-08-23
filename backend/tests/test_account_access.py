@@ -553,6 +553,41 @@ def test_a_hidden_account_is_still_eligible_to_trade():
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_credential_countdown_names_no_hidden_account():
+    """Spec §7's expiry warning is a read surface like any other.
+
+    ``balances`` grew an ``expiring_credentials`` list. A new read surface that
+    forgets to filter is the standard way this invariant gets broken, so it gets
+    a case here rather than trusting that it was built from the right queryset.
+    """
+    from datetime import timedelta
+
+    soon = timezone.now() + timedelta(days=2)
+    make_account("open-book", credential_expires_at=soon)
+    make_account("quiet", hidden=True, credential_expires_at=soon)
+
+    body = other_client().get("/api/accounts/accounts/balances/").json()
+    assert [r["label"] for r in body["expiring_credentials"]] == ["open-book"]
+
+    seen = viewer_client().get("/api/accounts/accounts/balances/").json()
+    assert {r["label"] for r in seen["expiring_credentials"]} == {"open-book", "quiet"}
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_notice_about_a_hidden_credential_is_not_listed():
+    """The countdown also raises a Notification, which is its own read surface."""
+    from datetime import timedelta
+
+    from apps.accounts import credentials
+
+    make_account("quiet", hidden=True, credential_expires_at=timezone.now() + timedelta(days=2))
+    credentials.sync_notifications()
+
+    assert other_client().get("/api/accounts/notifications/").json() == []
+    assert viewer_client().get("/api/accounts/notifications/").json()
+
+
 def test_balance_polling_still_covers_hidden_accounts():
     """Spec §6 wants every account's balance current — the viewer reads them."""
     from asgiref.sync import async_to_sync

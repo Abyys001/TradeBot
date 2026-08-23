@@ -201,6 +201,53 @@ def test_fees_and_funding_dust_stays_below_the_threshold():
     assert account.ledger_cursor_equity == D("998.20"), "the cursor must still advance"
 
 
+# --- Q28: the threshold is per exchange ------------------------------------
+
+
+@override_settings(
+    LEDGER=ledger_settings(
+        DETECT_MIN_USDT="1",
+        DETECT_MIN_PCT="0.25",
+        DETECT_PER_EXCHANGE={"hyperliquid": {"DETECT_MIN_PCT": "1.5"}},
+    )
+)
+def test_a_venue_with_its_own_threshold_uses_it_and_the_others_do_not():
+    """Funding on a perpetual venue is drift; the same number on spot is money.
+
+    One global percentage has to be wrong somewhere — wide enough for perps it
+    hides small real transfers elsewhere. So the same $8 move is dust on
+    Hyperliquid and a proposal on a venue that pays no funding.
+    """
+    perp = make_account("hl", exchange=Exchange.HYPERLIQUID)
+    other = make_account("paper", exchange=Exchange.PAPER)
+    an_hour_ago = timezone.now() - timedelta(hours=1)
+
+    observe(perp, "1000", at=an_hour_ago)
+    observe(other, "1000", at=an_hour_ago)
+
+    assert observe(perp, "992") is None, "1.5% of 1000 is 15.00 — $8 is inside it"
+    assert observe(other, "992") is not None, "0.25% of 1000 is 2.50 — $8 clears it"
+
+
+@override_settings(
+    LEDGER=ledger_settings(
+        DETECT_MIN_USDT="1",
+        DETECT_MIN_PCT="0.25",
+        DETECT_PER_EXCHANGE={"bybit": {"DETECT_MIN_USDT": "50"}},
+    )
+)
+def test_an_override_may_set_only_one_of_the_two_and_inherit_the_other():
+    """Each half falls back on its own, so tuning the floor does not silently
+    reset the percentage to a default nobody chose."""
+    assert detection.threshold(D("1000"), "bybit") == D("50"), "floor overridden"
+    assert detection.threshold(D("100000"), "bybit") == D("250"), "percentage inherited"
+
+
+def test_an_exchange_nobody_has_tuned_behaves_exactly_as_before():
+    """The global pair is the fallback, not an error."""
+    assert detection.threshold(D("1000"), "kucoin") == detection.threshold(D("1000"))
+
+
 @override_settings(LEDGER=ledger_settings(DETECT_ENABLED=False))
 def test_the_detector_can_be_switched_off_entirely():
     account = make_account()
