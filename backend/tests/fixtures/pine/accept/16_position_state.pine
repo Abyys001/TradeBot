@@ -1,0 +1,10 @@
+//@version=5
+strategy("position state")
+inLong = strategy.position_size > 0
+entryPrice = strategy.position_avg_price
+gain = inLong and not na(entryPrice) ? (close - entryPrice) / entryPrice * 100 : 0.0
+if not inLong and ta.crossover(close, ta.sma(close, 30))
+    strategy.entry("L", strategy.long)
+if inLong and gain > 5
+    strategy.close("L")
+plot(gain)

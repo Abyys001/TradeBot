@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+import user/lib/1 as lib
+//@expect code=unsupported_import line=3 col=1

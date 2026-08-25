@@ -19,7 +19,9 @@
     "more": "More",
     "collapse": "Collapse",
     "chart": "Chart",
-    "expand": "Expand menu"
+    "expand": "Expand menu",
+    "language": "Language",
+    "bots": "Bots"
   },
   "common": {
     "loading": "Loading…",
@@ -829,6 +831,7 @@
   },
   "landing": {
     "eyebrow": "Order routing for multiple accounts",
+    "badge": "One interface · every account",
     "h1": {
       "line1": "You trade once.",
       "line2": "Every account",
@@ -839,7 +842,9 @@
       "dashboard": "Open the dashboard",
       "signIn": "Sign in",
       "risk": "What a percentage costs",
-      "accounts": "Connect an account"
+      "accounts": "Connect an account",
+      "title": "Trade once. Every account follows.",
+      "body": "Connect a trade-only key and the next order fans out to every account at once — sized to each balance, protected, and reported leg by leg."
     },
     "stat": {
       "accounts": "Connected accounts",
@@ -854,19 +859,36 @@
       "failed": "failed — needs you",
       "failedShort": "failed"
     },
-    "truths": {
-      "isolation": {
-        "term": "One failure stays one failure",
-        "body": "Every account gets its own connection, its own rate limit and its own deadline. An exchange going down costs that account the trade and nobody else."
+    "sections": {
+      "stats": "The numbers",
+      "how": "How it goes",
+      "features": "Why it holds up",
+      "live": "See it",
+      "security": "Security",
+      "faq": "Straight answers"
+    },
+    "stats": {
+      "title": "Measured, not promised",
+      "body": "The numbers behind the promise, from the repo's own test suite and the verified three-account demo.",
+      "exchanges": {
+        "label": "Exchanges",
+        "body": "behind one interface"
       },
-      "sizing": {
-        "term": "Sized to each balance",
-        "body": "Every account commits 99% of its own USDT. A $50 account and a $5,000 account take the same leverage and the same stop percentage, at very different dollar sizes."
+      "tests": {
+        "label": "Backend tests",
+        "body": "passing, on every run"
       },
-      "stops": {
-        "term": "Stops move everywhere at once",
-        "body": "Drag the stop on the chart, edit it in the ticket, or change it on the position row — all three push the same amendment to every account."
+      "margin": {
+        "label": "Of balance",
+        "body": "committed as margin on every entry"
+      },
+      "fanout": {
+        "label": "Fan-out dispatch",
+        "body": "measured on a three-account demo"
       }
+    },
+    "marquee": {
+      "label": "Supported exchanges"
     },
     "how": {
       "title": "How it goes",
@@ -883,13 +905,68 @@
         "body": "Per-leg results arrive as they happen. A failed leg raises a notice that stays on screen until you dismiss it — no toast that disappears while you look away."
       }
     },
-    "coverage": {
-      "title": "Eight exchanges behind one interface",
-      "body": "Every exchange implements the same adapter, so capability differences — native versus emulated stops, per-symbol versus per-account leverage — are handled behind the seam rather than in trading logic. Adapters are written from vendored documentation and unit-tested; none has yet been run against a live exchange, so verify on testnet before committing real capital."
+    "features": {
+      "title": "Six constraints, not six buttons",
+      "body": "Every trade obeys these. They are guarantees someone is trusting with their capital, so they earn their space.",
+      "isolation": {
+        "term": "One failure stays one failure",
+        "body": "Every account gets its own connection, its own rate limit and its own deadline. An exchange going down costs that account the trade and nobody else."
+      },
+      "sizing": {
+        "term": "Sized to each balance",
+        "body": "Every account commits 99% of its own USDT. A $50 account and a $5,000 account take the same leverage and the same stop percentage, at very different dollar sizes."
+      },
+      "stops": {
+        "term": "Stops move everywhere at once",
+        "body": "Drag the stop on the chart, edit it in the ticket, or change it on the position row — all three push the same amendment to every account."
+      },
+      "keys": {
+        "term": "Keys that cannot withdraw",
+        "body": "Trade-only is enforced at connect wherever the exchange exposes the permission; a key that can move money is refused outright."
+      },
+      "mark": {
+        "term": "The exchange is the source of truth",
+        "body": "Positions are re-read from each venue on a timer, so a stop that fired on the exchange closes the leg here — and a position the platform wrote off is put back."
+      },
+      "statements": {
+        "term": "One account, whole",
+        "body": "Every account gets its own page and a PDF statement in the language its partner reads — money only, no percentages that invite misreading."
+      }
+    },
+    "live": {
+      "title": "The fan-out, live",
+      "body": "Signed in, this is your own last trade, leg by leg. Signed out, the diagram runs the demo so the promise still teaches itself."
+    },
+    "network": {
+      "badge": "Live demo",
+      "title": "One order · every account",
+      "filled": "{ok}/{total} filled",
+      "failed": "{label} failed — needs you"
     },
     "security": {
       "title": "It holds live trading credentials",
-      "body": "Keys are encrypted at rest with rotatable Fernet keys, never logged, never included in an API response, and verified as non-withdrawable at connect time wherever the exchange exposes a permission endpoint. Where it cannot be proven, the account is flagged rather than silently trusted."
+      "body": "Keys are encrypted at rest with rotatable Fernet keys, never logged, never included in an API response, and verified as non-withdrawable at connect time wherever the exchange exposes a permission endpoint. Where it cannot be proven, the account is flagged rather than silently trusted.",
+      "item1": "Keys encrypted at rest with rotatable Fernet keys — never logged, never in an API response.",
+      "item2": "Trade-only enforced at connect: a key that can withdraw is refused outright wherever the exchange lets us check.",
+      "item3": "Credentials are never sent back to the browser, not even masked for display.",
+      "item4": "Where an exchange publishes no permission endpoint, the account is flagged rather than silently trusted.",
+      "item5": "A platform-wide halt switch (STOP_ALL) that stops new routing instantly and cannot be cleared from the panel."
+    },
+    "faq": {
+      "title": "Questions an operator asks",
+      "body": "Straight answers, including the ones it costs nothing to be honest about.",
+      "q1": "Has this been tested against live exchanges?",
+      "a1": "Not yet. The eight adapters are written from vendored exchange documentation and unit-tested against mocked transports, but none has been run against a live exchange or testnet. Verify on testnet before committing real capital.",
+      "q2": "Which exchanges are covered?",
+      "a2": "Hyperliquid, Bybit, Binance, OKX, Gate.io, KuCoin, Toobit and LBank sit behind one interface. Capability differences — native versus emulated stops, per-symbol versus per-account leverage — are handled behind the adapter seam, never in trading logic.",
+      "q3": "Can the keys move money out?",
+      "a3": "No. Every key is verified as trade-only at connect, and refused outright where withdrawal rights are detected. On exchanges that publish no permission endpoint, the check is reported as unprovable and the account is flagged rather than quietly trusted.",
+      "q4": "Why USDT only?",
+      "a4": "Sizing is 99% of an account's available USDT balance, with leverage on top. An account denominated in anything else is reported on the dashboard as unusable — it is never traded on a guess.",
+      "q5": "How many trades at once?",
+      "a5": "One open trade per account. An entry whose fill is unconfirmed counts as possibly holding one, so a second order can never stack on a position that may already be there.",
+      "q6": "What if one exchange fails mid-trade?",
+      "a6": "That account fails alone and raises a persistent notice that stays until you dismiss it — the others still fill. A leg that failed after its order went out is re-read from the exchange, so a fill is never reported as a failure."
     },
     "footerNote": "Order routing and execution. Not an exchange, not a signal service."
   },
@@ -981,5 +1058,132 @@
     "message": "Message",
     "details": "Details",
     "filterCategory": "Filter by this category"
+  },
+  "bots": {
+    "title": "Bots",
+    "lead": "A bot is a signal source, not a second execution path. A Pine Script strategy decides the side; sizing, the fan-out and the halt are the same code the manual button goes through.",
+    "strategies": "Strategies",
+    "strategiesLead": "Pine Script v5, checked as you type. Anything outside the supported subset is refused by name, line and column — nothing is parsed and quietly ignored.",
+    "backtest": "Backtest",
+    "backtestLead": "Replay a version over stored history. The fill model is printed above the metrics, because a backtest that flatters itself produces a number people act on.",
+    "newStrategy": "New strategy",
+    "newBot": "New bot",
+    "none": "No bots yet",
+    "noneBody": "A bot runs one version of one strategy on one pair. Write the strategy first.",
+    "noStrategies": "No strategies yet",
+    "noStrategiesBody": "A strategy is a Pine Script v5 file. Saving a version never rewrites an old one, so a running bot cannot change under it.",
+    "noVersion": "no version saved",
+    "versionN": "version {n}",
+    "strategyName": "Name",
+    "strategyVersion": "Strategy version",
+    "botName": "Name",
+    "doesNotValidate": "does not validate",
+    "saveVersion": "Save version",
+    "checking": "checking…",
+    "valid": "Valid",
+    "errorsN": "{n} errors",
+    "warningsN": "{n} warnings",
+    "diagnostics": "Problems",
+    "inputs": "Inputs",
+    "inputName": "Name",
+    "inputType": "Type",
+    "inputDefault": "Default",
+    "inputRange": "Range",
+    "interval": "Timeframe",
+    "market": "Market",
+    "sizingNote": "Size is not a setting: every account is sized at 99% of its own balance. A qty in the script is ignored and reported at upload.",
+    "dryRun": "dry run",
+    "startPaper": "Start on paper",
+    "goLive": "Go live",
+    "gateBlocks": "The promotion gate is not met yet",
+    "gateUnmet": "{name} has not met the promotion gate",
+    "gateUnmetHere": "This bot has not met the promotion gate. Every unmet row is below.",
+    "stoppedByHand": "stopped from the panel",
+    "noAutoResume": "Nothing here resumes on its own. A bot that stopped itself is restarted by a person who has read why.",
+    "lastBar": "Last bar",
+    "barsN": "{n} bars",
+    "barsEvaluated": "Bars evaluated",
+    "divergences": "Divergences",
+    "feedGaps": "Gaps repaired",
+    "restarts": "Restarts survived",
+    "feed": "Feed",
+    "liveIntent": "Live",
+    "flat": "flat",
+    "noActions": "Nothing routed yet",
+    "noActionsBody": "Every order this bot sends appears here with the result each account gave back.",
+    "shadowNote": "recorded, not sent",
+    "noBars": "No bars recorded yet",
+    "barTime": "Bar",
+    "close": "Close",
+    "intent": "Intent",
+    "plots": "Plots",
+    "evaluated": "Evaluated in",
+    "promotion": "Promotion gate",
+    "promotionHint": "Measured, not asserted. Live is refused while any row is unmet.",
+    "requirement": "Requirement",
+    "threshold": "Required",
+    "measured": "Measured",
+    "gateFootnote": "One row cannot be measured from inside: no exchange adapter has been run against a live exchange or a testnet yet. It is carried as an explicit acknowledgement rather than quietly assumed.",
+    "sourceHint": "The exact version this bot runs. Read-only: a version is immutable, so a running bot cannot change under it.",
+    "noSource": "Source unavailable",
+    "runBacktest": "Run backtest",
+    "replaying": "Replaying…",
+    "from": "From",
+    "to": "To",
+    "assumptions": "Fill model and limits",
+    "assumptionsHint": "Above the metrics on purpose.",
+    "intentDigest": "Intent digest",
+    "equityCurve": "Equity",
+    "trades": "Trades",
+    "tradesN": "{n} trades",
+    "noTrades": "This strategy took no trades in this window",
+    "side": "Side",
+    "entry": "Entry",
+    "exit": "Exit",
+    "pnl": "PnL",
+    "barsHeld": "Bars",
+    "reason": "Reason",
+    "line": "line",
+    "state": {
+      "draft": "Draft",
+      "paper": "Paper",
+      "live": "Live",
+      "stopped": "Stopped"
+    },
+    "tab": {
+      "activity": "Activity",
+      "bars": "Bars",
+      "promotion": "Promotion",
+      "source": "Source"
+    },
+    "action": {
+      "open": "Open",
+      "amend": "Amend",
+      "close": "Close",
+      "shadow": "Shadow"
+    },
+    "stop": {
+      "action": "Stop",
+      "consecutive_losses": "Too many losing trades in a row",
+      "drawdown": "Drawdown past this bot's limit",
+      "trade_rate": "Too many trades in an hour",
+      "no_bars": "The feed went quiet",
+      "feed_gap": "A gap in the bars could not be repaired",
+      "script_error": "The script raised an error",
+      "state_disagreement": "The exchange and the record still disagree",
+      "halt": "The platform halt stopped every bot",
+      "manual": "Stopped by hand",
+      "risk_gate": "The risk gate refused an order"
+    },
+    "metric": {
+      "net_pnl": "Net PnL",
+      "return_pct": "Return %",
+      "max_drawdown_pct": "Max drawdown %",
+      "sharpe": "Sharpe",
+      "trades": "Trades",
+      "win_rate_pct": "Win rate %",
+      "profit_factor": "Profit factor",
+      "max_consecutive_losses": "Worst losing streak"
+    }
   }
 }

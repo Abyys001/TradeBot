@@ -1,0 +1,10 @@
+//@version=5
+strategy("EMA trend")
+len = input.int(50, "Length")
+trend = ta.ema(close, len)
+long = close > trend and close[1] <= trend[1]
+flat = close < trend
+if long
+    strategy.entry("L", strategy.long)
+if flat
+    strategy.close_all()

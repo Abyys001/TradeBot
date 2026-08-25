@@ -1,0 +1,4 @@
+//@version=5
+strategy("typo")
+plot(ta.emaa(close, 20))
+//@expect code=unsupported_member line=3 col=6

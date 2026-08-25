@@ -1,0 +1,5 @@
+//@version=5
+len = 20
+strategy("late")
+plot(ta.sma(close, len))
+//@expect code=strategy_not_first line=3 col=1

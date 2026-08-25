@@ -55,6 +55,16 @@ class Trade(models.Model):
         max_digits=24, decimal_places=8, null=True, blank=True
     )
     status = models.CharField(max_length=8, choices=TradeStatus.choices, default=TradeStatus.OPEN)
+    # Which bot run placed this, when a bot did. Null is the manual path and
+    # nothing about it changes — §8 history simply gains the ability to say
+    # which trades a bot made, without a parallel history table to reconcile.
+    bot_run = models.ForeignKey(
+        "bots.BotRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="trades",
+    )
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     fanout_ms = models.FloatField(null=True, blank=True)

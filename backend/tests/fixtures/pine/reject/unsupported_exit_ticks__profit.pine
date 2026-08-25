@@ -1,0 +1,5 @@
+//@version=5
+strategy("reject")
+strategy.entry("L", strategy.long)
+strategy.exit("x", "L", profit=10)
+//@expect code=unsupported_exit_ticks line=4 col=25

@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject", calc_on_every_tick=true)
+plot(close)
+//@expect code=unsupported_intrabar line=2 col=20

@@ -1,0 +1,8 @@
+//@version=5
+strategy("ATR exit")
+atr = ta.atr(14)
+mult = input.float(2.0, "ATR multiple", minval=0.5)
+band = atr / close * 100 * mult
+if ta.crossover(close, ta.sma(close, 20))
+    strategy.entry("L", strategy.long)
+    strategy.exit("X", "L", loss_pct=band, profit_pct=band * 2)

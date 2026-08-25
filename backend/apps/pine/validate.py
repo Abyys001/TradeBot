@@ -1,0 +1,749 @@
+"""Subset enforcement and the semantic checks the runtime cannot make.
+
+Everything here runs **once, at upload time**, and everything it reports carries
+a line and a column. Two rules shape the whole file:
+
+  **Reject by name (Q24).** A construct outside the v1 subset never loads and is
+  never ignored. The message says which construct and why, from the one registry
+  in ``subset.py``, so a rejection cannot ship without its message.
+
+  **Report what is reinterpreted (Q20).** A script's ``qty`` is parsed and then
+  ignored — but with a warning, at upload time, never silently. Same for a
+  ``varip`` under Q23's confirmed-bars-only rule.
+
+The checks that are here rather than in the runtime are the ones whose failure
+mode is a *repeating* one: an order call inside a loop fires N entries per bar,
+at 99% of every account, once per bar, forever. Catching it when someone presses
+Save costs nothing; catching it at 03:00 costs the book.
+"""
+
+from __future__ import annotations
+
+import difflib
+from dataclasses import dataclass, field
+
+from apps.pine import ast_nodes as ast
+from apps.pine.errors import PineError, PineNameError, PineSyntaxError, PineUnsupported, PineWarning
+from apps.pine.lexer import declared_version, tokenize
+from apps.pine.limits import DEFAULT_LIMITS, Limits
+from apps.pine.parser import Parser
+from apps.pine.subset import (
+    BARE_FUNCTIONS,
+    BUILTIN_SERIES,
+    BUILTIN_VALUES,
+    DECORATIVE_NAMESPACES,
+    EXIT_PERCENT_ARGS,
+    NAMESPACE_FUNCTIONS,
+    NAMESPACE_VALUES,
+    REJECTED_EXIT_ARGS,
+    REJECTED_KEYWORDS,
+    REJECTED_NAMES,
+    REJECTED_NAMESPACES,
+    REJECTED_STRATEGY_ARGS,
+    STRATEGY_ACCEPTED_ARGS,
+    STRATEGY_IGNORED_ARGS,
+    VISUAL_FUNCTIONS,
+)
+from apps.pine.tokens import TokenKind
+
+ORDER_CALLS = frozenset({"strategy.entry", "strategy.close", "strategy.close_all", "strategy.exit"})
+
+#: ``strategy.entry`` arguments that name a size. Parsed, ignored, reported (Q20).
+SIZE_ARGS = frozenset({"qty", "qty_percent"})
+
+
+@dataclass(frozen=True, slots=True)
+class InputSpec:
+    """One ``input.*`` call, as the Phase 8 parameter form needs it."""
+
+    name: str
+    kind: str
+    default: object
+    title: str
+    minval: object = None
+    maxval: object = None
+    options: tuple = ()
+
+    def as_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "default": self.default,
+            "title": self.title,
+            "minval": self.minval,
+            "maxval": self.maxval,
+            "options": list(self.options),
+        }
+
+
+@dataclass(slots=True)
+class ValidationResult:
+    """Everything one pass found. Mutable — the validator accumulates into it."""
+
+    program: ast.Program | None = None
+    errors: list[PineError] = field(default_factory=list)
+    warnings: list[PineWarning] = field(default_factory=list)
+    inputs: list[InputSpec] = field(default_factory=list)
+    ta_call_sites: int = 0
+    node_count: int = 0
+    #: ``ta.*`` call sites the runtime cannot hoist to the top of the bar. See
+    #: ``_check_hoistable`` — each one is a warning, never a silent difference.
+    unhoistable: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+    def as_dict(self) -> dict:
+        return {
+            "ok": self.ok,
+            "errors": [e.as_dict() for e in self.errors],
+            "warnings": [w.as_dict() for w in self.warnings],
+            "inputs": [i.as_dict() for i in self.inputs],
+            "ta_call_sites": self.ta_call_sites,
+            "node_count": self.node_count,
+        }
+
+
+def validate(source: str, *, limits: Limits = DEFAULT_LIMITS) -> ValidationResult:
+    """Parse and check ``source``. Never raises: every fault comes back as data.
+
+    Collecting rather than raising is what the Phase 8 editor needs — a script
+    with four mistakes should underline four, not send the author round the loop
+    four times. ``pine_check`` and the ``validate`` endpoint both render this.
+    """
+    result = ValidationResult()
+
+    if len(source.encode("utf-8")) > limits.max_script_bytes:
+        result.errors.append(
+            PineUnsupported(
+                f"this script is larger than the {limits.max_script_bytes}-byte limit",
+                code="script_too_large",
+            )
+        )
+        return result
+
+    # The rejected keywords are lexed as keywords and would otherwise come back
+    # as a bare syntax error. Checking the token stream first is what turns
+    # "unexpected 'import'" into the message Q24 requires.
+    try:
+        tokens = tokenize(source)
+    except PineError as exc:
+        result.errors.append(exc)
+        return result
+
+    for token in tokens:
+        if token.kind == TokenKind.KEYWORD and token.value in REJECTED_KEYWORDS:
+            row = REJECTED_KEYWORDS[token.value]
+            result.errors.append(
+                PineUnsupported(row.message, code=row.code, span=token.span)
+            )
+    if result.errors:
+        return result
+
+    try:
+        program = Parser(tokens, version=declared_version(source)).parse()
+    except PineError as exc:
+        # A construct outside the subset can also be outside the *grammar* —
+        # `array.new<float>()` fails on the type parameters before anything
+        # looks at the namespace. Q24 wants the construct named, so the token
+        # stream is swept for a rejected namespace before the parse error is
+        # reported as-is.
+        named = _rejected_namespace_tokens(tokens)
+        result.errors.extend(named or [exc])
+        return result
+
+    result.program = program
+    _Checker(program, result, limits).run()
+    return result
+
+
+def _rejected_namespace_tokens(tokens) -> list[PineError]:
+    """Rejected namespaces spotted in the raw token stream: ``array.``, ``map.``…
+
+    Only used when the parse failed. A bare ``label = high - low`` is a perfectly
+    good variable, so the dot is what makes it a namespace reference.
+    """
+    found: list[PineError] = []
+    seen: set[tuple[str, int, int]] = set()
+    for index, token in enumerate(tokens):
+        if token.kind != TokenKind.NAME:
+            continue
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        if following is None or following.kind != TokenKind.OP or following.value != ".":
+            continue
+        row = REJECTED_NAMESPACES.get(token.value)
+        if row is None:
+            continue
+        key = (row.code, token.span.line, token.span.col)
+        if key in seen:
+            continue
+        seen.add(key)
+        found.append(PineUnsupported(row.message, code=row.code, span=token.span))
+    return found
+
+
+class _Checker:
+    def __init__(self, program: ast.Program, result: ValidationResult, limits: Limits) -> None:
+        self.program = program
+        self.result = result
+        self.limits = limits
+        self.functions = {fn.name: fn for fn in program.functions}
+        self.globals: set[str] = set()
+
+    # --- entry point --------------------------------------------------------
+
+    def run(self) -> None:
+        self._check_version()
+        self._check_declaration()
+        self._count_nodes()
+        self._collect_globals()
+        self._walk(self.program, ancestors=())
+        self._check_recursion()
+        self._check_exit_reachability()
+
+    def _error(self, message: str, *, code: str, span, cls=PineUnsupported) -> None:
+        self.result.errors.append(cls(message, code=code, span=span))
+
+    def _warn(self, message: str, *, code: str, span) -> None:
+        self.result.warnings.append(PineWarning(message, code=code, span=span))
+
+    # --- header -------------------------------------------------------------
+
+    def _check_version(self) -> None:
+        version = self.program.version
+        if version is None:
+            self._error(
+                "no //@version= annotation — this platform runs Pine v5",
+                code="missing_version",
+                span=self.program.span,
+                cls=PineSyntaxError,
+            )
+        elif version != 5:
+            self._error(
+                f"this script declares Pine v{version}; this platform runs v5",
+                code="wrong_version",
+                span=self.program.span,
+            )
+
+    def _check_declaration(self) -> None:
+        """Exactly one ``strategy()`` call, and it is the first statement."""
+        calls = [
+            node
+            for node in ast.walk(self.program)
+            if isinstance(node, ast.Call) and ast.dotted_name(node.func) == "strategy"
+        ]
+        indicators = [
+            node
+            for node in ast.walk(self.program)
+            if isinstance(node, ast.Call) and ast.dotted_name(node.func) in ("indicator", "study")
+        ]
+        if indicators and not calls:
+            self._error(
+                "this is an indicator, not a strategy — a bot needs strategy() so it has "
+                "entries and exits to route",
+                code="not_a_strategy",
+                span=indicators[0].span,
+            )
+            return
+        if not calls:
+            self._error(
+                "no strategy() declaration — it must be the first statement",
+                code="missing_strategy",
+                span=self.program.span,
+            )
+            return
+        if len(calls) > 1:
+            self._error(
+                "more than one strategy() declaration",
+                code="duplicate_strategy",
+                span=calls[1].span,
+            )
+
+        first = self.program.body[0] if self.program.body else None
+        declared_first = (
+            isinstance(first, ast.ExprStmt)
+            and isinstance(first.value, ast.Call)
+            and ast.dotted_name(first.value.func) == "strategy"
+        )
+        if not declared_first:
+            self._error(
+                "strategy() must be the first statement in the script",
+                code="strategy_not_first",
+                span=calls[0].span,
+            )
+        self._check_strategy_args(calls[0])
+
+    def _check_strategy_args(self, call: ast.Call) -> None:
+        for index, arg in enumerate(call.args):
+            name = arg.name
+            if not name:
+                # Positional: title, then shorttitle. Both harmless.
+                if index > 1:
+                    self._error(
+                        "pass strategy() options by name — a positional argument past "
+                        "shorttitle cannot be checked against the subset",
+                        code="strategy_positional",
+                        span=arg.span,
+                    )
+                continue
+            if name in REJECTED_STRATEGY_ARGS:
+                row = REJECTED_STRATEGY_ARGS[name]
+                # pyramiding=0 is the platform's own behaviour stated explicitly,
+                # so it is accepted; any other value contradicts §5 sizing.
+                if name == "pyramiding" and _literal_is_zero(arg.value):
+                    continue
+                if name == "calc_on_every_tick" and _literal_is_false(arg.value):
+                    continue
+                self._error(row.message, code=row.code, span=arg.span)
+                continue
+            if name in STRATEGY_IGNORED_ARGS:
+                self._warn(
+                    f"{name} is parsed and then ignored — the platform decides size "
+                    f"(Q20): margin is 99% of each account's own balance",
+                    code="ignored_strategy_arg",
+                    span=arg.span,
+                )
+                continue
+            if name not in STRATEGY_ACCEPTED_ARGS:
+                self._error(
+                    f"strategy() has no supported argument named {name!r}",
+                    code="unknown_strategy_arg",
+                    span=arg.span,
+                )
+
+    # --- caps ---------------------------------------------------------------
+
+    def _count_nodes(self) -> None:
+        nodes = list(ast.walk(self.program))
+        self.result.node_count = len(nodes)
+        if len(nodes) > self.limits.max_ast_nodes:
+            self._error(
+                f"this script has {len(nodes)} nodes, over the {self.limits.max_ast_nodes} limit",
+                code="script_too_complex",
+                span=self.program.span,
+            )
+        ta_sites = [
+            node
+            for node in nodes
+            if isinstance(node, ast.Call)
+            and (ast.dotted_name(node.func) or "").startswith("ta.")
+        ]
+        self.result.ta_call_sites = len(ta_sites)
+        if len(ta_sites) > self.limits.max_ta_call_sites:
+            self._error(
+                f"this script has {len(ta_sites)} ta.* call sites, over the "
+                f"{self.limits.max_ta_call_sites} limit — every one of them advances "
+                f"on every bar",
+                code="too_many_indicators",
+                span=self.program.span,
+            )
+
+    # --- names --------------------------------------------------------------
+
+    def _collect_globals(self) -> None:
+        for node in ast.walk(self.program):
+            if isinstance(node, ast.Assign):
+                self.globals.update(node.targets)
+            elif isinstance(node, ast.Reassign):
+                self.globals.add(node.target)
+            elif isinstance(node, ast.FuncDef):
+                self.globals.add(node.name)
+                self.globals.update(node.params)
+            elif isinstance(node, ast.For):
+                self.globals.add(node.var)
+            elif isinstance(node, ast.ForIn):
+                self.globals.update(node.vars)
+
+    def _known(self, name: str) -> bool:
+        return (
+            name in self.globals
+            or name in BUILTIN_SERIES
+            or name in BUILTIN_VALUES
+            or name in BARE_FUNCTIONS
+            or name in VISUAL_FUNCTIONS
+            or name in NAMESPACE_FUNCTIONS
+            or name in NAMESPACE_VALUES
+            or name in REJECTED_NAMESPACES
+            or name in DECORATIVE_NAMESPACES
+        )
+
+    def _suggest(self, name: str) -> str:
+        pool = (
+            set(self.globals)
+            | BUILTIN_SERIES
+            | BUILTIN_VALUES
+            | BARE_FUNCTIONS
+            | VISUAL_FUNCTIONS
+            | set(NAMESPACE_FUNCTIONS)
+        )
+        close = difflib.get_close_matches(name, pool, n=1, cutoff=0.8)
+        return f" — did you mean {close[0]!r}?" if close else ""
+
+    # --- the walk -----------------------------------------------------------
+
+    def _walk(self, node: ast.Node, *, ancestors: tuple[ast.Node, ...]) -> None:
+        self._visit(node, ancestors)
+        child_ancestors = (*ancestors, node)
+        for child in ast.children(node):
+            self._walk(child, ancestors=child_ancestors)
+
+    def _visit(self, node: ast.Node, ancestors: tuple[ast.Node, ...]) -> None:
+        if isinstance(node, ast.Assign) and node.qualifier == "varip":
+            self._warn(
+                "varip is treated as var — its whole purpose is surviving an intrabar "
+                "recalculation, and this platform evaluates on bar close only (Q23)",
+                code="varip_as_var",
+                span=node.span,
+            )
+        if isinstance(node, ast.While):
+            self._check_while(node)
+        if isinstance(node, ast.Index):
+            self._check_history(node)
+        if isinstance(node, ast.Member):
+            self._check_member(node, ancestors)
+        if isinstance(node, ast.Name):
+            self._check_name(node, ancestors)
+        if isinstance(node, ast.Call):
+            self._check_call(node, ancestors)
+
+    def _check_history(self, node: ast.Index) -> None:
+        """``expr[n]`` — which expressions actually keep a past.
+
+        A variable and a built-in series do, and so does a ``ta.*`` call site
+        (``runtime.RunContext.outputs``). Everything else — a member, an
+        arithmetic expression, a user function's result — has no per-bar record
+        behind it, and answering ``na`` would be a signal that quietly never
+        fires. Rejected by name instead, which is Q24's whole rule.
+        """
+        if isinstance(node.obj, ast.Name):
+            return
+        if isinstance(node.obj, ast.Call):
+            dotted = ast.dotted_name(node.obj.func) or ""
+            if dotted.startswith("ta."):
+                return
+        if _literal(node.offset) == 0:
+            return
+        self._error(
+            "history is only kept for a variable, a built-in series or a ta.* call — "
+            "assign this to a variable first, then read that variable's [n]",
+            code="unsupported_history",
+            span=node.span,
+        )
+
+    def _check_member(self, node: ast.Member, ancestors: tuple[ast.Node, ...]) -> None:
+        dotted = ast.dotted_name(node)
+        if dotted is None:
+            return
+        root = dotted.split(".", 1)[0]
+
+        for prefix, row in REJECTED_NAMESPACES.items():
+            if dotted == prefix or dotted.startswith(prefix + "."):
+                self._error(row.message, code=row.code, span=node.span)
+                return
+        if dotted in REJECTED_NAMES:
+            row = REJECTED_NAMES[dotted]
+            self._error(row.message, code=row.code, span=node.span)
+            return
+
+        if root in DECORATIVE_NAMESPACES:
+            if not _inside_visual_call(ancestors):
+                self._error(
+                    f"{dotted} is outside the v1 subset — decorative namespaces are "
+                    f"accepted only inside plot/plotshape/hline/fill/bgcolor, where they "
+                    f"cannot reach an order",
+                    code="decorative_outside_visual",
+                    span=node.span,
+                )
+            return
+
+        if root in NAMESPACE_FUNCTIONS or root in NAMESPACE_VALUES:
+            attr = dotted.split(".", 1)[1] if "." in dotted else ""
+            allowed = NAMESPACE_FUNCTIONS.get(root, frozenset()) | NAMESPACE_VALUES.get(
+                root, frozenset()
+            )
+            if attr not in allowed:
+                close = difflib.get_close_matches(attr, allowed, n=1, cutoff=0.75)
+                hint = f" — did you mean {root}.{close[0]!r}?" if close else ""
+                self._error(
+                    f"{dotted} is not in the v1 subset{hint}",
+                    code="unsupported_member",
+                    span=node.span,
+                )
+
+    def _check_name(self, node: ast.Node, ancestors: tuple[ast.Node, ...]) -> None:
+        # A member's attribute is not a free name, and neither is a call's
+        # target once the member check above has passed it.
+        if ancestors and isinstance(ancestors[-1], ast.Member):
+            return
+        if self._known(node.name):
+            return
+        self._error(
+            f"{node.name!r} is not defined{self._suggest(node.name)}",
+            code="undefined_name",
+            span=node.span,
+            cls=PineNameError,
+        )
+
+    def _check_call(self, node: ast.Call, ancestors: tuple[ast.Node, ...]) -> None:
+        dotted = ast.dotted_name(node.func)
+        if dotted is None:
+            return
+
+        if dotted in ORDER_CALLS:
+            self._check_order_call(node, dotted, ancestors)
+        if dotted == "strategy.entry":
+            for arg in node.args:
+                if arg.name in SIZE_ARGS:
+                    self._warn(
+                        f"{arg.name} is parsed and then ignored (Q20) — the platform sizes "
+                        f"every account at 99% of its own balance, so honouring a fixed "
+                        f"quantity would be a different strategy on each account",
+                        code="ignored_qty",
+                        span=arg.span,
+                    )
+        if dotted == "strategy.exit":
+            self._check_exit_call(node)
+        if dotted and dotted.startswith("ta."):
+            self._check_hoistable(node, dotted, ancestors)
+        if dotted.startswith("input.") or dotted == "input":
+            self._collect_input(node, dotted, ancestors)
+
+    def _check_order_call(
+        self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]
+    ) -> None:
+        if any(isinstance(a, ast.For | ast.ForIn | ast.While) for a in ancestors):
+            self._error(
+                f"{dotted} cannot be called inside a loop — a loop that fires N entries "
+                f"per bar is the classic runaway, and under Q20 every one of them is 99% "
+                f"of the account",
+                code="order_in_loop",
+                span=node.span,
+            )
+        if any(isinstance(a, ast.FuncDef) for a in ancestors):
+            self._error(
+                f"{dotted} cannot be called inside a user function — the validator must be "
+                f"able to see every order site in the bar to enforce one entry per bar",
+                code="order_in_function",
+                span=node.span,
+            )
+
+    def _check_exit_call(self, node: ast.Call) -> None:
+        percent_given = False
+        rejected_given = False
+        for arg in node.args:
+            if arg.name in REJECTED_EXIT_ARGS:
+                row = REJECTED_EXIT_ARGS[arg.name]
+                self._error(row.message, code=row.code, span=arg.span)
+                rejected_given = True
+                continue
+            if arg.name in EXIT_PERCENT_ARGS:
+                percent_given = True
+        # A rejected argument has already said what to use instead; adding
+        # "and you gave no percent" on top is noise pointing at the same line.
+        if not percent_given and not rejected_given:
+            self._error(
+                "strategy.exit needs loss_pct= or profit_pct= — this platform's SL/TP is a "
+                "percentage identical across accounts (§5, Q21)",
+                code="exit_without_percent",
+                span=node.span,
+            )
+
+    def _check_hoistable(
+        self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]
+    ) -> None:
+        """Warn when a ``ta.*`` call site cannot be advanced once per bar.
+
+        Pine evaluates every ``ta.*`` call on every bar regardless of which
+        branch ran — a strategy whose EMA only updates on days it is used is a
+        different strategy. The runtime honours that by *hoisting*: every
+        ``ta.*`` site whose arguments read only globals is evaluated first, in
+        source order, before the statement walk.
+
+        A site inside a user function or a loop cannot be hoisted, because its
+        arguments do not exist yet outside the call. Those advance when they are
+        reached, which is Pine's behaviour for the *first* call in a bar and not
+        for a skipped one — a real difference, so it is reported rather than
+        left for someone to discover from a backtest that will not reproduce.
+        """
+        if any(isinstance(a, ast.FuncDef | ast.For | ast.ForIn | ast.While) for a in ancestors):
+            self.result.unhoistable.append(node.call_id)
+            self._warn(
+                f"{dotted} here is inside a function or a loop, so it advances only on the "
+                f"bars that reach it. Move it to the top level to have it advance every "
+                f"bar the way TradingView does",
+                code="ta_not_hoisted",
+                span=node.span,
+            )
+
+    def _collect_input(
+        self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]
+    ) -> None:
+        assignment = next((a for a in reversed(ancestors) if isinstance(a, ast.Assign)), None)
+        if assignment is None or len(assignment.targets) != 1:
+            self._error(
+                "every input.* must be assigned to a single name — that name is what the "
+                "bot's parameter form shows",
+                code="input_not_assigned",
+                span=node.span,
+            )
+            return
+        kind = dotted.split(".", 1)[1] if "." in dotted else "float"
+        default = _literal(node.args[0].value) if node.args and not node.args[0].name else None
+        if default is None:
+            default = _literal(node.keyword("defval"))
+        if default is None:
+            self._error(
+                "this input has no default — a bot cannot start without one",
+                code="input_without_default",
+                span=node.span,
+            )
+            return
+        title = _literal(node.keyword("title"))
+        if title is None and len(node.args) > 1 and not node.args[1].name:
+            title = _literal(node.args[1].value)
+        self.result.inputs.append(
+            InputSpec(
+                name=assignment.targets[0],
+                kind=kind,
+                default=default,
+                title=str(title) if title is not None else assignment.targets[0],
+                minval=_literal(node.keyword("minval")),
+                maxval=_literal(node.keyword("maxval")),
+                options=tuple(
+                    _literal(item)
+                    for item in getattr(node.keyword("options"), "items", ())
+                ),
+            )
+        )
+
+    # --- loops and recursion ------------------------------------------------
+
+    def _check_while(self, node: ast.While) -> None:
+        """Reject a ``while`` nothing in its own body can end.
+
+        Bounded loops still get ``max_loop_iterations`` enforced at runtime —
+        "bounded" is a static judgement and the runtime is where it is actually
+        true or not — but a loop that provably cannot terminate should never
+        reach a bar at all.
+        """
+        if isinstance(node.cond, ast.BoolLit) and node.cond.value:
+            has_break = any(isinstance(n, ast.Break) for n in ast.walk(node.body))
+            if not has_break:
+                self._error(
+                    "this while loop cannot end — `while true` with no break",
+                    code="unbounded_loop",
+                    span=node.span,
+                )
+            return
+        touched = {n.target for n in ast.walk(node.body) if isinstance(n, ast.Reassign)}
+        read = {n.name for n in ast.walk(node.cond) if isinstance(n, ast.Name)}
+        has_break = any(isinstance(n, ast.Break) for n in ast.walk(node.body))
+        if not has_break and not (touched & read):
+            self._error(
+                "this while loop's condition is never changed inside it and it has no "
+                "break, so nothing can end it",
+                code="unbounded_loop",
+                span=node.span,
+            )
+
+    def _check_recursion(self) -> None:
+        """Reject a cycle in the call graph. Pine has no recursion and neither
+        does this runtime — an unbounded stack inside a bar's budget is a hang."""
+        graph: dict[str, set[str]] = {}
+        for fn in self.program.functions:
+            called = {
+                ast.dotted_name(n.func)
+                for n in ast.walk(fn.body)
+                if isinstance(n, ast.Call)
+            }
+            graph[fn.name] = {name for name in called if name in self.functions}
+
+        state: dict[str, int] = {}
+
+        def visit(name: str, path: tuple[str, ...]) -> None:
+            if state.get(name) == 1:
+                cycle = " → ".join((*path, name))
+                self._error(
+                    f"recursion is not supported: {cycle}",
+                    code="recursion",
+                    span=self.functions[name].span,
+                )
+                return
+            if state.get(name) == 2:
+                return
+            state[name] = 1
+            for callee in graph.get(name, ()):
+                visit(callee, (*path, name))
+            state[name] = 2
+
+        for name in graph:
+            visit(name, ())
+
+    def _check_exit_reachability(self) -> None:
+        """Warn when one bar can reach two ``strategy.exit`` calls.
+
+        The platform holds **one** SL/TP pair per trade, identical across
+        accounts (§5) — so two exits with different percentages in one bar is not
+        expressible. Last call in the bar wins, decided here rather than in
+        Phase 5 where it would look like a bug (``bot-plan.md`` §1.8).
+        """
+        exits = [
+            node
+            for node in ast.walk(self.program)
+            if isinstance(node, ast.Call) and ast.dotted_name(node.func) == "strategy.exit"
+        ]
+        if len(exits) > 1:
+            self._warn(
+                f"this script has {len(exits)} strategy.exit calls. The platform holds one "
+                f"SL/TP pair per trade, identical across accounts (§5), so if a bar reaches "
+                f"more than one the last call wins",
+                code="multiple_exits",
+                span=exits[1].span,
+            )
+
+
+# --- helpers ----------------------------------------------------------------
+
+
+def _inside_visual_call(ancestors: tuple[ast.Node, ...]) -> bool:
+    """True when this node sits in the argument list of a recorded-only call.
+
+    ``plot`` and friends are annotations: nothing they are handed can reach an
+    order, which is the whole reason ``color.*`` and the other decorative
+    namespaces are accepted there and rejected everywhere else.
+    """
+    return any(
+        isinstance(node, ast.Call) and ast.dotted_name(node.func) in VISUAL_FUNCTIONS
+        for node in ancestors
+    )
+
+
+# --- literal helpers --------------------------------------------------------
+
+
+def _literal(node) -> object:
+    """The Python value of a literal node, or ``None`` when it is an expression.
+
+    Used only for inputs and ``strategy()`` arguments, both of which must be
+    constant — a default that depends on a series is not a default.
+    """
+    if isinstance(node, ast.NumberLit):
+        text = node.value
+        return int(text) if text.isdigit() else float(text)
+    if isinstance(node, ast.StringLit):
+        return node.value
+    if isinstance(node, ast.BoolLit):
+        return node.value
+    if isinstance(node, ast.Unary) and node.op == "-":
+        inner = _literal(node.operand)
+        return -inner if isinstance(inner, int | float) else None
+    return None
+
+
+def _literal_is_zero(node) -> bool:
+    return _literal(node) in (0, 0.0)
+
+
+def _literal_is_false(node) -> bool:
+    return _literal(node) is False

@@ -1,0 +1,9 @@
+//@version=5
+strategy("barstate")
+weekday = dayofweek(time)
+h = hour(time)
+firstBar = barstate.isfirst
+if not firstBar and weekday != 1 and h >= 8 and h < 20
+    if ta.crossover(close, ta.ema(close, 21))
+        strategy.entry("L", strategy.long)
+plot(bar_index)

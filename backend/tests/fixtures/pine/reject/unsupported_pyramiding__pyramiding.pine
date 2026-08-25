@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject", pyramiding=2)
+plot(close)
+//@expect code=unsupported_pyramiding line=2 col=20

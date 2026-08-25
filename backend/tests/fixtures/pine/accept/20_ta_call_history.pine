@@ -1,0 +1,8 @@
+//@version=5
+strategy("call history")
+turningUp = ta.rsi(close, 14) > ta.rsi(close, 14)[1]
+slope = ta.linreg(close, 20, 0) - ta.linreg(close, 20, 0)[1]
+if turningUp and slope > 0
+    strategy.entry("L", strategy.long)
+if not turningUp and slope < 0
+    strategy.close_all()

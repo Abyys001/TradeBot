@@ -1,0 +1,329 @@
+{
+  "app": {
+    "name": "TradeBot",
+    "short": "TradeBot"
+  },
+  "nav": {
+    "dashboard": "Panel",
+    "accounts": "Cuentas",
+    "history": "Historial",
+    "risk": "Riesgo",
+    "finance": "Finanzas",
+    "logs": "Registros",
+    "settings": "Ajustes",
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "signedInAs": "Sesión iniciada como",
+    "primary": "Navegación principal",
+    "openMenu": "Abrir menú",
+    "more": "Más",
+    "collapse": "Contraer",
+    "chart": "Gráfico",
+    "expand": "Expandir menú",
+    "language": "Idioma",
+    "bots": "Bots"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "live": "En vivo",
+    "connecting": "Conectando",
+    "offline": "Sin conexión",
+    "close": "Cerrar",
+    "cancel": "Cancelar",
+    "optional": "opcional",
+    "reveal": "Mostrar u ocultar",
+    "reload": "Recargar",
+    "retry": "Reintentar",
+    "yes": "Sí",
+    "no": "No",
+    "on": "Activado",
+    "off": "Desactivado",
+    "refused": "Rechazado"
+  },
+  "theme": {
+    "toLight": "Cambiar a claro",
+    "toDark": "Cambiar a oscuro"
+  },
+  "time": {
+    "justNow": "ahora mismo",
+    "minutes": "hace {n} min",
+    "hours": "hace {n} h",
+    "days": "hace {n} d"
+  },
+  "side": {
+    "long": "Largo",
+    "short": "Corto"
+  },
+  "market": {
+    "futures": "Perpetuo",
+    "spot": "Spot"
+  },
+  "landing": {
+    "eyebrow": "Enrutamiento de órdenes para varias cuentas",
+    "badge": "Una interfaz · todas las cuentas",
+    "h1": {
+      "line1": "Operas una vez.",
+      "line2": "Cada cuenta",
+      "line3": "sigue en segundos."
+    },
+    "lede": "Entrada, stop, objetivo, cierre: cada acción sale hacia todas las cuentas conectadas al mismo momento, dimensionada según el saldo de cada cuenta. Si un exchange falla, el resto se llena igual y te dicen cuál no lo hizo.",
+    "cta": {
+      "dashboard": "Abrir el panel",
+      "signIn": "Iniciar sesión",
+      "risk": "Cuánto cuesta un porcentaje",
+      "accounts": "Conectar una cuenta",
+      "title": "Opera una vez. Todas las cuentas siguen.",
+      "body": "Conecta una clave de solo trading y la siguiente orden llegará a todas las cuentas a la vez — dimensionada a cada saldo, protegida y reportada pata por pata."
+    },
+    "stat": {
+      "accounts": "Cuentas conectadas",
+      "exchanges": "Exchanges",
+      "lastFanout": "Último fan-out",
+      "lastSymbol": "Último par"
+    },
+    "diagram": {
+      "real": "Tu última operación, pata por pata",
+      "demo": "Ilustración: conecta una cuenta para ver la tuya",
+      "origin": "tu operación",
+      "failed": "falló — requiere atención",
+      "failedShort": "falló"
+    },
+    "sections": {
+      "stats": "Los números",
+      "how": "Cómo va",
+      "features": "Por qué se sostiene",
+      "live": "Verlo",
+      "security": "Seguridad",
+      "faq": "Respuestas claras"
+    },
+    "stats": {
+      "title": "Medido, no prometido",
+      "body": "Los números detrás de la promesa, de la propia suite de pruebas del proyecto y de la demo verificada de tres cuentas.",
+      "exchanges": {
+        "label": "Exchanges",
+        "body": "tras una interfaz"
+      },
+      "tests": {
+        "label": "Pruebas backend",
+        "body": "aprobadas en cada ejecución"
+      },
+      "margin": {
+        "label": "Del saldo",
+        "body": "comprometido como margen en cada entrada"
+      },
+      "fanout": {
+        "label": "Despacho del fan-out",
+        "body": "medido en una demo de tres cuentas"
+      }
+    },
+    "marquee": {
+      "label": "Exchanges compatibles"
+    },
+    "how": {
+      "title": "Cómo va",
+      "connect": {
+        "term": "Conecta claves de solo trading",
+        "body": "Cada cuenta se verifica al conectar y se rechaza de plano si la clave puede retirar. Las claves se cifran en reposo y nunca vuelven al navegador."
+      },
+      "trade": {
+        "term": "Opera una vez",
+        "body": "Un formulario fija lado, apalancamiento y los porcentajes de stop y objetivo. El motor dimensiona cada cuenta desde su propio saldo y despacha cada pata en paralelo."
+      },
+      "watch": {
+        "term": "Míralo aterrizar",
+        "body": "Los resultados por pata llegan a medida que ocurren. Una pata fallida abre un aviso que permanece en pantalla hasta que lo cierras — no un toast que desaparece mientras miras a otro lado."
+      }
+    },
+    "features": {
+      "title": "Seis restricciones, no seis botones",
+      "body": "Cada operación obedece a estas. Son garantías con las que alguien confía su capital, así que merecen su espacio.",
+      "isolation": {
+        "term": "Un fallo sigue siendo un fallo",
+        "body": "Cada cuenta tiene su propia conexión, su propio límite de peticiones y su propio plazo. Que un exchange se caiga le cuesta a esa cuenta la operación y a nadie más."
+      },
+      "sizing": {
+        "term": "Dimensionado a cada saldo",
+        "body": "Cada cuenta compromete el 99% de su propio USDT. Una cuenta de $50 y una de $5.000 usan el mismo apalancamiento y el mismo porcentaje de stop, a tamaños en dólares muy distintos."
+      },
+      "stops": {
+        "term": "Los stops se mueven en todas partes a la vez",
+        "body": "Arrastra el stop en el gráfico, edítalo en el formulario o cámbialo en la fila de posición: los tres envían la misma enmienda a todas las cuentas."
+      },
+      "keys": {
+        "term": "Claves que no pueden retirar",
+        "body": "El modo solo trading se impone al conectar donde el exchange expone el permiso; una clave que pueda mover dinero se rechaza de plano."
+      },
+      "mark": {
+        "term": "El exchange es la fuente de verdad",
+        "body": "Las posiciones se releen de cada plataforma periódicamente, así un stop disparado allí cierra la pata aquí — y una posición que la plataforma dio de baja se restaura."
+      },
+      "statements": {
+        "term": "Una cuenta, completa",
+        "body": "Cada cuenta tiene su propia página y un estado de cuenta PDF en el idioma que lee su socio — solo dinero, sin porcentajes que inviten a leer mal."
+      }
+    },
+    "live": {
+      "title": "El fan-out, en vivo",
+      "body": "Con sesión iniciada, esta es tu última operación, pata por pata. Sin sesión, el diagrama ejecuta la demo para que la promesa se explique sola."
+    },
+    "network": {
+      "badge": "Demo en vivo",
+      "title": "Una orden · todas las cuentas",
+      "filled": "{ok}/{total} llenas",
+      "failed": "{label} falló — requiere atención"
+    },
+    "security": {
+      "title": "Guarda credenciales de trading reales",
+      "body": "Las claves se cifran en reposo con claves Fernet rotables, nunca se registran, nunca aparecen en una respuesta de API y se verifican como no retirables al conectar donde el exchange expone un endpoint de permisos. Donde no se puede probar, la cuenta se marca en lugar de confiarse en silencio.",
+      "item1": "Claves cifradas en reposo con claves Fernet rotables: nunca registradas, nunca en una respuesta de API.",
+      "item2": "Solo trading impuesto al conectar: una clave que pueda retirar se rechaza de plano donde el exchange nos deja comprobarlo.",
+      "item3": "Las credenciales nunca vuelven al navegador, ni siquiera enmascaradas para mostrarse.",
+      "item4": "Donde el exchange no publica endpoint de permisos, la cuenta se marca en lugar de confiarse en silencio.",
+      "item5": "Un interruptor de parada global (STOP_ALL) que detiene el enrutamiento al instante y no puede desactivarse desde el panel."
+    },
+    "faq": {
+      "title": "Preguntas que hace un operador",
+      "body": "Respuestas claras, incluidas las que no cuesta nada ser honesto.",
+      "q1": "¿Se ha probado contra exchanges reales?",
+      "a1": "Todavía no. Los ocho adaptadores están escritos desde la documentación original de cada exchange y probados unitariamente contra transportes simulados, pero ninguno se ha ejecutado contra un exchange real o un testnet. Verifica en testnet antes de comprometer capital real.",
+      "q2": "¿Qué exchanges están cubiertos?",
+      "a2": "Hyperliquid, Bybit, Binance, OKX, Gate.io, KuCoin, Toobit y LBank tras una interfaz. Las diferencias de capacidades — stops nativos frente a emulados, apalancamiento por símbolo frente a por cuenta — se resuelven tras el adaptador, nunca en la lógica de trading.",
+      "q3": "¿Pueden las claves sacar dinero?",
+      "a3": "No. Cada clave se verifica como de solo trading al conectar y se rechaza de plano donde se detectan derechos de retiro. En exchanges sin endpoint de permisos, la comprobación se reporta como indemostrable y la cuenta se marca en lugar de confiarse en silencio.",
+      "q4": "¿Por qué solo USDT?",
+      "a4": "El dimensionado es el 99% del saldo USDT disponible de la cuenta, con apalancamiento encima. Una cuenta en otra moneda se reporta en el panel como no utilizable: nunca se opera a ciegas.",
+      "q5": "¿Cuántas operaciones a la vez?",
+      "a5": "Una operación abierta por cuenta. Una entrada cuyo llenado no está confirmado cuenta como posiblemente abierta, así que una segunda orden nunca se apila sobre una posición que quizá ya exista.",
+      "q6": "¿Qué pasa si un exchange falla a mitad de operación?",
+      "a6": "Esa cuenta falla sola y levanta un aviso persistente que permanece hasta que lo cierras; las demás se llenan igual. Una pata que falló tras enviar su orden se relee del exchange, así un llenado nunca se reporta como fallo."
+    },
+    "footerNote": "Enrutamiento y ejecución de órdenes. No es un exchange ni un servicio de señales."
+  },
+  "bots": {
+    "title": "Bots",
+    "lead": "Un bot es una fuente de señal, no una segunda vía de ejecución. La estrategia de Pine Script decide el lado; el dimensionado, el reparto y la parada de emergencia son el mismo código por el que pasa el botón manual.",
+    "strategies": "Estrategias",
+    "strategiesLead": "Pine Script v5, comprobado mientras escribe. Todo lo que quede fuera del subconjunto admitido se rechaza con nombre, línea y columna — nada se ignora en silencio.",
+    "backtest": "Backtest",
+    "backtestLead": "Reproduce una versión sobre el histórico almacenado. El modelo de ejecución se imprime encima de las métricas, porque un backtest que se halaga a sí mismo produce un número por el que la gente actúa.",
+    "newStrategy": "Nueva estrategia",
+    "newBot": "Nuevo bot",
+    "none": "Aún no hay bots",
+    "noneBody": "Un bot ejecuta una versión de una estrategia sobre un par. Escriba primero la estrategia.",
+    "noStrategies": "Aún no hay estrategias",
+    "noStrategiesBody": "Una estrategia es un archivo de Pine Script v5. Guardar una versión nunca reescribe otra, así que un bot en marcha no cambia bajo sus pies.",
+    "noVersion": "ninguna versión guardada",
+    "versionN": "versión {n}",
+    "strategyName": "Nombre",
+    "strategyVersion": "Versión de la estrategia",
+    "botName": "Nombre",
+    "doesNotValidate": "no valida",
+    "saveVersion": "Guardar versión",
+    "checking": "comprobando…",
+    "valid": "Válida",
+    "errorsN": "{n} errores",
+    "warningsN": "{n} avisos",
+    "diagnostics": "Problemas",
+    "inputs": "Entradas",
+    "inputName": "Nombre",
+    "inputType": "Tipo",
+    "inputDefault": "Predeterminado",
+    "inputRange": "Rango",
+    "interval": "Temporalidad",
+    "market": "Mercado",
+    "sizingNote": "El tamaño no es un ajuste: cada cuenta se dimensiona al 99 % de su propio saldo. Un qty en el script se ignora y se informa al subirlo.",
+    "dryRun": "simulación",
+    "startPaper": "Empezar en papel",
+    "goLive": "Pasar a real",
+    "gateBlocks": "La puerta de promoción aún no se cumple",
+    "gateUnmet": "{name} no ha cumplido la puerta de promoción",
+    "gateUnmetHere": "Este bot no ha cumplido la puerta de promoción. Cada fila pendiente está abajo.",
+    "stoppedByHand": "detenido desde el panel",
+    "noAutoResume": "Nada de esto se reanuda solo. Un bot que se detuvo a sí mismo lo reinicia una persona que ha leído por qué.",
+    "lastBar": "Última vela",
+    "barsN": "{n} velas",
+    "barsEvaluated": "Velas evaluadas",
+    "divergences": "Divergencias",
+    "feedGaps": "Huecos reparados",
+    "restarts": "Reinicios superados",
+    "feed": "Fuente",
+    "liveIntent": "En vivo",
+    "flat": "plano",
+    "noActions": "Aún no se ha enrutado nada",
+    "noActionsBody": "Cada orden que envía este bot aparece aquí con lo que devolvió cada cuenta.",
+    "shadowNote": "registrado, no enviado",
+    "noBars": "Aún no hay velas registradas",
+    "barTime": "Vela",
+    "close": "Cierre",
+    "intent": "Intención",
+    "plots": "Series",
+    "evaluated": "Evaluada en",
+    "promotion": "Puerta de promoción",
+    "promotionHint": "Medida, no afirmada. Se rechaza el modo real mientras quede una fila sin cumplir.",
+    "requirement": "Requisito",
+    "threshold": "Exigido",
+    "measured": "Medido",
+    "gateFootnote": "Una fila no puede medirse desde dentro: ningún adaptador de exchange se ha ejecutado todavía contra un exchange real ni un testnet. Se mantiene como reconocimiento explícito en lugar de darse por supuesta.",
+    "sourceHint": "La versión exacta que ejecuta este bot. Solo lectura: una versión es inmutable.",
+    "noSource": "Código no disponible",
+    "runBacktest": "Ejecutar backtest",
+    "replaying": "Reproduciendo…",
+    "from": "Desde",
+    "to": "Hasta",
+    "assumptions": "Modelo de ejecución y límites",
+    "assumptionsHint": "Encima de las métricas a propósito.",
+    "intentDigest": "Huella de intenciones",
+    "equityCurve": "Capital",
+    "trades": "Operaciones",
+    "tradesN": "{n} operaciones",
+    "noTrades": "Esta estrategia no operó en esta ventana",
+    "side": "Lado",
+    "entry": "Entrada",
+    "exit": "Salida",
+    "pnl": "PyG",
+    "barsHeld": "Velas",
+    "reason": "Motivo",
+    "line": "línea",
+    "state": {
+      "draft": "Borrador",
+      "paper": "Papel",
+      "live": "Real",
+      "stopped": "Detenido"
+    },
+    "tab": {
+      "activity": "Actividad",
+      "bars": "Velas",
+      "promotion": "Promoción",
+      "source": "Código"
+    },
+    "action": {
+      "open": "Abrir",
+      "amend": "Modificar",
+      "close": "Cerrar",
+      "shadow": "Sombra"
+    },
+    "stop": {
+      "action": "Detener",
+      "consecutive_losses": "Demasiadas operaciones perdedoras seguidas",
+      "drawdown": "Caída por encima del límite de este bot",
+      "trade_rate": "Demasiadas operaciones en una hora",
+      "no_bars": "La fuente se quedó en silencio",
+      "feed_gap": "Un hueco en las velas no pudo repararse",
+      "script_error": "El script lanzó un error",
+      "state_disagreement": "El exchange y el registro siguen sin coincidir",
+      "halt": "La parada de emergencia detuvo todos los bots",
+      "manual": "Detenido a mano",
+      "risk_gate": "La puerta de riesgo rechazó una orden"
+    },
+    "metric": {
+      "net_pnl": "PyG neto",
+      "return_pct": "Rentabilidad %",
+      "max_drawdown_pct": "Caída máxima %",
+      "sharpe": "Sharpe",
+      "trades": "Operaciones",
+      "win_rate_pct": "Aciertos %",
+      "profit_factor": "Factor de beneficio",
+      "max_consecutive_losses": "Peor racha perdedora"
+    }
+  }
+}

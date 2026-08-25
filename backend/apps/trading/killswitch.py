@@ -104,4 +104,19 @@ def set_stop_all(on: bool, *, actor: str = "", reason: str = "") -> dict:
     row.save(update_fields=["stop_all", "reason", "updated_by", "updated_at"])
     cache.set(CACHE_KEY, row.stop_all, CACHE_TTL)
     logger.warning("STOP_ALL set to %s by %s (%s)", row.stop_all, actor or "?", reason or "-")
+
+    if row.stop_all:
+        # Q22, and the most important line of the eight: **the halt stops every
+        # running bot.** A halt that flattens positions while a bot is still
+        # evaluating is a halt that re-enters ninety seconds later, which is not
+        # a halt. Imported here rather than at module scope because the bot
+        # supervisor reads this module back.
+        from apps.bots.supervisor import stop_all_sync
+
+        stopped = stop_all_sync(
+            reason="halt", detail=f"STOP_ALL set by {actor or '?'}: {reason or 'no reason given'}"
+        )
+        if stopped:
+            logger.warning("STOP_ALL also stopped %d running bot(s)", len(stopped))
+
     return state()

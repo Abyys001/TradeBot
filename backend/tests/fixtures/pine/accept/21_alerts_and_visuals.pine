@@ -1,0 +1,9 @@
+//@version=5
+strategy("visuals", overlay=true, precision=2)
+sig = ta.crossover(close, ta.vwma(close, 20))
+plotshape(sig, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.small)
+bgcolor(sig ? color.new(color.green, 90) : na)
+alertcondition(sig, "Entry", "crossed up")
+if sig
+    alert("entering long")
+    strategy.entry("L", strategy.long)

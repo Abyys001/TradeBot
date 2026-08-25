@@ -48,6 +48,31 @@ from apps.trading.services import (
 logger = logging.getLogger(__name__)
 
 
+@sync_to_async
+def _bot_holding_an_account() -> dict | None:
+    """The running bot that currently holds an open trade, if there is one.
+
+    One is enough: an account holds at most one open trade (§5), so the first
+    bot found is the one standing between the admin and this entry.
+    """
+    from apps.bots.models import BotState
+    from apps.trading.models import Trade, TradeStatus
+
+    trade = (
+        Trade.objects.filter(
+            status=TradeStatus.OPEN,
+            bot_run__isnull=False,
+            bot_run__bot__state__in=[BotState.PAPER, BotState.LIVE],
+        )
+        .select_related("bot_run__bot")
+        .first()
+    )
+    if trade is None:
+        return None
+    bot = trade.bot_run.bot
+    return {"bot_id": bot.id, "name": bot.name, "symbol": trade.symbol}
+
+
 def _body(request: HttpRequest) -> dict:
     if not request.body:
         return {}
@@ -188,6 +213,25 @@ async def open_position(request: HttpRequest) -> JsonResponse:
         # Sizing divides by this price. Zero or negative is a division by zero
         # or a negative quantity, neither of which should reach an adapter.
         return JsonResponse({"detail": "limit_price must be greater than zero"}, status=400)
+
+    # Q22: the admin outranks a bot, but not silently. Quietly taking a
+    # position a bot is holding would leave that bot's state machine describing
+    # a position it no longer has — and it would keep trading against it. The
+    # refusal names the bot so the panel can offer "stop it and take the trade".
+    holder = await _bot_holding_an_account()
+    if holder is not None:
+        return JsonResponse(
+            {
+                "detail": (
+                    f"bot “{holder['name']}” is holding a position on "
+                    f"{holder['symbol']}. Stop it before taking this trade."
+                ),
+                "code": "bot_holds_position",
+                "bot_id": holder["bot_id"],
+                "bot_name": holder["name"],
+            },
+            status=409,
+        )
 
     try:
         trade, result = await route_open(

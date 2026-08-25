@@ -1,0 +1,5 @@
+//@version=5
+strategy("expr history")
+spread = (high + low)[1]
+plot(spread)
+//@expect code=unsupported_history line=3 col=11

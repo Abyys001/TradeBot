@@ -1,0 +1,4 @@
+//@version=4
+strategy("old")
+plot(close)
+//@expect code=wrong_version line=2 col=1

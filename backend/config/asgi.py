@@ -21,7 +21,7 @@ from apps.trading.routing import websocket_urlpatterns  # noqa: E402  (needs app
 # not own. The origin's host is matched against ALLOWED_HOSTS, so production
 # (which pins the domain) is locked down while a dev default of "*" stays
 # permissive.
-application = ProtocolTypeRouter(
+_router = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
         "websocket": AllowedHostsOriginValidator(
@@ -29,3 +29,48 @@ application = ProtocolTypeRouter(
         ),
     }
 )
+
+
+async def application(scope, receive, send):
+    """The router, plus one-time bot resumption on the first request.
+
+    Bots run as asyncio tasks in this process, alongside the fan-out — their
+    actions go through ``services.route_*``, which is async, and a broker hop
+    would spend the spec §4 per-leg budget before the first exchange call.
+
+    Resumed here rather than at import time because an asyncio task needs a
+    running loop, and because a management command that merely imports this
+    module must not start trading. The first act of every resumed bot is warm-up
+    and reconciliation, never an order — see ``apps.bots.supervisor``.
+    """
+    await _resume_bots_once()
+    return await _router(scope, receive, send)
+
+
+_resumed = False
+
+
+async def _resume_bots_once() -> None:
+    global _resumed
+    if _resumed:
+        return
+    _resumed = True
+
+    from django.conf import settings
+
+    if not settings.BOT["SUPERVISOR_IN_ASGI"]:
+        # The `bots` compose service owns them instead.
+        return
+    try:
+        from apps.bots.supervisor import resume_all
+
+        resumed = await resume_all()
+    except Exception:  # noqa: BLE001 - a bot that cannot resume must not take the API down
+        import logging
+
+        logging.getLogger(__name__).exception("could not resume bots")
+        return
+    if resumed:
+        import logging
+
+        logging.getLogger(__name__).warning("resumed %d bot(s) on process start", len(resumed))

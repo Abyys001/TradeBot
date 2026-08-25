@@ -1,0 +1,329 @@
+{
+  "app": {
+    "name": "TradeBot",
+    "short": "TradeBot"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "accounts": "Konten",
+    "history": "Verlauf",
+    "risk": "Risiko",
+    "finance": "Finanzen",
+    "logs": "Logs",
+    "settings": "Einstellungen",
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "signedInAs": "Angemeldet als",
+    "primary": "Hauptnavigation",
+    "openMenu": "Menü öffnen",
+    "more": "Mehr",
+    "collapse": "Einklappen",
+    "chart": "Chart",
+    "expand": "Menü erweitern",
+    "language": "Sprache",
+    "bots": "Bots"
+  },
+  "common": {
+    "loading": "Wird geladen…",
+    "live": "Live",
+    "connecting": "Verbinde",
+    "offline": "Offline",
+    "close": "Schließen",
+    "cancel": "Abbrechen",
+    "optional": "optional",
+    "reveal": "Zeigen oder verbergen",
+    "reload": "Neu laden",
+    "retry": "Erneut versuchen",
+    "yes": "Ja",
+    "no": "Nein",
+    "on": "An",
+    "off": "Aus",
+    "refused": "Abgelehnt"
+  },
+  "theme": {
+    "toLight": "Zu hell wechseln",
+    "toDark": "Zu dunkel wechseln"
+  },
+  "time": {
+    "justNow": "gerade eben",
+    "minutes": "vor {n} Min.",
+    "hours": "vor {n} Std.",
+    "days": "vor {n} Tagen"
+  },
+  "side": {
+    "long": "Long",
+    "short": "Short"
+  },
+  "market": {
+    "futures": "Perpetual",
+    "spot": "Spot"
+  },
+  "landing": {
+    "eyebrow": "Order-Routing für mehrere Konten",
+    "badge": "Eine Oberfläche · alle Konten",
+    "h1": {
+      "line1": "Du handelst einmal.",
+      "line2": "Jedes Konto",
+      "line3": "folgt in Sekunden."
+    },
+    "lede": "Einstieg, Stop, Ziel, Schließen – jede Aktion geht im selben Moment an jedes verbundene Konto, bemessen am eigenen Saldo des Kontos. Fällt eine Börse aus, füllen die anderen trotzdem und du erfährst, welche nicht.",
+    "cta": {
+      "dashboard": "Dashboard öffnen",
+      "signIn": "Anmelden",
+      "risk": "Was ein Prozent kostet",
+      "accounts": "Konto verbinden",
+      "title": "Handel einmal. Alle Konten folgen.",
+      "body": "Verbinde einen Nur-Trading-Schlüssel und die nächste Order geht sofort an alle Konten – bemessen am jeweiligen Saldo, geschützt und Bein für Bein gemeldet."
+    },
+    "stat": {
+      "accounts": "Verbundene Konten",
+      "exchanges": "Börsen",
+      "lastFanout": "Letzter Fan-out",
+      "lastSymbol": "Letztes Paar"
+    },
+    "diagram": {
+      "real": "Dein letzter Trade, Bein für Bein",
+      "demo": "Veranschaulichung – verbinde ein Konto, um dein eigenes zu sehen",
+      "origin": "dein Trade",
+      "failed": "fehlgeschlagen – braucht dich",
+      "failedShort": "fehlgeschlagen"
+    },
+    "sections": {
+      "stats": "Die Zahlen",
+      "how": "So läuft es",
+      "features": "Warum es hält",
+      "live": "Ansehen",
+      "security": "Sicherheit",
+      "faq": "Klare Antworten"
+    },
+    "stats": {
+      "title": "Gemessen, nicht versprochen",
+      "body": "Die Zahlen hinter dem Versprechen – aus der eigenen Testsuite des Projekts und der verifizierten Drei-Konten-Demo.",
+      "exchanges": {
+        "label": "Börsen",
+        "body": "hinter einer Oberfläche"
+      },
+      "tests": {
+        "label": "Backend-Tests",
+        "body": "bei jedem Lauf grün"
+      },
+      "margin": {
+        "label": "Vom Saldo",
+        "body": "bei jedem Einstieg als Margin eingesetzt"
+      },
+      "fanout": {
+        "label": "Fan-out-Versand",
+        "body": "gemessen an einer Drei-Konten-Demo"
+      }
+    },
+    "marquee": {
+      "label": "Unterstützte Börsen"
+    },
+    "how": {
+      "title": "So läuft es",
+      "connect": {
+        "term": "Nur-Trading-Schlüssel verbinden",
+        "body": "Jedes Konto wird beim Verbinden geprüft und rundweg abgelehnt, wenn der Schlüssel abheben kann. Schlüssel werden verschlüsselt gespeichert und kehren nie zum Browser zurück."
+      },
+      "trade": {
+        "term": "Einmal handeln",
+        "body": "Ein Formular legt Seite, Hebel und die Prozentsätze für Stop und Ziel fest. Die Engine bemisst jedes Konto aus seinem eigenen Saldo und versendet jedes Bein gleichzeitig."
+      },
+      "watch": {
+        "term": "Zusehen, wie es ankommt",
+        "body": "Die Ergebnisse jedes Beins treffen ein, während sie passieren. Ein fehlgeschlagenes Bein erzeugt einen Hinweis, der auf dem Bildschirm bleibt, bis du ihn schließt – kein Toast, der verschwindet, während du wegsiehst."
+      }
+    },
+    "features": {
+      "title": "Sechs Beschränkungen, keine sechs Knöpfe",
+      "body": "Jeder Trade gehorcht diesen. Es sind Garantien, denen jemand sein Kapital anvertraut – sie verdienen ihren Platz.",
+      "isolation": {
+        "term": "Ein Fehler bleibt ein Fehler",
+        "body": "Jedes Konto hat seine eigene Verbindung, sein eigenes Ratenlimit und seine eigene Frist. Eine Börse, die ausfällt, kostet nur diesem Konto den Trade – niemandem sonst."
+      },
+      "sizing": {
+        "term": "Bemessen am jeweiligen Saldo",
+        "body": "Jedes Konto setzt 99 % seines eigenen USDT ein. Ein 50-$-Konto und ein 5.000-$-Konto nehmen denselben Hebel und denselben Stop-Prozentsatz – bei sehr unterschiedlichen Dollar-Beträgen."
+      },
+      "stops": {
+        "term": "Stops bewegen sich überall gleichzeitig",
+        "body": "Zieh den Stop im Chart, bearbeite ihn im Formular oder ändere ihn in der Positionszeile – alle drei senden dieselbe Änderung an jedes Konto."
+      },
+      "keys": {
+        "term": "Schlüssel, die nicht abheben können",
+        "body": "Nur-Trading wird beim Verbinden durchgesetzt, wo die Börse die Berechtigung offenlegt; ein Schlüssel, der Geld bewegen kann, wird rundweg abgelehnt."
+      },
+      "mark": {
+        "term": "Die Börse ist die Quelle der Wahrheit",
+        "body": "Positionen werden regelmäßig von jeder Plattform neu gelesen, sodass ein dort ausgelöster Stop das Bein hier schließt – und eine abgeschriebene Position wird wiederhergestellt."
+      },
+      "statements": {
+        "term": "Ein Konto, vollständig",
+        "body": "Jedes Konto hat seine eigene Seite und einen PDF-Auszug in der Sprache, die sein Partner liest – nur Geld, keine Prozentsätze, die zum Fehllesen einladen."
+      }
+    },
+    "live": {
+      "title": "Der Fan-out, live",
+      "body": "Angemeldet ist das dein eigener letzter Trade, Bein für Bein. Sonst läuft das Diagramm die Demo, damit sich das Versprechen selbst erklärt."
+    },
+    "network": {
+      "badge": "Live-Demo",
+      "title": "Eine Order · alle Konten",
+      "filled": "{ok}/{total} gefüllt",
+      "failed": "{label} fehlgeschlagen – braucht dich"
+    },
+    "security": {
+      "title": "Es hält echte Trading-Zugangsdaten",
+      "body": "Schlüssel werden mit rotierbaren Fernet-Schlüsseln verschlüsselt gespeichert, nie geloggt, nie in einer API-Antwort geführt und beim Verbinden als nicht abhebbar verifiziert, wo die Börse einen Berechtigungs-Endpunkt bereitstellt. Wo das nicht beweisbar ist, wird das Konto markiert statt stillschweigend vertraut.",
+      "item1": "Schlüssel mit rotierbaren Fernet-Schlüsseln verschlüsselt gespeichert – nie geloggt, nie in einer API-Antwort.",
+      "item2": "Nur-Trading wird beim Verbinden durchgesetzt: Ein Schlüssel, der abheben kann, wird rundweg abgelehnt, wo die Börse uns die Prüfung erlaubt.",
+      "item3": "Zugangsdaten kehren nie zum Browser zurück, nicht einmal maskiert zur Anzeige.",
+      "item4": "Wo die Börse keinen Berechtigungs-Endpunkt veröffentlicht, wird das Konto markiert statt stillschweigend vertraut.",
+      "item5": "Ein plattformweiter Notaus (STOP_ALL), der das Routing sofort stoppt und nicht aus dem Panel entfernt werden kann."
+    },
+    "faq": {
+      "title": "Fragen, die ein Betreiber stellt",
+      "body": "Klare Antworten, auch auf die, bei denen Ehrlichkeit nichts kostet.",
+      "q1": "Wurde das gegen echte Börsen getestet?",
+      "a1": "Noch nicht. Die acht Adapter sind aus der mitgelieferten Börsendokumentation geschrieben und gegen simulierte Transportschichten getestet, aber keiner wurde gegen eine echte Börse oder ein Testnet ausgeführt. Prüfe auf dem Testnet, bevor echtes Kapital eingesetzt wird.",
+      "q2": "Welche Börsen sind abgedeckt?",
+      "a2": "Hyperliquid, Bybit, Binance, OKX, Gate.io, KuCoin, Toobit und LBank hinter einer Oberfläche. Fähigkeitsunterschiede – native gegenüber emulierten Stops, Hebel pro Symbol gegenüber pro Konto – werden hinter der Adapter-Schnittstelle behandelt, nie in der Trading-Logik.",
+      "q3": "Können die Schlüssel Geld auszahlen?",
+      "a3": "Nein. Jeder Schlüssel wird beim Verbinden als Nur-Trading verifiziert und rundweg abgelehnt, wenn Abheberechte erkannt werden. Bei Börsen ohne Berechtigungs-Endpunkt wird die Prüfung als unbeweisbar gemeldet und das Konto markiert statt stillschweigend vertraut.",
+      "q4": "Warum nur USDT?",
+      "a4": "Die Bemessung ist 99 % des verfügbaren USDT-Saldos des Kontos, mit Hebel obendrauf. Ein Konto in einer anderen Währung wird im Dashboard als unbrauchbar gemeldet – es wird nie auf Verdacht gehandelt.",
+      "q5": "Wie viele Trades gleichzeitig?",
+      "a5": "Ein offener Trade pro Konto. Ein Einstieg mit unbestätigtem Fill gilt als möglicherweise offen, sodass sich nie eine zweite Order auf eine Position stapeln kann, die vielleicht schon da ist.",
+      "q6": "Was passiert, wenn eine Börse mitten im Trade ausfällt?",
+      "a6": "Dieses Konto fällt allein aus und erzeugt einen dauerhaften Hinweis, der bleibt, bis du ihn schließt – die anderen füllen trotzdem. Ein Bein, das nach dem Senden seiner Order fehlschlug, wird von der Börse neu gelesen, sodass ein Fill nie als Fehler gemeldet wird."
+    },
+    "footerNote": "Order-Routing und Ausführung. Keine Börse, kein Signal-Dienst."
+  },
+  "bots": {
+    "title": "Bots",
+    "lead": "Ein Bot ist eine Signalquelle, kein zweiter Ausführungspfad. Die Pine-Script-Strategie entscheidet die Richtung; Positionsgröße, Fan-out und Not-Halt sind derselbe Code, den auch der manuelle Knopf durchläuft.",
+    "strategies": "Strategien",
+    "strategiesLead": "Pine Script v5, beim Tippen geprüft. Alles außerhalb der unterstützten Teilmenge wird mit Name, Zeile und Spalte abgelehnt — nichts wird stillschweigend übergangen.",
+    "backtest": "Backtest",
+    "backtestLead": "Eine Version über gespeicherte Historie abspielen. Das Ausführungsmodell steht über den Kennzahlen, denn ein Backtest, der sich selbst schmeichelt, erzeugt eine Zahl, nach der gehandelt wird.",
+    "newStrategy": "Neue Strategie",
+    "newBot": "Neuer Bot",
+    "none": "Noch keine Bots",
+    "noneBody": "Ein Bot führt eine Version einer Strategie auf einem Paar aus. Schreiben Sie zuerst die Strategie.",
+    "noStrategies": "Noch keine Strategien",
+    "noStrategiesBody": "Eine Strategie ist eine Pine-Script-v5-Datei. Eine gespeicherte Version überschreibt nie eine alte, ein laufender Bot kann sich also nicht unter sich verändern.",
+    "noVersion": "keine Version gespeichert",
+    "versionN": "Version {n}",
+    "strategyName": "Name",
+    "strategyVersion": "Strategieversion",
+    "botName": "Name",
+    "doesNotValidate": "nicht gültig",
+    "saveVersion": "Version speichern",
+    "checking": "prüfe…",
+    "valid": "Gültig",
+    "errorsN": "{n} Fehler",
+    "warningsN": "{n} Warnungen",
+    "diagnostics": "Probleme",
+    "inputs": "Eingaben",
+    "inputName": "Name",
+    "inputType": "Typ",
+    "inputDefault": "Standard",
+    "inputRange": "Bereich",
+    "interval": "Zeitrahmen",
+    "market": "Markt",
+    "sizingNote": "Die Größe ist keine Einstellung: Jedes Konto wird mit 99 % seines eigenen Guthabens dimensioniert. Ein qty im Skript wird ignoriert und beim Hochladen gemeldet.",
+    "dryRun": "Trockenlauf",
+    "startPaper": "Auf Papier starten",
+    "goLive": "Live schalten",
+    "gateBlocks": "Das Freigabe-Gate ist noch nicht erfüllt",
+    "gateUnmet": "{name} hat das Freigabe-Gate nicht erfüllt",
+    "gateUnmetHere": "Dieser Bot hat das Freigabe-Gate nicht erfüllt. Jede offene Zeile steht unten.",
+    "stoppedByHand": "im Panel gestoppt",
+    "noAutoResume": "Nichts hier läuft von selbst wieder an. Einen Bot, der sich selbst gestoppt hat, startet ein Mensch, der den Grund gelesen hat.",
+    "lastBar": "Letzte Kerze",
+    "barsN": "{n} Kerzen",
+    "barsEvaluated": "Ausgewertete Kerzen",
+    "divergences": "Abweichungen",
+    "feedGaps": "Reparierte Lücken",
+    "restarts": "Überstandene Neustarts",
+    "feed": "Feed",
+    "liveIntent": "Live",
+    "flat": "flat",
+    "noActions": "Noch nichts geroutet",
+    "noActionsBody": "Jede Order dieses Bots erscheint hier mit dem, was jedes Konto zurückgemeldet hat.",
+    "shadowNote": "aufgezeichnet, nicht gesendet",
+    "noBars": "Noch keine Kerzen aufgezeichnet",
+    "barTime": "Kerze",
+    "close": "Schluss",
+    "intent": "Absicht",
+    "plots": "Plots",
+    "evaluated": "Ausgewertet in",
+    "promotion": "Freigabe-Gate",
+    "promotionHint": "Gemessen, nicht behauptet. Live wird abgelehnt, solange eine Zeile offen ist.",
+    "requirement": "Anforderung",
+    "threshold": "Erforderlich",
+    "measured": "Gemessen",
+    "gateFootnote": "Eine Zeile lässt sich von innen nicht messen: Noch kein Börsen-Adapter lief gegen eine echte Börse oder ein Testnet. Sie wird als ausdrückliche Bestätigung geführt statt still angenommen.",
+    "sourceHint": "Genau die Version, die dieser Bot ausführt. Schreibgeschützt: Eine Version ist unveränderlich.",
+    "noSource": "Quelltext nicht verfügbar",
+    "runBacktest": "Backtest starten",
+    "replaying": "Spiele ab…",
+    "from": "Von",
+    "to": "Bis",
+    "assumptions": "Ausführungsmodell und Grenzen",
+    "assumptionsHint": "Bewusst über den Kennzahlen.",
+    "intentDigest": "Absichts-Digest",
+    "equityCurve": "Kapital",
+    "trades": "Trades",
+    "tradesN": "{n} Trades",
+    "noTrades": "Diese Strategie hat in diesem Fenster nicht gehandelt",
+    "side": "Richtung",
+    "entry": "Einstieg",
+    "exit": "Ausstieg",
+    "pnl": "GuV",
+    "barsHeld": "Kerzen",
+    "reason": "Grund",
+    "line": "Zeile",
+    "state": {
+      "draft": "Entwurf",
+      "paper": "Papier",
+      "live": "Live",
+      "stopped": "Gestoppt"
+    },
+    "tab": {
+      "activity": "Aktivität",
+      "bars": "Kerzen",
+      "promotion": "Freigabe",
+      "source": "Quelltext"
+    },
+    "action": {
+      "open": "Eröffnen",
+      "amend": "Ändern",
+      "close": "Schließen",
+      "shadow": "Schatten"
+    },
+    "stop": {
+      "action": "Stoppen",
+      "consecutive_losses": "Zu viele Verlusttrades in Folge",
+      "drawdown": "Drawdown über dem Limit dieses Bots",
+      "trade_rate": "Zu viele Trades in einer Stunde",
+      "no_bars": "Der Feed ist verstummt",
+      "feed_gap": "Eine Lücke in den Kerzen ließ sich nicht schließen",
+      "script_error": "Das Skript hat einen Fehler ausgelöst",
+      "state_disagreement": "Börse und Aufzeichnung widersprechen sich weiterhin",
+      "halt": "Der Not-Halt hat jeden Bot gestoppt",
+      "manual": "Von Hand gestoppt",
+      "risk_gate": "Das Risiko-Gate hat eine Order abgelehnt"
+    },
+    "metric": {
+      "net_pnl": "Netto-GuV",
+      "return_pct": "Rendite %",
+      "max_drawdown_pct": "Max. Drawdown %",
+      "sharpe": "Sharpe",
+      "trades": "Trades",
+      "win_rate_pct": "Trefferquote %",
+      "profit_factor": "Profitfaktor",
+      "max_consecutive_losses": "Längste Verlustserie"
+    }
+  }
+}

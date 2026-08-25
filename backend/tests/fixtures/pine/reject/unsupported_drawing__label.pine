@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+g = label.new(bar_index, high, "hi")
+//@expect code=unsupported_drawing line=3 col=5

@@ -64,6 +64,26 @@ export const ICON_PATHS = {
   trend: 'M3 17l6-6 4 4 8-8M15 7h6v6',
   /** A terminal/console with lines — the system log page. */
   logs: 'M4 5h16M4 9h16M4 13h10M4 17h7',
+  /** A rounded head with two antennae and two eyes — bot mode. */
+  bot: 'M12 3v3M9 6h6a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3Zm.5 6h.01M14.5 12h.01M9.5 12h.01M3 12v3m18-3v3',
+  /** Meridians over a circle: the language switcher. */
+  globe: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM3 12h18M12 3c2.5 2.6 3.9 5.7 3.9 9s-1.4 6.4-3.9 9c-2.5-2.6-3.9-5.7-3.9-9S9.5 5.6 12 3Z',
+  /** A padlock: keys at rest, never readable. */
+  lock: 'M7 11V8a5 5 0 0 1 10 0v3M5 11h14v9H5v-9Zm7 4v2',
+  /** Stacked sheets: one interface over many accounts. */
+  layers: 'M12 3 3 8l9 5 9-5-9-5ZM12 13l-9 5 9 5 9-5-9-5Z',
+  /** A round dial with a hand: the per-leg deadline. */
+  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-14v5l3 2',
+  /** Speedometer: the fan-out's measured timing. */
+  gauge: 'M4.5 18a7.5 7.5 0 1 1 15 0M12 18v-6m0 0 3.5-3.5',
+  /** A document with ruled lines: the per-account statement. */
+  fileText: 'M7 3h7l5 5v13H7V3Zm7 0v5h5M10 12h5M10 15h5M10 18h3',
+  /** A key: the trade-only credential. */
+  key: 'm21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3m-3.5 3.5L19 4M11.39 11.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78Z',
+  /** A four-point sparkle: the live-demo badge. */
+  sparkle: 'M12 3c.6 3.9 2.1 5.4 6 6-3.9.6-5.4 2.1-6 6-.6-3.9-2.1-5.4-6-6 3.9-.6 5.4-2.1 6-6ZM19 14c.3 2 1 2.7 3 3-2 .3-2.7 1-3 3-.3-2-1-2.7-3-3 2-.3 2.7-1 3-3Z',
+  /** Concentric rings: the pulse origin. */
+  target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-5a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-2.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z',
 } as const
 
 export type IconName = keyof typeof ICON_PATHS

@@ -1,0 +1,12 @@
+//@version=5
+strategy("compound assignment")
+var float score = 0.0
+score += close > open ? 1 : -1
+score *= 0.98
+if score > 3
+    strategy.entry("L", strategy.long)
+    score := 0
+if score < -3
+    strategy.close_all()
+    score := 0
+plot(score)

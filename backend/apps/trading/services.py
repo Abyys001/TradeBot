@@ -748,6 +748,14 @@ async def route_close_all() -> list[tuple[Trade, FanOutResult]]:
     be why the other nine stayed in the market. It also stays OPEN, because
     "nothing was sent" is not "the position is closed".
     """
+    # Q22: close-all stops every running bot, for the same reason the kill
+    # switch does. Flattening while a bot is still evaluating is a flatten that
+    # re-enters on the next bar. Done first, so nothing can open behind the
+    # close that is about to go out.
+    from apps.bots.supervisor import stop_all
+
+    await stop_all(reason="halt", detail="close-all was pressed")
+
     trades = await open_trades()
     if not trades:
         return []

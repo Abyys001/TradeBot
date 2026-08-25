@@ -1,0 +1,329 @@
+{
+  "app": {
+    "name": "TradeBot",
+    "short": "TradeBot"
+  },
+  "nav": {
+    "dashboard": "Panel",
+    "accounts": "Hesaplar",
+    "history": "Geçmiş",
+    "risk": "Risk",
+    "finance": "Finans",
+    "logs": "Kayıtlar",
+    "settings": "Ayarlar",
+    "signIn": "Giriş yap",
+    "signOut": "Çıkış yap",
+    "signedInAs": "Giriş yapan",
+    "primary": "Ana gezinme",
+    "openMenu": "Menüyü aç",
+    "more": "Daha fazla",
+    "collapse": "Daralt",
+    "chart": "Grafik",
+    "expand": "Menüyü genişlet",
+    "language": "Dil",
+    "bots": "Botlar"
+  },
+  "common": {
+    "loading": "Yükleniyor…",
+    "live": "Canlı",
+    "connecting": "Bağlanıyor",
+    "offline": "Çevrimdışı",
+    "close": "Kapat",
+    "cancel": "Vazgeç",
+    "optional": "isteğe bağlı",
+    "reveal": "Göster veya gizle",
+    "reload": "Yeniden yükle",
+    "retry": "Tekrar dene",
+    "yes": "Evet",
+    "no": "Hayır",
+    "on": "Açık",
+    "off": "Kapalı",
+    "refused": "Reddedildi"
+  },
+  "theme": {
+    "toLight": "Aydınlığa geç",
+    "toDark": "Karanlığa geç"
+  },
+  "time": {
+    "justNow": "şimdi",
+    "minutes": "{n} dk önce",
+    "hours": "{n} sa önce",
+    "days": "{n} g önce"
+  },
+  "side": {
+    "long": "Long",
+    "short": "Short"
+  },
+  "market": {
+    "futures": "Sürekli vadeli",
+    "spot": "Spot"
+  },
+  "landing": {
+    "eyebrow": "Birden çok hesap için emir yönlendirme",
+    "badge": "Tek arayüz · tüm hesaplar",
+    "h1": {
+      "line1": "Bir kez işlem yaparsın.",
+      "line2": "Her hesap",
+      "line3": "saniyeler içinde takip eder."
+    },
+    "lede": "Giriş, stop, hedef, kapatma — her biri aynı anda bağlı tüm hesaplara, o hesabın kendi bakiyesine göre boyutlandırılmış olarak gider. Bir borsa hata verirse diğerleri yine de dolar ve hangisinin olmadığı size söylenir.",
+    "cta": {
+      "dashboard": "Paneli aç",
+      "signIn": "Giriş yap",
+      "risk": "Bir yüzde ne kadara mal olur",
+      "accounts": "Hesap bağla",
+      "title": "Bir kez işlem yap. Tüm hesaplar takip eder.",
+      "body": "Yalnızca işlem yapabilen bir anahtar bağla; sonraki emir anında tüm hesaplara gider — her bakiyeye göre boyutlandırılmış, korunmuş ve ayak ayak raporlanmış."
+    },
+    "stat": {
+      "accounts": "Bağlı hesaplar",
+      "exchanges": "Borsalar",
+      "lastFanout": "Son fan-out",
+      "lastSymbol": "Son parite"
+    },
+    "diagram": {
+      "real": "Son işlemin, ayak ayak",
+      "demo": "Örnek gösterim — kendinizinkini görmek için bir hesap bağlayın",
+      "origin": "işlemin",
+      "failed": "başarısız — ilgilenmen gerek",
+      "failedShort": "başarısız"
+    },
+    "sections": {
+      "stats": "Rakamlar",
+      "how": "Nasıl işliyor",
+      "features": "Neden sağlam",
+      "live": "Gör",
+      "security": "Güvenlik",
+      "faq": "Net cevaplar"
+    },
+    "stats": {
+      "title": "Vaadedilmiş değil, ölçülmüş",
+      "body": "Vadedin arkasındaki rakamlar — projenin kendi test paketinden ve doğrulanmış üç hesaplı demodan.",
+      "exchanges": {
+        "label": "Borsa",
+        "body": "tek arayüzün arkasında"
+      },
+      "tests": {
+        "label": "Backend testleri",
+        "body": "her çalıştırmada geçiyor"
+      },
+      "margin": {
+        "label": "Bakiyenin",
+        "body": "her girişte teminat olarak bağlanır"
+      },
+      "fanout": {
+        "label": "Fan-out gönderimi",
+        "body": "üç hesaplı bir demoda ölçüldü"
+      }
+    },
+    "marquee": {
+      "label": "Desteklenen borsalar"
+    },
+    "how": {
+      "title": "Nasıl işliyor",
+      "connect": {
+        "term": "Yalnızca işlem anahtarlarını bağla",
+        "body": "Her hesap bağlanırken doğrulanır ve anahtar para çekebiliyorsa doğrudan reddedilir. Anahtarlar şifreli saklanır ve asla tarayıcıya geri dönmez."
+      },
+      "trade": {
+        "term": "Bir kez işlem yap",
+        "body": "Tek bir form yönü, kaldıracı ve stop ile hedef yüzdelerini belirler. Motor her hesabı kendi bakiyesinden boyutlandırır ve her ayağı aynı anda gönderir."
+      },
+      "watch": {
+        "term": "İnişini izle",
+        "body": "Ayak sonuçları gerçekleştikçe gelir. Başarısız bir ayak, sen kapatana kadar ekranda kalan kalıcı bir bildirim çıkarır — bakarken kaybolan bir toast değil."
+      }
+    },
+    "features": {
+      "title": "Altı kısıt, altı düğme değil",
+      "body": "Her işlem bunlara uyar. Bunlar birinin sermayesini emanet ettiği garantilerdir, o yüzden yerlerini hak ederler.",
+      "isolation": {
+        "term": "Bir hata, tek başına bir hata kalır",
+        "body": "Her hesabın kendi bağlantısı, kendi istek limiti ve kendi son tarihi vardır. Bir borsanın çökmesi o hesaba yalnızca o işleme mal olur, başkasına değil."
+      },
+      "sizing": {
+        "term": "Her bakiyeye göre boyutlandırılır",
+        "body": "Her hesap kendi USDT'sinin %99'unu bağlar. 50$'lık bir hesap ile 5.000$'lık bir hesap aynı kaldıracı ve aynı stop yüzdesini alır — çok farklı dolar tutarlarında."
+      },
+      "stops": {
+        "term": "Stoplar her yerde aynı anda hareket eder",
+        "body": "Stopu grafikte sürükle, formda düzenle veya pozisyon satırında değiştir — üçü de aynı düzeltmeyi tüm hesaplara gönderir."
+      },
+      "keys": {
+        "term": "Para çekemeyen anahtarlar",
+        "body": "Yalnızca işlem kuralı, borsanın izni açıkladığı her yerde bağlantıda uygulanır; para taşıyabilen bir anahtar doğrudan reddedilir."
+      },
+      "mark": {
+        "term": "Borsa gerçeğin kaynağıdır",
+        "body": "Pozisyonlar her platformdan düzenli olarak yeniden okunur; orada tetiklenen bir stop burada ayağı kapatır — ve platformun sildiği bir pozisyon geri konur."
+      },
+      "statements": {
+        "term": "Bir hesap, bütünüyle",
+        "body": "Her hesabın kendi sayfası ve ortağının okuduğu dilde bir PDF hesap özeti vardır — yalnızca para, yanlış okumaya davet eden yüzdeler değil."
+      }
+    },
+    "live": {
+      "title": "Fan-out, canlı",
+      "body": "Giriş yaptıysan bu senin son işlemin, ayak ayak. Değilse diyagram demoyu çalıştırır; böylece vaat kendini anlatır."
+    },
+    "network": {
+      "badge": "Canlı demo",
+      "title": "Bir emir · tüm hesaplar",
+      "filled": "{ok}/{total} doldu",
+      "failed": "{label} başarısız — ilgilenmen gerek"
+    },
+    "security": {
+      "title": "Gerçek işlem kimlik bilgilerini tutar",
+      "body": "Anahtarlar döndürülebilir Fernet anahtarlarıyla şifreli saklanır, asla günlüğe yazılmaz, asla bir API yanıtında yer almaz ve borsanın izin ucu sunduğu her yerde bağlantıda çekim yapamaz olarak doğrulanır. Kanıtlanamadığı yerde hesap sessizce güvenilmek yerine işaretlenir.",
+      "item1": "Anahtarlar döndürülebilir Fernet anahtarlarıyla şifreli saklanır — asla günlüğe yazılmaz, asla bir API yanıtında yer almaz.",
+      "item2": "Yalnızca işlem bağlantıda uygulanır: çekebilen bir anahtar, borsanın kontrol etmemize izin verdiği her yerde doğrudan reddedilir.",
+      "item3": "Kimlik bilgileri asla tarayıcıya geri dönmez, görüntülemek için maskelenmiş olsa bile.",
+      "item4": "Borsanın izin ucu yayınlamadığı yerde hesap sessizce güvenilmek yerine işaretlenir.",
+      "item5": "Yeni yönlendirmeyi anında durduran ve panelden kaldırılamayan platform genelinde bir durdurma anahtarı (STOP_ALL)."
+    },
+    "faq": {
+      "title": "Bir operatörün sorduğu sorular",
+      "body": "Net cevaplar — dürüst olmanın hiçbir şeye mal olmadığı sorular dahil.",
+      "q1": "Gerçek borsalara karşı test edildi mi?",
+      "a1": "Henüz değil. Sekiz adaptör, borsaların kendi dokümantasyonundan yazıldı ve taklit taşıma katmanlarına karşı birim test edildi, ancak hiçbiri gerçek bir borsada veya testnet'te çalıştırılmadı. Gerçek sermaye bağlamadan önce testnet'te doğrulayın.",
+      "q2": "Hangi borsalar kapsanıyor?",
+      "a2": "Hyperliquid, Bybit, Binance, OKX, Gate.io, KuCoin, Toobit ve LBank tek arayüzün arkasında. Yetenek farklılıkları — yerel ve taklit stoplar, sembol başına ve hesap başına kaldıraç — işlem mantığında değil, adaptör arayüzünün arkasında ele alınır.",
+      "q3": "Anahtarlar para çekebilir mi?",
+      "a3": "Hayır. Her anahtar bağlantıda yalnızca işlem olarak doğrulanır ve çekim hakkı algılandığı her yerde doğrudan reddedilir. İzin ucu yayınlamayan borsalarda kontrol kanıtlanamaz olarak raporlanır ve hesap sessizce güvenilmek yerine işaretlenir.",
+      "q4": "Neden yalnızca USDT?",
+      "a4": "Boyutlandırma, hesabın kullanılabilir USDT bakiyesinin %99'udur, üzerine kaldıraç eklenir. Başka para birimiyle tanımlı bir hesap panelde kullanılamaz olarak raporlanır — asla tahmin üzerine işlem yapılmaz.",
+      "q5": "Aynı anda kaç işlem?",
+      "a5": "Hesap başına bir açık işlem. Dolumu doğrulanmamış bir giriş, pozisyon tutuyor olabilir sayılır; böylece ikinci bir emir, orada zaten olabilecek bir pozisyonun üzerine asla binmez.",
+      "q6": "İşlem sırasında bir borsa hata verirse ne olur?",
+      "a6": "O hesap tek başına başarısız olur ve sen kapatana kadar kalan kalıcı bir bildirim çıkarır — diğerleri yine de dolar. Emri gönderildikten sonra başarısız olan bir ayak borsadan yeniden okunur; böylece bir dolum asla hata olarak raporlanmaz."
+    },
+    "footerNote": "Emir yönlendirme ve yürütme. Bir borsa değil, bir sinyal servisi değil."
+  },
+  "bots": {
+    "title": "Botlar",
+    "lead": "Bot bir sinyal kaynağıdır, ikinci bir yürütme yolu değil. Pine Script stratejisi yönü belirler; boyutlandırma, dağıtım ve acil durdurma manuel düğmenin geçtiği kodun aynısıdır.",
+    "strategies": "Stratejiler",
+    "strategiesLead": "Pine Script v5, siz yazarken denetlenir. Desteklenen alt kümenin dışındaki her şey adıyla, satır ve sütunuyla reddedilir — hiçbir şey sessizce yok sayılmaz.",
+    "backtest": "Geri test",
+    "backtestLead": "Bir sürümü saklanan geçmiş üzerinde yeniden oynatın. Doldurma modeli metriklerin üstünde yazılır, çünkü kendini kayıran bir geri test insanların ona göre hareket ettiği bir sayı üretir.",
+    "newStrategy": "Yeni strateji",
+    "newBot": "Yeni bot",
+    "none": "Henüz bot yok",
+    "noneBody": "Her bot bir stratejinin bir sürümünü tek bir paritede çalıştırır. Önce stratejiyi yazın.",
+    "noStrategies": "Henüz strateji yok",
+    "noStrategiesBody": "Strateji bir Pine Script v5 dosyasıdır. Sürüm kaydetmek eskisini asla üzerine yazmaz, böylece çalışan bir bot altından değişmez.",
+    "noVersion": "kayıtlı sürüm yok",
+    "versionN": "sürüm {n}",
+    "strategyName": "Ad",
+    "strategyVersion": "Strateji sürümü",
+    "botName": "Ad",
+    "doesNotValidate": "geçerli değil",
+    "saveVersion": "Sürümü kaydet",
+    "checking": "denetleniyor…",
+    "valid": "Geçerli",
+    "errorsN": "{n} hata",
+    "warningsN": "{n} uyarı",
+    "diagnostics": "Sorunlar",
+    "inputs": "Girdiler",
+    "inputName": "Ad",
+    "inputType": "Tür",
+    "inputDefault": "Varsayılan",
+    "inputRange": "Aralık",
+    "interval": "Zaman dilimi",
+    "market": "Piyasa",
+    "sizingNote": "Boyut bir ayar değildir: her hesap kendi bakiyesinin %99'u ile boyutlandırılır. Betikteki qty yok sayılır ve yükleme sırasında bildirilir.",
+    "dryRun": "kuru çalıştırma",
+    "startPaper": "Kâğıt üzerinde başlat",
+    "goLive": "Canlıya al",
+    "gateBlocks": "Terfi kapısı henüz karşılanmadı",
+    "gateUnmet": "{name} terfi kapısını karşılamadı",
+    "gateUnmetHere": "Bu bot terfi kapısını karşılamadı. Karşılanmayan her satır aşağıda.",
+    "stoppedByHand": "panelden durduruldu",
+    "noAutoResume": "Buradaki hiçbir şey kendiliğinden devam etmez. Kendini durduran bir botu, nedenini okumuş bir kişi yeniden başlatır.",
+    "lastBar": "Son mum",
+    "barsN": "{n} mum",
+    "barsEvaluated": "Değerlendirilen mumlar",
+    "divergences": "Sapmalar",
+    "feedGaps": "Onarılan boşluklar",
+    "restarts": "Atlatılan yeniden başlatmalar",
+    "feed": "Besleme",
+    "liveIntent": "Canlı",
+    "flat": "pozisyonsuz",
+    "noActions": "Henüz emir gönderilmedi",
+    "noActionsBody": "Bu botun gönderdiği her emir, her hesabın verdiği yanıtla birlikte burada görünür.",
+    "shadowNote": "kaydedildi, gönderilmedi",
+    "noBars": "Henüz mum kaydedilmedi",
+    "barTime": "Mum",
+    "close": "Kapanış",
+    "intent": "Niyet",
+    "plots": "Çizimler",
+    "evaluated": "Değerlendirme süresi",
+    "promotion": "Terfi kapısı",
+    "promotionHint": "Ölçülmüş, iddia edilmiş değil. Bir satır bile karşılanmadıkça canlı reddedilir.",
+    "requirement": "Koşul",
+    "threshold": "Gerekli",
+    "measured": "Ölçülen",
+    "gateFootnote": "Bir satır içeriden ölçülemez: hiçbir borsa adaptörü henüz gerçek bir borsada veya test ağında çalıştırılmadı. Sessizce varsayılmak yerine açık bir onay olarak tutulur.",
+    "sourceHint": "Bu botun çalıştırdığı tam sürüm. Salt okunur: bir sürüm değiştirilemez.",
+    "noSource": "Kaynak kod yok",
+    "runBacktest": "Geri testi çalıştır",
+    "replaying": "Oynatılıyor…",
+    "from": "Başlangıç",
+    "to": "Bitiş",
+    "assumptions": "Doldurma modeli ve sınırlar",
+    "assumptionsHint": "Kasıtlı olarak metriklerin üstünde.",
+    "intentDigest": "Niyet özeti",
+    "equityCurve": "Sermaye",
+    "trades": "İşlemler",
+    "tradesN": "{n} işlem",
+    "noTrades": "Bu strateji bu aralıkta işlem açmadı",
+    "side": "Yön",
+    "entry": "Giriş",
+    "exit": "Çıkış",
+    "pnl": "K/Z",
+    "barsHeld": "Mum",
+    "reason": "Neden",
+    "line": "satır",
+    "state": {
+      "draft": "Taslak",
+      "paper": "Kâğıt",
+      "live": "Canlı",
+      "stopped": "Durdu"
+    },
+    "tab": {
+      "activity": "Etkinlik",
+      "bars": "Mumlar",
+      "promotion": "Terfi",
+      "source": "Kaynak"
+    },
+    "action": {
+      "open": "Aç",
+      "amend": "Değiştir",
+      "close": "Kapat",
+      "shadow": "Gölge"
+    },
+    "stop": {
+      "action": "Durdur",
+      "consecutive_losses": "Üst üste çok fazla zararlı işlem",
+      "drawdown": "Düşüş bu botun sınırını aştı",
+      "trade_rate": "Bir saatte çok fazla işlem",
+      "no_bars": "Besleme sustu",
+      "feed_gap": "Mumlardaki bir boşluk onarılamadı",
+      "script_error": "Betik hata verdi",
+      "state_disagreement": "Borsa ile kayıt hâlâ uyuşmuyor",
+      "halt": "Acil durdurma her botu durdurdu",
+      "manual": "Elle durduruldu",
+      "risk_gate": "Risk kapısı bir emri reddetti"
+    },
+    "metric": {
+      "net_pnl": "Net K/Z",
+      "return_pct": "Getiri %",
+      "max_drawdown_pct": "Azami düşüş %",
+      "sharpe": "Sharpe",
+      "trades": "İşlemler",
+      "win_rate_pct": "Kazanma oranı %",
+      "profit_factor": "Kâr faktörü",
+      "max_consecutive_losses": "En kötü zarar serisi"
+    }
+  }
+}

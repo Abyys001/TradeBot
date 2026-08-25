@@ -1,0 +1,4 @@
+//@version=5
+indicator("just an indicator")
+plot(ta.sma(close, 20))
+//@expect code=not_a_strategy line=2 col=1

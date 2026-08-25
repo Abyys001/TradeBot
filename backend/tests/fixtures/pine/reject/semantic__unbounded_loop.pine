@@ -1,0 +1,6 @@
+//@version=5
+strategy("unbounded")
+while true
+    x = 1
+plot(close)
+//@expect code=unbounded_loop line=3 col=1

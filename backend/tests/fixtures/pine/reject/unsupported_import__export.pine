@@ -1,0 +1,5 @@
+//@version=5
+strategy("reject")
+export f(x) =>
+    x + 1
+//@expect code=unsupported_import line=3 col=1

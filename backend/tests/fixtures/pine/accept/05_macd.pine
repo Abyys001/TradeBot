@@ -1,0 +1,8 @@
+//@version=5
+strategy("MACD")
+[macdLine, signalLine, hist] = ta.macd(close, 12, 26, 9)
+if ta.crossover(macdLine, signalLine)
+    strategy.entry("L", strategy.long)
+if ta.crossunder(macdLine, signalLine)
+    strategy.entry("S", strategy.short)
+plot(hist, style=plot.style_columns)

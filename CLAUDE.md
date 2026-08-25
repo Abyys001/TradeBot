@@ -15,8 +15,9 @@ channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines, and a financial
 ledger (manual deposits/withdrawals, per-account PnL since inception, a global
-profit split).
-**350 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
+profit split), and **bot mode** — a Pine Script v5 engine, backtest, supervisor
+and panel (`docs/bots.md`).
+**1317 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -78,6 +79,15 @@ with the skipped account raising a persistent notification.
   rather than failing every call).
 - The chart is Lightweight Charts. TradingView's Charting Library swaps in
   behind the same `ChartAdapter` seam once access is granted.
+- **Bot mode is built but has never run live.** Phase 7's 14-day soak and Phase
+  10's checklist are calendar and human items; `apps/bots/gate.py` measures them
+  and cannot shorten them, and `paper → live` is refused while any row is unmet.
+  Q29 is still open: the `ta.*` golden values need a TradingView export, so the
+  indicator tests currently compare against oracles transcribed from
+  `reference/pinescriptv6/` — which pins the incremental implementations against
+  the textbook formulas but shares any misreading of them.
+  `backend/tests/fixtures/pine/golden/README.md` holds the file format, and the
+  test goes live the moment an export is committed.
 
 Every open question is a **setting with all branches built**, so answering one
 is a `.env` change rather than a rewrite. `/risk` in the panel answers Q5a from
@@ -95,11 +105,16 @@ docs/
   spec/exchange_list.original.txt    admin's raw exchange list, verbatim
   exchanges/coverage.md              exchange matrix + per-exchange capability checklist
   frontend/tradingview.md            chart setup: Lightweight Charts now, Charting Library later
-  bot-mode.md                        Pine Script bot mode: the eleven-phase plan and why (nothing built yet)
-  bot-plan.md                        the execution plan under it — file manifest, settings, the test per item
+  bots.md                            **bot mode, as an operator uses it** — the subset, writing a
+                                     strategy, backtesting, the promotion path, the runbook
+  bot-mode.md                        the eleven-phase plan behind it, and why each phase exists
+  bot-plan.md                        the execution plan under that — file manifest, settings, the test per item
   decisions.md                       every closed question, Q1–Q28, with the setting that implements it
 questions.md                         open questions only — currently Q29; new ones start at Q30
-reference/                           read-only vendored exchange docs & SDKs — never imported
+reference/                           read-only vendored docs & SDKs — never imported
+  pinescriptv6/                      the Pine language reference (v6). The v1 subset is v5, but
+                                     operators, the execution model and every ta.* formula are
+                                     shared — this is what apps/pine/ is checked against.
 ```
 
 ### Backend map
@@ -128,6 +143,8 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `apps/accounts/report.py` | **One account, whole.** The per-account page's single payload: connection, ledger row, every leg with what it returned, the realised curve, cash flows and detections. Derives, never decides — the money is `ledger.py`'s arithmetic and the trades are the account's own legs. |
 | `apps/accounts/statement.py` | **The same account, as a document that leaves the platform.** Windowed by the two dates the operator picks, laid out with ReportLab and handed over as a PDF. It talks in money only — **no percentage appears anywhere in it**, because a rate on a page invites the reader to apply it to a number that is not there — and it says throughout that the bot placed every order. Derives nothing: `report.statement_report` does the arithmetic. |
 | `apps/accounts/statement_text.py` | **Both languages, side by side.** Every phrase in the statement in English and Persian, so a wording change cannot land in one and miss the other. Also owns what makes Persian *render*: the embedded Vazirmatn faces (Helvetica has no Arabic glyphs) and `shape()`, which reshapes and reorders a run — and deliberately leaves a run with no Arabic letter alone, since running bidi over `+$1,234.00` moves the sign to the wrong end. |
+| `apps/pine/` | **The Pine Script v5 engine.** Lexer, parser, the Q24 subset as data, validator, incremental `ta.*`, and a bar-at-a-time runtime that emits a `StrategyIntent`. Imports **stdlib only** — no `django.*`, no `apps.*` — which is what makes it the *same object* in a backtest and in the live loop. Checked against `reference/pinescriptv6/`, pinned by `tests/test_pine_purity.py`. |
+| `apps/bots/` | **A bot is a signal source, not a second execution path.** `translate.py` turns an intent into the `route_*` calls that already exist and nothing below it is forked; `backtest.py` replays; `riskgate.py` is Q25's seven auto-stops; `supervisor.py` is one asyncio task per bot in the ASGI process; `gate.py` is the measured `paper → live` gate. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -137,12 +154,15 @@ reference/                           read-only vendored exchange docs & SDKs —
 | `stores/order.ts` | The working order. All three SL/TP surfaces write here, so they cannot disagree (spec §3). |
 | `stores/market.ts` | One price feed for the whole page: candles, ticker poll, `seriesKey` (which series, so a refresh never moves the admin's view) and `feedDown`. |
 | `stores/positions.ts` | The open position per account, polled from `/positions/`. PnL is never recomputed in the browser. |
+| `stores/bots.ts` | Strategies and bots together — a bot's identity is "this version of that script", and splitting them means two loading states for one question. Recomputes nothing: metrics, gate rows and leg outcomes all arrive in Decimal from the server. |
 | `stores/watchlist.ts` | The admin's pairs. The pinned block (`PINNED_SYMBOLS`) is code and always present; the cookie holds only what the admin added on top. One batched quote request feeds both watchlists. |
 | `composables/useSltpAmend.ts` | The one path a mid-trade SL/TP change takes. Ticket, chart drag and position row all call it; one fan-out is in the air at a time and the last edit wins, because a run of drags must not let an older amend land last. |
 | `composables/useChartAdapter.ts` | The chart seam — Lightweight Charts now, Charting Library later. Owns the draggable SL/TP/limit lines. |
 | `pages/accounts/[id].vue` | One connection's own page, reached from every row of the accounts list: when it connected, what was paid in and out, every leg it was given and what each returned. One request (`/accounts/accounts/<id>/report/`); nothing is recomputed in the browser. |
 | `components/accounts/StatementDialog.vue` | The dialog in front of that page's download: which period, and which language the *recipient* reads — asked rather than assumed, because the file is what a partner is sent and it opens on the panel's language only as the likelier answer. |
-| `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. |
+| `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. **It stops every running bot too** (Q22) — a halt that flattens while a bot is still evaluating is a halt that re-enters ninety seconds later. |
+| `pages/bots/index.vue`, `pages/bots/[id].vue` | The bots, stopped ones first: Q25's premise is that nobody is watching at 03:00, so a bot that stopped itself does not sort under the running ones where it reads as idle. The detail page's spine is the promotion gate — nine measurements, not a confirmation dialog. |
+| `components/bots/PineEditor.vue` | The editor: a textarea, a gutter and a highlight layer. Not CodeMirror, for the reason `utils/icons.ts` is not an icon package — what it needs is line numbers, a Tab that inserts four spaces (Pine is whitespace-significant), auto-indent, and the validator's errors on their own lines. |
 | `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen. On one password this is the only place a second participant is visible. |
 | `components/app/NotificationCenter.vue` | Spec §4 failure notices (Q16 amendment). Nothing here auto-expires. |
 | `public/manifest.webmanifest`, `public/sw.js` | Installable panel (Q17). The worker never caches `/api` or `/ws`. |

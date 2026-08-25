@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+strategy.order("id", strategy.long, 1)
+//@expect code=unsupported_raw_order line=3 col=1

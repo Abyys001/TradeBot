@@ -1,0 +1,3 @@
+//@version=5
+plot(close)
+//@expect code=missing_strategy line=2 col=1

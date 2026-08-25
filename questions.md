@@ -1,6 +1,7 @@
 # Questions & decisions — open
 
-**One is open: Q29.** Everything else this project has raised is answered and
+**One is open: Q29.** (Q30 was raised and answered in the same pass; it is
+kept here rather than in `docs/decisions.md` only until the next tidy.) Everything else this project has raised is answered and
 recorded in **`docs/decisions.md`** (Q1–Q28), with the reasoning and the setting
 or module that implements each. Code comments and `docs/spec/conformance.md`
 cite them by number; the numbering is shared, so a Q-number means the same
@@ -53,9 +54,49 @@ and the determinism test. Only the numbers the tests compare against are blocked
 
 ---
 
+## Q30. How does a script spell a percent exit?
+
+**Raised 2026-08-25, implementing Phase 1. Answered in code; recorded here
+because it is a deliberate difference from TradingView, not an omission.**
+
+Q21 says a percent `strategy.exit` wins for that trade and a tick or point exit
+is rejected. Pine's own `strategy.exit` spells both the same way: `loss=` and
+`profit=` are **in ticks**, and `stop=`/`limit=` are absolute prices. There is no
+percent argument to accept.
+
+Reading `loss=10` as "10 percent" would give a TradingView script a different
+meaning here without saying so — the exact failure Q24 exists to prevent, and
+the more dangerous half of it, because a stop is the thing that limits the loss.
+
+So: `loss`, `profit`, `stop`, `limit`, `trail_points`, `trail_offset` and
+`trail_price` are **rejected by name**, each with its own message, and the
+platform provides `loss_pct=` / `profit_pct=` instead. A script written for
+TradingView therefore fails to load rather than trading a different stop, and the
+error says which argument to change to what.
+
+`apps/pine/subset.py` holds both halves — `EXIT_PERCENT_ARGS` and the five
+`unsupported_exit_*` rejections — and `tests/test_pine_validate.py` proves each
+message, line and column.
+
+**Two narrowings recorded with it**, both in the same module's docstring:
+
+- **Decorative constants** (`color.*`, `shape.*`, `location.*`, `size.*`,
+  `plot.style_*`) are accepted *only* inside a visual call's argument list, where
+  §1.3 says the call is recorded and never executed, and rejected by name
+  anywhere else. Without this nearly every real script fails on its first
+  `color=color.green`, over a value that cannot reach an order.
+- **The Q27 read-surface carve-out.** Q27 forbids `apps/pine/` and `apps/bots/`
+  from importing `accounts.visibility`, *and* requires every bot read surface to
+  filter. Both cannot be literally true, so the import is permitted in exactly
+  two modules — `apps/bots/views.py` and `apps/bots/serializers.py`, the read
+  surfaces — and forbidden everywhere else. Enforced, not remembered:
+  `tests/test_account_access.py` walks both packages' imports.
+
+---
+
 ## Adding one
 
-New ambiguity found mid-task goes here, numbered from **Q30**, with the parts
+New ambiguity found mid-task goes here, numbered from **Q31**, with the parts
 that do not depend on the answer built in the meantime. Move it to
 `docs/decisions.md` once it is answered, keeping its number.
 

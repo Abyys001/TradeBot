@@ -16,6 +16,11 @@ class Category(models.TextChoices):
     MARKET_DATA = "MARKET_DATA"
     ENGINE = "ENGINE"
     ADMIN = "ADMIN"
+    # Bot mode. Two categories rather than one because they answer different
+    # questions: BOT is the supervisor's own life (started, warmed up, gapped,
+    # stopped and why) and STRATEGY is what the script decided on a bar.
+    BOT = "BOT"
+    STRATEGY = "STRATEGY"
 
 
 class LogEntry(models.Model):
@@ -41,4 +46,7 @@ class LogEntry(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"[{self.level}] {self.timestamp:%Y-%m-%d %H:%M:%S} {self.source}: {self.message[:80]}"
+        return (
+            f"[{self.level}] {self.timestamp:%Y-%m-%d %H:%M:%S} "
+            f"{self.source}: {self.message[:80]}"
+        )

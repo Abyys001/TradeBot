@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject", calc_on_order_fills=true)
+plot(close)
+//@expect code=unsupported_fill_model line=2 col=20
