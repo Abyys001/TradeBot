@@ -130,12 +130,22 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
         await self.channel_layer.group_add(GROUP, self.channel_name)
         await self.accept()
         await self.send_json({"type": "connected"})
+        # The navbar's Live/Offline flap has no server-side trail otherwise:
+        # Daphne/Channels never write their own connect/disconnect to the log
+        # table, and container stdout does not survive a redeploy. One row per
+        # socket, on the events that are already rare, is what makes a future
+        # recurrence diagnosable from LogEntry instead of requiring SSH access
+        # at the exact moment it happens.
+        logger.info("trading websocket connected", extra={"category": "SYSTEM"})
         # The admin has the panel open; the first order is seconds to minutes
         # away. Build the exchange clients now so that order is not the one
         # paying for it inside the spec §4 deadline.
         _kick_warmup()
 
     async def disconnect(self, code: int) -> None:
+        logger.info(
+            "trading websocket disconnected (code=%s)", code, extra={"category": "SYSTEM"}
+        )
         if self._probe is not None and not self._probe.done():
             self._probe.cancel()
         # Leave the market room first: a socket that goes away without dropping
