@@ -1,0 +1,5 @@
+//@version=5
+strategy("reject")
+method double(float self) =>
+    self * 2
+//@expect code=unsupported_user_type line=3 col=1

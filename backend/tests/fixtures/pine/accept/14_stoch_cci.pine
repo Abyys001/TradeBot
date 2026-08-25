@@ -1,0 +1,10 @@
+//@version=5
+strategy("stoch and cci")
+k = ta.stoch(close, high, low, 14)
+c = ta.cci(close, 20)
+if k < 20 and c < -100
+    strategy.entry("L", strategy.long)
+if k > 80 and c > 100
+    strategy.entry("S", strategy.short)
+plot(k)
+plot(c)

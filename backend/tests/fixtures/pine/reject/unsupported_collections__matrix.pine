@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+m = matrix.new<float>(2, 2, 0.0)
+//@expect code=unsupported_collections line=3 col=5

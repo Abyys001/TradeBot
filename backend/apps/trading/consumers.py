@@ -286,6 +286,43 @@ class TradingConsumer(AsyncJsonWebsocketConsumer):
     async def market_stream_up(self, event: dict) -> None:
         await self.send_json({"type": "market_stream_up", **event["payload"]})
 
+    # --- bot mode ---------------------------------------------------------
+    # Same group, same staff-only same-origin gate. The per-account filtering
+    # is the part that needs care: a bot's action payload carries fan-out legs,
+    # which name accounts, and Q27 says every bot read surface filters.
+
+    async def bot_state(self, event: dict) -> None:
+        await self.send_json({"type": "bot_state", **event["payload"]})
+
+    async def bot_bar(self, event: dict) -> None:
+        # A bar carries no account data at all — it is public market data the
+        # panel already has on the chart.
+        await self.send_json({"type": "bot_bar", **event["payload"]})
+
+    async def bot_intent(self, event: dict) -> None:
+        await self.send_json({"type": "bot_intent", **event["payload"]})
+
+    async def bot_action(self, event: dict) -> None:
+        payload = event["payload"]
+        if not self.sees_hidden:
+            hidden = await _hidden_ids()
+            actions = []
+            for action in payload.get("actions", []):
+                legs = [
+                    leg
+                    for leg in action.get("legs", [])
+                    if leg.get("account_id") not in hidden
+                ]
+                actions.append({**action, "legs": legs})
+            payload = {**payload, "actions": actions}
+        await self.send_json({"type": "bot_action", **payload})
+
+    async def bot_stopped(self, event: dict) -> None:
+        # Why a bot stopped is never account-specific, and it is exactly the
+        # thing nobody must miss — Q25's whole premise is that nobody is
+        # watching at 03:00.
+        await self.send_json({"type": "bot_stopped", "persistent": True, **event["payload"]})
+
     async def system_log_entry(self, event: dict) -> None:
         entry = event["entry"]
         if not self.sees_hidden:

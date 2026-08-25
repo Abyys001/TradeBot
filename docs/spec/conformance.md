@@ -119,6 +119,43 @@ before connecting real partner capital.
 
 ---
 
+## Bot mode (Q20–Q27, Q30)
+
+Not a `platform-spec.md` clause — bot mode is `docs/bot-mode.md`, and its
+contract is the eight answers Q20–Q27 plus Q30. Same rule as above: every one is
+cited by number in the code and pinned by a named test. `docs/bots.md` is the
+operator's version.
+
+| Decision | Where | Evidence | Status |
+|---|---|---|---|
+| **Q20** the platform decides size; a script's `qty` is parsed, ignored and **warned about** at upload; `StrategyIntent` carries no quantity field | `apps/pine/validate.py:_check_order_call`, `apps/pine/intent.py` | `test_a_qty_on_an_entry_is_a_warning_not_an_error`, `test_the_intent_carries_no_quantity_at_all`, `test_an_action_carries_no_quantity` | ✅ |
+| **Q21** leverage and SL/TP are bot-level; a **percent** `strategy.exit` wins for that trade; ticks and points rejected at validation | `apps/bots/translate.py:plan`, `apps/pine/subset.py` | `test_a_script_percent_beats_the_bots_setting`, `test_a_tick_exit_is_refused_by_name_and_not_reinterpreted` | ✅ |
+| **Q22** first claim wins; the admin outranks a bot; a bot skips an account already in a trade and reports **"sat out"**; a manual entry into an account a bot holds is refused naming the bot; **close-all and Stop-all stop every running bot** | `apps/bots/supervisor.py:stop_all_sync`, `apps/trading/killswitch.py:set_stop_all`, `apps/trading/services.py:route_close_all`, `apps/trading/order_views.py` | `test_stop_all_stops_every_running_bot`, `test_a_stopped_bot_does_not_re_enter_after_a_flatten`, `test_turning_the_halt_on_stops_every_running_bot` | ✅ |
+| **Q23** confirmed bars only; `calc_on_every_tick=true` is a validation error, not a setting | `apps/bots/feed.py:is_confirmed`, `apps/pine/subset.py` | `test_a_bar_still_forming_is_not_confirmed`, `test_calc_on_every_tick_is_a_validation_error_not_a_setting` | ✅ |
+| **Q24** the v1 subset only; everything else rejected **by name, line and column**; nothing silently ignored | `apps/pine/subset.py:REJECTIONS`, `apps/pine/validate.py` | `test_every_rejected_fixture_names_its_construct` and `test_every_rejection_has_a_fixture`, over 42 fixtures | ✅ |
+| **Q25** seven auto-stop triggers, **none auto-resumes** | `apps/bots/riskgate.py`, `apps/bots/models.py:StopReason` | `tests/test_bot_riskgate.py` — one case per trigger; `test_clearing_the_halt_does_not_restart_what_it_stopped` | ✅ |
+| **Q26** every intent and action forever; bars all at ≥15m, changed-only plus a 7-day window at 1m/5m | `apps/bots/retention.py` | `test_a_changed_bar_is_kept_however_old`, `test_an_unchanged_bar_outside_the_debug_window_goes` | ✅ |
+| **Q27** bots fan out to hidden accounts identically; nothing in `apps/pine/` or `apps/bots/` imports `accounts.visibility`; every bot read surface filters | `apps/bots/serializers.py:get_legs`, `apps/trading/consumers.py:bot_action` | `tests/test_account_access.py` — `test_no_execution_module_imports_the_visibility_rule`, `test_bot_actions_hide_the_hidden_accounts_leg`, `test_a_bot_still_fans_out_to_the_hidden_account` | ✅ |
+| **Q30** percent exits are spelled `loss_pct`/`profit_pct`; Pine's tick and price spellings rejected by name | `apps/pine/subset.py` module docstring | `test_pine_validate.py`, parametrized over the registry | ✅ |
+| A bot is a signal source, not a second execution path — everything below `route_*` is reused | `apps/bots/translate.py:dispatch` | `test_the_backtest_and_a_bare_runtime_agree_on_the_same_bars` | ✅ |
+| The backtest predicts the live loop, provably | `apps/bots/divergence.py` | `tests/test_bot_divergence.py` — the digest is over decisions, not fills | ⚠️ pinned in test; **no live soak has run yet** |
+| `paper → live` is gated on measurements, not a dialog | `apps/bots/gate.py`, `apps/bots/views.py:start_bot` | `test_going_live_without_the_gate_is_refused_with_the_gate_attached` | ⚠️ the gate is built; **no bot has met it** |
+
+### Bot mode: what is genuinely not done
+
+1. **Nothing has run live.** The soak, the drills and the canary week are
+   calendar and human items; the gate measures them and cannot shorten them.
+2. **Q29 is open** — the `ta.*` golden values need a TradingView export. The
+   current oracles are transcribed from `reference/pinescriptv6/`, which pins the
+   incremental implementations against the textbook formulas but shares any
+   misreading of them. Format:
+   `backend/tests/fixtures/pine/golden/README.md`.
+3. **The panel is not built yet** (Phase 8). The whole API is, and
+   `manage.py pine_check` / `pine_backtest` / `run_bots` cover the backend
+   surface from a terminal.
+
+---
+
 ## What is genuinely not done
 
 1. **No adapter has been run against a live exchange or testnet.** Every real

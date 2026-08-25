@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+d = map.new<string, float>()
+//@expect code=unsupported_collections line=3 col=5

@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+x = request.security(syminfo.tickerid, "60", close)
+//@expect code=unsupported_security line=3 col=5

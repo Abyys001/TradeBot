@@ -1,0 +1,14 @@
+//@version=5
+strategy("pivots")
+ph = ta.pivothigh(high, 3, 3)
+pl = ta.pivotlow(low, 3, 3)
+var float lastHigh = na
+var float lastLow = na
+if not na(ph)
+    lastHigh := ph
+if not na(pl)
+    lastLow := pl
+if not na(lastHigh) and close > lastHigh
+    strategy.entry("L", strategy.long)
+if not na(lastLow) and close < lastLow
+    strategy.entry("S", strategy.short)

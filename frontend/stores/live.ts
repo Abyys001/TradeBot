@@ -74,6 +74,15 @@ export const useLiveStore = defineStore('live', {
     legResults: {} as Record<number, LegResult>,
     /** Balance snapshots pushed by the engine, keyed by account id. */
     balances: {} as Record<number, { balance: string; asset: string; at: number }>,
+    /**
+     * The newest bar, intent and fan-out per bot. One of each rather than a
+     * log: the detail page reads its history from `/bots/bots/<id>/bars/`, and
+     * a socket that accumulated every bar of a 1m bot would grow all day in a
+     * tab nobody is looking at.
+     */
+    botBars: {} as Record<number, Record<string, any>>,
+    botIntents: {} as Record<number, Record<string, any>>,
+    botActions: {} as Record<number, Record<string, any>>,
   }),
 
   getters: {
@@ -327,6 +336,41 @@ export const useLiveStore = defineStore('live', {
         // definition, so re-read now instead of at the next poll tick — the row
         // may be a position that no longer exists.
         usePositionsStore().load()
+        return
+      }
+      if (payload.type === 'bot_state') {
+        useBotsStore().applyState(payload.bot_id, payload.state)
+        return
+      }
+      if (payload.type === 'bot_bar') {
+        // The run counters ride on every bar, so a detail page left open shows
+        // bars evaluated and the last bar time without polling for them.
+        if (payload.run) useBotsStore().applyRun(payload.bot_id, payload.run)
+        this.botBars[payload.bot_id] = { ...payload, at: Date.now() }
+        return
+      }
+      if (payload.type === 'bot_intent') {
+        this.botIntents[payload.bot_id] = { ...payload, at: Date.now() }
+        return
+      }
+      if (payload.type === 'bot_action') {
+        // Hidden accounts were already stripped server-side (Q27); this only
+        // keeps the newest fan-out per bot for the detail page to draw.
+        this.botActions[payload.bot_id] = { ...payload, at: Date.now() }
+        return
+      }
+      if (payload.type === 'bot_stopped') {
+        // Q25's whole premise is that nobody is watching at 03:00, so this is a
+        // persistent notice like a failed leg — not a toast that expires.
+        useBotsStore().applyState(payload.bot_id, 'stopped')
+        useNotificationStore().receive({
+          id: payload.id ?? `bot-${payload.bot_id}-${Date.now()}`,
+          account: null,
+          accountLabel: '',
+          message: payload.message ?? `${payload.bot_name ?? 'a bot'} stopped: ${payload.reason ?? ''}`,
+          code: payload.reason ?? 'bot_stopped',
+          created_at: payload.created_at ?? new Date().toISOString(),
+        })
         return
       }
       if (payload.type === 'notification') {

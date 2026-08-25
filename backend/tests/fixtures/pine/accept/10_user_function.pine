@@ -1,0 +1,13 @@
+//@version=5
+strategy("user function")
+normalise(src, len) =>
+    hi = ta.highest(src, len)
+    lo = ta.lowest(src, len)
+    span = hi - lo
+    span == 0 ? 0.0 : (src - lo) / span
+pos = normalise(close, 20)
+if pos > 0.9
+    strategy.entry("S", strategy.short)
+if pos < 0.1
+    strategy.entry("L", strategy.long)
+plot(pos)

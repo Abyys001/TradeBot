@@ -53,6 +53,13 @@ export function useNavigation() {
       primary: true,
     },
     {
+      name: 'bots',
+      path: localePath('/bots'),
+      icon: 'bot',
+      label: t('nav.bots'),
+      primary: false,
+    },
+    {
       name: 'risk',
       path: localePath('/risk'),
       icon: 'risk',

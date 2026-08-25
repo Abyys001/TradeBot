@@ -1,0 +1,9 @@
+//@version=5
+strategy("Donchian")
+len = input.int(20, "Lookback")
+hh = ta.highest(high, len)
+ll = ta.lowest(low, len)
+if close >= hh[1]
+    strategy.entry("L", strategy.long)
+if close <= ll[1]
+    strategy.close_all()

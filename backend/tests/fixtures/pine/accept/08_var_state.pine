@@ -1,0 +1,13 @@
+//@version=5
+strategy("var state")
+var int streak = 0
+var float lastEntry = na
+if close > open
+    streak := streak + 1
+else
+    streak := 0
+if streak >= 3
+    strategy.entry("L", strategy.long)
+    lastEntry := close
+plot(streak)
+plot(lastEntry)

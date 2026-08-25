@@ -1,0 +1,30 @@
+//@version=5
+strategy("Trend and pullback", overlay=true, max_bars_back=500)
+trendLen = input.int(200, "Trend length", minval=20, maxval=500)
+pullLen  = input.int(14, "Pullback length", minval=2)
+riskPct  = input.float(1.5, "Stop %", minval=0.1, maxval=20)
+rewardX  = input.float(2.0, "Reward multiple", minval=0.5)
+useShorts = input.bool(true, "Allow shorts")
+
+trend = ta.ema(close, trendLen)
+r = ta.rsi(close, pullLen)
+atrPct = ta.atr(14) / close * 100
+volOk = atrPct > 0.2 and atrPct < 8
+
+longSetup  = close > trend and r < 40 and volOk
+shortSetup = useShorts and close < trend and r > 60 and volOk
+
+if strategy.position_size == 0
+    if longSetup
+        strategy.entry("L", strategy.long)
+        strategy.exit("L-x", "L", loss_pct=riskPct, profit_pct=riskPct * rewardX)
+    else if shortSetup
+        strategy.entry("S", strategy.short)
+        strategy.exit("S-x", "S", loss_pct=riskPct, profit_pct=riskPct * rewardX)
+
+if strategy.position_size > 0 and close < trend
+    strategy.close("L")
+if strategy.position_size < 0 and close > trend
+    strategy.close("S")
+
+plot(trend, color=color.purple)

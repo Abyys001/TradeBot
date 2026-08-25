@@ -1,0 +1,5 @@
+//@version=5
+strategy("loop order")
+for i = 0 to 3
+    strategy.entry("L", strategy.long)
+//@expect code=order_in_loop line=4 col=5

@@ -1,0 +1,15 @@
+//@version=5
+strategy("branching")
+mode = input.string("fast", "Mode", options=["fast", "slow", "off"])
+len = switch mode
+    "fast" => 9
+    "slow" => 55
+    => 21
+bias = if close > ta.sma(close, len)
+    1
+else
+    -1
+if bias > 0
+    strategy.entry("L", strategy.long)
+else
+    strategy.close_all()

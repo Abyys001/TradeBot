@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+a = array.new_float(0)
+//@expect code=unsupported_collections line=3 col=5

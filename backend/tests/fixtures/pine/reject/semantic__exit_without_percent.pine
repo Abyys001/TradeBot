@@ -1,0 +1,5 @@
+//@version=5
+strategy("bare exit")
+strategy.entry("L", strategy.long)
+strategy.exit("x", "L")
+//@expect code=exit_without_percent line=4 col=1

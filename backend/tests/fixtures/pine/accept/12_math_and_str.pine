@@ -1,0 +1,10 @@
+//@version=5
+strategy("math and str")
+raw = math.abs(close - open)
+scaled = math.round(math.max(raw, 0.01) * 100) / 100
+angle = math.sqrt(math.pow(scaled, 2)) + math.pi * 0
+label = str.tostring(scaled)
+ok = str.length(label) > 0 and str.contains(label, ".")
+if ok and angle > 0
+    strategy.entry("L", strategy.long)
+plot(scaled)

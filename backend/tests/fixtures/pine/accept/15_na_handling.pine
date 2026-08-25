@@ -1,0 +1,9 @@
+//@version=5
+strategy("na handling")
+slow = ta.sma(close, 200)
+safe = nz(slow, close)
+missing = na(slow)
+filled = fixnan(slow)
+if not missing and close > safe and filled > 0
+    strategy.entry("L", strategy.long)
+plot(safe)

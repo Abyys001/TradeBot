@@ -1,0 +1,11 @@
+//@version=5
+strategy("RSI reversion")
+r = ta.rsi(close, 14)
+oversold = input.int(30, "Oversold")
+overbought = input.int(70, "Overbought")
+if r < oversold and r[1] >= oversold
+    strategy.entry("L", strategy.long)
+if r > overbought
+    strategy.close("L")
+plot(r)
+hline(50)

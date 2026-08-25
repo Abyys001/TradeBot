@@ -78,6 +78,27 @@ services:
       backend: {condition: service_healthy}
     restart: unless-stopped
 
+  # Bot mode (docs/bot-mode.md). Only used when
+  # BOT_SUPERVISOR_IN_ASGI=false; by default the supervisor runs inside the
+  # ASGI process alongside the fan-out it routes through.
+  # Start with: docker compose --profile bots up -d
+  bots:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    command: python manage.py run_bots
+    env_file: [.env]
+    environment:
+      USE_SQLITE: "false"
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      backend: {condition: service_healthy}
+    restart: unless-stopped
+    profiles: ["bots"]
+
   frontend:
     build:
       context: ./frontend

@@ -1,0 +1,6 @@
+//@version=5
+strategy("recursive")
+f(n) =>
+    n <= 1 ? 1 : f(n - 1)
+plot(f(5))
+//@expect code=recursion line=3 col=1

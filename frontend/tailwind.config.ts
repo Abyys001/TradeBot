@@ -150,11 +150,32 @@ export default <Partial<Config>>{
           '0%': { transform: 'scale(1)', opacity: '0.6' },
           '100%': { transform: 'scale(2.4)', opacity: '0' },
         },
+        /* The landing's ambient motion: slow, large, and cheap (transform only).
+           The orbs behind the hero read as atmosphere, not UI. */
+        drift: {
+          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+          '33%': { transform: 'translate(24px, -18px) scale(1.05)' },
+          '66%': { transform: 'translate(-16px, 20px) scale(0.96)' },
+        },
+        /* The exchange marquee: one track of duplicated content, half the
+           track's width per loop, so the seam is never visible. */
+        marquee: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+        /* A gentle bob for the hero's floating accent. */
+        'float-y': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-7px)' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.24s cubic-bezier(0.2, 0.7, 0.3, 1) both',
         'slide-in': 'slide-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1)',
         'pulse-ring': 'pulse-ring 1.8s cubic-bezier(0.2, 0.7, 0.3, 1) infinite',
+        'drift': 'drift 16s ease-in-out infinite',
+        'marquee': 'marquee 30s linear infinite',
+        'float-y': 'float-y 5s ease-in-out infinite',
       },
     },
   },

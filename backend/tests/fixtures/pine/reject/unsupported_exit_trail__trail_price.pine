@@ -1,0 +1,5 @@
+//@version=5
+strategy("reject")
+strategy.entry("L", strategy.long)
+strategy.exit("x", "L", trail_price=close * 0.99)
+//@expect code=unsupported_exit_trail line=4 col=25

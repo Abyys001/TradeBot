@@ -1,0 +1,10 @@
+//@version=5
+strategy("valuewhen")
+signal = ta.crossover(close, ta.sma(close, 20))
+since = ta.barssince(signal)
+priorClose = ta.valuewhen(signal, close, 1)
+if signal and (na(priorClose) or close > priorClose)
+    strategy.entry("L", strategy.long)
+if since > 20
+    strategy.close_all()
+plot(since)

@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+strategy.risk.max_drawdown(10, strategy.percent_of_equity)
+//@expect code=unsupported_strategy_risk line=3 col=1

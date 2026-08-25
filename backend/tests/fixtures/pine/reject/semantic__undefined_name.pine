@@ -1,0 +1,5 @@
+//@version=5
+strategy("typo")
+len = lenght
+plot(ta.sma(close, 20))
+//@expect code=undefined_name line=3 col=7

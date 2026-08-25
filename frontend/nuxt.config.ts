@@ -8,12 +8,21 @@ export default defineNuxtConfig({
   // Q2: English complete first, Persian second. Every string goes through i18n
   // from day one so Persian is a translation pass, not a rebuild. `dir` is
   // declared per-locale now so RTL is never retrofitted.
+  //
+  // ar/es/de/tr are landing-complete: the whole landing tree and core chrome
+  // are translated, and anything left untranslated falls back to English (the
+  // instrument UI stays English-first — the panel is operated in en/fa).
   i18n: {
     strategy: 'prefix_except_default',
     defaultLocale: 'en',
+    fallbackLocale: 'en',
     locales: [
       { code: 'en', language: 'en-US', dir: 'ltr', name: 'English', file: 'en.json' },
       { code: 'fa', language: 'fa-IR', dir: 'rtl', name: 'فارسی', file: 'fa.json' },
+      { code: 'ar', language: 'ar-SA', dir: 'rtl', name: 'العربية', file: 'ar.json' },
+      { code: 'es', language: 'es-ES', dir: 'ltr', name: 'Español', file: 'es.json' },
+      { code: 'de', language: 'de-DE', dir: 'ltr', name: 'Deutsch', file: 'de.json' },
+      { code: 'tr', language: 'tr-TR', dir: 'ltr', name: 'Türkçe', file: 'tr.json' },
     ],
     lazy: true,
     detectBrowserLanguage: { useCookie: true, cookieKey: 'locale', redirectOn: 'root' },

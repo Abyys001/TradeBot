@@ -793,3 +793,149 @@ async def test_the_viewers_socket_receives_everything():
     message = await communicator.receive_json_from()
     assert {leg["account_id"] for leg in message["legs"]} == {visible_id, hidden_id}
     await communicator.disconnect()
+
+
+# --- bot mode (Q27) ---------------------------------------------------------
+#
+# A bot fans out to hidden accounts identically — nothing in `apps/pine/` or
+# `apps/bots/` may import `accounts.visibility` — but every bot *read* surface
+# filters, exactly like the manual ones above. This section is the checklist a
+# new bot read surface gets a case in.
+
+
+def _bot_action_with_legs(visible_id: int, hidden_id: int):
+    from apps.bots.models import ActionType, BotAction
+    from tests.bot_factory import make_bot, make_run
+
+    bot = make_bot(state="live")
+    run = make_run(bot)
+    action = BotAction.objects.create(
+        run=run,
+        bar_time=1700000000,
+        action_type=ActionType.OPEN,
+        idempotency_key=f"{run.id}:1700000000:open",
+        result={
+            "legs": [
+                {"account_id": visible_id, "ok": True, "error": "", "code": ""},
+                {"account_id": hidden_id, "ok": True, "error": "", "code": ""},
+            ]
+        },
+    )
+    return bot, run, action
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_bot_actions_hide_the_hidden_accounts_leg():
+    visible = make_account("open-book")
+    hidden = make_account("quiet", hidden=True)
+    bot, _run, _action = _bot_action_with_legs(visible.id, hidden.id)
+
+    body = other_client().get(f"/api/bots/bots/{bot.id}/actions/").json()
+    legs = [leg for row in body for leg in row["legs"]]
+    assert [leg["account_id"] for leg in legs] == [visible.id]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_the_viewer_sees_every_leg_of_a_bot_action():
+    visible = make_account("open-book")
+    hidden = make_account("quiet", hidden=True)
+    bot, _run, _action = _bot_action_with_legs(visible.id, hidden.id)
+
+    body = viewer_client().get(f"/api/bots/bots/{bot.id}/actions/").json()
+    legs = [leg for row in body for leg in row["legs"]]
+    assert {leg["account_id"] for leg in legs} == {visible.id, hidden.id}
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_bot_still_fans_out_to_the_hidden_account():
+    """Q27's first half. Hiding is a *read* rule; the account trades identically,
+    and `eligible_accounts` is what the bot routes through."""
+    from apps.trading.services import eligible_accounts
+
+    make_account("open-book")
+    hidden = make_account("quiet", hidden=True)
+    eligible = eligible_accounts.__wrapped__()
+    assert hidden.id in {account.id for account in eligible}
+
+
+def test_no_execution_module_imports_the_visibility_rule():
+    """Q27, enforced rather than remembered. The carve-out is `views` and
+    `serializers` — the read surfaces, which are *required* to filter."""
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "apps"
+    allowed = {"apps/bots/views.py", "apps/bots/serializers.py"}
+    offenders = []
+    for path in list((root / "bots").rglob("*.py")) + list((root / "pine").rglob("*.py")):
+        relative = str(path.relative_to(root.parent))
+        if relative in allowed:
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            module = getattr(node, "module", None)
+            names = [a.name for a in getattr(node, "names", [])]
+            if (module and "visibility" in module) or any("visibility" in n for n in names):
+                offenders.append(relative)
+    assert offenders == []
+
+
+def test_both_carve_out_modules_actually_do_filter():
+    """The other half: a read surface that forgot to filter is the failure this
+    file exists to catch, and an unused carve-out is a filter that went missing."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "apps" / "bots"
+    for name in ("views.py", "serializers.py"):
+        source = (root / name).read_text()
+        assert "hidden_ids" in source or "_filtered" in source, name
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_the_socket_strips_hidden_legs_from_a_bot_action():
+    user, visible_id, hidden_id = await _make_socket_fixtures("boss")
+    communicator = await _open(user)
+
+    await get_channel_layer().group_send(
+        GROUP,
+        {
+            "type": "bot_action",
+            "payload": {
+                "bot_id": 1,
+                "actions": [
+                    {
+                        "type": "open",
+                        "legs": [
+                            {"account_id": visible_id, "ok": True},
+                            {"account_id": hidden_id, "ok": True},
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+    message = await communicator.receive_json_from()
+    legs = [leg for action in message["actions"] for leg in action["legs"]]
+    assert [leg["account_id"] for leg in legs] == [visible_id]
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_bot_stop_notice_reaches_everyone():
+    """Why a bot stopped is never account-specific, and it is exactly the thing
+    nobody must miss — Q25's premise is that nobody is watching at 03:00."""
+    user, _visible_id, _hidden_id = await _make_socket_fixtures("boss")
+    communicator = await _open(user)
+
+    await get_channel_layer().group_send(
+        GROUP,
+        {"type": "bot_stopped", "payload": {"bot_id": 1, "reason": "drawdown"}},
+    )
+    message = await communicator.receive_json_from()
+    assert message["persistent"] is True
+    assert message["reason"] == "drawdown"
+    await communicator.disconnect()

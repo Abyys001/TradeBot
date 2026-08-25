@@ -37,6 +37,11 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.trading",
     "apps.logging",
+    # The Pine front end and runtime. No models — it is registered so
+    # `manage.py pine_check` is discoverable, and for nothing else. The package
+    # itself imports no Django; see apps/pine/__init__.py.
+    "apps.pine",
+    "apps.bots",
 ]
 
 MIDDLEWARE = [
@@ -259,6 +264,65 @@ TRADING = {
     # true here means the halt cannot be cleared from the panel. The everyday
     # switch is the KillSwitch row (see apps/trading/killswitch.py).
     "STOP_ALL": env_bool("STOP_ALL", False),
+}
+
+# --- Bot mode (docs/bot-mode.md, Q20-Q27) -----------------------------------
+# Shaped like TRADING above and read the same way, so /api/bots/policy/ can
+# mirror trading/policy/ — the decisions as live settings, visible in the panel.
+#
+# The two Q25 triggers that are NOT here are deliberate: an unrepairable feed
+# gap and a runtime error in the script are both "any, the first one". A number
+# there would be a setting for how much silent disagreement with the market is
+# acceptable, and the answer is none.
+BOT = {
+    # --- Phase 1: the front end. Caps so one pathological script cannot
+    # starve the event loop the fan-out shares.
+    "MAX_SCRIPT_BYTES": int(os.getenv("BOT_MAX_SCRIPT_BYTES", "65536")),
+    "MAX_AST_NODES": int(os.getenv("BOT_MAX_AST_NODES", "20000")),
+    "MAX_TA_CALL_SITES": int(os.getenv("BOT_MAX_TA_CALL_SITES", "200")),
+    "MAX_LOOP_ITERATIONS": int(os.getenv("BOT_MAX_LOOP_ITERATIONS", "10000")),
+    # --- Phase 2: the runtime.
+    "SERIES_DEPTH": int(os.getenv("BOT_SERIES_DEPTH", "5000")),
+    # The runtime shares a process with a fan-out that has a per-leg deadline
+    # (FANOUT_TIMEOUT_SECONDS above). A script that spends two seconds on a bar
+    # is a latency incident for every account, not a slow chart.
+    "BAR_BUDGET_MS": int(os.getenv("BOT_BAR_BUDGET_MS", "250")),
+    # --- Phase 3: the bar feed.
+    # Exchanges emit the closing update slightly late; reading a bar the instant
+    # the clock rolls over gets a bar that is still moving.
+    "BAR_CONFIRM_LAG_MS": int(os.getenv("BOT_BAR_CONFIRM_LAG_MS", "2000")),
+    "WARMUP_MULTIPLIER": int(os.getenv("BOT_WARMUP_MULTIPLIER", "3")),
+    "WARMUP_MIN_BARS": int(os.getenv("BOT_WARMUP_MIN_BARS", "300")),
+    # A bot whose clock is a minute fast confirms bars that have not closed.
+    "MAX_CLOCK_SKEW_MS": int(os.getenv("BOT_MAX_CLOCK_SKEW_MS", "5000")),
+    # --- Phase 4: the backtest fill model, stated in every report because the
+    # numbers are meaningless without it.
+    "BACKTEST_SLIPPAGE_BPS": os.getenv("BOT_BACKTEST_SLIPPAGE_BPS", "5"),
+    "BACKTEST_FEE_BPS": os.getenv("BOT_BACKTEST_FEE_BPS", "5"),
+    # --- Phase 5: the risk gate.
+    # The intent's bar close against the live ticker. Further apart than this
+    # and something is wrong with the feed or the symbol mapping, not the market.
+    "MAX_PRICE_DRIFT_PCT": os.getenv("BOT_MAX_PRICE_DRIFT_PCT", "2"),
+    # 0 means no cap. Phase 10's canary sets this to 1.
+    "MAX_ACCOUNTS": int(os.getenv("BOT_MAX_ACCOUNTS", "0")),
+    # --- Q25 auto-stop defaults. Every one is per-bot configurable
+    # (Bot.risk_config); these are the fallbacks, and Phase 10 requires they be
+    # set deliberately for a strategy rather than left here.
+    "MAX_CONSECUTIVE_LOSSES": int(os.getenv("BOT_MAX_CONSECUTIVE_LOSSES", "5")),
+    "MAX_DRAWDOWN_PCT": os.getenv("BOT_MAX_DRAWDOWN_PCT", "15"),
+    "MAX_TRADES_PER_HOUR": int(os.getenv("BOT_MAX_TRADES_PER_HOUR", "10")),
+    "RECONCILE_PASSES_BEFORE_STOP": int(os.getenv("BOT_RECONCILE_PASSES_BEFORE_STOP", "2")),
+    "NO_BAR_TIMEOUT_MULTIPLE": int(os.getenv("BOT_NO_BAR_TIMEOUT_MULTIPLE", "3")),
+    # --- Phase 7: the promotion gate. Fourteen days is not a round number: it
+    # crosses a weekend, a funding cycle, an exchange maintenance window and at
+    # least one bad-liquidity hour.
+    "SOAK_DAYS": int(os.getenv("BOT_SOAK_DAYS", "14")),
+    "SOAK_MIN_RESTARTS": int(os.getenv("BOT_SOAK_MIN_RESTARTS", "3")),
+    "SOAK_MIN_HALT_DRILLS": int(os.getenv("BOT_SOAK_MIN_HALT_DRILLS", "2")),
+    # The supervisor runs inside the ASGI process by default, alongside the
+    # fan-out: route_* is async and a broker hop would spend the spec §4 budget.
+    # Set false to run it only as the `bots` compose service instead.
+    "SUPERVISOR_IN_ASGI": env_bool("BOT_SUPERVISOR_IN_ASGI", True),
 }
 
 # --- Financial ledger (deposits, withdrawals, PnL) --------------------------

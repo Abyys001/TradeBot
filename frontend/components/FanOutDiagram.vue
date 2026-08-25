@@ -15,24 +15,12 @@
  * 560-wide viewBox down to a phone puts the account labels at about seven
  * pixels, which is a decoration rather than a diagram.
  */
-type Leg = { label: string; ms: number; ok: boolean }
-
-const props = withDefaults(defineProps<{ legs?: Leg[]; budgetMs?: number }>(), {
+const props = withDefaults(defineProps<{ legs?: FanLeg[]; budgetMs?: number }>(), {
   // Matches the backend's shipped FANOUT_TIMEOUT_SECONDS default (Q19).
   budgetMs: 4000,
 })
 
-const DEMO: Leg[] = [
-  { label: 'Hyperliquid', ms: 180, ok: true },
-  { label: 'Bybit', ms: 240, ok: true },
-  { label: 'Binance', ms: 310, ok: true },
-  { label: 'OKX', ms: 420, ok: true },
-  { label: 'Gate.io', ms: 260, ok: true },
-  { label: 'KuCoin', ms: 900, ok: false },
-  { label: 'Toobit', ms: 380, ok: true },
-]
-
-const legs = computed(() => (props.legs?.length ? props.legs : DEMO))
+const legs = computed(() => (props.legs?.length ? props.legs : DEMO_LEGS))
 const isDemo = computed(() => !props.legs?.length)
 
 const W = 560

@@ -201,6 +201,54 @@ export function useApi() {
     saveLedgerSplit: (body: Record<string, unknown>) =>
       request<ProfitSplit>('/accounts/ledger/split/', { method: 'POST', body }),
 
+    // --- bot mode (docs/bots.md) ---
+    /** `settings.BOT` as the panel renders it, including the two stops with no number. */
+    botPolicy: () => request<BotPolicy>('/bots/policy/'),
+    /**
+     * What the editor underlines. Never throws on a bad script — every fault
+     * comes back as data, so four mistakes underline four rather than sending
+     * the author round the loop four times.
+     */
+    validatePine: (source: string) =>
+      request<PineValidation>('/bots/validate/', { method: 'POST', body: { source } }),
+    strategies: () => request<Strategy[]>('/bots/strategies/'),
+    createStrategy: (body: Record<string, unknown>) =>
+      request<Strategy>('/bots/strategies/', { method: 'POST', body }),
+    deleteStrategy: (id: number) => request<void>(`/bots/strategies/${id}/`, { method: 'DELETE' }),
+    /** Immutable: saving never rewrites a version, so a running bot cannot change under it. */
+    saveVersion: (strategyId: number, source: string) =>
+      request<StrategyVersion>(`/bots/strategies/${strategyId}/versions/`, {
+        method: 'POST',
+        body: { source },
+      }),
+    bots: () => request<BotSummary[]>('/bots/bots/'),
+    bot: (id: number) => request<BotSummary>(`/bots/bots/${id}/`),
+    createBot: (body: Record<string, unknown>) =>
+      request<BotSummary>('/bots/bots/', { method: 'POST', body }),
+    updateBot: (id: number, body: Record<string, unknown>) =>
+      request<BotSummary>(`/bots/bots/${id}/`, { method: 'PATCH', body }),
+    deleteBot: (id: number) => request<void>(`/bots/bots/${id}/`, { method: 'DELETE' }),
+    botRuns: (id: number) => request<BotRun[]>(`/bots/bots/${id}/runs/`),
+    botBars: (id: number, limit = 500) =>
+      request<BotBar[]>(`/bots/bots/${id}/bars/?limit=${limit}`),
+    /** The action log with its fan-out legs — the one bot surface naming accounts. */
+    botActions: (id: number) => request<BotAction[]>(`/bots/bots/${id}/actions/`),
+    /** The Phase 7 gate with this bot's own measurements filled in. */
+    botPromotion: (id: number) => request<PromotionGate>(`/bots/bots/${id}/promotion/`),
+    startBot: (id: number, state: 'paper' | 'live') =>
+      request<{ bot_id: number; state: string; run_id: number }>(`/bots/bots/${id}/start/`, {
+        method: 'POST',
+        body: { state },
+      }),
+    stopBot: (id: number, reason = '') =>
+      request<{ bot_id: number; state: string }>(`/bots/bots/${id}/stop/`, {
+        method: 'POST',
+        body: { reason },
+      }),
+    runBacktest: (body: Record<string, unknown>) =>
+      request<BacktestResult>('/bots/backtest/', { method: 'POST', body }),
+    backtests: () => request<BacktestRun[]>('/bots/backtests/'),
+
     // --- system log ---
     logs: (params?: Record<string, string>) => {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
@@ -837,4 +885,224 @@ export interface LogEntry {
 export interface LogFacets {
   levels: string[]
   categories: string[]
+}
+
+// --- bot mode (docs/bots.md) ------------------------------------------------
+
+/** One located fault or warning from the validator. Never an exception. */
+export interface PineDiagnostic {
+  kind: 'error' | 'warning'
+  code: string
+  message: string
+  span: { line: number; col: number; end_line: number; end_col: number } | null
+}
+
+/** One `input.*` in the script — what the parameter form is built from. */
+export interface PineInput {
+  name: string
+  kind: string
+  default: unknown
+  title: string
+  minval: unknown
+  maxval: unknown
+  options: unknown[]
+}
+
+export interface PineValidation {
+  ok: boolean
+  errors: PineDiagnostic[]
+  warnings: PineDiagnostic[]
+  inputs: PineInput[]
+  ta_call_sites: number
+  node_count: number
+}
+
+export interface StrategyVersion {
+  id: number
+  version: number
+  source: string
+  parsed_ok: boolean
+  validation_errors: PineDiagnostic[]
+  validation_warnings: PineDiagnostic[]
+  inputs_schema: PineInput[]
+  created_at: string
+  created_by: string
+}
+
+export interface Strategy {
+  id: number
+  name: string
+  description: string
+  created_at: string
+  created_by: string
+  versions: StrategyVersion[]
+  latest_version: StrategyVersion | null
+}
+
+export type BotState = 'draft' | 'paper' | 'live' | 'stopped'
+
+export interface BotSummary {
+  id: number
+  strategy_version: number
+  strategy_name: string
+  version: number
+  name: string
+  symbol: string
+  interval: string
+  market: string
+  leverage: number
+  sl_pct: string | null
+  tp_pct: string | null
+  input_values: Record<string, unknown>
+  risk_config: Record<string, unknown>
+  state: BotState
+  /** True in every state but `live`. Set by the state, never by hand. */
+  dry_run: boolean
+  drills_fired: string[]
+  created_at: string
+  updated_at: string
+  latest_run: BotRun | null
+}
+
+export interface BotRun {
+  id: number
+  bot: number
+  started_at: string
+  stopped_at: string | null
+  /** One of the Q25 triggers, `halt`, `manual`, or `risk_gate`. */
+  stop_reason: string
+  stop_detail: string
+  warmup_bars: number
+  feed_source: string
+  /** 'stream' or 'poll' — named rather than blurred, as the chart's is. */
+  feed_transport?: string
+  last_bar_time: number | null
+  peak_equity: string | null
+  consecutive_losses: number
+  recoveries: number
+  unplanned_recoveries: number
+  feed_gaps: number
+  feed_gaps_repaired: number
+  halt_drills: number
+  divergences: number
+  bars_evaluated: number
+}
+
+export interface BotBar {
+  id: number
+  bar_time: number
+  open: string
+  high: string
+  low: string
+  close: string
+  volume: string
+  plots: Record<string, string>
+  intent: Record<string, unknown>
+  evaluation_ms: number | null
+  changed: boolean
+}
+
+/** One leg of a bot's fan-out. Hidden accounts are stripped server-side (Q27). */
+export interface BotActionLeg {
+  account_id: number
+  account_label?: string
+  ok: boolean
+  error?: string
+  code?: string
+}
+
+export interface BotAction {
+  id: number
+  bar_time: number
+  action_type: 'open' | 'amend' | 'close' | 'shadow'
+  idempotency_key: string
+  payload: Record<string, unknown>
+  intent: Record<string, unknown>
+  created_at: string
+  dispatched_at: string | null
+  settled_at: string | null
+  trade: number | null
+  ok: boolean
+  error: string
+  legs: BotActionLeg[]
+}
+
+/** One row of the Phase 7 gate, with the number behind it. */
+export interface PromotionRow {
+  key: string
+  requirement: string
+  threshold: string
+  measured: string
+  met: boolean
+}
+
+export interface PromotionGate {
+  ready: boolean
+  rows: PromotionRow[]
+}
+
+/** What the backtest assumed. Rendered above the metrics, always. */
+export interface BacktestAssumptions {
+  slippage_bps: string
+  fee_bps: string
+  entry_rule: string
+  ambiguous_bar: string
+  balance_fraction: string
+  leverage: number
+  initial_equity: string
+}
+
+export interface BacktestTrade {
+  side: string
+  entry_time: number
+  entry_price: string
+  exit_time: number
+  exit_price: string
+  qty: string
+  pnl: string
+  fees: string
+  bars_held: number
+  exit_reason: string
+  entry_reason: string
+  /** Which line asked for this trade — the chart marker links back to it. */
+  entry_span: { line: number; col: number } | null
+}
+
+export interface BacktestResult {
+  symbol: string
+  interval: string
+  from_time: number
+  to_time: number
+  bars: number
+  assumptions: BacktestAssumptions
+  /** The same assumptions as sentences, so the panel prints one list, not two. */
+  assumption_lines: string[]
+  metrics: Record<string, string | number | null>
+  equity_curve: [number, string][]
+  trades: BacktestTrade[]
+  /** SHA-256 over the decision sequence. The live loop computes it the same way. */
+  intent_digest: string
+  warnings: string[]
+}
+
+export interface BacktestRun {
+  id: number
+  strategy_version: number
+  strategy_name: string
+  symbol: string
+  interval: string
+  market: string
+  from_time: number
+  to_time: number
+  input_values: Record<string, unknown>
+  metrics: Record<string, string | number | null>
+  intent_digest: string
+  created_at: string
+  created_by: string
+}
+
+export interface BotPolicy {
+  [key: string]: unknown
+  non_configurable_stops: Record<string, string>
+  decisions: Record<string, string>
 }
