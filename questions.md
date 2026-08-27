@@ -1,7 +1,8 @@
 # Questions & decisions — open
 
-**One is open: Q29.** (Q30 was raised and answered in the same pass; it is
-kept here rather than in `docs/decisions.md` only until the next tidy.) Everything else this project has raised is answered and
+**Three are open: Q29, Q31 and Q32.** (Q30 was raised and answered in the same
+pass; it is kept here rather than in `docs/decisions.md` only until the next
+tidy.) Everything else this project has raised is answered and
 recorded in **`docs/decisions.md`** (Q1–Q28), with the reasoning and the setting
 or module that implements each. Code comments and `docs/spec/conformance.md`
 cite them by number; the numbering is shared, so a Q-number means the same
@@ -94,9 +95,60 @@ message, line and column.
 
 ---
 
+## Q31. Do passkeys replace the shared password, or sit beside it?
+
+**Raised 2026-08-27, writing `docs/security-plan.md`. Blocks that plan's Phase
+4 shape, not Phases 0–3.**
+
+The plan adds an optional authenticator-app second factor (A1) with a
+"remember this browser" companion (A2). A passkey is strictly better than both
+— phishing-resistant by construction, and a tap instead of a typed code — so
+the question is not whether to get there but what it does to the access model.
+
+This platform's access model is deliberate and unusual: **one shared staff
+login**, with the access list being `PanelSession` rows, one per browser, shown
+in `components/dashboard/Sessions.vue`. That is the only place a second
+participant is visible at all. A passkey is per-device by construction, which
+gives two readings:
+
+1. **Beside it.** Each participant enrols their own passkey against the same
+   shared account. Nothing in the data model changes, `visibility.py` is
+   untouched, and the Sessions list keeps meaning exactly what it means today.
+   Buildable as written.
+2. **Instead of it.** Per-person accounts, each with their own passkey. Better
+   attribution in the audit log (B3) and no shared secret to leak — but it is a
+   different product: `visibility.py`'s one hardcoded username, the profit
+   split's three roles, and "who is signed in" all become per-person questions.
+
+Reading 1 is the default and needs no answer to start. Reading 2 is the admin's
+call, and is worth asking only if more than one person will hold the login
+long-term.
+
+---
+
+## Q32. Is a WAF in front of the panel worth a hop on `/ws/`?
+
+**Raised 2026-08-27, writing `docs/security-plan.md`. Blocks nothing; the plan
+builds around either answer.**
+
+A managed WAF (Cloudflare or equivalent) is the cheapest broad protection
+available for a public panel — a DNS change, and it covers request floods and
+the generic scanner traffic any exposed host gets.
+
+But `docker-compose.prod.yml` has Caddy short-circuit `/ws/*` straight to
+Channels *specifically* to save a hop, and the top bar shows the round-trip
+that hop would lengthen. A proxying WAF puts it back, on the one connection
+this platform treats as latency-critical.
+
+The obvious compromise is to front the HTTP origin and leave the socket direct.
+It is also a split configuration — two paths to the same host, only one
+protected — so it is worth being a decision rather than a default.
+
+---
+
 ## Adding one
 
-New ambiguity found mid-task goes here, numbered from **Q31**, with the parts
+New ambiguity found mid-task goes here, numbered from **Q33**, with the parts
 that do not depend on the answer built in the meantime. Move it to
 `docs/decisions.md` once it is answered, keeping its number.
 

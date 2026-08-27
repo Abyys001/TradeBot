@@ -10,6 +10,12 @@
  *
  * Polled slowly: this answers "who is here", which does not change between
  * heartbeats, and the dashboard already has three fast polls on it.
+ *
+ * Each row can be ended from here, and that is not one of the optional
+ * controls: reading that a stranger holds the login and having no way to act
+ * on it was the gap. Your own row is not offered the button — signing out is
+ * what ends this browser, and a list that could revoke itself would leave the
+ * page authenticated against a session that no longer exists.
  */
 const POLL_MS = 30000
 
@@ -20,7 +26,20 @@ const api = useApi()
 const sessions = ref<PanelSession[]>([])
 const loading = ref(true)
 const error = ref('')
+const revoking = ref<number | null>(null)
 let timer: ReturnType<typeof setInterval> | null = null
+
+async function revoke(session: PanelSession) {
+  revoking.value = session.id
+  try {
+    await api.revokeSession(session.id)
+    await load()
+  } catch (e: unknown) {
+    error.value = errorMessage(e)
+  } finally {
+    revoking.value = null
+  }
+}
 
 async function load() {
   try {
@@ -89,6 +108,18 @@ const online = computed(() => sessions.value.filter((s) => s.online).length)
               : t('dashboard.sessionSeen', { when: since(session.last_seen_at) })
           }}
         </span>
+
+        <button
+          v-if="!session.current"
+          class="btn-ghost btn-sm text-short shrink-0"
+          :disabled="revoking === session.id"
+          :title="t('dashboard.sessionRevokeHint')"
+          @click="revoke(session)"
+        >
+          <UiIcon :name="revoking === session.id ? 'refresh' : 'close'" :size="14"
+            :class="revoking === session.id ? 'animate-spin' : ''" />
+          {{ t('dashboard.sessionRevoke') }}
+        </button>
       </li>
     </ul>
 

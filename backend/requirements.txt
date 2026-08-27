@@ -34,3 +34,13 @@ reportlab==4.2.5
 # it by hand is a Unicode annex, not a helper.
 arabic-reshaper==3.0.0
 python-bidi==0.6.6
+# The optional second factor (docs/security-plan.md, phase 4). RFC 6238 is
+# HMAC plus a truncation, so it is tempting to inline — but "do not hand-roll
+# an auth primitive" outweighs "do not add a dependency" here, and pyotp is
+# ~300 lines of pure python with no dependencies of its own.
+pyotp==2.9.0
+# The enrolment QR, rendered as an SVG. Pure python, and SVG specifically so
+# the image needs no imaging library in the container and can be inlined —
+# the Content-Security-Policy this same settings card can switch on would
+# block it as an external resource.
+qrcode==8.0

@@ -409,6 +409,7 @@ WebSocket relay, for one), so `--build` is not optional on `git pull`.
 | Chart empty for a pair the picker offered | Under a pin the picker only offers the pinned venue's pairs. If you cleared the pin, a pair may exist on one venue and not the quoting one. |
 | Halt flips in one tab, not another | `channel_layer_shared: false` — Redis is not reaching the backend. |
 | Certificate never issues | DNS, then port 80 reachable from the internet. Caddy needs both. |
+| Signed in, then refused everywhere | An optional security control is on. §10 — and the emergency halt still answers, from any address. |
 
 ## 9. Security notes
 
@@ -436,3 +437,48 @@ WebSocket relay, for one), so `--build` is not optional on `git pull`.
   no session) and answers in booleans only — no versions, hostnames, settings
   or counts. Keep it that way; the moment it carries a value instead of a
   verdict it is reconnaissance.
+- The optional security layer (§10) is off in a fresh deployment and stays off
+  until somebody switches a control on from Settings. Nothing in it runs while
+  an order is being routed.
+
+## 10. Locked out — the drill
+
+This is the failure that costs money here, and it is not a break-in. It is the
+operator unable to reach a panel that is **holding live positions**: a lost
+phone with the second factor armed, or an address allowlist written from the
+office and read from home.
+
+**The halt answers first, and from anywhere.** `/api/trading/stop-all/` is
+exempt from the address allowlist by name and is never behind a step-up
+prompt, because a lock-out that also disables the brake is the failure this
+whole layer is designed around. If a position needs flattening, do that before
+anything below.
+
+Then, from a shell on the box — both of these work when the panel will not:
+
+```bash
+# The nuclear option: forces every control off whatever the database says.
+# It is the mirror image of STOP_ALL — that one cannot be cleared from a
+# browser, this one cannot be set from one.
+docker compose -f docker-compose.prod.yml exec backend \
+    python manage.py security_off
+
+# Or just the one that is in the way.
+docker compose -f docker-compose.prod.yml exec backend \
+    python manage.py security_off --flag ip_allowlist
+docker compose -f docker-compose.prod.yml exec backend \
+    python manage.py security_off --list      # what is on right now
+```
+
+`security_off` keeps working even with `SECURITY_FEATURES=false` in the
+environment: the pin blocks a control being *armed*, never disarmed.
+
+For a second factor specifically, the recovery codes are the intended route and
+need no shell — each one works once, in the same field as the six-digit code.
+The panel refuses to arm the switch until they have been acknowledged, which is
+the point: the escape exists before the thing it escapes from.
+
+If you want the whole layer held off across a restart — during an incident, or
+on a deployment where nobody has set it up yet — set `SECURITY_FEATURES=false`
+in `.env` and restart the backend. Every row on the Settings card then renders
+locked and says why, rather than appearing to move and springing back.

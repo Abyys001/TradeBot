@@ -8,11 +8,8 @@ no market data settings, just the archive logic against a real Postgres.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 
 import pytest
-from django.test import override_settings
 
 from apps.core.money import D
 from apps.exchanges.base import MarketType

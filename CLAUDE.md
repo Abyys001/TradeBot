@@ -15,9 +15,12 @@ channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines, and a financial
 ledger (manual deposits/withdrawals, per-account PnL since inception, a global
-profit split), and **bot mode** — a Pine Script v5 engine, backtest, supervisor
-and panel (`docs/bots.md`).
-**1317 backend tests pass, `ruff` clean, Nuxt build and typecheck clean.**
+profit split), **bot mode** — a Pine Script v5 engine, backtest, supervisor
+and panel (`docs/bots.md`) — and an **optional security layer**: one On/Off row
+per control on `/settings`, every one off by default, none of them on the
+order-routing path (`docs/security-plan.md`).
+**1649 backend tests pass, `ruff` clean on everything this touched, Nuxt build
+and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -110,7 +113,9 @@ docs/
   bot-mode.md                        the eleven-phase plan behind it, and why each phase exists
   bot-plan.md                        the execution plan under that — file manifest, settings, the test per item
   decisions.md                       every closed question, Q1–Q28, with the setting that implements it
-questions.md                         open questions only — currently Q29; new ones start at Q30
+  security-plan.md                   the optional-by-default security layer: one switch per control,
+                                     none of them on the order-routing path
+questions.md                         open questions only — Q29, Q31, Q32; new ones start at Q33
 reference/                           read-only vendored docs & SDKs — never imported
   pinescriptv6/                      the Pine language reference (v6). The v1 subset is v5, but
                                      operators, the execution model and every ta.* formula are
@@ -136,7 +141,12 @@ reference/                           read-only vendored docs & SDKs — never im
 | `apps/trading/killswitch.py` | Spec §7 halt (Q14). Cache-backed so the routing path costs no query; env pin cannot be cleared from the panel. |
 | `apps/accounts/visibility.py` | Read-side account filtering. One hardcoded username. Nothing in `engine/` or `services.py` may import it. |
 | `apps/accounts/credentials.py` | **When a credential stops working.** A Hyperliquid agent approval is *pruned* at its expiry, not refused, so a lapse is a silent disconnection. Counts down to the recorded date, raises one persistent notice, escalates it on expiry and clears it on renewal. Measures and reports only — it never pauses an account or drops one from a fan-out. |
-| `apps/accounts/sessions.py` | **Who is signed in.** One shared staff login, so access is a list of *sessions*: one row per browser, last-seen throttled to one write a minute, and only the SHA-256 of the session key — never the key. |
+| `apps/accounts/sessions.py` | **Who is signed in.** One shared staff login, so access is a list of *sessions*: one row per browser, last-seen throttled to one write a minute, and only the SHA-256 of the session key — never the key. Any of them can be ended from the dashboard, which means walking the live sessions and hashing each key: the invariant is that this platform never stores one. |
+| `apps/security/flags.py` | **The switches, and why they are free.** A singleton row behind one cache key, and on top of that a **process-local memo** — so a request with every control off costs a dict lookup and a float compare, no I/O at all. The price is a flip taking up to a second to reach every worker. Fails to **off** on a database error: the kill switch fails to *halted* because routing on a guess is the wrong side, and here the wrong side is locking the operator out of a live book. |
+| `apps/security/middleware.py` | The three controls that have to see every request — allowlist, session window, admin-write limiter. Shaped as a guard clause on a precomputed `_middleware_active` boolean, dual-stack so the ASGI path takes no thread hand-off. `/api/trading/stop-all/` is exempt from the allowlist **by name**: a lock-out that also disables the brake is the failure this whole layer is designed around. |
+| `apps/security/stepup.py` | Asking for the password again — before credentials, money records and putting a bot live, and **never** before opening, amending or closing a position, or the halt. That exclusion is the design: a prompt in front of "close this" costs money during the one minute it matters, and the attacker it would stop already holds the session. |
+| `apps/security/totp.py` | The second factor, in three steps — scan, prove, save. The switch stays refused until all three are done, which is the lock-out escape written as a refusal rather than a warning. Recovery codes are SHA-256 like the session hash, and for the same reason: they are `secrets` output, not something a person chose. |
+| `apps/security/audit.py` | The access history — and, more often, *not* writing it: every call returns before it builds anything while the switch is off. One write ignores that, because a log you can switch off without leaving the fact behind is not a log. `REDACTED` keeps the allowlist's contents out of it. |
 | `apps/accounts/detection.py` | **How much is unexplained.** Subtracts the legs it closed itself, and the flows already on record, from what equity did. Compares flat reading to flat reading, so unrealised PnL is never inside a window. Measures only — it does not decide what the remainder *was*. |
 | `apps/accounts/classify.py` | **Which of the two it was, without asking.** The platform trades every account at once, so a change that hit the whole set is the trade and one that hit a single account is somebody's own money. Plus: an emptied account is a withdrawal, and money arriving while nothing has traded is a deposit. Ordered rules, each with a reason code the panel shows. `LEDGER_AUTO_RESOLVE` decides how much it may book by itself; everything it books is a `LedgerEvent` and is reopenable. |
 | `apps/accounts/bookkeeping.py` | The only place a money record is written. Every create/edit/delete/accept/attribute/reopen leaves a `LedgerEvent` with the actor — blank for the platform — and the before/after. |
@@ -163,7 +173,8 @@ reference/                           read-only vendored docs & SDKs — never im
 | `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. **It stops every running bot too** (Q22) — a halt that flattens while a bot is still evaluating is a halt that re-enters ninety seconds later. |
 | `pages/bots/index.vue`, `pages/bots/[id].vue` | The bots, stopped ones first: Q25's premise is that nobody is watching at 03:00, so a bot that stopped itself does not sort under the running ones where it reads as idle. The detail page's spine is the promotion gate — nine measurements, not a confirmation dialog. |
 | `components/bots/PineEditor.vue` | The editor: a textarea, a gutter and a highlight layer. Not CodeMirror, for the reason `utils/icons.ts` is not an icon package — what it needs is line numbers, a Tab that inserts four spaces (Pine is whitespace-significant), auto-indent, and the validator's errors on their own lines. |
-| `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen. On one password this is the only place a second participant is visible. |
+| `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen, each one endable from its row. On one password this is the only place a second participant is visible — and reading that without being able to act on it was the gap. |
+| `components/security/SecurityCard.vue`, `stores/security.ts` | The security layer as one card on `/settings`: a switch per control, each one's tunables underneath it and only while it is on. A refusal is an answer rather than a failure — the second-factor row says "enrol an app first" instead of springing back — and a `step_up_required` raises the password prompt and replays the click. |
 | `components/app/NotificationCenter.vue` | Spec §4 failure notices (Q16 amendment). Nothing here auto-expires. |
 | `public/manifest.webmanifest`, `public/sw.js` | Installable panel (Q17). The worker never caches `/api` or `/ws`. |
 

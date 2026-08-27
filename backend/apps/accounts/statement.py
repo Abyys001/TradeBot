@@ -58,7 +58,6 @@ from reportlab.platypus import (
     BaseDocTemplate,
     CondPageBreak,
     Frame,
-    KeepTogether,
     PageTemplate,
     Paragraph,
     Spacer,

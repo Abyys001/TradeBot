@@ -38,7 +38,11 @@
     "no": "No",
     "on": "On",
     "off": "Off",
-    "refused": "Refused"
+    "refused": "Refused",
+    "next": "Next",
+    "back": "Back",
+    "copied": "Copied",
+    "showLess": "Show less"
   },
   "theme": {
     "toLight": "Switch to light",
@@ -285,7 +289,9 @@
       "accounts": "of {n}",
       "emptyTitle": "No ledger yet",
       "emptyBody": "Record a deposit on the finance page and the split appears here."
-    }
+    },
+    "sessionRevoke": "End",
+    "sessionRevokeHint": "Sign this browser out. It will need the password again."
   },
   "alerts": {
     "title": "Needs you",
@@ -827,7 +833,13 @@
     "password": "Password",
     "signIn": "Sign in",
     "signingIn": "Signing in…",
-    "note": "No account yet? Create one on the server:"
+    "note": "No account yet? Create one on the server:",
+    "remember": "Don't ask for a code on this browser again",
+    "mfaTitle": "One more step",
+    "mfaBody": "Your password was accepted. Enter the six-digit code from your authenticator app.",
+    "mfaCode": "Code",
+    "mfaRecoveryHint": "Lost the phone? A recovery code works here too — each one works once.",
+    "verify": "Verify"
   },
   "landing": {
     "eyebrow": "Order routing for multiple accounts",
@@ -1184,6 +1196,118 @@
       "win_rate_pct": "Win rate %",
       "profit_factor": "Profit factor",
       "max_consecutive_losses": "Worst losing streak"
+    }
+  },
+  "security": {
+    "title": "Security",
+    "hint": "Every control here is off until you turn it on, and none of them touch order routing.",
+    "activeCount": "{n} of {total} on",
+    "pinnedOff": "Pinned off",
+    "pinnedOffBody": "SECURITY_FEATURES=false in the environment holds the whole layer off. Nothing on this card can be armed until that is changed on the server — which is deliberate: it is the escape hatch if a control ever locks you out.",
+    "updated": "Last changed by {user}, {when}",
+    "rows": {
+      "two_factor": {
+        "label": "Ask for a code at sign-in",
+        "hint": "A six-digit code from an authenticator app, on top of the password. Recovery codes are issued during enrolment and each one works once.",
+        "blocked": "Enrol an authenticator app and save the recovery codes first."
+      },
+      "trusted_devices": {
+        "label": "Remember this browser",
+        "hint": "Lets a browser you have already verified skip the code. Without this, a code every single time is a control that gets switched off within a week.",
+        "blocked": "Turn on the code at sign-in first."
+      },
+      "login_rate_limit": {
+        "label": "Slow down repeated wrong passwords",
+        "hint": "After a run of failures the same address has to wait. Applies to the sign-in form and to the password prompt below — never to routing an order."
+      },
+      "new_device_notice": {
+        "label": "Notify me about a sign-in from a new browser",
+        "hint": "Raises a notification that stays until you dismiss it, like a failed order does. On one shared login this is the only sign that somebody else got in."
+      },
+      "idle_timeout": {
+        "label": "Sign out an idle browser",
+        "hint": "The session expires after a period of no activity, and again at a hard age however active it is."
+      },
+      "single_session": {
+        "label": "One browser at a time",
+        "hint": "Signing in ends every other session on this login. Useful when the password has been shared and you want it back."
+      },
+      "ip_allowlist": {
+        "label": "Only allow these addresses",
+        "hint": "Everything except the emergency halt and the health check is refused from an address that is not on the list."
+      },
+      "step_up": {
+        "label": "Ask for the password again before sensitive changes",
+        "hint": "Covers connecting or removing an account, editing the money records, changing these switches, and putting a bot live. Never a trade."
+      },
+      "audit_log": {
+        "label": "Keep an access history",
+        "hint": "Records sign-ins, refusals, and changes to these switches. A change to the switches themselves is always recorded, even with this off."
+      },
+      "admin_write_rate_limit": {
+        "label": "Cap how fast settings can be changed",
+        "hint": "Applies to the admin endpoints only. Orders, balances, the halt and the bot endpoints are excluded by name."
+      },
+      "csp_mode": {
+        "label": "Content-Security-Policy",
+        "hint": "Tells the browser which scripts and connections the panel is allowed to make. Start on report-only, watch the console for a day, then enforce."
+      }
+    },
+    "csp": {
+      "off": "Off",
+      "report": "Report only",
+      "enforce": "Enforce"
+    },
+    "fields": {
+      "login_max_attempts": "Attempts allowed",
+      "login_window_seconds": "Counted over (seconds)",
+      "login_lockout_seconds": "Then wait (seconds)",
+      "idle_timeout_minutes": "Idle for (minutes)",
+      "session_max_hours": "Maximum age (hours)",
+      "idleCost": "This is the one control that adds a write to every request — the session's deadline moves forward. It costs one small update, and nothing else on this card costs anything while it is off.",
+      "trusted_device_days": "Remember for (days)",
+      "step_up_grace_seconds": "Grace period (seconds)",
+      "stepUpScope": "Opening, amending and closing a position are never guarded, and neither is the emergency halt. A password prompt in front of those costs money during the minute it matters most.",
+      "admin_write_max_per_minute": "Writes per minute",
+      "writeLimitScope": "Order routing, balances, the halt and the bot endpoints are excluded whatever this says.",
+      "allowed_ips": "Allowed addresses",
+      "allowed_ipsHint": "One per line. A single address or a CIDR block, e.g. 203.0.113.7 or 203.0.113.0/24.",
+      "allowlistEscape": "Your current address is added automatically when you turn this on, so saving cannot lock you out. The emergency halt stays reachable from anywhere regardless."
+    },
+    "totp": {
+      "title": "Set up an authenticator app",
+      "enrol": "Set up an authenticator app",
+      "replace": "Set up again",
+      "remove": "Remove",
+      "removeTitle": "Remove the second factor",
+      "removeBody": "This deletes the enrolled device, forgets every remembered browser, and switches the code prompt off — leaving it on with nothing enrolled would ask for a code nobody can produce.",
+      "scanBody": "Scan this with Google Authenticator, 1Password, Aegis or any TOTP app.",
+      "manualKey": "Or enter this key by hand",
+      "manualHint": "Only needed if the app cannot scan. Treat it like a password.",
+      "confirmBody": "Enter the current six-digit code to prove the app has the key.",
+      "code": "Code",
+      "verify": "Verify",
+      "saveWarning": "These are shown once and cannot be shown again. Each works a single time. Save them somewhere you can reach without this panel — they are how you get back in if the phone is lost.",
+      "copy": "Copy",
+      "download": "Download",
+      "saved": "I have saved them",
+      "recoveryLeft": "{n} recovery codes left",
+      "forgetAll": "Forget remembered browsers ({n})"
+    },
+    "stepUp": {
+      "title": "Confirm your password",
+      "body": "This change is one of the few that asks again. Your confirmation covers the next few minutes in this browser.",
+      "confirm": "Confirm",
+      "confirming": "Confirming…"
+    },
+    "events": {
+      "title": "Access history",
+      "hint": "Sign-ins, refusals, and changes to the switches above.",
+      "showAll": "Show all {n}",
+      "emptyTitle": "Nothing recorded yet",
+      "emptyBody": "Sign-ins and refusals will appear here as they happen.",
+      "offTitle": "The history is off",
+      "offBody": "Turn on “Keep an access history” above to start recording sign-ins and refusals. Changes to the switches are recorded either way."
     }
   }
 }

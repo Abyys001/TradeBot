@@ -35,6 +35,10 @@ INSTALLED_APPS = [
     # (wait_for_db, sqlite_to_postgres, backup_db) are discoverable.
     "apps.core",
     "apps.accounts",
+    # The optional security layer (docs/security-plan.md). Every control it
+    # owns is off until somebody turns it on, and nothing in it is imported by
+    # apps/engine, apps/trading or apps/pine — tests/test_security_scope.py.
+    "apps.security",
     "apps.trading",
     "apps.logging",
     # The Pine front end and runtime. No models — it is registered so
@@ -57,6 +61,10 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # After AuthenticationMiddleware, and before the session recorder: a
+    # request this refuses should not also be written down as activity. With
+    # every switch off it is a dict lookup and a branch — see the module docstring.
+    "apps.security.middleware.security_middleware",
     # After AuthenticationMiddleware: it needs `request.user` to know whose
     # session it is looking at.
     "apps.accounts.sessions.panel_session_middleware",
@@ -264,6 +272,25 @@ TRADING = {
     # true here means the halt cannot be cleared from the panel. The everyday
     # switch is the KillSwitch row (see apps/trading/killswitch.py).
     "STOP_ALL": env_bool("STOP_ALL", False),
+}
+
+# --- The optional security layer (docs/security-plan.md) --------------------
+#
+# Two values, and neither of them is a control. The controls are rows, because
+# the brief was that each one can be switched on and off from the Settings page
+# without a redeploy; these two are the deployment's say over the whole layer.
+SECURITY = {
+    # The master pin, and the mirror image of STOP_ALL. That one cannot be
+    # *cleared* from a browser; this one cannot be *set* from one. False here
+    # makes every stored switch inert without touching the database, which is
+    # the right escape when the database is what is wrong.
+    "FEATURES": env_bool("SECURITY_FEATURES", True),
+    # How long one worker may reuse a policy snapshot. This is what makes an
+    # off switch cost nothing at all: the request middleware answers from
+    # process memory instead of Redis. The price is that a flip takes up to
+    # this long to reach every worker, which for "ask for a code at sign-in" is
+    # not a delay anybody notices.
+    "POLICY_MEMO_SECONDS": float(os.getenv("SECURITY_POLICY_MEMO_SECONDS", "1.0")),
 }
 
 # --- Bot mode (docs/bot-mode.md, Q20-Q27) -----------------------------------

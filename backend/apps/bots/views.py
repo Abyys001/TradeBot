@@ -51,6 +51,7 @@ from apps.bots.serializers import (
 )
 from apps.core.auth import admin_required
 from apps.pine.validate import validate
+from apps.security import stepup
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,19 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
         return JsonResponse({"detail": "a bot can be started into paper or live"}, status=400)
 
     if target == BotState.LIVE:
+        # Promoting a bot to live is the third thing step-up guards, alongside
+        # credentials and money records: rare, deliberate, and expensive to
+        # undo. Checked by hand rather than through the DRF mixin because this
+        # is a plain async view — see apps.security.stepup.
+        if not await sync_to_async(stepup.satisfied)(request):
+            return JsonResponse(
+                {
+                    "detail": "confirm your password to put a bot live",
+                    "code": "step_up_required",
+                    "action": "bot_live",
+                },
+                status=403,
+            )
         readiness = await sync_to_async(gate.evaluate)(bot)
         if not readiness["ready"]:
             return JsonResponse(

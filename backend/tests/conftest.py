@@ -5,6 +5,7 @@ from django.core.cache import cache
 
 from apps.exchanges.paper import reset_paper_state
 from apps.logging.handlers import DatabaseHandler
+from apps.security import flags
 
 
 @pytest.fixture(autouse=True)
@@ -23,10 +24,16 @@ def _clean_cache():
     """The cache spans tests too — it holds the kill-switch flag and market data.
 
     A test that halts routing would otherwise leave every later test halted.
+
+    ``flags.invalidate`` goes with it: the security policy is also held in a
+    per-process snapshot, and one test switching a control on would otherwise
+    leave it on for up to a second of the next one.
     """
     cache.clear()
+    flags.invalidate()
     yield
     cache.clear()
+    flags.invalidate()
 
 
 @pytest.fixture(autouse=True)

@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
-from rest_framework import serializers, status, viewsets
+from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -44,6 +44,7 @@ from apps.accounts.visibility import _check, accessible
 from apps.core.money import D
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
 from apps.exchanges.registry import build_adapter
+from apps.security import stepup
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +184,28 @@ def statement_window(request) -> tuple[datetime | None, datetime | None]:
     return since, until
 
 
-class ConnectedAccountViewSet(viewsets.ModelViewSet):
+class _StepUpGuard:
+    """Ask for the password again before an unsafe write, when that is switched on.
+
+    Applied to credentials and to money records — rare, deliberate changes that
+    are expensive to undo. Deliberately *not* applied to opening, amending or
+    closing a position, or to the halt: a password prompt in front of those
+    costs money during the minute it matters most, and the attacker it would
+    stop already holds the session. See ``apps.security.stepup``.
+    """
+
+    step_up_action = ""
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in permissions.SAFE_METHODS:
+            stepup.enforce(request, action=self.step_up_action)
+
+
+class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
     """Spec §6: add, pause, resume, delete — each its own control in the UI."""
+
+    step_up_action = "connected_account"
 
     queryset = ConnectedAccount.objects.all()
 
@@ -377,8 +398,10 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(NotificationSerializer(notification).data, status=status.HTTP_200_OK)
 
 
-class LedgerViewSet(viewsets.ViewSet):
+class LedgerViewSet(_StepUpGuard, viewsets.ViewSet):
     """Financial management: cash flows, balances, PnL and the profit split."""
+
+    step_up_action = "ledger"
 
     permission_classes = [IsAdminUser]
 

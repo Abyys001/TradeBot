@@ -12,6 +12,10 @@
  *   3. Profit split — the one live financial control besides the halt: who
  *      gets what share of the profit, entered in Settings once, applied by the
  *      ledger everywhere.
+ *   3b. Security — one On/Off row per control, every one off by default. It
+ *      sits below the split and above the read-only coverage table because it
+ *      is live like the two above it, and because a card the operator can
+ *      change belongs with the others they can change.
  *   4. Connection & data — what the panel is actually talking to right now:
  *      socket state, round-trip latency, and whether prices are a real feed.
  *   5. Exchange coverage — per-adapter capabilities, testnet honesty.
@@ -23,6 +27,7 @@
 const { t, te } = useI18n()
 const api = useApi()
 const trading = useTradingStore()
+const security = useSecurityStore()
 const live = useLiveStore()
 const market = useMarketStore()
 const { theme, isDark, toggle } = useTheme()
@@ -364,6 +369,20 @@ const diagnostics = computed(() => [
           </button>
         </div>
       </template>
+    </UiCard>
+
+    <!-- 4. The optional security layer. Everything here is off until it is
+         switched on, and none of it is on the order-routing path
+         (docs/security-plan.md §1). -->
+    <SecuritySecurityCard />
+
+    <UiCard :title="t('security.events.title')" :hint="t('security.events.hint')" flush>
+      <template #actions>
+        <UiBadge :tone="security.policy?.audit_log ? 'ok' : 'neutral'" dot>
+          {{ security.policy?.audit_log ? t('common.on') : t('common.off') }}
+        </UiBadge>
+      </template>
+      <SecurityEventList :enabled="Boolean(security.policy?.audit_log)" />
     </UiCard>
 
     <!-- 5. Spec §9 / Q9: an exchange with no test environment is labelled, never

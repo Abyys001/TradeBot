@@ -28,15 +28,32 @@ export function useApi() {
   return {
     // --- session ---
     csrf: () => request<{ csrf_token: string }>('/accounts/auth/csrf/'),
-    login: (username: string, password: string) =>
-      request<SessionUser>('/accounts/auth/login/', {
+    /**
+     * May not sign you in. With the second factor armed the server answers
+     * `{ mfa_required: true, challenge }` with a 200 and no session — the
+     * password was right and the sign-in is half done. `remember` is the
+     * "don't ask on this browser again" box, and is ignored unless both the
+     * second factor and trusted devices are switched on.
+     */
+    login: (username: string, password: string, remember = false) =>
+      request<LoginResult>('/accounts/auth/login/', {
         method: 'POST',
-        body: { username, password },
+        body: { username, password, remember },
+      }),
+    /** The second half of a challenged sign-in. The challenge identifies it,
+        not the username — the password is not held in the browser meanwhile. */
+    mfa: (challenge: string, code: string, remember = false) =>
+      request<LoginResult>('/accounts/auth/mfa/', {
+        method: 'POST',
+        body: { challenge, code, remember },
       }),
     logout: () => request<SessionUser>('/accounts/auth/logout/', { method: 'POST' }),
     me: () => request<SessionUser>('/accounts/auth/me/'),
     /** Who is signed in — everybody shares one login, so this lists sessions. */
     sessions: () => request<{ sessions: PanelSession[]; count: number }>('/accounts/auth/sessions/'),
+    /** End another browser's session. Refuses this one — sign out does that. */
+    revokeSession: (id: number) =>
+      request<{ revoked: number }>(`/accounts/auth/sessions/${id}/revoke/`, { method: 'POST' }),
 
     // --- config ---
     policy: () => request<Policy>('/trading/policy/'),
@@ -249,6 +266,50 @@ export function useApi() {
       request<BacktestResult>('/bots/backtest/', { method: 'POST', body }),
     backtests: () => request<BacktestRun[]>('/bots/backtests/'),
 
+    // --- security (docs/security-plan.md) ---
+    /**
+     * Every switch, its tunables, and whether the environment has pinned the
+     * whole layer off. One request: the Settings card renders nothing until it
+     * knows all of it, and two requests would let it render half a policy.
+     */
+    securityPolicy: () => request<SecurityState>('/security/policy/'),
+    /** Only what changed. The server adds the caller's own address when the
+        allowlist is being armed, so a save cannot lock its author out. */
+    saveSecurityPolicy: (changes: Partial<SecurityPolicy>) =>
+      request<SecurityState>('/security/policy/', { method: 'POST', body: changes }),
+    securityEvents: (limit = 50) =>
+      request<{ events: SecurityEvent[] }>(`/security/events/?limit=${limit}`),
+
+    /** Whether the password has been re-entered recently enough to write. */
+    stepUpState: () =>
+      request<{ required: boolean; seconds_left: number }>('/security/step-up/'),
+    stepUp: (password: string) =>
+      request<{ required: boolean; seconds_left: number }>('/security/step-up/', {
+        method: 'POST',
+        body: { password },
+      }),
+
+    totpState: () => request<TotpState>('/security/totp/'),
+    /** Start enrolment. Arms nothing — the switch stays refused until the
+        code is confirmed and the recovery codes acknowledged. */
+    totpBegin: () =>
+      request<{ secret: string; uri: string; qr_svg: string }>('/security/totp/begin/', {
+        method: 'POST',
+      }),
+    /** Returns the recovery codes, once. They are not recoverable afterwards. */
+    totpConfirm: (code: string) =>
+      request<TotpState & { recovery_codes: string[] }>('/security/totp/confirm/', {
+        method: 'POST',
+        body: { code },
+      }),
+    totpAcknowledge: () => request<TotpState>('/security/totp/acknowledge/', { method: 'POST' }),
+    /** Removing the device also disarms the switch — leaving it on with
+        nobody enrolled would demand a code nobody can produce. */
+    totpDisable: (password: string) =>
+      request<SecurityState>('/security/totp/disable/', { method: 'POST', body: { password } }),
+    forgetTrustedDevices: () =>
+      request<TotpState & { forgotten: number }>('/security/trusted/forget/', { method: 'POST' }),
+
     // --- system log ---
     logs: (params?: Record<string, string>) => {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
@@ -445,6 +506,92 @@ export interface PanelSession {
   online: boolean
   /** The browser making this request, flagged rather than hidden. */
   current: boolean
+}
+
+/**
+ * What a sign-in POST comes back with. Two shapes behind one status code: a
+ * session, or a challenge. `authenticated` is absent on the challenge, which is
+ * how the store tells them apart — a 200 here does not mean you are in.
+ */
+export type LoginResult = SessionUser & {
+  mfa_required?: boolean
+  challenge?: string
+  recovery_available?: boolean
+}
+
+/** `docs/security-plan.md` §2 — the switches, all default off. */
+export interface SecurityPolicy {
+  two_factor: boolean
+  trusted_devices: boolean
+  login_rate_limit: boolean
+  new_device_notice: boolean
+  idle_timeout: boolean
+  single_session: boolean
+  ip_allowlist: boolean
+  step_up: boolean
+  audit_log: boolean
+  admin_write_rate_limit: boolean
+  csp_mode: 'off' | 'report' | 'enforce'
+  login_max_attempts: number
+  login_window_seconds: number
+  login_lockout_seconds: number
+  idle_timeout_minutes: number
+  session_max_hours: number
+  trusted_device_days: number
+  step_up_grace_seconds: number
+  admin_write_max_per_minute: number
+  allowed_ips: string
+}
+
+export type SecuritySwitch = keyof Pick<
+  SecurityPolicy,
+  | 'two_factor'
+  | 'trusted_devices'
+  | 'login_rate_limit'
+  | 'new_device_notice'
+  | 'idle_timeout'
+  | 'single_session'
+  | 'ip_allowlist'
+  | 'step_up'
+  | 'audit_log'
+  | 'admin_write_rate_limit'
+>
+
+export type SecurityState = SecurityPolicy & {
+  updated_at: string | null
+  updated_by: string
+  /**
+   * False when `SECURITY_FEATURES=false` pins the layer off in the
+   * environment. Every row renders locked — no API call will change it, and a
+   * switch that appears to move without moving is worse than one that cannot.
+   */
+  available: boolean
+  /** The switch names, in the order the card renders them. Server-owned so a
+      new control appears here without a second list to keep in step. */
+  switches: SecuritySwitch[]
+  totp: TotpState
+  step_up_seconds_left: number
+}
+
+export interface TotpState {
+  enrolled: boolean
+  confirmed: boolean
+  /** Confirmed *and* the recovery codes acknowledged. The switch needs this. */
+  ready: boolean
+  recovery_remaining: number
+  trusted_devices: number
+}
+
+export interface SecurityEvent {
+  id: number
+  kind: string
+  /** The server's own wording for `kind`; the panel never maps codes to prose. */
+  label: string
+  at: string
+  username: string
+  ip_address: string | null
+  user_agent: string
+  detail: Record<string, unknown>
 }
 
 export interface SessionUser {

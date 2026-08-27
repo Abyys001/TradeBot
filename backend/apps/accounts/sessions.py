@@ -123,6 +123,71 @@ def active_sessions() -> QuerySet[PanelSession]:
     return PanelSession.objects.filter(ended_at=None, last_seen_at__gte=cutoff)
 
 
+def looks_new(username: str, request: HttpRequest, *, exclude_hash: str = "") -> bool:
+    """Whether this browser has signed in here before.
+
+    Address *and* user-agent, both. Either alone is noisy in opposite ways: a
+    home connection changes address on its own, and a second laptop of the same
+    model reports the same user-agent. Together they are a coarse but honest
+    "I have not seen this combination", which is all the notice claims.
+
+    Only ever called when ``new_device_notice`` is on.
+    """
+    rows = PanelSession.objects.filter(
+        username=username, ip_address=client_ip(request), user_agent=_agent(request)
+    )
+    if exclude_hash:
+        rows = rows.exclude(session_hash=exclude_hash)
+    return not rows.exists()
+
+
+def _live_session_keys() -> dict[str, str]:
+    """``{sha256(key): key}`` for every unexpired Django session.
+
+    The table is walked rather than queried because the key itself is never
+    stored on this side — see ``PanelSession``. That is the right trade: a
+    handful of rows scanned when somebody signs in or revokes a browser, in
+    exchange for never holding a table of usable cookies.
+    """
+    from django.contrib.sessions.models import Session
+
+    return {
+        PanelSession.hash_key(row.session_key): row.session_key
+        for row in Session.objects.filter(expire_date__gt=timezone.now()).only("session_key")
+    }
+
+
+def end_sessions(digests: set[str]) -> int:
+    """Sign these browsers out for real — the cookie stops working.
+
+    Closing the ``PanelSession`` row alone would only change what the dashboard
+    lists; the session itself would still authenticate. Both, or neither.
+    """
+    if not digests:
+        return 0
+    from django.contrib.sessions.models import Session
+
+    live = _live_session_keys()
+    keys = [key for digest, key in live.items() if digest in digests]
+    if keys:
+        Session.objects.filter(session_key__in=keys).delete()
+    now = timezone.now()
+    return PanelSession.objects.filter(session_hash__in=digests, ended_at=None).update(
+        ended_at=now, last_seen_at=now
+    )
+
+
+def end_other_sessions(username: str, *, keep_hash: str) -> int:
+    """Everything signed in as this user except the browser doing the asking."""
+    digests = set(
+        active_sessions()
+        .filter(username=username)
+        .exclude(session_hash=keep_hash)
+        .values_list("session_hash", flat=True)
+    )
+    return end_sessions(digests)
+
+
 @sync_and_async_middleware
 def panel_session_middleware(get_response):
     """Keep ``last_seen_at`` current for whoever is holding a session.
