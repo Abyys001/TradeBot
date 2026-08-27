@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the production backend image
         run: docker build -f backend/Dockerfile.prod -t tradebot-backend:ci backend/
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: tradebot-backend:ci
           severity: HIGH,CRITICAL
