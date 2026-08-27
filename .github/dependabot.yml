@@ -1,0 +1,35 @@
+# `docs/security-plan.md` §2 C — the other half of the `pip-audit` job.
+#
+# The audit says an advisory exists; this opens the pull request that closes it.
+# Weekly rather than daily, and grouped, because this stack holds live trading
+# credentials: a bump here is reviewed and its test run read, not merged on
+# sight, and a queue of thirty single-package PRs is how that stops happening.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the things that only ever move together.
+      django:
+        patterns: ['django', 'djangorestframework', 'django-cors-headers', 'channels*', 'daphne']
+      security:
+        patterns: ['cryptography', 'pyopenssl', 'pyotp']
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      nuxt:
+        patterns: ['nuxt', '@nuxt*', '@nuxtjs/*', 'vue', 'vue-router', 'pinia']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

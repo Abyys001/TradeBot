@@ -1,0 +1,88 @@
+# Build-time security checks. `docs/security-plan.md` §2 C.
+#
+# Nothing here has a switch, because nothing here runs in the running app: the
+# runtime cost is exactly zero, so "optional" does not apply the way it does to
+# every control on the Settings page.
+#
+# The four jobs answer four different questions, and they are kept apart so a
+# failure names which one:
+#
+#   secrets   — did key material reach the tree? The standing invariant is "no
+#               key material in reference/, fixtures, tests or scratch files",
+#               and until now that was a rule rather than something enforced.
+#   sast      — does a pattern scanner see anything in the credential handling?
+#   deps      — is a pinned dependency carrying a known advisory?
+#   image     — is the base image of the production container carrying one?
+#
+# `gitleaks` runs on the full history rather than the diff: a key committed and
+# reverted last month is still a key that was published.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Advisories appear without anyone pushing. Weekly, on a quiet morning.
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history — see the note above.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  sast:
+    name: bandit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install bandit==1.8.0
+      # Tests build fake credentials on purpose and assert on hardcoded
+      # strings; scanning them produces noise that trains people to ignore the
+      # job. `-ll` reports medium and high only, for the same reason.
+      - run: bandit -r backend/apps backend/config -ll --exclude backend/apps/*/migrations
+
+  deps:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pip-audit==2.7.3
+      # The pins are the point: this stack fixes `cryptography`, `httpx`,
+      # `websockets` and eight exchange integrations, so an advisory against
+      # any of them is a version bump somebody has to make deliberately.
+      - run: pip-audit --requirement backend/requirements.txt --strict
+
+  image:
+    name: trivy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production backend image
+        run: docker build -f backend/Dockerfile.prod -t tradebot-backend:ci backend/
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: tradebot-backend:ci
+          severity: HIGH,CRITICAL
+          # A vulnerability with no fix available is not something this build
+          # can act on; failing on it turns the job into noise.
+          ignore-unfixed: true
+          exit-code: '1'

@@ -86,7 +86,12 @@ class LbankAdapter(RestAdapter):
         payload["echostr"] = echostr
 
         ordered = urlencode(sorted(payload.items()))
-        digest = hashlib.md5(ordered.encode()).hexdigest().upper()
+        # MD5 is LBank's, not ours: their scheme canonicalises the sorted
+        # parameters to an uppercase MD5 hex digest and *that* is the message
+        # HMAC-SHA256 signs. The secret and the strength both live in the HMAC;
+        # this line is a fixed encoding step, and substituting a stronger digest
+        # would produce a signature the exchange rejects.
+        digest = hashlib.md5(ordered.encode()).hexdigest().upper()  # nosec B324
         signature = hmac.new(
             self.api_secret.encode(), digest.encode(), hashlib.sha256
         ).hexdigest()

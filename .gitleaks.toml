@@ -1,0 +1,35 @@
+# gitleaks configuration. `docs/security-plan.md` §2 C.
+#
+# The standing invariant this enforces is in CLAUDE.md: **no key material in
+# `reference/`, fixtures, tests, or scratch files.** Until this file existed
+# that was a rule people had to remember; now it is a build that fails.
+#
+# The default rule set does the work. What is below is only the allowlist, and
+# every entry in it is here because it is a *generated* value with no secret
+# behind it — never because a real key was inconvenient.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated test values, and the vendored docs that are read-only"
+
+paths = [
+  # Read-only vendored SDKs and API documentation. Nothing here is imported and
+  # nothing here is ours; the example keys in a vendor's own docs are the
+  # vendor's example keys.
+  '''^reference/''',
+  # Lockfiles are hashes, and a hash is not a secret.
+  '''package-lock\.json$''',
+]
+
+regexes = [
+  # Every test that touches the credential vault generates its own Fernet key
+  # at import time — `KEY = Fernet.generate_key().decode()`. The key is the
+  # call, not a literal, and the literal is what a scanner would flag.
+  '''Fernet\.generate_key\(\)''',
+  # `.env.example` and `.env.production.example` carry placeholders that are
+  # meant to look like the thing they replace. They are committed on purpose;
+  # the real `.env` is gitignored.
+  '''(?i)(change[-_]?me|replace[-_]?me|your[-_]?key[-_]?here|generate[-_]?one)''',
+]

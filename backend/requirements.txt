@@ -1,9 +1,9 @@
-Django==5.1.5
+Django==5.1.15
 djangorestframework==3.15.2
 django-cors-headers==4.6.0
 channels==4.2.0
 channels-redis==4.2.1
-daphne==4.1.2
+daphne==4.2.2
 cryptography==44.0.0
 psycopg[binary]==3.2.3
 redis==5.2.1
@@ -18,7 +18,7 @@ socksio==1.0.0
 # Imported lazily inside stream_events, so a missing wheel degrades to a clear
 # NotSupported rather than breaking adapter import.
 websockets==14.2
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 hyperliquid-python-sdk==0.24.0
 # Serves Django's own static files (the admin UI) in production — Django
 # refuses to serve them itself when DEBUG=false. Dev (runserver) is unaffected.

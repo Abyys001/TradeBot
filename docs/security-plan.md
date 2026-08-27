@@ -168,6 +168,36 @@ zero and "optional" does not apply. Recommend all on, permanently:
   what a rule currently only states.
 - **`trivy`** on the production images.
 
+Built as `.github/workflows/security.yml` (four jobs: `gitleaks`, `bandit`,
+`pip-audit`, `trivy`), `.gitleaks.toml`, `.pre-commit-config.yaml`, and
+`.github/dependabot.yml`. There was no CI in this repository before; these are
+the first workflows in it.
+
+**What the first run found, and what it means.** `bandit -ll` came back clean
+after one annotation: `apps/exchanges/lbank.py` canonicalises its parameters to
+an MD5 digest before signing, which is LBank's scheme rather than a choice —
+the secret and the strength are in the HMAC-SHA256 around it, and a stronger
+digest there produces a signature the exchange rejects. It carries a `# nosec
+B324` with that reasoning; it is the only one in the tree.
+
+`pip-audit` found real advisories, and clearing them is **not** part of this
+layer — it is a dependency upgrade on a stack that routes live capital, which
+is the admin's call rather than a side effect of adding the job that found it.
+Three were closed here because they are in-line patch bumps and the full suite
+was re-run against them: `Django 5.1.5 → 5.1.15`, `daphne 4.1.2 → 4.2.2`,
+`python-dotenv 1.0.1 → 1.2.2`. What is left needs a deliberate upgrade:
+
+| Package | Pinned | Needs | Why it is not done here |
+|---|---|---|---|
+| `django` | 5.1.15 | 5.2.16+ | A minor-version upgrade. Supported path, but it is a release to plan, not a line to edit. |
+| `cryptography` | 44.0.0 | 50.0.0 | Six majors, and it is `apps/core/crypto.py` — the Fernet vault every API key is encrypted with. The Fernet API is stable across all of them; the point is that this is the one dependency that must be verified deliberately, not bumped in passing. |
+| `pyopenssl` | 25.1.0 (transitive) | 26.0.0 | Moves with `cryptography`. |
+| `twisted` | 25.5.0 (transitive) | 26.4.0 | Already satisfied by `daphne 4.2.2` on a fresh resolve. |
+
+The job is `--strict`, so it stays red until those are done. That is the
+correct signal: a dependency audit that passes while the advisories stand is
+worse than no audit.
+
 One repo-specific warning worth writing down: this working tree is one
 `.env` away from live trading credentials. **Do not install auto-updating
 third-party agent plugins or MCP servers into it.** Demonstrated attacks in
@@ -217,7 +247,7 @@ import test and cost test are what make it true rather than reassuring.
 |---|---|---|
 | 0 | `flags.py`, `SecurityPolicy`, `security_off`, `SECURITY_FEATURES` pin, the import test, the query-count test, the empty Security section rendering zero rows. | The escapes and the guarantees exist **before** the first control that can lock anyone out. Ships with no behaviour change at all. |
 | 1 | A3, A4, A5 — rate limit, new-device notice, idle timeout. | Nothing here can lock the admin out, and A5 costs literally nothing. Cheapest real gain in the plan. |
-| 2 | C entirely — CI tooling. | Independent of every other phase; no runtime surface. |
+| 2 | C entirely — CI tooling. | Independent of every other phase; no runtime surface. Done; see the note under §2 C for what its first run found. |
 | 3 | B3 audit log, then B2 step-up. | The log first, so the step-up's own behaviour is visible from day one. |
 | 4 | A1 + A2 together. | A second factor without "remember this browser" is the version that gets switched back off in a week. Never ship A1 alone. |
 | 5 | B1 CSP in report-only, read the reports, then enforce. | |
