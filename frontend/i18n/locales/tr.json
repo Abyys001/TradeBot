@@ -38,7 +38,9 @@
     "no": "Hayır",
     "on": "Açık",
     "off": "Kapalı",
-    "refused": "Reddedildi"
+    "refused": "Reddedildi",
+    "create": "Oluştur",
+    "delete": "Sil"
   },
   "theme": {
     "toLight": "Aydınlığa geç",
@@ -324,6 +326,14 @@
       "win_rate_pct": "Kazanma oranı %",
       "profit_factor": "Kâr faktörü",
       "max_consecutive_losses": "En kötü zarar serisi"
-    }
+    },
+    "deleteStrategy": "Stratejiyi sil",
+    "deleteStrategyTitle": "Bu strateji silinsin mi?",
+    "deleteStrategyConfirm": "“{name}” ve altında kayıtlı tüm sürümler silinsin mi? Bu geri alınamaz.",
+    "selectStrategy": "Bir strateji seçin",
+    "selectStrategyBody": "Listeden birini seçin veya yeni bir betik oluşturun.",
+    "unsaved": "Kaydedilmedi",
+    "window": "Aralık",
+    "execution": "Yürütme"
   }
 }

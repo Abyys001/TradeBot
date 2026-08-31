@@ -38,7 +38,9 @@
     "no": "No",
     "on": "Activado",
     "off": "Desactivado",
-    "refused": "Rechazado"
+    "refused": "Rechazado",
+    "create": "Crear",
+    "delete": "Eliminar"
   },
   "theme": {
     "toLight": "Cambiar a claro",
@@ -324,6 +326,14 @@
       "win_rate_pct": "Aciertos %",
       "profit_factor": "Factor de beneficio",
       "max_consecutive_losses": "Peor racha perdedora"
-    }
+    },
+    "deleteStrategy": "Eliminar estrategia",
+    "deleteStrategyTitle": "¿Eliminar esta estrategia?",
+    "deleteStrategyConfirm": "¿Eliminar «{name}» y todas las versiones guardadas en ella? Esto no se puede deshacer.",
+    "selectStrategy": "Selecciona una estrategia",
+    "selectStrategyBody": "Elige una de la lista o crea un script nuevo.",
+    "unsaved": "Sin guardar",
+    "window": "Periodo",
+    "execution": "Ejecución"
   }
 }

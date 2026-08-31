@@ -38,7 +38,9 @@
     "no": "لا",
     "on": "مفعّل",
     "off": "متوقف",
-    "refused": "مرفوض"
+    "refused": "مرفوض",
+    "create": "إنشاء",
+    "delete": "حذف"
   },
   "theme": {
     "toLight": "التبديل إلى الوضع الفاتح",
@@ -324,6 +326,14 @@
       "win_rate_pct": "نسبة الربح ٪",
       "profit_factor": "معامل الربح",
       "max_consecutive_losses": "أسوأ سلسلة خسائر"
-    }
+    },
+    "deleteStrategy": "حذف الاستراتيجية",
+    "deleteStrategyTitle": "حذف هذه الاستراتيجية؟",
+    "deleteStrategyConfirm": "حذف «{name}» وكل نسخة محفوظة تحتها؟ لا يمكن التراجع عن ذلك.",
+    "selectStrategy": "اختر استراتيجية",
+    "selectStrategyBody": "اختر واحدة من القائمة، أو أنشئ نصًا برمجيًا جديدًا.",
+    "unsaved": "غير محفوظ",
+    "window": "النطاق",
+    "execution": "التنفيذ"
   }
 }

@@ -12,7 +12,7 @@ const { t } = useI18n()
 const api = useApi()
 const store = useBotsStore()
 const localePath = useLocalePath()
-const { money, pct, dateTime } = useFormat()
+const { money, dateTime } = useFormat()
 
 useHead({ title: t('bots.backtest') })
 
@@ -56,6 +56,9 @@ const HEADLINE = [
   'max_consecutive_losses',
 ] as const
 
+const PCT_METRICS = new Set(['return_pct', 'max_drawdown_pct', 'win_rate_pct'])
+const MONEY_METRICS = new Set(['net_pnl'])
+
 const curve = computed(() =>
   (result.value?.equity_curve ?? []).map(([at, equity]) => ({
     label: dateTime(new Date(at * 1000).toISOString()),
@@ -63,10 +66,27 @@ const curve = computed(() =>
   })),
 )
 
+/** Raw numeric value, for tone decisions — never parse it back off a $-string. */
+function rawMetric(key: string): number | null {
+  const value = result.value?.metrics?.[key]
+  return value === null || value === undefined ? null : Number(value)
+}
+
 function metric(key: string): string {
   const value = result.value?.metrics?.[key]
   if (value === null || value === undefined) return '—'
+  if (MONEY_METRICS.has(key)) return money(Number(value))
+  if (PCT_METRICS.has(key)) return `${value}%`
   return String(value)
+}
+
+function toneFor(key: string): 'long' | 'short' | 'signal' | 'default' {
+  if (key === 'net_pnl') {
+    const n = rawMetric(key)
+    return n === null ? 'default' : n > 0 ? 'long' : n < 0 ? 'short' : 'default'
+  }
+  if (key === 'max_drawdown_pct' || key === 'max_consecutive_losses') return 'signal'
+  return 'default'
 }
 
 async function run() {
@@ -103,55 +123,83 @@ onMounted(() => store.load())
         <h1 class="text-xl font-display">{{ t('bots.backtest') }}</h1>
         <p class="text-xs text-ink-muted mt-1 max-w-2xl leading-relaxed">{{ t('bots.backtestLead') }}</p>
       </div>
-      <NuxtLink :to="localePath('/bots')" class="btn-ghost btn-sm">
-        <UiIcon name="bolt" :size="14" />
-        {{ t('bots.title') }}
-      </NuxtLink>
+      <div class="flex items-center gap-2">
+        <NuxtLink :to="localePath('/strategies')" class="btn-ghost btn-sm">
+          <UiIcon name="logs" :size="14" />
+          {{ t('bots.strategies') }}
+        </NuxtLink>
+        <NuxtLink :to="localePath('/bots')" class="btn-ghost btn-sm">
+          <UiIcon name="bolt" :size="14" />
+          {{ t('bots.title') }}
+        </NuxtLink>
+      </div>
     </header>
 
     <UiCard :title="t('bots.runBacktest')">
-      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <label class="block space-y-1.5 sm:col-span-2">
+      <div class="space-y-4">
+        <label class="block space-y-1.5">
           <span class="label">{{ t('bots.strategyVersion') }}</span>
           <select v-model.number="form.strategy_version" class="field">
             <option :value="null">—</option>
             <option v-for="row in versions" :key="row.id" :value="row.id">{{ row.label }}</option>
           </select>
+          <span v-if="!versions.length" class="text-tick text-ink-faint">
+            {{ t('bots.noStrategies') }}
+          </span>
         </label>
-        <label class="block space-y-1.5">
-          <span class="label">{{ t('terminal.symbol') }}</span>
-          <input v-model="form.symbol" class="field" />
-        </label>
-        <label class="block space-y-1.5">
-          <span class="label">{{ t('bots.interval') }}</span>
-          <select v-model="form.interval" class="field">
-            <option v-for="value in ['5m', '15m', '30m', '1h', '4h', '1d']" :key="value">
-              {{ value }}
-            </option>
-          </select>
-        </label>
-        <label class="block space-y-1.5">
-          <span class="label">{{ t('bots.from') }}</span>
-          <input v-model="form.from" type="date" class="field" />
-        </label>
-        <label class="block space-y-1.5">
-          <span class="label">{{ t('bots.to') }}</span>
-          <input v-model="form.to" type="date" class="field" />
-        </label>
-        <label class="block space-y-1.5">
-          <span class="label">{{ t('ticket.leverage') }}</span>
-          <input v-model.number="form.leverage" type="number" min="1" max="10" class="field" />
-        </label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="block space-y-1.5">
-            <span class="label">SL %</span>
-            <input v-model="form.sl_pct" class="field" placeholder="—" />
-          </label>
-          <label class="block space-y-1.5">
-            <span class="label">TP %</span>
-            <input v-model="form.tp_pct" class="field" placeholder="—" />
-          </label>
+
+        <div>
+          <p class="label mb-2">{{ t('bots.window') }}</p>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('terminal.symbol') }}</span>
+              <input v-model="form.symbol" class="field" />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('bots.interval') }}</span>
+              <select v-model="form.interval" class="field">
+                <option v-for="value in ['5m', '15m', '30m', '1h', '4h', '1d']" :key="value">
+                  {{ value }}
+                </option>
+              </select>
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('bots.from') }}</span>
+              <input v-model="form.from" type="date" class="field" />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('bots.to') }}</span>
+              <input v-model="form.to" type="date" class="field" />
+            </label>
+          </div>
         </div>
+
+        <div>
+          <p class="label mb-2">{{ t('bots.execution') }}</p>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('bots.market') }}</span>
+              <select v-model="form.market" class="field">
+                <option value="futures">{{ t('market.futures') }}</option>
+                <option value="spot">{{ t('market.spot') }}</option>
+              </select>
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('ticket.leverage') }}</span>
+              <input v-model.number="form.leverage" type="number" min="1" max="10" class="field" />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('ticket.stopLoss') }} %</span>
+              <input v-model="form.sl_pct" class="field" placeholder="—" />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('ticket.takeProfit') }} %</span>
+              <input v-model="form.tp_pct" class="field" placeholder="—" />
+            </label>
+          </div>
+        </div>
+
+        <p class="text-tick text-ink-faint leading-relaxed">{{ t('bots.sizingNote') }}</p>
       </div>
       <template #footer>
         <button class="btn-brand btn-sm" :disabled="running || !form.strategy_version" @click="run">
@@ -166,10 +214,12 @@ onMounted(() => store.load())
     <template v-if="result">
       <!-- Assumptions first. Not a footnote. -->
       <UiCard :title="t('bots.assumptions')" :hint="t('bots.assumptionsHint')">
-        <ul class="space-y-1 text-xs text-ink-muted leading-relaxed">
-          <li v-for="(line, index) in result.assumption_lines" :key="index">· {{ line }}</li>
+        <ul class="space-y-1.5 text-xs text-ink-muted leading-relaxed">
+          <li v-for="(line, index) in result.assumption_lines" :key="index" class="flex gap-2">
+            <span class="text-ink-faint">·</span><span>{{ line }}</span>
+          </li>
         </ul>
-        <p class="text-tick text-ink-faint num mt-3 break-all">
+        <p class="text-tick text-ink-faint num mt-3 pt-3 border-t border-line break-all">
           {{ t('bots.intentDigest') }}: {{ result.intent_digest }}
         </p>
       </UiCard>
@@ -188,17 +238,7 @@ onMounted(() => store.load())
           :key="key"
           :label="t(`bots.metric.${key}`)"
           :value="metric(key)"
-          :tone="
-            key === 'net_pnl'
-              ? Number(metric(key)) > 0
-                ? 'long'
-                : Number(metric(key)) < 0
-                  ? 'short'
-                  : 'default'
-              : key === 'max_drawdown_pct'
-                ? 'signal'
-                : 'default'
-          "
+          :tone="toneFor(key)"
         />
       </div>
 
@@ -221,7 +261,7 @@ onMounted(() => store.load())
               </tr>
             </thead>
             <tbody class="divide-y divide-line">
-              <tr v-for="(trade, index) in result.trades" :key="index">
+              <tr v-for="(trade, index) in result.trades" :key="index" class="hover:bg-raised/50">
                 <td class="px-3 py-1.5">
                   <UiBadge :tone="trade.side === 'long' ? 'long' : 'short'">
                     {{ t(`side.${trade.side}`) }}

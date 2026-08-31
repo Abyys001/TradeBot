@@ -18,6 +18,13 @@
  * Highlighting is a regex pass over a subset the platform already defines as
  * data. It is a reading aid, not a parser — `apps/pine/` is the parser, and
  * anything this layer gets wrong shows up as a colour, never as a behaviour.
+ *
+ * Scrolling: the gutter, the highlight layer and the textarea all live inside
+ * **one** scroll container and move together natively. An earlier version
+ * scrolled the textarea and translated the other two to match; when that sync
+ * dropped a frame the painted text simply stopped a screenful in — the file
+ * looked truncated at whatever line was last visible. One scroller cannot
+ * desync from itself.
  */
 const props = withDefaults(
   defineProps<{
@@ -31,12 +38,17 @@ const props = withDefaults(
 
 const emit = defineEmits<{ 'update:modelValue': [string]; save: [] }>()
 
+const LINE_H = 21
+const PAD_Y = 12
+
 const area = ref<HTMLTextAreaElement | null>(null)
-const scroller = ref<HTMLDivElement | null>(null)
-const scrollTop = ref(0)
+const scroll = ref<HTMLDivElement | null>(null)
 const caretLine = ref(1)
 
 const lines = computed(() => props.modelValue.split('\n'))
+
+/** Height of the text itself, in px. Deterministic: fixed line-height, no wrap. */
+const contentHeight = computed(() => lines.value.length * LINE_H + PAD_Y * 2)
 
 /** line number → the worst diagnostic on it. An error outranks a warning. */
 const marks = computed(() => {
@@ -192,78 +204,78 @@ function trackCaret() {
   caretLine.value = props.modelValue.slice(0, element.selectionStart).split('\n').length
 }
 
-function onScroll(event: Event) {
-  scrollTop.value = (event.target as HTMLElement).scrollTop
-}
-
-/** Put the caret on a line — what clicking a diagnostic does. */
+/** Put the caret on a line and scroll it into view — what clicking a diagnostic does. */
 function goTo(line: number, col = 1) {
   const element = area.value
+  const box = scroll.value
   if (!element) return
   const offset =
     lines.value.slice(0, line - 1).reduce((total, text) => total + text.length + 1, 0) + (col - 1)
   element.focus()
   element.selectionStart = element.selectionEnd = offset
-  trackCaret()
-  const target = (line - 1) * 21 - element.clientHeight / 2
-  element.scrollTop = Math.max(0, target)
+  caretLine.value = line
+  if (box) {
+    const target = (line - 1) * LINE_H - box.clientHeight / 2 + PAD_Y
+    box.scrollTop = Math.max(0, target)
+  }
 }
 
 defineExpose({ goTo })
 </script>
 
 <template>
-  <div class="pine-editor panel overflow-hidden flex min-h-0" :style="{ '--rows': minRows }">
-    <!-- The gutter scrolls with the text rather than beside it: two independent
-         scroll positions is how line 40's number ends up next to line 12. -->
-    <div class="pine-gutter shrink-0 overflow-hidden select-none" aria-hidden="true">
-      <div :style="{ transform: `translateY(${-scrollTop}px)` }">
-        <div
-          v-for="(_, index) in lines"
-          :key="index"
-          class="pine-line pine-gutter-line"
-          :class="{
-            'pine-gutter-current': index + 1 === caretLine,
-            'pine-gutter-error': marks.get(index + 1)?.kind === 'error',
-            'pine-gutter-warning': marks.get(index + 1)?.kind === 'warning',
-          }"
-        >
-          {{ index + 1 }}
+  <div class="pine-editor panel overflow-hidden" :style="{ '--rows': minRows }">
+    <!-- One scroll container. The gutter is sticky to its left edge so it stays
+         put when a long line scrolls the code sideways. -->
+    <div ref="scroll" class="pine-scroll">
+      <div class="pine-inner" :style="{ height: `${contentHeight}px` }">
+        <div class="pine-gutter select-none" aria-hidden="true">
+          <div
+            v-for="(_, index) in lines"
+            :key="index"
+            class="pine-line pine-gutter-line"
+            :class="{
+              'pine-gutter-current': index + 1 === caretLine,
+              'pine-gutter-error': marks.get(index + 1)?.kind === 'error',
+              'pine-gutter-warning': marks.get(index + 1)?.kind === 'warning',
+            }"
+          >
+            {{ index + 1 }}
+          </div>
+        </div>
+
+        <div class="pine-code">
+          <!-- The painted copy sits under a transparent textarea. Both use the
+               same font metrics, so the caret lands where the colour is. -->
+          <div class="pine-layer" aria-hidden="true">
+            <div
+              v-for="(html, index) in painted"
+              :key="index"
+              class="pine-line"
+              :class="{
+                'pine-row-error': marks.get(index + 1)?.kind === 'error',
+                'pine-row-warning': marks.get(index + 1)?.kind === 'warning',
+              }"
+              v-html="html || '&nbsp;'"
+            />
+          </div>
+          <textarea
+            ref="area"
+            class="pine-input"
+            :value="modelValue"
+            :readonly="readonly"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            autocorrect="off"
+            wrap="off"
+            @input="onInput"
+            @keydown="onKeydown"
+            @click="trackCaret"
+            @keyup="trackCaret"
+          />
         </div>
       </div>
-    </div>
-
-    <div ref="scroller" class="relative flex-1 min-w-0">
-      <!-- The painted copy sits under a transparent textarea. Both use the same
-           font metrics, so the caret lands where the colour is. -->
-      <div class="pine-layer" :style="{ transform: `translateY(${-scrollTop}px)` }">
-        <div
-          v-for="(html, index) in painted"
-          :key="index"
-          class="pine-line"
-          :class="{
-            'pine-row-error': marks.get(index + 1)?.kind === 'error',
-            'pine-row-warning': marks.get(index + 1)?.kind === 'warning',
-          }"
-          v-html="html || '&nbsp;'"
-        />
-      </div>
-      <textarea
-        ref="area"
-        class="pine-input"
-        :value="modelValue"
-        :readonly="readonly"
-        spellcheck="false"
-        autocapitalize="off"
-        autocomplete="off"
-        autocorrect="off"
-        wrap="off"
-        @input="onInput"
-        @keydown="onKeydown"
-        @scroll="onScroll"
-        @click="trackCaret"
-        @keyup="trackCaret"
-      />
     </div>
   </div>
 </template>
@@ -271,6 +283,18 @@ defineExpose({ goTo })
 <style scoped>
 .pine-editor {
   height: calc(var(--rows) * 21px + 1.5rem);
+}
+
+.pine-scroll {
+  @apply w-full h-full overflow-auto;
+}
+
+.pine-inner {
+  display: flex;
+  align-items: stretch;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .pine-line {
@@ -282,7 +306,11 @@ defineExpose({ goTo })
 }
 
 .pine-gutter {
-  @apply bg-sunken border-e border-line py-3 px-3 text-end;
+  @apply bg-sunken border-e border-line px-3 text-end shrink-0;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding-block: 12px;
   min-width: 3.25rem;
 }
 
@@ -299,8 +327,19 @@ defineExpose({ goTo })
   @apply text-signal font-semibold;
 }
 
+.pine-code {
+  position: relative;
+  flex: 1 0 auto;
+}
+
 .pine-layer {
-  @apply absolute inset-0 py-3 px-4 pointer-events-none overflow-hidden;
+  @apply py-3 px-4 pointer-events-none;
+  min-width: 100%;
+  width: max-content;
+}
+
+.pine-layer .pine-line {
+  min-width: 100%;
 }
 
 .pine-row-error {
@@ -312,11 +351,13 @@ defineExpose({ goTo })
 
 .pine-input {
   @apply absolute inset-0 w-full h-full resize-none bg-transparent py-3 px-4
-         text-transparent caret-ink outline-none overflow-auto;
+         text-transparent caret-ink outline-none;
+  overflow: hidden;
   font-family: theme('fontFamily.mono');
   font-size: 13px;
   line-height: 21px;
   tab-size: 4;
+  white-space: pre;
 }
 
 /* The palette leans on the same tokens the rest of the panel uses rather than

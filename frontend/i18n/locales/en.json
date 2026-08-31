@@ -42,7 +42,9 @@
     "next": "Next",
     "back": "Back",
     "copied": "Copied",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "create": "Create",
+    "delete": "Delete"
   },
   "theme": {
     "toLight": "Switch to light",
@@ -1201,7 +1203,15 @@
       "win_rate_pct": "Win rate %",
       "profit_factor": "Profit factor",
       "max_consecutive_losses": "Worst losing streak"
-    }
+    },
+    "deleteStrategy": "Delete strategy",
+    "deleteStrategyTitle": "Delete this strategy?",
+    "deleteStrategyConfirm": "Delete “{name}” and every version saved under it? This cannot be undone.",
+    "selectStrategy": "Select a strategy",
+    "selectStrategyBody": "Pick one from the list, or create a new script.",
+    "unsaved": "Unsaved",
+    "window": "Window",
+    "execution": "Execution"
   },
   "security": {
     "title": "Security",

@@ -162,6 +162,30 @@ def test_an_empty_source_is_refused():
     assert response.status_code == 400
 
 
+def test_deleting_a_strategy_with_no_bots_takes_its_versions_with_it():
+    client = staff()
+    strategy = Strategy.objects.create(name="doomed")
+    post(client, f"/api/bots/strategies/{strategy.id}/versions/", {"source": GOOD})
+    response = client.delete(f"/api/bots/strategies/{strategy.id}/")
+    assert response.status_code == 204
+    assert not Strategy.objects.filter(id=strategy.id).exists()
+    assert not StrategyVersion.objects.filter(strategy_id=strategy.id).exists()
+
+
+def test_deleting_a_strategy_a_bot_was_built_from_is_refused_and_names_the_bot():
+    """`Bot.strategy_version` is PROTECT — the delete is a 409, not a 500, and
+    the operator is told which bots to remove first."""
+    client = staff()
+    bot = make_bot(name="live-ish bot")
+    strategy_id = bot.strategy_version.strategy_id
+    response = client.delete(f"/api/bots/strategies/{strategy_id}/")
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "strategy_in_use"
+    assert body["bots"] == ["live-ish bot"]
+    assert Strategy.objects.filter(id=strategy_id).exists()
+
+
 # --- bots -------------------------------------------------------------------
 
 

@@ -38,7 +38,9 @@
     "no": "Nein",
     "on": "An",
     "off": "Aus",
-    "refused": "Abgelehnt"
+    "refused": "Abgelehnt",
+    "create": "Erstellen",
+    "delete": "Löschen"
   },
   "theme": {
     "toLight": "Zu hell wechseln",
@@ -324,6 +326,14 @@
       "win_rate_pct": "Trefferquote %",
       "profit_factor": "Profitfaktor",
       "max_consecutive_losses": "Längste Verlustserie"
-    }
+    },
+    "deleteStrategy": "Strategie löschen",
+    "deleteStrategyTitle": "Diese Strategie löschen?",
+    "deleteStrategyConfirm": "„{name}“ und alle darunter gespeicherten Versionen löschen? Das lässt sich nicht rückgängig machen.",
+    "selectStrategy": "Eine Strategie auswählen",
+    "selectStrategyBody": "Wählen Sie eine aus der Liste oder erstellen Sie ein neues Skript.",
+    "unsaved": "Ungespeichert",
+    "window": "Zeitfenster",
+    "execution": "Ausführung"
   }
 }

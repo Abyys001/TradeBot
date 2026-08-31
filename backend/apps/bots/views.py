@@ -19,6 +19,7 @@ import logging
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.db.models import ProtectedError
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
@@ -63,6 +64,40 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer) -> None:
         serializer.save(created_by=self.request.user.get_username())
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        """Delete a strategy and its versions.
+
+        ``StrategyVersion`` cascades, but ``Bot.strategy_version`` is
+        ``PROTECT`` — a version a bot points at cannot vanish under it. So a
+        strategy any bot was built from refuses deletion with a 409 that names
+        the bots, rather than a 500 from the raw ``ProtectedError``. Delete
+        those bots first.
+        """
+        strategy = self.get_object()
+        try:
+            strategy.delete()
+        except ProtectedError as exc:
+            bots = sorted(
+                {
+                    obj.name
+                    for obj in exc.protected_objects
+                    if isinstance(obj, Bot)
+                }
+            )
+            return Response(
+                {
+                    "code": "strategy_in_use",
+                    "detail": (
+                        "This strategy still has bots built from it: "
+                        + ", ".join(bots)
+                        + ". Delete them first."
+                    ),
+                    "bots": bots,
+                },
+                status=409,
+            )
+        return Response(status=204)
 
     @action(detail=True, methods=["post"])
     def versions(self, request: Request, pk=None) -> Response:

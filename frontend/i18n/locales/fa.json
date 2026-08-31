@@ -42,7 +42,9 @@
     "next": "بعدی",
     "back": "بازگشت",
     "copied": "کپی شد",
-    "showLess": "نمایش کمتر"
+    "showLess": "نمایش کمتر",
+    "create": "ایجاد",
+    "delete": "حذف"
   },
   "theme": {
     "toLight": "تغییر به روشن",
@@ -1201,7 +1203,15 @@
       "win_rate_pct": "نرخ برد ٪",
       "profit_factor": "ضریب سود",
       "max_consecutive_losses": "بدترین زنجیرهٔ زیان"
-    }
+    },
+    "deleteStrategy": "حذف استراتژی",
+    "deleteStrategyTitle": "این استراتژی حذف شود؟",
+    "deleteStrategyConfirm": "«{name}» و همهٔ نسخه‌های ذخیره‌شده زیر آن حذف شوند؟ این کار برگشت‌پذیر نیست.",
+    "selectStrategy": "یک استراتژی انتخاب کنید",
+    "selectStrategyBody": "یکی را از فهرست انتخاب کنید، یا اسکریپت جدیدی بسازید.",
+    "unsaved": "ذخیره‌نشده",
+    "window": "بازه",
+    "execution": "اجرا"
   },
   "security": {
     "title": "امنیت",
