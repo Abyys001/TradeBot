@@ -37,6 +37,10 @@ class TradeLegSerializer(serializers.ModelSerializer):
 
 class TradeSerializer(serializers.ModelSerializer):
     legs = TradeLegSerializer(many=True, read_only=True)
+    # Null on the manual path — unchanged. Present here so the chart can label
+    # this trade's entry/exit markers with the bot's own name instead of "you",
+    # through the exact same marker mechanism a manual trade uses (bots.md §7).
+    bot_name = serializers.CharField(source="bot_run.bot.name", read_only=True, default=None)
 
     class Meta:
         model = Trade
@@ -54,6 +58,8 @@ class TradeSerializer(serializers.ModelSerializer):
             "opened_at",
             "closed_at",
             "fanout_ms",
+            "bot_run",
+            "bot_name",
             "legs",
         ]
         read_only_fields = fields

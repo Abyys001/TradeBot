@@ -9,8 +9,11 @@ The two named tests `docs/bot-plan.md` §5 asks for live here.
 
 from __future__ import annotations
 
+import datetime
+
 import pytest
 from asgiref.sync import sync_to_async
+from django.utils import timezone
 
 from apps.bots import supervisor
 from apps.bots.models import Bot, BotRun, BotState, StopReason
@@ -155,3 +158,33 @@ async def test_stopping_a_bot_that_is_not_running_is_safe():
     await supervisor.stop(bots[0].id, reason=StopReason.MANUAL, detail="")
     run = await sync_to_async(BotRun.objects.get)(bot=bots[0])
     assert run.stopped_at is not None
+
+
+# --- one bot at a time, even across a crash -----------------------------
+
+
+async def test_resume_all_starts_only_the_most_recent_of_several_running_bots():
+    """Only one bot may run at a time (enforced on every `start` — see
+    `bots.views.start_bot`), but a restart re-reads `Bot.state` rather than
+    trusting it: two rows left `paper`/`live` from before this rule existed
+    must not both come back."""
+    older = await sync_to_async(make_bot)(name="older", state=BotState.LIVE)
+    await sync_to_async(make_run)(older)
+    newer = await sync_to_async(make_bot)(name="newer", state=BotState.PAPER)
+    await sync_to_async(make_run)(newer)
+    # `make_bot`/`make_run` land in the same instant on a fast test run, so the
+    # tie-break needs a real gap between the two `updated_at` values.
+    await sync_to_async(Bot.objects.filter(id=older.id).update)(
+        updated_at=timezone.now() - datetime.timedelta(minutes=1)
+    )
+
+    resumed = await supervisor.resume_all()
+
+    assert resumed == [newer.id]
+    await sync_to_async(older.refresh_from_db)()
+    await sync_to_async(newer.refresh_from_db)()
+    assert older.state == BotState.STOPPED
+    assert newer.state == BotState.PAPER
+    old_run = await sync_to_async(BotRun.objects.get)(bot=older)
+    assert old_run.stopped_at is not None
+    assert old_run.stop_reason == StopReason.MANUAL

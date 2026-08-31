@@ -50,6 +50,20 @@ class ConnectedAccount(models.Model):
         db_index=True,
     )
 
+    # --- who may enter a *new* trade on this account -----------------------
+    # Two independent switches, not one "trading enabled" flag: an account can
+    # take the admin's own manual entries, a bot's, both, or neither. Neither
+    # one affects an amend or a close on a trade this account already holds a
+    # leg of — `eligible_accounts` resolves those from the leg, not from these
+    # fields, so flipping a switch mid-trade never strands a live position.
+    #
+    # Manual defaults on: every account already trades manually today, and
+    # flipping this to opt-in on upgrade would silently pause every one of
+    # them. Bot defaults off: a bot fanning out to an account nobody opted in
+    # is the one mistake this field exists to prevent.
+    manual_trading_enabled = models.BooleanField(default=True)
+    bot_trading_enabled = models.BooleanField(default=False)
+
     # --- credentials, encrypted at rest (spec §7) --------------------------
     api_key_encrypted = models.TextField(blank=True)
     api_secret_encrypted = models.TextField(blank=True)

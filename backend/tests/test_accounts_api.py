@@ -159,3 +159,54 @@ def test_pause_leaves_the_account_untouched_apart_from_its_status():
     account.refresh_from_db()
     assert account.status == AccountStatus.PAUSED
     assert account.withdrawal_checked_at is not None
+
+
+# --- manual/bot trading switches --------------------------------------------
+#
+# Two independent on/off controls on whether a *new* entry may reach this
+# account: the admin's own ticket, and a running bot's. See
+# ``apps.trading.services.eligible_accounts`` for the filtering itself.
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_manual_trading_defaults_on_and_bot_trading_defaults_off():
+    """Every account already trades manually today; a bot fanning out to an
+    account nobody opted in is the mistake the default guards against."""
+    account = make_account()
+    assert account.manual_trading_enabled is True
+    assert account.bot_trading_enabled is False
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_manual_trading_can_be_switched_off():
+    account = make_account()
+
+    response = staff_client().post(
+        f"/api/accounts/accounts/{account.id}/manual-trading/", data={"enabled": False},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["manual_trading_enabled"] is False
+    account.refresh_from_db()
+    assert account.manual_trading_enabled is False
+    # The other switch, and everything else about the account, is untouched.
+    assert account.bot_trading_enabled is False
+    assert account.status == AccountStatus.PAUSED
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_bot_trading_can_be_switched_on():
+    account = make_account()
+
+    response = staff_client().post(
+        f"/api/accounts/accounts/{account.id}/bot-trading/", data={"enabled": True},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["bot_trading_enabled"] is True
+    account.refresh_from_db()
+    assert account.bot_trading_enabled is True
+    # The other switch is untouched.
+    assert account.manual_trading_enabled is True

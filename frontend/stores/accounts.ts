@@ -167,6 +167,18 @@ export const useAccountsStore = defineStore('accounts', {
       return updated
     },
 
+    async setManualTrading(account: Account, enabled: boolean) {
+      const updated = await useApi().setManualTrading(account.id, enabled)
+      this.replace(updated)
+      return updated
+    },
+
+    async setBotTrading(account: Account, enabled: boolean) {
+      const updated = await useApi().setBotTrading(account.id, enabled)
+      this.replace(updated)
+      return updated
+    },
+
     async remove(id: number) {
       await useApi().remove(id)
       this.items = this.items.filter((a) => a.id !== id)

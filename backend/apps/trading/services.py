@@ -98,8 +98,20 @@ def leg_is_flat(leg: TradeLeg) -> bool:
     return not leg.ok and leg.error_code in SAT_OUT_CODES
 
 
+#: The two ways a *new* entry can be sent, and the field on ``ConnectedAccount``
+#: each one is gated by. An amend or a close is never gated by either — those
+#: reach whoever already holds a leg of the trade, whatever the switches say
+#: now, so flipping one mid-trade can never strand a live position.
+_ENTRY_SOURCE_FIELD = {
+    "manual": "manual_trading_enabled",
+    "bot": "bot_trading_enabled",
+}
+
+
 @sync_to_async
-def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
+def eligible_accounts(
+    trade: Trade | None = None, *, source: str = "manual"
+) -> list[ConnectedAccount]:
     """Accounts that take part in this action.
 
     For a *new* entry (``trade is None``): active accounts not already holding
@@ -107,6 +119,14 @@ def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
     commits 99% of that account's balance. Excluding rather than refusing the
     whole fan-out is deliberate: if one account is still winding down a
     position, that is not a reason to keep the other nine flat.
+
+    ``source`` says who is asking for the entry — the admin's own ticket
+    (``"manual"``) or a running bot (``"bot"``) — and narrows the set to
+    accounts that opted into *that* source. An account can take both, either,
+    or neither; the fields are independent switches, not one "trading
+    enabled" flag, because a partner may want the admin's own hand on their
+    account without ever letting an automated strategy touch it, or the
+    reverse.
 
     For an amend or a close, the answer is not "who is active" but **"who may
     still be holding a leg of this trade"** — every leg that is not closed and
@@ -132,8 +152,9 @@ def eligible_accounts(trade: Trade | None = None) -> list[ConnectedAccount]:
                 .values_list("account_id", flat=True)
             )
         )
+    field = _ENTRY_SOURCE_FIELD[source]
     return list(
-        ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE).exclude(
+        ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE, **{field: True}).exclude(
             id__in=accounts_in_open_trades()
         )
     )
@@ -420,7 +441,15 @@ async def route_open(
     sl_pct: Decimal | None,
     tp_pct: Decimal | None,
     limit_price: Decimal | None = None,
+    source: str = "manual",
 ) -> tuple[Trade | None, FanOutResult]:
+    """Fan a new entry out to every eligible account.
+
+    ``source`` is ``"manual"`` for the admin's own ticket and ``"bot"`` for a
+    bot's — see ``eligible_accounts``. Both still go through the exact same
+    sizing, fan-out, persistence and notification path below this line; the
+    only thing ``source`` changes is which accounts are asked at all.
+    """
     # Spec §7: the runtime halt is checked here, off the event loop, before any
     # adapter is built. ``fan_out`` still checks the environment pin as a
     # backstop — that one is a plain settings read and safe to do inline.
@@ -432,7 +461,7 @@ async def route_open(
     # were a full exchange round trip spent *before* the fan-out started, which
     # comes straight out of the §4 budget — on a cache miss that was most of it.
     accounts, reference_price = await asyncio.gather(
-        eligible_accounts(),
+        eligible_accounts(source=source),
         # A limit order carries its own price, so there is nothing to look up.
         _reference_price(symbol, market) if limit_price is None else _no_price(),
     )

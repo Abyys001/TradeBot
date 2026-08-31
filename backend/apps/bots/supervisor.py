@@ -84,7 +84,14 @@ async def start(bot: Bot) -> BotRun:
 
 
 async def stop(bot_id: int, *, reason: str, detail: str = "") -> None:
-    """Stop one bot and close its run. Safe to call on a bot that is not running."""
+    """Stop one bot and close its run. Safe to call on a bot that is not running.
+
+    Broadcasts the new state so every open panel — not just the tab that asked
+    for the stop — reflects it immediately. The auto-stop path already had
+    this (``_announce_stop``); a stop this function itself triggers (the
+    panel's own button, or one bot being deactivated to activate another)
+    deserves the same live sync rather than waiting for a reload.
+    """
     async with _LOCK:
         task = _TASKS.pop(bot_id, None)
     if task is not None and not task.done():
@@ -92,6 +99,7 @@ async def stop(bot_id: int, *, reason: str, detail: str = "") -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await task
     await _close_run(bot_id, reason=reason, detail=detail)
+    await _broadcast("bot_state", {"bot_id": bot_id, "state": BotState.STOPPED})
 
 
 async def stop_all(*, reason: str = StopReason.HALT, detail: str = "") -> list[int]:
@@ -150,12 +158,23 @@ def stop_all_sync(*, reason: str = StopReason.HALT, detail: str = "") -> list[in
 
 
 async def resume_all() -> list[int]:
-    """On process start, resume every bot whose state says it should be running.
+    """On process start, resume the one bot whose state says it should be running.
 
-    Their first act is warm-up and reconciliation, never trading — see
-    ``_supervise``.
+    Only one at a time may be active (the panel enforces this on every
+    ``start`` — see ``bots.views.start_bot``), but a restart still re-reads
+    ``Bot.state`` rather than trusting it: if more than one row is somehow
+    left ``paper``/``live`` — data from before this rule existed, or a race —
+    the most recently started one wins and the rest are stopped outright,
+    never resumed, so a crash can never silently bring two bots back at once.
+
+    The survivor's first act is warm-up and reconciliation, never trading —
+    see ``_supervise``.
     """
     bots = await sync_to_async(_bots_to_resume)()
+    if len(bots) > 1:
+        survivor, *extra = bots
+        await sync_to_async(_stop_extra_at_rest)(extra)
+        bots = [survivor]
     for bot in bots:
         await start(bot)
     return [bot.id for bot in bots]
@@ -364,7 +383,28 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
 
 
 def _bots_to_resume() -> list[Bot]:
-    return list(Bot.objects.filter(state__in=[BotState.PAPER, BotState.LIVE]))
+    # Most recently started/updated first — see resume_all()'s tie-break.
+    return list(
+        Bot.objects.filter(state__in=[BotState.PAPER, BotState.LIVE]).order_by("-updated_at")
+    )
+
+
+def _stop_extra_at_rest(bots: list[Bot]) -> None:
+    """Mark bots stopped without going through the running-task machinery.
+
+    Called only at process start, before any of these bots has a task — there
+    is nothing to cancel, only a database row describing a state the panel's
+    own one-at-a-time rule no longer allows to resume.
+    """
+    ids = [bot.id for bot in bots]
+    if not ids:
+        return
+    BotRun.objects.filter(bot_id__in=ids, stopped_at__isnull=True).update(
+        stopped_at=timezone.now(),
+        stop_reason=StopReason.MANUAL,
+        stop_detail="not resumed — only one bot may run at a time",
+    )
+    Bot.objects.filter(id__in=ids).update(state=BotState.STOPPED, dry_run=True)
 
 
 def _load_bot(bot_id: int) -> Bot | None:

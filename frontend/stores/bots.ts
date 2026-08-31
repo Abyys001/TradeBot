@@ -75,8 +75,16 @@ export const useBotsStore = defineStore('bots', () => {
     runs.value[botId] = run
   }
 
+  /**
+   * Only one bot may run at a time. The server enforces this — it stops every
+   * other paper/live bot before starting this one and names which — and its
+   * own `bot_state` broadcast catches every open tab up. This applies the same
+   * result to *this* tab immediately rather than waiting on the socket, so the
+   * list does not show two bots running for the width of a round trip.
+   */
   async function start(id: number, state: 'paper' | 'live') {
     const result = await api.startBot(id, state)
+    for (const otherId of result.deactivated ?? []) applyState(otherId, 'stopped')
     applyState(id, result.state as BotState)
     return result
   }

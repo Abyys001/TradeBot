@@ -68,7 +68,10 @@ class StrategySerializer(serializers.ModelSerializer):
 class BotSerializer(serializers.ModelSerializer):
     strategy_name = serializers.CharField(source="strategy_version.strategy.name", read_only=True)
     version = serializers.IntegerField(source="strategy_version.version", read_only=True)
-    current_run = serializers.SerializerMethodField()
+    updated_at = serializers.DateTimeField(read_only=True)
+    # Named to match the frontend's `BotSummary.latest_run` — the panel seeds
+    # its per-bot run cache from this on every list load, socket pushes aside.
+    latest_run = serializers.SerializerMethodField()
 
     class Meta:
         model = Bot
@@ -90,12 +93,13 @@ class BotSerializer(serializers.ModelSerializer):
             "dry_run",
             "drills_fired",
             "created_at",
+            "updated_at",
             "created_by",
-            "current_run",
+            "latest_run",
         )
         read_only_fields = ("state", "dry_run", "created_by", "drills_fired")
 
-    def get_current_run(self, obj):
+    def get_latest_run(self, obj):
         run = obj.runs.order_by("-started_at").first()
         return BotRunSerializer(run).data if run else None
 

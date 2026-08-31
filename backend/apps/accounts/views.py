@@ -296,6 +296,32 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account.save(update_fields=["status", "eligible_from", "updated_at"])
         return Response(ConnectedAccountSerializer(account).data)
 
+    @action(detail=True, methods=["post"], url_path="manual-trading")
+    def manual_trading(self, request, pk=None):
+        """On/off: may this account take the admin's own manual entries.
+
+        Independent of ``bot_trading`` (below) and of ``status`` — pausing an
+        account already stops every new entry, manual or bot; this is the
+        finer-grained switch for "this account, but not from my own hand" (or
+        the reverse). Neither switch touches a trade this account already
+        holds a leg of — ``eligible_accounts`` resolves an amend or a close
+        from the leg, not from these fields, so flipping one mid-trade can
+        never strand a live position.
+        """
+        account = self.get_object()
+        account.manual_trading_enabled = bool(request.data.get("enabled", True))
+        account.save(update_fields=["manual_trading_enabled", "updated_at"])
+        return Response(ConnectedAccountSerializer(account).data)
+
+    @action(detail=True, methods=["post"], url_path="bot-trading")
+    def bot_trading(self, request, pk=None):
+        """On/off: may a bot's entries reach this account. Off by default —
+        see ``ConnectedAccount.bot_trading_enabled``."""
+        account = self.get_object()
+        account.bot_trading_enabled = bool(request.data.get("enabled", True))
+        account.save(update_fields=["bot_trading_enabled", "updated_at"])
+        return Response(ConnectedAccountSerializer(account).data)
+
     @action(detail=True, methods=["get"])
     def report(self, request, pk=None):
         """Everything this one connection has done — the per-account page.

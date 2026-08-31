@@ -242,6 +242,30 @@ Q22, first claim wins:
 - An account whose last entry is **unconfirmed** counts as possibly holding one.
   A failed leg is not proof that nothing happened.
 
+**Only one bot runs at a time.** The panel's bots list shows several bots but
+activates one: `POST /bots/bots/<id>/start/` stops every *other* `paper`/`live`
+bot first (`StopReason.MANUAL`, naming the bot that took its slot) and only then
+starts this one — after that bot's own transition and, for `live`, the
+promotion gate have already passed, so a start that was going to be refused
+anyway never takes down a bot that was working fine. The response's
+`deactivated` field lists what it stopped, and its own `bot_state` broadcast
+catches every open tab up immediately, not just the one that clicked. A restart
+re-checks rather than trusting `Bot.state`: if more than one row is somehow
+left `paper`/`live` — data from before this rule existed, or a crash mid-write
+— `resume_all()` resumes only the most recently started one and stops the rest
+outright, never resumes two at once.
+
+**Which accounts a bot may reach is a per-account switch, off by default.**
+`ConnectedAccount.bot_trading_enabled` (panel: the account row's "Bot trading"
+toggle) gates every *new* bot entry the same way `manual_trading_enabled` gates
+the admin's own ticket — see `eligible_accounts` in `apps/trading/services.py`.
+The two are independent: an account can take the admin's own hand, a bot's,
+both, or neither. Neither switch touches a trade the account already holds a
+leg of — an amend or a close still resolves from the leg, so flipping either
+mid-trade can never strand a live position. An account nobody opted in simply
+does not appear in a bot's fan-out, and reads as **"sat out"** exactly like one
+already holding a position (Q22) — never as a failure.
+
 Hidden accounts (Q27) take part in every fan-out **identically** — nothing in
 `apps/pine/` or `apps/bots/` may import `accounts.visibility` — and every bot
 *read* surface filters them, the same as every manual one.

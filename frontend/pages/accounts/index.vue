@@ -115,6 +115,12 @@ const toggle = (account: Account) =>
 
 const verify = (account: Account) => run(account, () => accounts.verify(account))
 
+const toggleManual = (account: Account, on: boolean) =>
+  run(account, () => accounts.setManualTrading(account, on))
+
+const toggleBot = (account: Account, on: boolean) =>
+  run(account, () => accounts.setBotTrading(account, on))
+
 async function confirmDelete() {
   const account = pendingDelete.value
   if (!account) return
@@ -241,10 +247,9 @@ async function confirmDelete() {
               </tr>
             </thead>
             <tbody>
+              <template v-for="account in filtered" :key="account.id">
               <tr
-                v-for="account in filtered"
-                :key="account.id"
-                class="border-b border-line/60 last:border-0 hover:bg-raised/60 transition-colors"
+                class="hover:bg-raised/60 transition-colors"
               >
                 <td class="px-4 py-3 min-w-0">
                   <div class="flex items-center gap-2 min-w-0">
@@ -355,6 +360,31 @@ async function confirmDelete() {
                   </div>
                 </td>
               </tr>
+              <!-- Spec: per-account control over which order sources may enter
+                   a *new* trade here. Independent of pause/resume, which stops
+                   both at once — this is the finer-grained split between the
+                   admin's own hand and a running bot's. -->
+              <tr class="border-b border-line/60 last:border-0 bg-sunken/40">
+                <td colspan="5" class="px-4 py-2.5">
+                  <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <UiSwitch
+                      :model-value="account.manual_trading_enabled"
+                      :disabled="busy === account.id"
+                      :label="t('accounts.manualTrading')"
+                      :hint="t('accounts.manualTradingHint')"
+                      @update:model-value="(v) => toggleManual(account, v)"
+                    />
+                    <UiSwitch
+                      :model-value="account.bot_trading_enabled"
+                      :disabled="busy === account.id"
+                      :label="t('accounts.botTrading')"
+                      :hint="t('accounts.botTradingHint')"
+                      @update:model-value="(v) => toggleBot(account, v)"
+                    />
+                  </div>
+                </td>
+              </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -396,6 +426,21 @@ async function confirmDelete() {
             </div>
 
             <p v-if="account.last_error" class="text-xs text-signal">{{ account.last_error }}</p>
+
+            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-sunken/40 px-3 py-2.5">
+              <UiSwitch
+                :model-value="account.manual_trading_enabled"
+                :disabled="busy === account.id"
+                :label="t('accounts.manualTrading')"
+                @update:model-value="(v) => toggleManual(account, v)"
+              />
+              <UiSwitch
+                :model-value="account.bot_trading_enabled"
+                :disabled="busy === account.id"
+                :label="t('accounts.botTrading')"
+                @update:model-value="(v) => toggleBot(account, v)"
+              />
+            </div>
 
             <div class="flex gap-2">
               <NuxtLink

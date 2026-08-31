@@ -246,8 +246,22 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
     except lifecycle.IllegalTransition as exc:
         return JsonResponse({"detail": str(exc), "code": "illegal_transition"}, status=409)
 
+    # Only one bot may run at a time. Deactivating the others *after* this
+    # one's own transition and gate checks have already passed means a start
+    # that is about to be refused (an illegal transition, an unmet live gate)
+    # never takes down a bot that was working fine.
+    deactivated = await sync_to_async(_other_running_ids)(bot.id)
+    for other_id in deactivated:
+        await supervisor.stop(
+            other_id,
+            reason=StopReason.MANUAL,
+            detail=f"deactivated to activate “{bot.name}” — only one bot runs at a time",
+        )
+
     run = await supervisor.start(bot)
-    return JsonResponse({"bot_id": bot.id, "state": bot.state, "run_id": run.id})
+    return JsonResponse(
+        {"bot_id": bot.id, "state": bot.state, "run_id": run.id, "deactivated": deactivated}
+    )
 
 
 @require_POST
@@ -320,6 +334,15 @@ def _decimal(value):
 
 def _get_bot(pk: int) -> Bot | None:
     return Bot.objects.filter(id=pk).select_related("strategy_version").first()
+
+
+def _other_running_ids(bot_id: int) -> list[int]:
+    """Every *other* bot currently paper or live — the ones about to lose the slot."""
+    return list(
+        Bot.objects.filter(state__in=[BotState.PAPER, BotState.LIVE])
+        .exclude(id=bot_id)
+        .values_list("id", flat=True)
+    )
 
 
 def _get_version(pk) -> StrategyVersion | None:

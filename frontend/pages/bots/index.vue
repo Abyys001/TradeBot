@@ -232,7 +232,7 @@ onMounted(() => store.load())
           <span class="label">{{ t('bots.botName') }}</span>
           <input v-model="form.name" class="field" />
         </label>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid sm:grid-cols-2 gap-3">
           <label class="block space-y-1.5">
             <span class="label">{{ t('terminal.symbol') }}</span>
             <input v-model="form.symbol" class="field" />

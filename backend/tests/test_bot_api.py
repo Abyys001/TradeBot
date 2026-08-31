@@ -235,6 +235,53 @@ def test_stopping_a_bot_that_is_not_running_is_not_an_error():
     assert post(staff(), f"/api/bots/bots/{bot.id}/stop/", {}).status_code == 200
 
 
+# --- only one bot runs at a time --------------------------------------------
+
+
+def test_starting_a_bot_stops_whichever_one_was_running():
+    running = make_bot(name="running", state=BotState.PAPER)
+    make_run(running)
+    draft = make_bot(name="draft", state=BotState.DRAFT)
+
+    body = post(staff(), f"/api/bots/bots/{draft.id}/start/", {"state": "paper"}).json()
+
+    assert body["deactivated"] == [running.id]
+    running.refresh_from_db()
+    assert running.state == BotState.STOPPED
+    assert running.runs.first().stop_reason == "manual"
+    draft.refresh_from_db()
+    assert draft.state == BotState.PAPER
+
+
+def test_starting_the_only_bot_deactivates_nothing():
+    bot = make_bot(state=BotState.DRAFT)
+    body = post(staff(), f"/api/bots/bots/{bot.id}/start/", {"state": "paper"}).json()
+    assert body["deactivated"] == []
+
+
+def test_an_illegal_transition_does_not_deactivate_the_running_bot():
+    """A refused start must not take down a bot that was working fine."""
+    running = make_bot(name="running", state=BotState.PAPER)
+    stopped = make_bot(name="stopped", state=BotState.STOPPED)  # stopped->live is illegal
+
+    response = post(staff(), f"/api/bots/bots/{stopped.id}/start/", {"state": "live"})
+
+    assert response.status_code == 409
+    running.refresh_from_db()
+    assert running.state == BotState.PAPER
+
+
+def test_an_unmet_gate_does_not_deactivate_the_other_bot():
+    running = make_bot(name="running", state=BotState.PAPER)
+    other = make_bot(name="other", state=BotState.PAPER)
+
+    response = post(staff(), f"/api/bots/bots/{other.id}/start/", {"state": "live"})
+
+    assert response.status_code == 409
+    running.refresh_from_db()
+    assert running.state == BotState.PAPER
+
+
 # --- the gate ---------------------------------------------------------------
 
 

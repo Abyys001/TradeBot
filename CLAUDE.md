@@ -16,10 +16,12 @@ mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines, and a financial
 ledger (manual deposits/withdrawals, per-account PnL since inception, a global
 profit split), **bot mode** — a Pine Script v5 engine, backtest, supervisor
-and panel (`docs/bots.md`) — and an **optional security layer**: one On/Off row
-per control on `/settings`, every one off by default, none of them on the
-order-routing path (`docs/security-plan.md`).
-**1649 backend tests pass, `ruff` clean on everything this touched, Nuxt build
+and panel (`docs/bots.md`), gated per account by two independent switches
+(`manual_trading_enabled`, `bot_trading_enabled` — `docs/bots.md` §7) and
+restricted to **one running bot at a time** — and an **optional security
+layer**: one On/Off row per control on `/settings`, every one off by default,
+none of them on the order-routing path (`docs/security-plan.md`).
+**1666 backend tests pass, `ruff` clean on everything this touched, Nuxt build
 and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are

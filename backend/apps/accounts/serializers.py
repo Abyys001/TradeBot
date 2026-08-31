@@ -35,6 +35,8 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
             "status",
             "testnet",
             "hidden",
+            "manual_trading_enabled",
+            "bot_trading_enabled",
             "wallet_address",
             "credential_expires_at",
             "credential_days_left",

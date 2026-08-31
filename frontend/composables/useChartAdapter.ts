@@ -44,7 +44,8 @@ export type DragKind = 'sl' | 'tp' | 'entry'
 export type SLTPKind = DragKind
 
 /**
- * One moment worth marking on the chart: the admin's own entry or close, or an
+ * One moment worth marking on the chart: the platform's own entry or close —
+ * from the admin's ticket or a bot's signal, both drawn the same way — or an
  * exchange getting in or out.
  *
  * `time` is the moment itself, in unix seconds. The adapter snaps it to the bar
@@ -55,9 +56,9 @@ export type TradeMarker = {
   time: number
   kind: 'entry' | 'exit'
   side: 'long' | 'short'
-  /** The exchange's name, or the admin's own. Shown on the icon. */
+  /** The exchange's name, or the platform's own ("You" or a bot's name). */
   label: string
-  /** The admin's own action, which leads its group's label. */
+  /** The platform's own action (admin ticket or bot), which leads its group's label. */
   admin: boolean
 }
 

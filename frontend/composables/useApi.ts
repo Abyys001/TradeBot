@@ -83,6 +83,18 @@ export function useApi() {
     pause: (id: number) => request<Account>(`/accounts/accounts/${id}/pause/`, { method: 'POST' }),
     resume: (id: number) =>
       request<Account>(`/accounts/accounts/${id}/resume/`, { method: 'POST' }),
+    /** Whether this account takes the admin's own manual entries. */
+    setManualTrading: (id: number, enabled: boolean) =>
+      request<Account>(`/accounts/accounts/${id}/manual-trading/`, {
+        method: 'POST',
+        body: { enabled },
+      }),
+    /** Whether a bot's entries may reach this account. Off by default. */
+    setBotTrading: (id: number, enabled: boolean) =>
+      request<Account>(`/accounts/accounts/${id}/bot-trading/`, {
+        method: 'POST',
+        body: { enabled },
+      }),
     remove: (id: number) => request<void>(`/accounts/accounts/${id}/`, { method: 'DELETE' }),
     /**
      * One account's whole record — connection, money, every leg it was given.
@@ -253,10 +265,10 @@ export function useApi() {
     /** The Phase 7 gate with this bot's own measurements filled in. */
     botPromotion: (id: number) => request<PromotionGate>(`/bots/bots/${id}/promotion/`),
     startBot: (id: number, state: 'paper' | 'live') =>
-      request<{ bot_id: number; state: string; run_id: number }>(`/bots/bots/${id}/start/`, {
-        method: 'POST',
-        body: { state },
-      }),
+      request<{ bot_id: number; state: string; run_id: number; deactivated: number[] }>(
+        `/bots/bots/${id}/start/`,
+        { method: 'POST', body: { state } },
+      ),
     stopBot: (id: number, reason = '') =>
       request<{ bot_id: number; state: string }>(`/bots/bots/${id}/stop/`, {
         method: 'POST',
@@ -673,6 +685,10 @@ export interface Account {
    * rows out entirely rather than sending them with a flag to respect.
    */
   hidden?: boolean
+  /** Whether this account takes the admin's own manual entries. */
+  manual_trading_enabled: boolean
+  /** Whether a bot's entries may reach this account. Off by default. */
+  bot_trading_enabled: boolean
   wallet_address?: string
   key_fingerprint?: string
   last_balance: string | null
@@ -765,6 +781,10 @@ export interface Trade {
   opened_at: string
   closed_at: string | null
   fanout_ms: number | null
+  /** Which bot run placed this, when a bot did. Null is the manual path. */
+  bot_run: number | null
+  /** The bot's own name, for the chart marker label. Null on the manual path. */
+  bot_name: string | null
   legs: TradeLeg[]
 }
 

@@ -324,10 +324,13 @@ async def _route(*, bot: Bot, run: BotRun, action: Action, services) -> dict:
             leverage=bot.leverage,
             sl_pct=action.sl_pct,
             tp_pct=action.tp_pct,
+            source="bot",
         )
         if trade is None:
-            # Every eligible account was already in a trade. Q22: "sat out", not
-            # a failure — the accounts join the next one (spec §6).
+            # No account is both eligible and opted into bot trading right now
+            # — either every one is already in a trade, or none has switched
+            # bot trading on. Q22: "sat out", not a failure — the accounts join
+            # the next one (spec §6).
             return {"ok": True, "sat_out": True, "legs": []}
         await _link_trade(trade, run)
         return {

@@ -132,7 +132,8 @@
     "chartDelayedHint": "The newest candle is from {age}. The price above is current; the bars are not. Nothing is drawn to fill the gap.",
     "chartStoredHint": "These are downloaded candles, newest from {age}. The live candle feed is not answering, so the chart shows stored exchange data rather than an invented one.",
     "marker": {
-      "you": "You"
+      "you": "You",
+      "bot": "Bot: {name}"
     }
   },
   "ticket": {
@@ -376,6 +377,10 @@
     "pause": "Pause",
     "resume": "Resume",
     "verify": "Verify key",
+    "manualTrading": "Manual trading",
+    "manualTradingHint": "Takes the admin's own manual entries.",
+    "botTrading": "Bot trading",
+    "botTradingHint": "Takes entries from a running bot. Off by default.",
     "empty": "No accounts connected yet.",
     "emptyBody": "Connect a trade-only API key and it joins from the next trade — never one already in progress.",
     "emptyFilter": "Nothing matches this filter.",
@@ -1073,7 +1078,7 @@
   },
   "bots": {
     "title": "Bots",
-    "lead": "A bot is a signal source, not a second execution path. A Pine Script strategy decides the side; sizing, the fan-out and the halt are the same code the manual button goes through.",
+    "lead": "A bot is a signal source, not a second execution path. A Pine Script strategy decides the side; sizing, the fan-out and the halt are the same code the manual button goes through. Only one bot runs at a time — starting another stops whichever one was running.",
     "strategies": "Strategies",
     "strategiesLead": "Pine Script v5, checked as you type. Anything outside the supported subset is refused by name, line and column — nothing is parsed and quietly ignored.",
     "backtest": "Backtest",

@@ -243,17 +243,20 @@ async def open_position(request: HttpRequest) -> JsonResponse:
             sl_pct=sl_pct,
             tp_pct=tp_pct,
             limit_price=limit_price,
+            source="manual",
         )
     except StopAllActive as exc:
         # Spec §7: the kill switch refuses new routing. Closing is unaffected.
         return JsonResponse({"detail": str(exc), "code": "stop_all"}, status=409)
 
     if trade is None:
-        # Spec §5/§6: everyone is paused, unusable, or already in a trade.
+        # Spec §5/§6: everyone is paused, unusable, opted out of manual
+        # trading, or already in a trade.
         return JsonResponse(
             {
-                "detail": "no connected account can take this order right now — "
-                "each account may hold only one open trade",
+                "detail": "no connected account can take this order right now — each "
+                "account may hold only one open trade, and manual trading may be "
+                "switched off on the rest",
                 "code": "no_eligible_accounts",
             },
             status=409,

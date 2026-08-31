@@ -80,6 +80,113 @@ async def test_open_persists_a_leg_per_account():
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_manual_entry_skips_an_account_with_manual_trading_off():
+    await make_account("manual-off")
+    manual_off = await ConnectedAccount.objects.aget(label="manual-off")
+    manual_off.manual_trading_enabled = False
+    await sync_to_async(manual_off.save)(update_fields=["manual_trading_enabled"])
+    await make_account("manual-on")
+
+    accounts = await eligible_accounts(source="manual")
+
+    assert [a.label for a in accounts] == ["manual-on"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_bot_entry_only_reaches_accounts_opted_into_bot_trading():
+    """Off by default (see the model) — a bot fanning out to an account nobody
+    opted in is the one mistake the switch exists to prevent."""
+    await make_account("bot-off")
+    await make_account("bot-on")
+    bot_on = await ConnectedAccount.objects.aget(label="bot-on")
+    bot_on.bot_trading_enabled = True
+    await sync_to_async(bot_on.save)(update_fields=["bot_trading_enabled"])
+
+    accounts = await eligible_accounts(source="bot")
+
+    assert [a.label for a in accounts] == ["bot-on"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_route_open_for_a_bot_only_fans_out_to_opted_in_accounts():
+    await make_account("bot-on", balance="1000")
+    await make_account("bot-off", balance="1000")
+    bot_on = await ConnectedAccount.objects.aget(label="bot-on")
+    bot_on.bot_trading_enabled = True
+    await sync_to_async(bot_on.save)(update_fields=["bot_trading_enabled"])
+
+    trade, result = await route_open(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        market=MarketType.FUTURES,
+        order_type=OrderType.MARKET,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        limit_price=D("100000"),
+        source="bot",
+    )
+
+    legs = await sync_to_async(lambda: list(trade.legs.select_related("account")))()
+    assert [leg.account.label for leg in legs] == ["bot-on"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_manual_and_bot_trading_switches_are_independent():
+    """An account can take both, either, or neither — not one flag."""
+    await make_account("both")
+    both = await ConnectedAccount.objects.aget(label="both")
+    both.bot_trading_enabled = True
+    await sync_to_async(both.save)(update_fields=["bot_trading_enabled"])
+
+    manual_accounts = await eligible_accounts(source="manual")
+    bot_accounts = await eligible_accounts(source="bot")
+
+    assert [a.label for a in manual_accounts] == ["both"]
+    assert [a.label for a in bot_accounts] == ["both"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_bot_dispatched_trade_is_stamped_and_labelled_on_the_wire():
+    """The chart draws a bot's own entries/exits through the exact same marker
+    mechanism as a manual trade (bots.md §7) — it only needs the bot's name,
+    which ``TradeSerializer.bot_name`` carries from ``Trade.bot_run``."""
+    from apps.bots import translate
+    from apps.pine.intent import Side as PineSide
+    from apps.trading.serializers import TradeSerializer
+    from tests.bot_factory import make_bot, make_run
+
+    account = await make_account("bot-on", balance="1000")
+    account.bot_trading_enabled = True
+    await sync_to_async(account.save)(update_fields=["bot_trading_enabled"])
+    bot = await sync_to_async(make_bot)(name="my strategy")
+    run = await sync_to_async(make_run)(bot)
+
+    action = translate.Action(type="open", side=PineSide.LONG, sl_pct=D("1"), tp_pct=D("2"))
+    outcomes = await translate.dispatch(bot=bot, run=run, bar_time=1, actions=[action])
+
+    assert outcomes[0]["ok"] is True
+    trade = await Trade.objects.aget(id=outcomes[0]["trade_id"])
+    assert trade.bot_run_id == run.id
+    data = await sync_to_async(lambda: TradeSerializer(trade).data)()
+    assert data["bot_run"] == run.id
+    assert data["bot_name"] == "my strategy"
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_manual_trades_bot_name_is_null_on_the_wire():
+    from apps.trading.serializers import TradeSerializer
+
+    await make_account("partner-a")
+    trade, _ = await open_a_trade()
+
+    data = await sync_to_async(lambda: TradeSerializer(trade).data)()
+
+    assert data["bot_run"] is None
+    assert data["bot_name"] is None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
 async def test_paused_accounts_are_excluded():
     """Spec §6: a paused account receives no new orders."""
     await make_account("active-one")

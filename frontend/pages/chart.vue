@@ -87,6 +87,11 @@ const entryDraggable = computed(
  * Failed legs are not marked. A leg that never filled has no moment of entry to
  * point at, and inventing one on the price would be a lie about what happened;
  * the notification centre is where a failure is answered.
+ *
+ * A bot's own trades go through this exact same marker mechanism as a manual
+ * one (bots.md §7) — the only difference is the label: a bot's name leads its
+ * group instead of "you", because the platform's own action is what "we"
+ * entered whether the click came from the ticket or from a running strategy.
  */
 const tradeMarkers = computed<TradeMarker[]>(() => {
   const seconds = (iso: string | null) => {
@@ -100,13 +105,15 @@ const tradeMarkers = computed<TradeMarker[]>(() => {
   for (const trade of trading.trades) {
     if (trade.symbol !== market.symbol || trade.market !== market.market) continue
     const side = trade.side === 'short' ? 'short' : 'long'
+    const label = trade.bot_name ? t('terminal.marker.bot', { name: trade.bot_name }) : you
 
-    // The admin's own action — the one thing on the chart that is "when *we*
-    // entered" rather than when some exchange got there.
+    // The platform's own action — the one thing on the chart that is "when
+    // *we* entered" rather than when some exchange got there. Same mechanism
+    // whether the order came from the ticket or from a bot's own signal.
     const opened = seconds(trade.opened_at)
-    if (opened !== null) out.push({ time: opened, kind: 'entry', side, label: you, admin: true })
+    if (opened !== null) out.push({ time: opened, kind: 'entry', side, label, admin: true })
     const closed = seconds(trade.closed_at)
-    if (closed !== null) out.push({ time: closed, kind: 'exit', side, label: you, admin: true })
+    if (closed !== null) out.push({ time: closed, kind: 'exit', side, label, admin: true })
 
     for (const leg of trade.legs) {
       if (!leg.ok) continue
