@@ -17,7 +17,7 @@ socksio==1.0.0
 # httpx cannot speak WebSocket, and channels' server-side stack is not a client.
 # Imported lazily inside stream_events, so a missing wheel degrades to a clear
 # NotSupported rather than breaking adapter import.
-websockets==14.2
+websockets==17.0.1
 python-dotenv==1.2.2
 hyperliquid-python-sdk==0.24.0
 # Serves Django's own static files (the admin UI) in production — Django
