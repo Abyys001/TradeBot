@@ -63,6 +63,7 @@ export const PINNED_SYMBOLS = [
   'BNBUSDC',
   'WLDUSDC',
   'LITUSDC',
+  'PONSUSDC',
 ]
 const PINNED_POLL_MS = 5000
 
