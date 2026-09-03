@@ -47,11 +47,25 @@ from apps.pine.bar import Bar
 from apps.pine.errors import PineNameError, PineRuntimeError
 from apps.pine.intent import Annotation, Side, StrategyIntent
 from apps.pine.limits import DEFAULT_LIMITS, Limits
+from apps.pine.objects import EnumType, EnumValue, PineObject
 from apps.pine.series import NA, Series, is_na
 from apps.pine.subset import BUILTIN_SERIES, DECORATIVE_NAMESPACES, VISUAL_FUNCTIONS
 from apps.pine.tokens import Span
 
 ZERO = Decimal("0")
+
+#: ``_member_base`` / ``_call`` sentinel: the thing before the dot is a
+#: namespace (``ta``, ``math``, ``strategy`` …), not a value we hold.
+_NOT_A_VALUE = object()
+_MISSING = object()
+
+#: Which declared receiver types a runtime value satisfies, for method
+#: overload resolution. A UDT matches its own name only.
+_PRIMITIVE_RECEIVERS: dict[type, frozenset[str]] = {
+    bool: frozenset({"bool"}),
+    str: frozenset({"string", "color"}),
+    Decimal: frozenset({"int", "float"}),
+}
 
 
 class _Break(Exception):
@@ -182,6 +196,13 @@ class Runtime:
         self.limits = limits
         self.seed = seed
         self.functions = {fn.name: fn for fn in program.functions}
+        self.types = {t.name: t for t in program.types}
+        self.enums = {e.name: EnumType.from_def(e) for e in program.enums}
+        #: method name -> its overloads, ordered by declaration. Dispatch picks
+        #: the one whose ``receiver_type`` matches the receiver's runtime type.
+        self.methods: dict[str, list[ast.MethodDef]] = {}
+        for method in program.methods:
+            self.methods.setdefault(method.name, []).append(method)
         self.ctx = RunContext(limits=limits, seed=seed)
         #: ``ta.*`` sites the end-of-bar sweep is responsible for. Registered in
         #: one AST walk at load, in source order.
@@ -206,7 +227,8 @@ class Runtime:
             if isinstance(node, ast.Call):
                 dotted = ast.dotted_name(node.func) or ""
                 nested = any(
-                    isinstance(a, ast.FuncDef | ast.For | ast.ForIn | ast.While) for a in ancestors
+                    isinstance(a, ast.FuncDef | ast.MethodDef | ast.For | ast.ForIn | ast.While)
+                    for a in ancestors
                 )
                 if dotted.startswith("ta.") and not nested:
                     self.stateful_sites.append(node)
@@ -452,8 +474,10 @@ class Runtime:
             return self._exec_assign(node)
         if isinstance(node, ast.Reassign):
             return self._exec_reassign(node)
-        if isinstance(node, ast.FuncDef):
+        if isinstance(node, ast.FuncDef | ast.MethodDef | ast.TypeDef | ast.EnumDef):
             return NA  # bound at load; the definition itself evaluates to nothing
+        if isinstance(node, ast.FieldAssign):
+            return self._exec_field_assign(node)
         if isinstance(node, ast.For):
             return self._exec_for(node)
         if isinstance(node, ast.ForIn):
@@ -546,6 +570,82 @@ class Runtime:
             )
         series.set(value)
         return value
+
+    def _exec_field_assign(self, node: ast.FieldAssign):
+        """``obj.field := expr`` — mutate one field of an object in place.
+
+        Objects are held by reference, so this write is visible through every
+        variable bound to the same ``PineObject`` (``objects.md``).
+        """
+        target = self._eval(node.obj)
+        value = self._eval(node.value)
+        if isinstance(target, PineObject):
+            if node.attr not in target.fields:
+                raise PineRuntimeError(
+                    f"{target.type_name!r} has no field {node.attr!r}",
+                    code="unknown_field",
+                    span=node.span,
+                )
+            target.fields[node.attr] = value
+            return value
+        if is_na(target):
+            raise PineRuntimeError(
+                f"cannot set field {node.attr!r} on an na object — construct it with "
+                f"Type.new() first",
+                code="na_field_assign",
+                span=node.span,
+            )
+        raise PineRuntimeError(
+            f"{node.attr!r} cannot be assigned — the value on the left is not an object",
+            code="not_an_object",
+            span=node.span,
+        )
+
+    def _bind_args(
+        self,
+        node: ast.Call,
+        param_names: list[str],
+        defaults: tuple[ast.Node | None, ...],
+    ) -> list:
+        """Resolve a call's positional and named arguments against a signature.
+
+        Shared by user functions, user methods and ``Type.new()`` so that
+        ``f(len = 20)``, a trailing default and "too many arguments" mean the
+        same thing wherever they appear.
+        """
+        slots: list = [_MISSING] * len(param_names)
+        position = 0
+        for arg in node.args:
+            if arg.name:
+                if arg.name not in param_names:
+                    raise PineRuntimeError(
+                        f"no parameter named {arg.name!r}",
+                        code="unknown_arg",
+                        span=node.span,
+                    )
+                slots[param_names.index(arg.name)] = self._eval(arg.value)
+            else:
+                if position >= len(slots):
+                    raise PineRuntimeError(
+                        f"too many arguments — this signature takes {len(param_names)}",
+                        code="bad_arity",
+                        span=node.span,
+                    )
+                slots[position] = self._eval(arg.value)
+                position += 1
+        out: list = []
+        for index, value in enumerate(slots):
+            if value is _MISSING:
+                default = defaults[index] if index < len(defaults) else None
+                if default is None:
+                    raise PineRuntimeError(
+                        f"missing argument {param_names[index]!r}",
+                        code="bad_arity",
+                        span=node.span,
+                    )
+                value = self._eval(default)
+            out.append(value)
+        return out
 
     def _exec_for(self, node: ast.For):
         start = _as_int(self._eval(node.start), "for start", node.span)
@@ -716,9 +816,66 @@ class Runtime:
             return name
         raise PineNameError(f"{name!r} is not defined", code="undefined_name", span=node.span)
 
+    def _member_base(self, obj_node: ast.Node):
+        """The value before the dot, or ``_NOT_A_VALUE`` when it is a namespace.
+
+        ``p`` in ``p.x`` resolves to the object it holds; ``ta`` in ``ta.tr``
+        resolves to nothing here and the caller falls back to the built-in
+        tables. An enum name resolves to its ``EnumType`` so ``Dir.up`` works.
+        """
+        ctx = self.ctx
+        if isinstance(obj_node, ast.Name):
+            name = obj_node.name
+            for scope in reversed(ctx.locals):
+                if name in scope:
+                    return scope[name]
+            if name in ctx.globals:
+                return ctx.globals[name].value
+            if name in ctx.series:
+                return ctx.series[name].value
+            if name in self.enums:
+                return self.enums[name]
+            return _NOT_A_VALUE
+        if isinstance(
+            obj_node, ast.Member | ast.Index | ast.Call | ast.Ternary | ast.If | ast.Switch
+        ):
+            return self._eval(obj_node)
+        return _NOT_A_VALUE
+
+    def _member_of_value(self, base, node: ast.Member):
+        attr = node.attr
+        if isinstance(base, PineObject):
+            if attr not in base.fields:
+                raise PineRuntimeError(
+                    f"{base.type_name!r} has no field {attr!r}",
+                    code="unknown_field",
+                    span=node.span,
+                )
+            return base.fields[attr]
+        if isinstance(base, EnumType):
+            value = base.member(attr)
+            if value is None:
+                raise PineNameError(
+                    f"{base.name!r} has no member {attr!r}",
+                    code="unknown_enum_member",
+                    span=node.span,
+                )
+            return value
+        if is_na(base):
+            return NA  # a field read on an na object is na (objects.md)
+        raise PineNameError(
+            f"{self._type_name_of(base)} value has no member {attr!r}",
+            code="undefined_member",
+            span=node.span,
+        )
+
     def _member(self, node: ast.Member):
         dotted = ast.dotted_name(node)
         ctx = self.ctx
+
+        base = self._member_base(node.obj)
+        if base is not _NOT_A_VALUE:
+            return self._member_of_value(base, node)
 
         if dotted == "strategy.position_size":
             return Decimal(ctx.position_size)
@@ -864,6 +1021,19 @@ class Runtime:
         ctx = self.ctx
         ctx.current_call_id = node.call_id
 
+        # `Point.new(...)` / `Point.copy(obj)` — construct or shallow-copy a UDT.
+        if dotted:
+            root, _, tail = dotted.partition(".")
+            if root in self.types and tail in ("new", "copy"):
+                return self._call_type(node, root, tail)
+
+        # `obj.method(...)` — a user method, when the thing before the dot is a
+        # value we hold rather than a namespace like `ta` or `strategy`.
+        if isinstance(node.func, ast.Member):
+            base = self._member_base(node.func.obj)
+            if base is not _NOT_A_VALUE and not isinstance(base, EnumType):
+                return self._call_method(node, base, node.func.attr)
+
         if dotted in self.functions:
             return self._call_user_function(node, self.functions[dotted])
         if dotted == "strategy":
@@ -900,13 +1070,7 @@ class Runtime:
         return [self._eval(arg.value) for arg in node.args]
 
     def _call_user_function(self, node: ast.Call, fn: ast.FuncDef):
-        values = self._args(node)
-        if len(values) != len(fn.params):
-            raise PineRuntimeError(
-                f"{fn.name}() takes {len(fn.params)} argument(s), got {len(values)}",
-                code="bad_arity",
-                span=node.span,
-            )
+        values = self._bind_args(node, list(fn.params), fn.defaults)
         ctx = self.ctx
         ctx.locals.append(dict(zip(fn.params, values, strict=True)))
         previous = ctx.call_path
@@ -916,6 +1080,107 @@ class Runtime:
         finally:
             ctx.call_path = previous
             ctx.locals.pop()
+
+    # --- user-defined types, enums, methods ------------------------------
+
+    def _call_type(self, node: ast.Call, type_name: str, op: str):
+        type_def = self.types[type_name]
+        if op == "copy":
+            values = self._args(node)
+            source = values[0] if values else NA
+            if isinstance(source, PineObject):
+                return source.copy()
+            if is_na(source):
+                return NA
+            raise PineRuntimeError(
+                f"{type_name}.copy() needs a {type_name} object",
+                code="bad_copy",
+                span=node.span,
+            )
+        # `Type.new()` — a field with no value and no default is `na`, not an
+        # error (objects.md). So this is not `_bind_args`, which requires a
+        # missing argument to have a default the way a function parameter does.
+        field_names = [f.name for f in type_def.fields]
+        fields: dict = {name: NA for name in field_names}
+        for field_node in type_def.fields:
+            if field_node.default is not None:
+                fields[field_node.name] = self._eval(field_node.default)
+        position = 0
+        for arg in node.args:
+            if arg.name:
+                if arg.name not in fields:
+                    raise PineRuntimeError(
+                        f"{type_name!r} has no field {arg.name!r}",
+                        code="unknown_field",
+                        span=node.span,
+                    )
+                fields[arg.name] = self._eval(arg.value)
+            else:
+                if position >= len(field_names):
+                    raise PineRuntimeError(
+                        f"{type_name}.new() takes at most {len(field_names)} field value(s)",
+                        code="too_many_fields",
+                        span=node.span,
+                    )
+                fields[field_names[position]] = self._eval(arg.value)
+                position += 1
+        return PineObject(type_name, fields)
+
+    def _call_method(self, node: ast.Call, receiver, method_name: str):
+        if isinstance(receiver, PineObject) and method_name == "copy" and (
+            "copy" not in self.methods
+        ):
+            return receiver.copy()
+        overloads = self.methods.get(method_name)
+        chosen = self._resolve_overload(overloads, receiver) if overloads else None
+        if chosen is None:
+            raise PineNameError(
+                f"no method {method_name!r} for {self._type_name_of(receiver)}",
+                code="unknown_method",
+                span=node.span,
+            )
+        values = self._bind_args(node, list(chosen.params), chosen.defaults)
+        ctx = self.ctx
+        scope = {chosen.receiver_name: receiver}
+        scope.update(zip(chosen.params, values, strict=True))
+        ctx.locals.append(scope)
+        previous = ctx.call_path
+        ctx.call_path = (*previous, node.call_id)
+        try:
+            return self._exec_block(chosen.body)
+        finally:
+            ctx.call_path = previous
+            ctx.locals.pop()
+
+    def _resolve_overload(self, overloads: list[ast.MethodDef], receiver):
+        if len(overloads) == 1:
+            return overloads[0]
+        if isinstance(receiver, PineObject):
+            accepted = {receiver.type_name}
+        elif isinstance(receiver, EnumValue):
+            accepted = {receiver.enum}
+        else:
+            accepted = _PRIMITIVE_RECEIVERS.get(type(receiver), frozenset())
+        for method in overloads:
+            if method.receiver_type in accepted:
+                return method
+        return overloads[0]
+
+    @staticmethod
+    def _type_name_of(value) -> str:
+        if isinstance(value, PineObject):
+            return value.type_name
+        if isinstance(value, EnumValue):
+            return value.enum
+        if isinstance(value, bool):
+            return "bool"
+        if isinstance(value, Decimal):
+            return "float"
+        if isinstance(value, str):
+            return "string"
+        if is_na(value):
+            return "na"
+        return type(value).__name__
 
     def _ta_state(self, key: str, name: str) -> ta_lib.Indicator:
         state = self.ctx.indicators.get(key)

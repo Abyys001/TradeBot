@@ -257,6 +257,74 @@ def test_a_malformed_statement_is_a_located_syntax_error(source):
     assert caught.value.span is not None
 
 
+# --- user-defined types, enums, methods -----------------------------------
+
+
+def test_a_type_declaration_parses_its_fields_with_defaults():
+    prog = program("type Point\n    int x\n    float y = 0.0\n    string tag = \"p\"\n")
+    assert [t.name for t in prog.types] == ["Point"]
+    fields = prog.types[0].fields
+    assert [(f.name, f.type_name) for f in fields] == [
+        ("x", "int"),
+        ("y", "float"),
+        ("tag", "string"),
+    ]
+    assert fields[0].default is None
+    assert isinstance(fields[1].default, ast.NumberLit)
+
+
+def test_a_varip_field_is_recorded_as_such():
+    prog = program("type C\n    int bars = 0\n    varip int ticks = 0\n")
+    assert [f.qualifier for f in prog.types[0].fields] == ["", "varip"]
+
+
+def test_an_enum_declaration_parses_members_and_titles():
+    prog = program('enum Dir\n    up\n    down = "Downwards"\n')
+    assert [(m.name, m.title) for m in prog.enums[0].members] == [
+        ("up", None),
+        ("down", "Downwards"),
+    ]
+
+
+def test_a_method_declaration_carries_its_receiver_and_defaults():
+    prog = program("method scale(Point self, float k = 2.0) =>\n    self.x * k\n")
+    method = prog.methods[0]
+    assert (method.name, method.receiver_type, method.receiver_name) == (
+        "scale",
+        "Point",
+        "self",
+    )
+    assert method.params == ("k",)
+    assert isinstance(method.defaults[0], ast.NumberLit)
+
+
+def test_field_assignment_is_its_own_node():
+    node = first("p.x := close\n")
+    assert isinstance(node, ast.FieldAssign)
+    assert node.attr == "x"
+    assert isinstance(node.obj, ast.Name) and node.obj.name == "p"
+
+
+def test_a_compound_field_assignment_desugars_to_a_binary():
+    node = first("p.n += 1\n")
+    assert isinstance(node, ast.FieldAssign)
+    assert isinstance(node.value, ast.Binary) and node.value.op == "+"
+
+
+def test_a_user_type_annotation_on_a_declaration_is_dropped():
+    node = first("Point p = na\n")
+    assert isinstance(node, ast.Assign)
+    assert node.targets == ("p",)
+
+
+def test_a_function_parameter_can_carry_a_default():
+    prog = program("f(a, b = 3) =>\n    a + b\n")
+    fn = prog.functions[0]
+    assert fn.params == ("a", "b")
+    assert fn.defaults[0] is None
+    assert isinstance(fn.defaults[1], ast.NumberLit)
+
+
 # --- the corpus -------------------------------------------------------------
 
 

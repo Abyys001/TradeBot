@@ -1,0 +1,8 @@
+//@version=5
+strategy("t")
+type Point
+    float x
+    float y
+p = Point.new(x = 1.0, z = 2.0)
+plot(p.x)
+//@expect code=unknown_field line=6 col=24

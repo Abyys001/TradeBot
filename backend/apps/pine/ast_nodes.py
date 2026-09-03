@@ -216,6 +216,73 @@ class FuncDef(Node):
     name: str
     params: tuple[str, ...]
     body: Block
+    #: One entry per param, ``None`` where the param has no default. Parallel to
+    #: ``params`` so the runtime fills a missing trailing argument from it.
+    defaults: tuple[Node | None, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MethodDef(Node):
+    """``method name(T this, ...) => body`` — a function bound to a type.
+
+    The receiver is the first parameter and its type is declared, which is how
+    dispatch and overloading work: ``obj.name(...)`` picks the ``MethodDef``
+    whose ``receiver_type`` matches ``obj``'s runtime type.
+    """
+
+    name: str
+    receiver_type: str
+    receiver_name: str
+    params: tuple[str, ...]  # the parameters after the receiver
+    body: Block
+    defaults: tuple[Node | None, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TypeField(Node):
+    """One field of a UDT: ``[varip] <type> <name> [= <default>]``."""
+
+    name: str
+    type_name: str
+    default: Node | None = None
+    #: "" or "varip" — ``varip`` fields are not rolled back (objects.md), which
+    #: this platform treats as ``var`` under Q23 the same way it does elsewhere.
+    qualifier: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TypeDef(Node):
+    """``type Name`` followed by an indented block of ``TypeField``."""
+
+    name: str
+    fields: tuple[TypeField, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EnumMember(Node):
+    name: str
+    title: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EnumDef(Node):
+    """``enum Name`` followed by an indented block of member names."""
+
+    name: str
+    members: tuple[EnumMember, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FieldAssign(Node):
+    """``obj.field := expr`` — mutating one field of an object in place.
+
+    Distinct from ``Reassign`` because the target is an object reference plus a
+    field name, not a bare variable, and it never introduces a new binding.
+    """
+
+    obj: Node
+    attr: str
+    value: Node
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +296,9 @@ class Program(Node):
     #: The ``//@version=N`` annotation as the lexer read it, for the validator.
     version: int | None = None
     functions: tuple[FuncDef, ...] = field(default_factory=tuple)
+    types: tuple[TypeDef, ...] = field(default_factory=tuple)
+    enums: tuple[EnumDef, ...] = field(default_factory=tuple)
+    methods: tuple[MethodDef, ...] = field(default_factory=tuple)
 
 
 # --- walking ----------------------------------------------------------------
@@ -251,7 +321,12 @@ _CHILD_FIELDS: dict[type, tuple[str, ...]] = {
     For: ("start", "end", "step", "body"),
     ForIn: ("iterable", "body"),
     While: ("cond", "body"),
-    FuncDef: ("body",),
+    FuncDef: ("body", "defaults"),
+    MethodDef: ("body", "defaults"),
+    TypeDef: ("fields",),
+    TypeField: ("default",),
+    EnumDef: ("members",),
+    FieldAssign: ("obj", "value"),
     ExprStmt: ("value",),
     Program: ("body",),
 }

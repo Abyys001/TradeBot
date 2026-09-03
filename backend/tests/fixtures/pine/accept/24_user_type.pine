@@ -1,0 +1,21 @@
+//@version=5
+strategy("user type")
+
+type Level
+    float price
+    int touches = 0
+
+var Level support = Level.new(low)
+if low < support.price
+    support.price := low
+    support.touches := support.touches + 1
+
+Level snapshot = Level.new(close, support.touches)
+
+if close > support.price and support.touches >= 2
+    strategy.entry("L", strategy.long)
+if close < support.price
+    strategy.close("L")
+
+plot(support.price)
+plot(snapshot.price)

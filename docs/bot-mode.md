@@ -191,7 +191,10 @@ TradingView — see [`bot-plan.md`](bot-plan.md) §1.3.
 | Declaration | `//@version=5`, `strategy(title, overlay, ...)` |
 | Variables | `=`, `:=`, `var`, `varip`, tuples |
 | Control flow | `if`/`else if`/`else`, `for`, `for...in`, `while`, `break`, `continue`, `switch` |
-| Functions | user-defined, single- and multi-line |
+| Functions | user-defined, single- and multi-line; parameters may carry a default (`f(a, b = 3) =>`) |
+| Types | `type Name` with typed fields and per-field defaults; `Name.new(...)`, `Name.copy(...)`, `obj.field` read, `obj.field := v` write; `var` persists one object and its fields; assigned **by reference** |
+| Methods | `method f(T this, ...) =>` on any built-in or user type; called `obj.f(...)`; dispatched and overloaded by receiver type |
+| Enums | `enum Name` with named members and optional `= "title"`; `Name.member`, equality by identity, usable as a `switch` subject |
 | Built-in series | `open` `high` `low` `close` `volume` `hl2` `hlc3` `ohlc4` `hlcc4` `time` `bar_index` |
 | `ta.*` | `sma ema rma wma vwma hma stdev variance rsi atr tr macd bb bbw stoch cci mom roc crossover crossunder cross change highest lowest highestbars lowestbars barssince valuewhen cum sum percentile_linear_interpolation linreg rising falling pivothigh pivotlow` |
 | `math.*` | `abs max min pow sqrt log log10 exp round floor ceil sign avg sum random` |
@@ -215,8 +218,8 @@ TradingView — see [`bot-plan.md`](bot-plan.md) §1.3.
 | `pyramiding > 0` | contradicts one-open-trade-per-account and 99% margin | "pyramiding is not supported — the platform commits 99% on the first entry" |
 | `calc_on_every_tick=true` | Q23 | "this platform evaluates on bar close only" |
 | `calc_on_order_fills`, `process_orders_on_close` | fill-model semantics that do not exist here | name the parameter |
-| `type` / user-defined types, `method` | needs a type system | "user-defined types are not supported yet" |
 | `import` / libraries | resolution, versioning, trust | "libraries are not supported" |
+| `obj.field[n]` (object-field history) | per-field history needs a series per field; same call as `(a+b)[n]` | "assign this to a variable first" |
 | `varip` **used in live mode** | its whole point is surviving intrabar recalculation, which Q23 removed | warn, treat as `var` |
 | `strategy.risk.*` | overlaps the bot risk gate (Q25) confusingly | "configure risk limits on the bot, not in the script" |
 

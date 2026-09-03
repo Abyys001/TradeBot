@@ -1,0 +1,6 @@
+//@version=5
+strategy("t")
+type Bad
+    Widget w
+plot(close)
+//@expect code=unknown_field_type line=4 col=5

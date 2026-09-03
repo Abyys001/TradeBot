@@ -1,6 +1,0 @@
-//@version=5
-strategy("reject")
-enum Mode
-    fast
-    slow
-//@expect code=unsupported_user_type line=3 col=1

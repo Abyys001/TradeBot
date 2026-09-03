@@ -379,3 +379,132 @@ def test_every_accepted_fixture_runs_two_hundred_bars(path):
     for candle in pine_corpus.bars(200):
         rt.run_bar(candle)
     assert rt.advance_failures == set()
+
+
+# --- user-defined types, enums, methods -----------------------------------
+
+
+def test_an_object_field_is_read_and_written():
+    rt = runtime(
+        "type P\n    float x\n    int n = 0\n"
+        "p = P.new(close)\n"
+        "p.x := close + 1\n"
+        "p.n := p.n + 5\n"
+        "plot(p.x)\n"
+    )
+    run(rt, ["10"])
+    assert rt.ctx.globals["p"].value.fields["x"] == D("11")
+    assert rt.ctx.globals["p"].value.fields["n"] == D("5")
+
+
+def test_a_field_default_is_used_when_no_value_is_given():
+    rt = runtime("type P\n    float x = 7.0\n    int n = 0\np = P.new()\nplot(p.x)\n")
+    run(rt, ["1"])
+    assert rt.ctx.globals["p"].value.fields["x"] == D("7.0")
+
+
+def test_var_keeps_one_object_across_bars_and_its_fields_persist():
+    rt = runtime(
+        "type Counter\n    int n = 0\n"
+        "var Counter c = Counter.new()\n"
+        "c.n := c.n + 1\n"
+        "plot(c.n)\n"
+    )
+    results = run(rt, ["1", "2", "3", "4"])
+    assert [r.intent.plots["plot_1"] for r in results] == [D("1"), D("2"), D("3"), D("4")]
+
+
+def test_objects_are_assigned_by_reference():
+    rt = runtime(
+        "type P\n    float x\n"
+        "a = P.new(1.0)\n"
+        "b = a\n"
+        "b.x := 2.0\n"
+        "plot(a.x)\n"
+    )
+    results = run(rt, ["1"])
+    assert results[0].intent.plots["plot_1"] == D("2.0")
+
+
+def test_copy_breaks_the_reference():
+    rt = runtime(
+        "type P\n    float x\n"
+        "a = P.new(1.0)\n"
+        "b = P.copy(a)\n"
+        "b.x := 2.0\n"
+        "plot(a.x)\n"
+    )
+    results = run(rt, ["1"])
+    assert results[0].intent.plots["plot_1"] == D("1.0")
+
+
+def test_a_user_method_receives_the_object_and_returns_a_value():
+    rt = runtime(
+        "type Acc\n    float total = 0.0\n"
+        "method add(Acc self, float v) =>\n    self.total := self.total + v\n    self.total\n"
+        "var Acc acc = Acc.new()\n"
+        "running = acc.add(close)\n"
+        "plot(running)\n"
+    )
+    results = run(rt, ["10", "20", "30"])
+    assert [r.intent.plots["plot_1"] for r in results] == [D("10"), D("30"), D("60")]
+
+
+def test_a_method_default_argument_is_applied():
+    rt = runtime(
+        "type P\n    int n = 0\n"
+        "method bump(P self, int amount = 3) =>\n    self.n := self.n + amount\n    self.n\n"
+        "var P p = P.new()\n"
+        "plot(p.bump())\n"
+    )
+    results = run(rt, ["1", "1"])
+    assert [r.intent.plots["plot_1"] for r in results] == [D("3"), D("6")]
+
+
+def test_method_overload_dispatches_on_receiver_type():
+    rt = runtime(
+        "type A\n    float v\n"
+        "type B\n    float v\n"
+        "method tag(A self) =>\n    1\n"
+        "method tag(B self) =>\n    2\n"
+        "a = A.new(0.0)\n"
+        "b = B.new(0.0)\n"
+        "plot(a.tag() * 10 + b.tag())\n"
+    )
+    results = run(rt, ["1"])
+    assert results[0].intent.plots["plot_1"] == D("12")
+
+
+def test_enum_members_compare_by_identity_and_drive_a_switch():
+    rt = runtime(
+        'enum Dir\n    up = "U"\n    down = "D"\n    flat\n'
+        "d = close > open ? Dir.up : close < open ? Dir.down : Dir.flat\n"
+        "s = switch d\n    Dir.up => 1\n    Dir.down => -1\n    => 0\n"
+        "plot(s)\n"
+    )
+    r_up = rt.run_bar(bar("10", time=0, high="10", low="1"))
+    # open == close on the helper bar → flat
+    assert r_up.intent.plots["plot_1"] == D("0")
+
+
+def test_an_unknown_field_write_raises_a_located_error():
+    rt = runtime("type P\n    float x\np = P.new(1.0)\np.y := 2.0\nplot(p.x)\n")
+    with pytest.raises(PineRuntimeError) as caught:
+        run(rt, ["1"])
+    assert caught.value.code == "unknown_field"
+    assert caught.value.span is not None
+
+
+def test_a_udt_strategy_snapshot_round_trips():
+    rt = runtime(
+        "type P\n    int n = 0\n"
+        "var P p = P.new()\n"
+        "p.n := p.n + 1\n"
+        "plot(p.n)\n"
+    )
+    run(rt, ["1", "1", "1"])
+    saved = rt.snapshot()
+    run(rt, ["1"])
+    assert rt.ctx.globals["p"].value.fields["n"] == D("4")
+    rt.restore(saved)
+    assert rt.ctx.globals["p"].value.fields["n"] == D("3")

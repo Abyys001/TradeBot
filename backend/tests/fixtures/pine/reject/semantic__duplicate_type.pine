@@ -1,0 +1,8 @@
+//@version=5
+strategy("t")
+type Dup
+    float a
+type Dup
+    float b
+plot(close)
+//@expect code=duplicate_type line=5 col=1

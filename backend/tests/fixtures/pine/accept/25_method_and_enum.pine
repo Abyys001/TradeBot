@@ -1,0 +1,39 @@
+//@version=5
+strategy("method and enum")
+
+type Stats
+    float sum = 0.0
+    int count = 0
+
+method add(Stats self, float value) =>
+    self.sum := self.sum + value
+    self.count := self.count + 1
+    self
+
+method mean(Stats self) =>
+    self.count == 0 ? na : self.sum / self.count
+
+enum Regime
+    bull = "Bull"
+    bear = "Bear"
+    calm
+
+regimeOf(float fast, float slow) =>
+    fast > slow ? Regime.bull : fast < slow ? Regime.bear : Regime.calm
+
+var Stats stats = Stats.new()
+stats.add(close)
+avg = stats.mean()
+
+r = regimeOf(close, avg)
+signal = switch r
+    Regime.bull => 1
+    Regime.bear => -1
+    => 0
+
+if signal > 0
+    strategy.entry("L", strategy.long)
+if signal < 0
+    strategy.close("L")
+
+plot(avg)

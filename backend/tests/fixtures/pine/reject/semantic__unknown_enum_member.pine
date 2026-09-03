@@ -1,0 +1,8 @@
+//@version=5
+strategy("t")
+enum Mode
+    fast
+    slow
+m = Mode.medium
+plot(close)
+//@expect code=unknown_enum_member line=6 col=5

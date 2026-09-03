@@ -306,3 +306,112 @@ def test_a_ta_call_inside_a_function_is_warned_about_not_silently_wrong():
 def test_a_top_level_ta_call_needs_no_warning():
     result = check("plot(ta.sma(close, 10))\n")
     assert "ta_not_hoisted" not in warning_codes(result)
+
+
+# --- user-defined types, enums, methods (Q24 reversal) ---------------------
+
+
+def test_a_type_declaration_and_object_use_validate():
+    result = check(
+        "type Level\n"
+        "    float price\n"
+        "    int touches = 0\n"
+        "p = Level.new(close)\n"
+        "p.price := close\n"
+        "plot(p.price + p.touches)\n"
+    )
+    assert result.errors == [], [e.as_dict() for e in result.errors]
+
+
+def test_an_enum_and_a_method_validate():
+    result = check(
+        "enum Dir\n    up\n    down\n"
+        "type Box\n    float v\n"
+        "method sign(Box self) =>\n    self.v > 0 ? Dir.up : Dir.down\n"
+        "b = Box.new(close)\n"
+        "d = b.sign()\n"
+        "plot(close)\n"
+    )
+    assert result.errors == [], [e.as_dict() for e in result.errors]
+
+
+def test_an_unknown_field_on_new_is_named():
+    result = check("type P\n    float x\np = P.new(y = 1.0)\nplot(p.x)\n")
+    assert "unknown_field" in codes(result)
+
+
+def test_an_unknown_field_read_is_named_when_the_type_is_known():
+    result = check("type P\n    float x\np = P.new(1.0)\nplot(p.z)\n")
+    assert "unknown_field" in codes(result)
+
+
+def test_an_unknown_enum_member_is_named():
+    result = check("enum Mode\n    fast\n    slow\nm = Mode.turbo\nplot(close)\n")
+    assert "unknown_enum_member" in codes(result)
+
+
+def test_a_field_declared_with_an_unknown_type_is_refused():
+    result = check("type Bad\n    Widget w\nplot(close)\n")
+    assert "unknown_field_type" in codes(result)
+
+
+def test_a_type_cannot_be_named_after_a_builtin_type():
+    result = check("type float\n    float x\nplot(close)\n")
+    assert "type_name_reserved" in codes(result)
+
+
+def test_a_duplicate_type_is_refused():
+    result = check("type D\n    float a\ntype D\n    float b\nplot(close)\n")
+    assert "duplicate_type" in codes(result)
+
+
+def test_a_method_on_an_unknown_type_is_refused():
+    result = check("method f(Ghost self) =>\n    self\nplot(close)\n")
+    assert "unknown_receiver_type" in codes(result)
+
+
+def test_two_method_overloads_with_the_same_receiver_are_refused():
+    result = check(
+        "type P\n    float x\n"
+        "method f(P self) =>\n    self.x\n"
+        "method f(P self) =>\n    self.x * 2\n"
+        "plot(close)\n"
+    )
+    assert "duplicate_method" in codes(result)
+
+
+def test_method_overloads_on_different_receivers_are_accepted():
+    result = check(
+        "type A\n    float x\n"
+        "type B\n    float y\n"
+        "method f(A self) =>\n    self.x\n"
+        "method f(B self) =>\n    self.y\n"
+        "plot(close)\n"
+    )
+    assert result.errors == [], [e.as_dict() for e in result.errors]
+
+
+def test_an_order_call_inside_a_method_is_refused():
+    result = check(
+        "type P\n    float x\n"
+        "method go(P self) =>\n    strategy.entry(\"L\", strategy.long)\n"
+        "p = P.new(close)\n"
+        "p.go()\n"
+    )
+    assert "order_in_function" in codes(result)
+
+
+def test_mutual_recursion_between_methods_is_refused():
+    result = check(
+        "type P\n    float x\n"
+        "method a(P self) =>\n    self.b()\n"
+        "method b(P self) =>\n    self.a()\n"
+        "p = P.new(close)\n"
+        "plot(p.a())\n"
+    )
+    assert "recursion" in codes(result)
+
+
+def test_an_undefined_object_root_in_member_position_is_named():
+    result = check("z = bogus.field\nplot(z)\n")
+    assert "undefined_name" in codes(result)

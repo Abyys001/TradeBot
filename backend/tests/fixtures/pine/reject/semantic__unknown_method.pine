@@ -1,0 +1,8 @@
+//@version=5
+strategy("t")
+type Box
+    float v
+b = Box.new(1.0)
+x = b.scale(2)
+plot(x)
+//@expect code=unknown_method line=6 col=5

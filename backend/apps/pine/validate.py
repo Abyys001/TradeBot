@@ -51,6 +51,12 @@ ORDER_CALLS = frozenset({"strategy.entry", "strategy.close", "strategy.close_all
 #: ``strategy.entry`` arguments that name a size. Parsed, ignored, reported (Q20).
 SIZE_ARGS = frozenset({"qty", "qty_percent"})
 
+#: The built-in types a UDT field or a method receiver may be declared as. A UDT
+#: may also be declared as another, already-declared UDT — checked against
+#: ``_Checker.types`` rather than this set. ``objects.md`` "Shadowing": these
+#: names cannot themselves be used for a UDT.
+FUNDAMENTAL_TYPES = frozenset({"int", "float", "bool", "string", "color"})
+
 
 @dataclass(frozen=True, slots=True)
 class InputSpec:
@@ -189,7 +195,18 @@ class _Checker:
         self.result = result
         self.limits = limits
         self.functions = {fn.name: fn for fn in program.functions}
+        self.types = {t.name: t for t in program.types}
+        self.enums = {e.name: e for e in program.enums}
+        #: method name -> {receiver type name}. A name may carry several
+        #: overloads, one per receiver type (methods.md "Method overloading").
+        self.methods: dict[str, set[str]] = {}
+        for method in program.methods:
+            self.methods.setdefault(method.name, set()).add(method.receiver_type)
         self.globals: set[str] = set()
+        #: Best-effort ``variable -> UDT name`` from ``T x = na`` / ``x = T.new()``
+        #: declarations. Populated in ``_collect_globals``; used to check field
+        #: and method access without a full type inference pass.
+        self.var_types: dict[str, str] = {}
 
     # --- entry point --------------------------------------------------------
 
@@ -198,6 +215,9 @@ class _Checker:
         self._check_declaration()
         self._count_nodes()
         self._collect_globals()
+        self._check_type_defs()
+        self._check_enum_defs()
+        self._check_method_defs()
         self._walk(self.program, ancestors=())
         self._check_recursion()
         self._check_exit_reachability()
@@ -345,19 +365,43 @@ class _Checker:
         for node in ast.walk(self.program):
             if isinstance(node, ast.Assign):
                 self.globals.update(node.targets)
+                if len(node.targets) == 1:
+                    udt = self._constructed_type(node.value)
+                    if udt is not None:
+                        self.var_types[node.targets[0]] = udt
             elif isinstance(node, ast.Reassign):
                 self.globals.add(node.target)
             elif isinstance(node, ast.FuncDef):
                 self.globals.add(node.name)
+                self.globals.update(node.params)
+            elif isinstance(node, ast.MethodDef):
+                self.globals.add(node.receiver_name)
                 self.globals.update(node.params)
             elif isinstance(node, ast.For):
                 self.globals.add(node.var)
             elif isinstance(node, ast.ForIn):
                 self.globals.update(node.vars)
 
+    def _constructed_type(self, value: ast.Node) -> str | None:
+        """The UDT name a declaration's right-hand side yields, or ``None``.
+
+        Catches ``T.new(...)``, ``T.copy(...)`` and a bare ``na`` behind a
+        ``T x = na`` annotation the parser dropped — enough to check most field
+        and method access without a full inference pass.
+        """
+        if isinstance(value, ast.Call):
+            dotted = ast.dotted_name(value.func) or ""
+            root, _, tail = dotted.partition(".")
+            if root in self.types and tail in ("new", "copy"):
+                return root
+        return None
+
     def _known(self, name: str) -> bool:
         return (
             name in self.globals
+            or name in self.types
+            or name in self.enums
+            or name in self.methods
             or name in BUILTIN_SERIES
             or name in BUILTIN_VALUES
             or name in BARE_FUNCTIONS
@@ -379,6 +423,105 @@ class _Checker:
         )
         close = difflib.get_close_matches(name, pool, n=1, cutoff=0.8)
         return f" — did you mean {close[0]!r}?" if close else ""
+
+    # --- user-defined types, enums, methods -------------------------------
+
+    def _known_type(self, name: str) -> bool:
+        return name in FUNDAMENTAL_TYPES or name in self.types
+
+    def _check_type_defs(self) -> None:
+        seen: set[str] = set()
+        for type_def in self.program.types:
+            if type_def.name in FUNDAMENTAL_TYPES:
+                self._error(
+                    f"a type cannot be named {type_def.name!r} — that is a built-in type",
+                    code="type_name_reserved",
+                    span=type_def.span,
+                )
+            if type_def.name in seen:
+                self._error(
+                    f"type {type_def.name!r} is declared more than once",
+                    code="duplicate_type",
+                    span=type_def.span,
+                )
+            seen.add(type_def.name)
+            fields: set[str] = set()
+            for field_node in type_def.fields:
+                if field_node.name in fields:
+                    self._error(
+                        f"field {field_node.name!r} is declared more than once in "
+                        f"{type_def.name!r}",
+                        code="duplicate_field",
+                        span=field_node.span,
+                    )
+                fields.add(field_node.name)
+                if not self._known_type(field_node.type_name):
+                    self._error(
+                        f"field {field_node.name!r} has unknown type "
+                        f"{field_node.type_name!r} — use a built-in type or a type "
+                        f"declared above",
+                        code="unknown_field_type",
+                        span=field_node.span,
+                    )
+                if field_node.qualifier == "varip":
+                    self._warn(
+                        "a varip field is treated as var — this platform evaluates on "
+                        "bar close only (Q23), so there is no intrabar update for it to "
+                        "survive",
+                        code="varip_as_var",
+                        span=field_node.span,
+                    )
+
+    def _check_enum_defs(self) -> None:
+        seen: set[str] = set()
+        for enum_def in self.program.enums:
+            if enum_def.name in FUNDAMENTAL_TYPES:
+                self._error(
+                    f"an enum cannot be named {enum_def.name!r} — that is a built-in type",
+                    code="type_name_reserved",
+                    span=enum_def.span,
+                )
+            if enum_def.name in seen or enum_def.name in self.types:
+                self._error(
+                    f"{enum_def.name!r} is declared more than once",
+                    code="duplicate_type",
+                    span=enum_def.span,
+                )
+            seen.add(enum_def.name)
+            members: set[str] = set()
+            for member in enum_def.members:
+                if member.name in members:
+                    self._error(
+                        f"enum member {member.name!r} is declared more than once in "
+                        f"{enum_def.name!r}",
+                        code="duplicate_field",
+                        span=member.span,
+                    )
+                members.add(member.name)
+
+    def _check_method_defs(self) -> None:
+        seen: set[tuple[str, str]] = set()
+        for method in self.program.methods:
+            known = (
+                self._known_type(method.receiver_type)
+                or method.receiver_type in self.enums
+            )
+            if not known:
+                self._error(
+                    f"method {method.name!r} is declared on unknown type "
+                    f"{method.receiver_type!r}",
+                    code="unknown_receiver_type",
+                    span=method.span,
+                )
+            key = (method.name, method.receiver_type)
+            if key in seen:
+                self._error(
+                    f"method {method.name!r} is declared twice for {method.receiver_type!r} "
+                    f"— overloads must differ by receiver type",
+                    code="duplicate_method",
+                    span=method.span,
+                )
+            seen.add(key)
 
     # --- the walk -----------------------------------------------------------
 
@@ -470,6 +613,74 @@ class _Checker:
                     code="unsupported_member",
                     span=node.span,
                 )
+            return
+
+        # Not a built-in namespace: the root is an enum, a type, an object
+        # variable — or a typo. ``attr`` is the segment immediately after it.
+        attr = dotted.split(".")[1] if "." in dotted else ""
+
+        if root in self.enums:
+            names = {m.name for m in self.enums[root].members}
+            if attr and attr not in names:
+                close = difflib.get_close_matches(attr, names, n=1, cutoff=0.6)
+                hint = f" — did you mean {root}.{close[0]!r}?" if close else ""
+                self._error(
+                    f"{root!r} has no member {attr!r}{hint}",
+                    code="unknown_enum_member",
+                    span=node.span,
+                )
+            return
+
+        if root in self.types:
+            if attr not in ("new", "copy"):
+                self._error(
+                    f"{root!r} is a type — the only calls on it are {root}.new() and "
+                    f"{root}.copy()",
+                    code="unknown_type_member",
+                    span=node.span,
+                )
+            return
+
+        if not isinstance(node.obj, ast.Name):
+            return  # a nested access like ``a.b.c`` — the inner ``a.b`` is checked on its own
+        if not (
+            root in self.globals or root in BUILTIN_SERIES or root in BUILTIN_VALUES
+        ):
+            self._error(
+                f"{root!r} is not defined{self._suggest(root)}",
+                code="undefined_name",
+                span=node.obj.span,
+                cls=PineNameError,
+            )
+            return
+
+        udt = self.var_types.get(root)
+        if udt is None or not attr:
+            return
+        is_method_call = (
+            bool(ancestors)
+            and isinstance(ancestors[-1], ast.Call)
+            and ancestors[-1].func is node
+        )
+        type_def = self.types.get(udt)
+        if is_method_call:
+            if attr != "copy" and attr not in self.methods:
+                self._error(
+                    f"{udt!r} has no method {attr!r} — declare it with "
+                    f"`method {attr}({udt} self, ...) =>`",
+                    code="unknown_method",
+                    span=node.span,
+                )
+        elif type_def is not None and attr not in {f.name for f in type_def.fields}:
+            close = difflib.get_close_matches(
+                attr, [f.name for f in type_def.fields], n=1, cutoff=0.6
+            )
+            hint = f" — did you mean {close[0]!r}?" if close else ""
+            self._error(
+                f"{udt!r} has no field {attr!r}{hint}",
+                code="unknown_field",
+                span=node.span,
+            )
 
     def _check_name(self, node: ast.Node, ancestors: tuple[ast.Node, ...]) -> None:
         # A member's attribute is not a free name, and neither is a call's
@@ -508,6 +719,39 @@ class _Checker:
             self._check_hoistable(node, dotted, ancestors)
         if dotted.startswith("input.") or dotted == "input":
             self._collect_input(node, dotted, ancestors)
+        root, _, tail = (dotted or "").partition(".")
+        if root in self.types and tail == "new":
+            self._check_new_call(node, root)
+
+    def _check_new_call(self, node: ast.Call, type_name: str) -> None:
+        field_names = [f.name for f in self.types[type_name].fields]
+        positional = [arg for arg in node.args if not arg.name]
+        if len(positional) > len(field_names):
+            self._error(
+                f"{type_name}.new() takes at most {len(field_names)} positional field "
+                f"value(s), got {len(positional)}",
+                code="too_many_fields",
+                span=node.span,
+            )
+        seen: set[str] = set()
+        for arg in node.args:
+            if not arg.name:
+                continue
+            if arg.name not in field_names:
+                close = difflib.get_close_matches(arg.name, field_names, n=1, cutoff=0.6)
+                hint = f" — did you mean {close[0]!r}?" if close else ""
+                self._error(
+                    f"{type_name!r} has no field {arg.name!r}{hint}",
+                    code="unknown_field",
+                    span=arg.span,
+                )
+            if arg.name in seen:
+                self._error(
+                    f"field {arg.name!r} is set twice in {type_name}.new()",
+                    code="duplicate_field",
+                    span=arg.span,
+                )
+            seen.add(arg.name)
 
     def _check_order_call(
         self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]
@@ -520,10 +764,11 @@ class _Checker:
                 code="order_in_loop",
                 span=node.span,
             )
-        if any(isinstance(a, ast.FuncDef) for a in ancestors):
+        if any(isinstance(a, ast.FuncDef | ast.MethodDef) for a in ancestors):
             self._error(
-                f"{dotted} cannot be called inside a user function — the validator must be "
-                f"able to see every order site in the bar to enforce one entry per bar",
+                f"{dotted} cannot be called inside a user function or method — the "
+                f"validator must be able to see every order site in the bar to enforce "
+                f"one entry per bar",
                 code="order_in_function",
                 span=node.span,
             )
@@ -566,7 +811,10 @@ class _Checker:
         for a skipped one — a real difference, so it is reported rather than
         left for someone to discover from a backtest that will not reproduce.
         """
-        if any(isinstance(a, ast.FuncDef | ast.For | ast.ForIn | ast.While) for a in ancestors):
+        if any(
+            isinstance(a, ast.FuncDef | ast.MethodDef | ast.For | ast.ForIn | ast.While)
+            for a in ancestors
+        ):
             self.result.unhoistable.append(node.call_id)
             self._warn(
                 f"{dotted} here is inside a function or a loop, so it advances only on the "
@@ -649,15 +897,35 @@ class _Checker:
 
     def _check_recursion(self) -> None:
         """Reject a cycle in the call graph. Pine has no recursion and neither
-        does this runtime — an unbounded stack inside a bar's budget is a hang."""
-        graph: dict[str, set[str]] = {}
+        does this runtime — an unbounded stack inside a bar's budget is a hang.
+
+        Methods share the graph with functions: a method calling itself, or two
+        methods calling each other, is the same hang. A call is matched by its
+        bare name, so an overload set is treated as one node — conservative, and
+        the message names the cycle either way.
+        """
+        bodies: dict[str, list[ast.Block]] = {}
+        spans: dict[str, ast.Span] = {}
         for fn in self.program.functions:
-            called = {
-                ast.dotted_name(n.func)
-                for n in ast.walk(fn.body)
-                if isinstance(n, ast.Call)
-            }
-            graph[fn.name] = {name for name in called if name in self.functions}
+            bodies.setdefault(fn.name, []).append(fn.body)
+            spans.setdefault(fn.name, fn.span)
+        for method in self.program.methods:
+            bodies.setdefault(method.name, []).append(method.body)
+            spans.setdefault(method.name, method.span)
+
+        graph: dict[str, set[str]] = {}
+        for name, blocks in bodies.items():
+            called: set[str] = set()
+            for block in blocks:
+                for n in ast.walk(block):
+                    if not isinstance(n, ast.Call):
+                        continue
+                    dotted = ast.dotted_name(n.func)
+                    if dotted in bodies:
+                        called.add(dotted)
+                    elif isinstance(n.func, ast.Member) and n.func.attr in bodies:
+                        called.add(n.func.attr)
+            graph[name] = called
 
         state: dict[str, int] = {}
 
@@ -667,7 +935,7 @@ class _Checker:
                 self._error(
                     f"recursion is not supported: {cycle}",
                     code="recursion",
-                    span=self.functions[name].span,
+                    span=spans[name],
                 )
                 return
             if state.get(name) == 2:

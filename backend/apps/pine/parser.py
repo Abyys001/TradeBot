@@ -28,13 +28,17 @@ from apps.pine.ast_nodes import (
     Call,
     ColorLit,
     Continue,
+    EnumDef,
+    EnumMember,
     ExprStmt,
+    FieldAssign,
     For,
     ForIn,
     FuncDef,
     If,
     Index,
     Member,
+    MethodDef,
     Name,
     Node,
     NumberLit,
@@ -45,6 +49,8 @@ from apps.pine.ast_nodes import (
     SwitchCase,
     Ternary,
     TupleExpr,
+    TypeDef,
+    TypeField,
     Unary,
     While,
 )
@@ -116,11 +122,20 @@ class Parser:
     def parse(self) -> Program:
         body: list[Node] = []
         functions: list[FuncDef] = []
+        methods: list[MethodDef] = []
+        types: list[TypeDef] = []
+        enums: list[EnumDef] = []
         self.skip_newlines()
         while not self.at(TokenKind.EOF):
             statement = self.statement()
             if isinstance(statement, FuncDef):
                 functions.append(statement)
+            elif isinstance(statement, MethodDef):
+                methods.append(statement)
+            elif isinstance(statement, TypeDef):
+                types.append(statement)
+            elif isinstance(statement, EnumDef):
+                enums.append(statement)
             body.append(statement)
             self.skip_newlines()
         span = (
@@ -129,7 +144,13 @@ class Parser:
             else Span(1, 1, 1, 1)
         )
         return Program(
-            span=span, body=tuple(body), version=self.version, functions=tuple(functions)
+            span=span,
+            body=tuple(body),
+            version=self.version,
+            functions=tuple(functions),
+            types=tuple(types),
+            enums=tuple(enums),
+            methods=tuple(methods),
         )
 
     # --- statements ---------------------------------------------------------
@@ -140,6 +161,12 @@ class Parser:
         if token.kind == TokenKind.KEYWORD:
             if token.value in ("var", "varip"):
                 return self.declaration(qualifier=token.value)
+            if token.value == "type":
+                return self.type_def()
+            if token.value == "method":
+                return self.method_def()
+            if token.value == "enum":
+                return self.enum_def()
             if token.value == "if":
                 return ExprStmt(span=token.span, value=self.if_expr())
             if token.value == "switch":
@@ -174,17 +201,51 @@ class Parser:
                 return self.compound_reassignment()
 
         value = self.expression()
+        # ``obj.field := expr`` and ``obj.field += expr`` — a field write, not a
+        # new binding. The expression parser stopped at the ``:=``/compound op.
+        if isinstance(value, Member) and self.current.kind == TokenKind.OP:
+            if self.current.value == ":=":
+                self.index += 1
+                rhs = self.expression()
+                self.end_statement()
+                return FieldAssign(
+                    span=value.span.to(rhs.span), obj=value.obj, attr=value.attr, value=rhs
+                )
+            if self.current.value in COMPOUND_ASSIGN:
+                op_token = self.current
+                self.index += 1
+                rhs = self.expression()
+                self.end_statement()
+                combined = Binary(
+                    span=value.span.to(rhs.span), op=op_token.value[0], left=value, right=rhs
+                )
+                return FieldAssign(
+                    span=value.span.to(rhs.span),
+                    obj=value.obj,
+                    attr=value.attr,
+                    value=combined,
+                )
         self.end_statement()
         return ExprStmt(span=value.span, value=value)
 
     def _starts_typed_declaration(self) -> bool:
-        """``int x = 0`` / ``series float y = na`` — a type annotation, not a call."""
+        """A type annotation in front of a name, not a call.
+
+        ``int x = 0`` and ``series float y = na`` for the fundamental types, and
+        ``pivotPoint p = na`` for a user-defined one — the second name plus a
+        following ``=`` is what distinguishes ``Point p = ...`` from ``a and b``.
+        """
         offset = 0
         if self.peek(offset).value in FORM_QUALIFIERS:
             offset += 1
-        if self.peek(offset).value not in TYPE_NAMES:
-            return False
-        return self.peek(offset + 1).kind == TokenKind.NAME
+        head = self.peek(offset)
+        name = self.peek(offset + 1)
+        if head.value in TYPE_NAMES:
+            return name.kind == TokenKind.NAME
+        if head.kind == TokenKind.NAME and name.kind == TokenKind.NAME:
+            after = self.peek(offset + 2)
+            return after.kind == TokenKind.OP and after.value == "="
+        return False
 
     def end_statement(self) -> None:
         """Consume the statement terminator. EOF and DEDENT both end one."""
@@ -223,23 +284,135 @@ class Parser:
                     return arrow.kind == TokenKind.OP and arrow.value == "=>"
             offset += 1
 
+    def _param_list_body(self) -> tuple[tuple[str, ...], tuple[Node | None, ...]]:
+        """Parameters inside ``(...)``: positioned at the first one, stops at ``)``.
+
+        Each may carry a dropped type annotation (``int x`` / ``Point p``, the
+        same documentation-only treatment ``declaration`` gives it) and a
+        ``= default`` the runtime falls back on for a missing trailing argument.
+        """
+        names: list[str] = []
+        defaults: list[Node | None] = []
+        if self.at(TokenKind.OP, ")"):
+            return (), ()
+        while True:
+            if self.current.value in FORM_QUALIFIERS and self.peek(1).kind == TokenKind.NAME:
+                self.index += 1
+            if self.current.kind == TokenKind.NAME and self.peek(1).kind == TokenKind.NAME:
+                self.index += 1  # a type token in front of the parameter name
+            names.append(self.expect(TokenKind.NAME).value)
+            defaults.append(self.expression() if self.accept(TokenKind.OP, "=") else None)
+            if not self.accept(TokenKind.OP, ","):
+                break
+        return tuple(names), tuple(defaults)
+
     def func_def(self) -> FuncDef:
         name_token = self.expect(TokenKind.NAME)
         self.expect(TokenKind.OP, "(")
-        params: list[str] = []
-        if not self.at(TokenKind.OP, ")"):
-            while True:
-                params.append(self.expect(TokenKind.NAME).value)
-                if not self.accept(TokenKind.OP, ","):
-                    break
+        params, defaults = self._param_list_body()
         self.expect(TokenKind.OP, ")")
         self.expect(TokenKind.OP, "=>")
         body = self.body_or_expression()
         return FuncDef(
             span=name_token.span.to(body.span),
             name=name_token.value,
-            params=tuple(params),
+            params=params,
             body=body,
+            defaults=defaults,
+        )
+
+    def method_def(self) -> MethodDef:
+        start = self.expect(TokenKind.KEYWORD, "method").span
+        name_token = self.expect(TokenKind.NAME)
+        self.expect(TokenKind.OP, "(")
+        if self.current.value in FORM_QUALIFIERS and self.peek(1).kind == TokenKind.NAME:
+            self.index += 1
+        receiver_type = self.expect(TokenKind.NAME).value
+        receiver_name = self.expect(TokenKind.NAME).value
+        params: tuple[str, ...] = ()
+        defaults: tuple[Node | None, ...] = ()
+        if self.accept(TokenKind.OP, ","):
+            params, defaults = self._param_list_body()
+        self.expect(TokenKind.OP, ")")
+        self.expect(TokenKind.OP, "=>")
+        body = self.body_or_expression()
+        return MethodDef(
+            span=start.to(body.span),
+            name=name_token.value,
+            receiver_type=receiver_type,
+            receiver_name=receiver_name,
+            params=params,
+            body=body,
+            defaults=defaults,
+        )
+
+    def type_def(self) -> TypeDef:
+        start = self.expect(TokenKind.KEYWORD, "type").span
+        name_token = self.expect(TokenKind.NAME)
+        self.expect(TokenKind.NEWLINE)
+        self.skip_newlines()
+        self.expect(TokenKind.INDENT)
+        fields: list[TypeField] = []
+        self.skip_newlines()
+        while not self.at(TokenKind.DEDENT) and not self.at(TokenKind.EOF):
+            fields.append(self._type_field())
+            self.skip_newlines()
+        self.accept(TokenKind.DEDENT)
+        if not fields:
+            raise PineSyntaxError("this type has no fields", code="empty_type", span=start)
+        return TypeDef(
+            span=start.to(fields[-1].span), name=name_token.value, fields=tuple(fields)
+        )
+
+    def _type_field(self) -> TypeField:
+        start = self.current.span
+        qualifier = ""
+        if self.at(TokenKind.KEYWORD, "varip"):
+            qualifier = "varip"
+            self.index += 1
+        elif self.at(TokenKind.KEYWORD, "var"):
+            self.index += 1
+        if self.current.value in FORM_QUALIFIERS and self.peek(1).kind == TokenKind.NAME:
+            self.index += 1
+        type_token = self.expect(TokenKind.NAME)
+        name_token = self.expect(TokenKind.NAME)
+        default = self.expression() if self.accept(TokenKind.OP, "=") else None
+        self.end_statement()
+        end = default if default is not None else name_token
+        return TypeField(
+            span=start.to(end.span),
+            name=name_token.value,
+            type_name=type_token.value,
+            default=default,
+            qualifier=qualifier,
+        )
+
+    def enum_def(self) -> EnumDef:
+        start = self.expect(TokenKind.KEYWORD, "enum").span
+        name_token = self.expect(TokenKind.NAME)
+        self.expect(TokenKind.NEWLINE)
+        self.skip_newlines()
+        self.expect(TokenKind.INDENT)
+        members: list[EnumMember] = []
+        self.skip_newlines()
+        while not self.at(TokenKind.DEDENT) and not self.at(TokenKind.EOF):
+            member_start = self.current.span
+            member_name = self.expect(TokenKind.NAME)
+            title = self.expect(TokenKind.STRING).value if self.accept(TokenKind.OP, "=") else None
+            self.end_statement()
+            members.append(
+                EnumMember(
+                    span=member_start.to(member_name.span),
+                    name=member_name.value,
+                    title=title,
+                )
+            )
+            self.skip_newlines()
+        self.accept(TokenKind.DEDENT)
+        if not members:
+            raise PineSyntaxError("this enum has no members", code="empty_enum", span=start)
+        return EnumDef(
+            span=start.to(members[-1].span), name=name_token.value, members=tuple(members)
         )
 
     def declaration(self, *, qualifier: str) -> Assign:
@@ -251,6 +424,13 @@ class Parser:
             self.index += 1
         if self.current.value in TYPE_NAMES and self.peek(1).kind == TokenKind.NAME:
             self.index += 1
+        elif (
+            self.current.kind == TokenKind.NAME
+            and self.peek(1).kind == TokenKind.NAME
+            and self.peek(2).kind == TokenKind.OP
+            and self.peek(2).value == "="
+        ):
+            self.index += 1  # a user-defined type name in front of the variable
         name_token = self.expect(TokenKind.NAME)
         self.expect(TokenKind.OP, "=")
         value = self.expression()

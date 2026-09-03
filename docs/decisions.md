@@ -635,10 +635,27 @@ line and column**.
 
 Nothing outside the subset is ever silently ignored. `request.security`,
 `array`/`matrix`/`map`, drawing objects, `strategy.order`/`cancel`, `pyramiding`,
-user-defined types, `import`, and `strategy.risk.*` each get their own message
-saying which construct and why. The rule is the same one Q13 took for prices: a
-script that loads and quietly does not do what it says is worse than a script
-that will not load, exactly as a synthetic price series is worse than a 503.
+`import`, and `strategy.risk.*` each get their own message saying which construct
+and why. The rule is the same one Q13 took for prices: a script that loads and
+quietly does not do what it says is worse than a script that will not load,
+exactly as a synthetic price series is worse than a 503.
+
+**Amendment (2026-09-03): user-defined types, methods and enums are now in the
+subset.** They were three of the rejections above — "needs a type system" — and
+the type system now exists (`apps/pine/objects.py`): `type` declares an object
+with typed fields and defaults, `method f(T this, …)` binds a function to a type
+and is dispatched and overloaded by receiver type, `enum` is a closed set of
+named members usable as a `switch` subject. Objects are assigned by reference,
+`var` persists one and its fields, and `Name.copy()` is the shallow copy that
+breaks the reference. The Q24 rule is unchanged and still applies *inside* the
+feature: the validator rejects an unknown field type, a duplicate type or
+method, a method on an unknown receiver, an order call inside a method, and
+recursion through methods — each by name, line and column — and `obj.field[n]`
+(per-field history) stays rejected the same way `(a + b)[n]` is. What the
+lightweight `var → type` inference cannot reach is a located runtime error on
+the first bar, never a silent `na`. `apps/pine/parser.py`, `validate.py`,
+`runtime.py` and `objects.py` hold it; `tests/fixtures/pine/accept/24_*`,
+`25_*` and five `reject/semantic__*` fixtures pin it.
 
 ### Q25. The bot's own halt ✅ Seven auto-stop triggers, none of them auto-resume
 

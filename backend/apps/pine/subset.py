@@ -11,6 +11,18 @@ outside this file is silently ignored. Two things are *accepted and reported*
 rather than rejected — a script's ``qty`` (Q20) and a ``varip`` declaration
 (Q23) — and both raise a warning the panel shows at upload time.
 
+**User-defined types, methods and enums are in the subset** (``docs/decisions.md``
+Q24, amended). ``type``/``method``/``enum`` used to be three rows here — "needs a
+type system" — and now there is one: ``apps/pine/objects.py`` is that type
+system. A ``type`` declares an object with typed fields, ``method f(T this, …)``
+binds a function to it (dispatched and overloaded by receiver type), and ``enum``
+is a closed set of named members. The validator checks the *definitions* fully
+(unknown field type, duplicate name, unknown receiver, a cycle through methods)
+and the *uses* as far as a lightweight ``var -> UDT`` inference reaches; anything
+past that is a located runtime error on the first bar, never a silent ``na``.
+Object field history — ``obj.field[n]`` — is still rejected by name, the same
+way ``(a + b)[n]`` is: assign it to a variable first.
+
 Two deliberate narrowings of "reject everything else" are recorded here rather
 than left implicit:
 
@@ -325,24 +337,6 @@ REJECTIONS: tuple[Rejection, ...] = (
         kind="strategy_arg",
         pattern="process_orders_on_close",
         message="process_orders_on_close describes a fill model that does not exist here",
-    ),
-    Rejection(
-        code="unsupported_user_type",
-        kind="keyword",
-        pattern="type",
-        message="user-defined types are not supported yet",
-    ),
-    Rejection(
-        code="unsupported_user_type",
-        kind="keyword",
-        pattern="method",
-        message="user-defined types are not supported yet — method needs a type system",
-    ),
-    Rejection(
-        code="unsupported_user_type",
-        kind="keyword",
-        pattern="enum",
-        message="user-defined types are not supported yet — enum needs a type system",
     ),
     Rejection(
         code="unsupported_import",

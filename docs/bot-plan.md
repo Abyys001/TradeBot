@@ -57,7 +57,7 @@ The split:
 
 | Package | Holds | May import |
 |---|---|---|
-| `backend/apps/pine/` | lexer, parser, AST, validator, series, `ta`, runtime, `StrategyIntent` | stdlib only — **not** `django.*`, **not** `apps.*` |
+| `backend/apps/pine/` | lexer, parser, AST, validator, series, `ta`, `objects` (user-type / enum value model), runtime, `StrategyIntent` | stdlib only — **not** `django.*`, **not** `apps.*` |
 | `backend/apps/bots/` | feed, backtest, report, translator, risk gate, supervisor, models, views, WebSocket events | everything |
 
 `apps/pine/` importing nothing from Django is a rule with a test

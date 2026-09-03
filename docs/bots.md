@@ -43,22 +43,27 @@ specific script.
 | **`barstate.`** | `isfirst` `islast` `isconfirmed` `isnew` `ishistory` `isrealtime` |
 | **Bare** | `nz` `na` `fixnan` `timestamp` `dayofweek` `hour` `minute` `second` `year` `month` `dayofmonth` `max` `min` `abs` |
 | **Recorded, never executed** | `plot` `plotshape` `plotchar` `hline` `fill` `bgcolor` `alert` `alertcondition` |
-| **Language** | `=` and `:=`, `var` / `varip`, type annotations, tuple declarations, `if` / `else if` / `else` (statement **and** expression), `switch`, `for` / `for…in` / `while` with `break` and `continue`, user functions, `+= -= *= /= %=`, named arguments, multi-line calls, `\` continuation |
+| **Language** | `=` and `:=`, `var` / `varip`, type annotations, tuple declarations, `if` / `else if` / `else` (statement **and** expression), `switch`, `for` / `for…in` / `while` with `break` and `continue`, user functions (with default parameters), `+= -= *= /= %=`, named arguments, multi-line calls, `\` continuation |
+| **User types** | `type Name` with typed fields and defaults; `Name.new(...)` / `Name.copy(...)`; `obj.field` and `obj.field := v`; `var` persists an object; objects are held **by reference** |
+| **Methods** | `method f(T self, ...) =>` on any type, called `obj.f(...)`, overloaded by receiver type |
+| **Enums** | `enum Name` with members and optional `= "title"`; `Name.member`; usable as a `switch` subject |
 
 ### Rejected, each with its own message
 
 `request.security` and multi-timeframe · `array` `matrix` `map` · `line` `label`
 `box` `table` `polyline` · `strategy.risk.*` · `strategy.order` `strategy.cancel`
 `strategy.cancel_all` · `pyramiding` · `calc_on_every_tick` ·
-`calc_on_order_fills` · `process_orders_on_close` · `type` `method` `enum` ·
+`calc_on_order_fills` · `process_orders_on_close` ·
 `import` `export` · `strategy.exit`'s `loss` `profit` `stop` `limit`
 `trail_points` `trail_offset` `trail_price`.
 
 Plus the semantic checks: no `//@version=5`, an `indicator()` instead of a
-`strategy()`, `strategy()` not first, an order inside a loop, an unbounded
-`while`, recursion, `expr[n]` on something that keeps no history, a script over
-the size or complexity limits, and an unknown name (which suggests the nearest
-one it knows).
+`strategy()`, `strategy()` not first, an order inside a loop **or a method**, an
+unbounded `while`, recursion (through functions *or* methods), `expr[n]` on
+something that keeps no history (an object field included — assign it first), a
+type declared on an unknown field type, a duplicate type or method, an unknown
+field or enum member where the type is known, a script over the size or
+complexity limits, and an unknown name (which suggests the nearest one it knows).
 
 ### Three things that are accepted *and reported*
 
