@@ -1073,6 +1073,50 @@ export interface PineInput {
   minval: unknown
   maxval: unknown
   options: unknown[]
+  /** The layout half. A form that drops these turns thirty labelled, grouped
+   *  controls into thirty rows in declaration order — the same settings, and
+   *  unusable. */
+  step: unknown
+  group: string
+  inline: string
+  tooltip: string
+}
+
+/**
+ * TradingView's Properties tab, resolved: platform default → what `strategy()`
+ * declared → what the panel overrode. `declared` is which keys the *script*
+ * set, which is what lets a field say "from the script" instead of pretending
+ * the author chose the default.
+ */
+export interface PineProperties {
+  initial_capital: string
+  currency: string
+  default_qty_type: 'platform' | 'fixed' | 'cash' | 'percent_of_equity'
+  default_qty_value: string
+  pyramiding: number
+  commission_type: 'percent' | 'cash_per_contract' | 'cash_per_order'
+  commission_value: string
+  slippage: number | null
+  margin_long: string
+  margin_short: string
+  process_orders_on_close: boolean
+  calc_on_every_tick: boolean
+  calc_on_order_fills: boolean
+  use_bar_magnifier: boolean
+  fill_orders_on_standard_ohlc: boolean
+  backtest_fill_limits_assumption: number
+  declared: string[]
+  overridden: string[]
+}
+
+/**
+ * The two lists that keep a property from being honoured silently:
+ * `live_departures` is what the *backtest* will do that live will not, and
+ * `inert` is what nothing here does at all.
+ */
+export interface PinePropertyNotes {
+  live_departures: string[]
+  inert: string[]
 }
 
 export interface PineValidation {
@@ -1082,6 +1126,8 @@ export interface PineValidation {
   inputs: PineInput[]
   ta_call_sites: number
   node_count: number
+  properties: PineProperties
+  property_notes: PinePropertyNotes
 }
 
 export interface StrategyVersion {
@@ -1092,6 +1138,8 @@ export interface StrategyVersion {
   validation_errors: PineDiagnostic[]
   validation_warnings: PineDiagnostic[]
   inputs_schema: PineInput[]
+  properties: PineProperties | Record<string, never>
+  property_notes: PinePropertyNotes | Record<string, never>
   created_at: string
   created_by: string
 }

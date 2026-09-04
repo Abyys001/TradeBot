@@ -78,6 +78,10 @@ class Held:
     side: Side | None
     sl_pct: Decimal | None
     tp_pct: Decimal | None
+    #: The admin-facing entry price of the trade — what ``strategy.position_avg_price``
+    #: reads. Per-leg fills differ by account, so this is the one price the whole
+    #: fan-out was decided from, not an average of the legs.
+    avg_price: Decimal | None = None
 
     @property
     def flat(self) -> bool:
@@ -190,6 +194,7 @@ def read_held(run: BotRun) -> Held:
         side=Side(trade.side),
         sl_pct=trade.sl_pct,
         tp_pct=trade.tp_pct,
+        avg_price=trade.admin_entry_price,
     )
 
 

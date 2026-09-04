@@ -132,7 +132,12 @@ async def _run_leg(
         value = await asyncio.wait_for(op(), timeout=timeout)
     except TimeoutError:
         elapsed = (time.perf_counter() - started) * 1000
-        logger.warning("fanout leg timed out account=%s after %.0fms", account_id, elapsed, extra={"account_id": account_id, "error_code": "timeout"})
+        logger.warning(
+            "fanout leg timed out account=%s after %.0fms",
+            account_id,
+            elapsed,
+            extra={"account_id": account_id, "error_code": "timeout"},
+        )
         return LegResult(
             account_id=account_id,
             ok=False,
@@ -144,7 +149,15 @@ async def _run_leg(
         raise
     except Exception as exc:  # noqa: BLE001 - isolation is the whole point
         elapsed = (time.perf_counter() - started) * 1000
-        logger.warning("fanout leg failed account=%s: %s", account_id, exc, extra={"account_id": account_id, "error_code": getattr(exc, "code", None) or type(exc).__name__})
+        logger.warning(
+            "fanout leg failed account=%s: %s",
+            account_id,
+            exc,
+            extra={
+                "account_id": account_id,
+                "error_code": getattr(exc, "code", None) or type(exc).__name__,
+            },
+        )
         return LegResult(
             account_id=account_id,
             ok=False,

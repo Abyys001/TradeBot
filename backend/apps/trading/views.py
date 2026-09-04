@@ -137,8 +137,15 @@ def risk_preview(request):
 
 
 @api_view(["GET"])
+@permission_classes([IsAdminUser])
 def policy(request):
-    """The open questions as live settings, so the UI can show what is in force."""
+    """The open questions as live settings, so the UI can show what is in force.
+
+    Staff-gated for the same reason its ``bots`` twin is: it names the halt's
+    state and source, and everything else on this module is. It relied on DRF's
+    ``IsAuthenticated`` default, which is the same set of people here and not
+    the same rule.
+    """
     trading = settings.TRADING
     halt = killswitch.state()
     return Response(

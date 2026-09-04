@@ -184,6 +184,28 @@ TradingView — see [`bot-plan.md`](bot-plan.md) §1.3.
 
 ### 1.3 The v1 subset (Q24)
 
+> **Amended twice since this was written; `apps/pine/subset.py` is the
+> authority and `docs/bots.md` §1 is the readable summary.**
+>
+> *2026-09-03* — user-defined types, methods and enums moved from the rejected
+> table to the accepted one (`apps/pine/objects.py`).
+>
+> *2026-09-04* — reading a real published strategy through the engine moved four
+> more rows. `//@version=6` is read as well as v5 (Q34). **Drawing objects are
+> accepted and drawn nowhere** — the row below rejecting them said "no execution
+> effect" and then errored, which is the one combination that cannot be right;
+> only the read-backs (`line.get_price` and family) are still refused, because a
+> coordinate read out of a drawing becomes a condition and a condition becomes
+> an order. **`pyramiding`, `calc_on_every_tick`, `calc_on_order_fills` and
+> `process_orders_on_close` are no longer rejections** but Properties-tab
+> settings, honoured by the backtest where they can be and reported where they
+> cannot (`apps/pine/properties.py`). And **`strategy.close(qty_percent = …)`
+> is a new refusal** — the one Q33 carries. The `math.*`, `str.*`, `input.*`
+> and `strategy.*` rows below are all longer now; `docs/bots.md` §1 lists them.
+>
+> Q24's rule itself is unchanged: nothing outside the subset is silently
+> ignored, and every refusal names the construct, the line and the column.
+
 **Accepted:**
 
 | Area | In v1 |
@@ -227,7 +249,8 @@ TradingView — see [`bot-plan.md`](bot-plan.md) §1.3.
 
 Beyond the subset, catch what the runtime cannot:
 
-- [ ] `//@version=5` present. v4 and v6 rejected explicitly by version number.
+- [ ] `//@version=` present and 5 or 6. Anything else rejected explicitly by
+      version number. (v6 was rejected here as written; see the note at §1.3.)
 - [ ] Exactly one `strategy()` call, first statement. An `indicator()` script is
       rejected with "this is an indicator, not a strategy" — a friendly and
       common mistake.

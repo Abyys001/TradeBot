@@ -1,4 +1,0 @@
-//@version=5
-strategy("reject")
-t = table.new(position.top_right, 1, 1)
-//@expect code=unsupported_drawing line=3 col=5

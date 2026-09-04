@@ -1,6 +1,6 @@
 # Bot mode
 
-A bot is a **signal source, not a second execution path.** A Pine Script v5
+A bot is a **signal source, not a second execution path.** A Pine Script v5/v6
 strategy decides "I should be long"; everything after that — sizing (§5), the
 fan-out and its per-leg deadline (§4), account isolation, the
 `NEVER_SENT_CODES` reconciliation, the §7 halt, per-account history — is the
@@ -21,10 +21,18 @@ each is settled.
 
 ## 1. The subset
 
-The engine implements a **deliberate subset** of Pine v5 (Q24). Anything outside
-it is refused **by name, line and column** at upload time. Nothing is parsed and
-quietly ignored — a script that loads and does not do what it says is worse than
-a script that will not load.
+The engine implements a **deliberate subset** of Pine, reading `//@version=5`
+and `//@version=6` (Q24, Q34). Anything outside it is refused **by name, line
+and column** at upload time. Nothing is parsed and quietly ignored — a script
+that loads and does not do what it says is worse than a script that will not
+load.
+
+A published strategy is roughly half chart furniture, and none of it is refused
+on that account: the drawing namespaces are accepted and drawn nowhere, colours
+and styles are ordinary values, and TradingView's line-wrapping rule (an indent
+that is not a multiple of four continues the line above) is read. What is
+refused is the small set of things that would quietly mean something else here —
+listed below, each with the sentence saying why.
 
 `apps/pine/subset.py` is the whole registry, as data. What follows is a summary;
 that file is the authority, and `/api/bots/validate/` will tell you about any
@@ -36,28 +44,37 @@ specific script.
 |---|---|
 | **Series** | `open` `high` `low` `close` `volume` `hl2` `hlc3` `ohlc4` `hlcc4` `time` `bar_index`, and `[n]` on any of them |
 | **`ta.`** | `sma` `ema` `rma` `wma` `vwma` `hma` `stdev` `variance` `rsi` `atr` `tr` `macd` `bb` `bbw` `stoch` `cci` `mom` `roc` `crossover` `crossunder` `cross` `change` `highest` `lowest` `highestbars` `lowestbars` `barssince` `valuewhen` `cum` `sum` `percentile_linear_interpolation` `linreg` `rising` `falling` `pivothigh` `pivotlow` |
-| **`math.`** | `abs` `max` `min` `pow` `sqrt` `log` `log10` `exp` `round` `floor` `ceil` `sign` `avg` `sum` `random`, `pi`, `e` |
-| **`str.`** | `tostring` `tonumber` `format` `length` `contains` |
-| **`input.`** | `int` `float` `bool` `string` `source` `timeframe` |
-| **`strategy.`** | `entry` `close` `close_all` `exit`, and the read-only `position_size` `position_avg_price` `opentrades` `equity` `netprofit` `long` `short` |
+| **`math.`** | `abs` `max` `min` `pow` `sqrt` `log` `log10` `exp` `round` `floor` `ceil` `sign` `avg` `sum` `random` `sin` `cos` `tan` `asin` `acos` `atan` `todegrees` `toradians` `round_to_mintick`, `pi` `e` `phi` `rphi` |
+| **`str.`** | `tostring` (with a `"#.##"` mask or `format.mintick`) `tonumber` `format` `format_time` `length` `contains` `startswith` `endswith` `substring` `replace_all` `split` `trim` `upper` `lower` `repeat` `pos` |
+| **`input.`** | `int` `float` `bool` `string` `source` `timeframe` `color` `time` `price` `session` `symbol` `text_area` — with `minval` `maxval` `step` `options` `group` `inline` `tooltip`, all of which reach the parameter form |
+| **`strategy.`** | `entry` `close` `close_all` `exit`, and the read-only `position_size` `position_avg_price` `position_entry_name` `opentrades` `equity` `netprofit` `long` `short`, plus the dashboard figures `closedtrades` `wintrades` `losstrades` `eventrades` `netprofit_percent` `openprofit(_percent)` `grossprofit(_percent)` `grossloss(_percent)` `max_drawdown(_percent)` `max_runup(_percent)` `avg_trade` `initial_capital` `account_currency` |
+| **`syminfo.` `timeframe.` `chart.`** | the instrument and the interval the bot is running on, and `chart.is_standard` (always true — this platform draws standard candles only) |
 | **`barstate.`** | `isfirst` `islast` `isconfirmed` `isnew` `ishistory` `isrealtime` |
-| **Bare** | `nz` `na` `fixnan` `timestamp` `dayofweek` `hour` `minute` `second` `year` `month` `dayofmonth` `max` `min` `abs` |
-| **Recorded, never executed** | `plot` `plotshape` `plotchar` `hline` `fill` `bgcolor` `alert` `alertcondition` |
-| **Language** | `=` and `:=`, `var` / `varip`, type annotations, tuple declarations, `if` / `else if` / `else` (statement **and** expression), `switch`, `for` / `for…in` / `while` with `break` and `continue`, user functions (with default parameters), `+= -= *= /= %=`, named arguments, multi-line calls, `\` continuation |
+| **Bare** | `nz` `na` `fixnan` `timestamp` (including `timestamp("01 Jan 2026 00:00 +1100")`) `dayofweek` `hour` `minute` `second` `year` `month` `dayofmonth` `weekofyear` `timenow` `max` `min` `abs`, and the `int` `float` `bool` `string` casts |
+| **Recorded, never executed** | `plot` `plotshape` `plotchar` `plotarrow` `plotcandle` `plotbar` `hline` `fill` `bgcolor` `barcolor` `alert` `alertcondition` |
+| **Drawn nowhere** | `line` `label` `box` `table` `polyline` `linefill` — constructors return a handle so `if na(myLine)` works, setters and `delete` are no-ops. `line.get_price` and the other read-backs are **refused**: a coordinate read out of a drawing becomes a condition, and a condition becomes an order |
+| **Decorative values** | `color.*` (including `color.new`/`rgb`/`from_gradient`) `shape.*` `size.*` `location.*` `position.*` `text.*` `xloc.*` `extend.*` `plot.style_*` `line.style_*` `label.style_*` `format.*` — anywhere a value goes, not only inside a `plot()` call |
+| **Language** | `=` and `:=`, `var` / `varip`, type annotations, tuple declarations, `if` / `else if` / `else` (statement **and** expression), `switch`, `for` / `for…in` / `while` with `break` and `continue`, user functions (with default parameters), `+= -= *= /= %=`, named arguments, multi-line calls, **line wrapping** (an indent that is not a multiple of four), `\` continuation |
 | **User types** | `type Name` with typed fields and defaults; `Name.new(...)` / `Name.copy(...)`; `obj.field` and `obj.field := v`; `var` persists an object; objects are held **by reference** |
 | **Methods** | `method f(T self, ...) =>` on any type, called `obj.f(...)`, overloaded by receiver type |
 | **Enums** | `enum Name` with members and optional `= "title"`; `Name.member`; usable as a `switch` subject |
 
 ### Rejected, each with its own message
 
-`request.security` and multi-timeframe · `array` `matrix` `map` · `line` `label`
-`box` `table` `polyline` · `strategy.risk.*` · `strategy.order` `strategy.cancel`
-`strategy.cancel_all` · `pyramiding` · `calc_on_every_tick` ·
-`calc_on_order_fills` · `process_orders_on_close` ·
+`request.security` and multi-timeframe · `array` `matrix` `map` ·
+`strategy.risk.*` · `strategy.order` `strategy.cancel` `strategy.cancel_all` ·
 `import` `export` · `strategy.exit`'s `loss` `profit` `stop` `limit`
-`trail_points` `trail_offset` `trail_price`.
+`trail_points` `trail_offset` `trail_price` · `line.get_price` and the other
+drawing read-backs · **`strategy.close`'s `qty` and `qty_percent`**.
 
-Plus the semantic checks: no `//@version=5`, an `indicator()` instead of a
+That last one is the only refusal an ordinary strategy is likely to hit. A
+scale-out — take 30% off, keep the rest running — cannot be expressed here:
+`ExchangeAdapter.close_position` takes no size, so the nearest available action
+is to flatten an account the script meant to keep most of. Use
+`strategy.close_all()`, or take the whole exit at one level. **Q33** carries the
+feature.
+
+Plus the semantic checks: no `//@version=` at all (or one that is not 5 or 6), an `indicator()` instead of a
 `strategy()`, `strategy()` not first, an order inside a loop **or a method**, an
 unbounded `while`, recursion (through functions *or* methods), `expr[n]` on
 something that keeps no history (an object field included — assign it first), a
@@ -65,17 +82,41 @@ type declared on an unknown field type, a duplicate type or method, an unknown
 field or enum member where the type is known, a script over the size or
 complexity limits, and an unknown name (which suggests the nearest one it knows).
 
-### Three things that are accepted *and reported*
+### Accepted *and reported*
 
 They raise a warning at upload, shown next to the editor. None is ever silent.
 
-1. **A size argument.** `qty`, `qty_percent`, `default_qty_value` and friends are
-   parsed and ignored — the platform sizes every leg at 99% of that account's
-   own balance (Q20, spec §5). `StrategyIntent` has no quantity field at all.
+1. **`strategy.entry`'s `qty`.** Parsed and ignored — the platform sizes every
+   leg at 99% of that account's own balance (Q20, spec §5). `StrategyIntent` has
+   no quantity field at all. (`strategy.close`'s size arguments are a *refusal*,
+   not a warning: see above.)
 2. **`varip`.** Treated as `var`. Its whole purpose is surviving an intrabar
    recalculation and this platform evaluates on bar close only (Q23).
-3. **A `ta.*` call the runtime cannot hoist** — one inside a user function or a
-   loop. See §3 below.
+3. **A `ta.*` call the bar might not reach** — one inside a loop, or inside a
+   function that is itself only called from a branch. A call inside a function
+   the bar always reaches advances once per bar like any other and is not
+   reported. See §3 below.
+4. **A Properties-tab setting that is backtest-only.** `default_qty_type`,
+   `pyramiding`, `margin_long`/`margin_short` and `process_orders_on_close`
+   describe the *simulated* account; the report says so in its header and the
+   panel marks the row.
+5. **A Properties-tab setting that does nothing here.**
+   `calc_on_every_tick` (Q23 — no tick data to recalculate from) and
+   `fill_orders_on_standard_ohlc` (no Heikin Ashi candles to correct).
+
+### The Properties tab
+
+`strategy()`'s ten Properties settings are read and honoured **by the backtest**
+— initial capital, base currency, order size, pyramiding (reported, not
+simulated), commission, limit-fill verification, slippage, margin,
+recalculation, fill model. That is what makes a report here comparable with the
+one TradingView produced from the same script.
+
+They resolve in one direction: platform default → what `strategy()` declared →
+what the panel overrode. **None of them changes live sizing**, which is spec §5
+and identical across accounts; `apps/pine/properties.py` names every setting
+that would make the report describe a platform the bot will not run on, and the
+report prints those lines above its metrics.
 
 ---
 
@@ -115,8 +156,9 @@ SL/TP are bot-level settings; a percent `strategy.exit` wins for that trade.
 Leverage a script cannot set at all.
 
 **Every bar is a closed bar** (Q23). `barstate.isconfirmed` is always true,
-`calc_on_every_tick=true` is a validation error rather than a setting, and a bar
-is only read once `now >= open + interval + BOT_BAR_CONFIRM_LAG_MS`.
+`calc_on_every_tick = true` is accepted and reported as doing nothing rather
+than being honoured, and a bar is only read once
+`now >= open + interval + BOT_BAR_CONFIRM_LAG_MS`.
 
 ### Checking one without the panel
 
@@ -140,10 +182,14 @@ undefined; the failure is silent and permanent. The runtime sweeps every site th
 bar did not reach at end of bar and advances it, evaluating its arguments in the
 global scope.
 
-Sites inside a **user function or a loop** cannot be swept that way — their
-arguments only exist inside their own scope. Those are warned about at upload
-(`ta_not_hoisted`) and any that could not be advanced are reported on the run.
-Never silent, in either direction.
+Sites inside a **loop, or inside a function the bar might not reach**, cannot be
+swept that way — their arguments only exist inside their own scope. Those are
+warned about at upload (`ta_not_hoisted`) and any that could not be advanced are
+reported on the run. Never silent, in either direction. A site inside a function
+the bar *always* calls advances exactly once per bar like any other and is not
+warned about — a textbook T3 is six `ta.ema` calls in one always-called helper,
+and six warnings about it is six lines of noise on the screen a real warning has
+to stand out on.
 
 **Per-call-site state is keyed on the call path**, so `f(close)` and `f(high)`
 calling the same `ta.sma` inside `f` are two indicators with two converged
@@ -169,8 +215,10 @@ number people act on.
 | Assumption | Default |
 |---|---|
 | Entry fills at | the **next** bar's open |
-| Slippage | `BOT_BACKTEST_SLIPPAGE_BPS`, applied against the trade |
-| Fee | `BOT_BACKTEST_FEE_BPS`, charged on **both** sides |
+| Slippage | `strategy(slippage = n)` in ticks when the script declares one, else `BOT_BACKTEST_SLIPPAGE_BPS`, applied against the trade |
+| Fee | `strategy(commission_type =, commission_value =)` when the script declares one, else `BOT_BACKTEST_FEE_BPS`, charged on **both** sides |
+| Order size | `strategy(default_qty_type =, default_qty_value =)` when the script declares one — and the header then says so, because live sizes every account at 99% of its own balance instead (§5) |
+| Initial capital | `strategy(initial_capital =)` when the script declares one |
 | A bar that touches both the stop and the target | assumed **stopped out** |
 | Warm-up | `max(indicator lookback) × BOT_WARMUP_MULTIPLIER`, and a window with too little of it says so |
 

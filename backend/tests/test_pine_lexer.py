@@ -171,3 +171,53 @@ def test_two_character_operators_beat_their_prefixes(op):
 def test_every_accepted_fixture_lexes(path):
     tokens = tokenize(path.read_text())
     assert tokens[-1].kind == TokenKind.EOF
+
+
+# --- line wrapping ----------------------------------------------------------
+#
+# TradingView's own rule (`style_guide.md`): four spaces open a block, so *any
+# other* indentation continues the line above. Every published strategy wraps
+# its ternary chains this way, and the lexer used to accept only a trailing
+# backslash — which no exported script contains.
+
+
+@pytest.mark.parametrize("indent", [" ", "  ", "   ", "     ", "      "])
+def test_an_indent_that_is_not_a_multiple_of_four_continues_the_line(indent):
+    assert values(f"x = close +\n{indent}open") == ["x", "=", "close", "+", "open"]
+
+
+def test_a_wrapped_ternary_chain_is_one_statement():
+    source = "basis =\n     useA ? a :\n     useB ? b :\n     c\n"
+    assert TokenKind.INDENT not in kinds(source)
+    assert values(source)[:5] == ["basis", "=", "useA", "?", "a"]
+
+
+def test_four_spaces_still_open_a_block():
+    """The other half of the same rule — a wrap must not swallow a body."""
+    assert TokenKind.INDENT in kinds("if close > open\n    x = 1\n")
+
+
+def test_a_wrap_inside_a_block_does_not_close_it():
+    source = "if close > open\n    x = 1 +\n     2\n    y = 2\n"
+    assert kinds(source).count(TokenKind.INDENT) == 1
+    assert kinds(source).count(TokenKind.DEDENT) == 1
+    assert [
+        t.value
+        for t in tokenize(source)
+        if t.kind not in (TokenKind.NEWLINE, TokenKind.EOF, TokenKind.INDENT, TokenKind.DEDENT)
+    ] == ["if", "close", ">", "open", "x", "=", "1", "+", "2", "y", "=", "2"]
+
+
+def test_a_first_line_that_is_oddly_indented_opens_a_block_rather_than_wrapping():
+    """There is nothing above it to be a continuation *of*.
+
+    The lexer emits the INDENT and the parser reports it — the failure has to
+    say "this is indented and nothing opened a block", not glue the line onto
+    a statement that does not exist.
+    """
+    assert TokenKind.INDENT in kinds("  x = 1\ny = 2\n")
+
+
+def test_the_backslash_form_still_works():
+    """Kept alongside the indentation rule: it survives an editor that reindents."""
+    assert values("x = close + \\\n    open") == ["x", "=", "close", "+", "open"]

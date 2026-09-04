@@ -330,6 +330,8 @@ def test_a_function_parameter_can_carry_a_default():
 
 @pytest.mark.parametrize("path", pine_corpus.accepted(), ids=lambda p: p.name)
 def test_every_accepted_fixture_parses(path):
+    from apps.pine.validate import SUPPORTED_VERSIONS
+
     result = parse(path.read_text())
-    assert result.version == 5
+    assert result.version in SUPPORTED_VERSIONS
     assert result.body

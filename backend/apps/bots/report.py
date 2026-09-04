@@ -42,6 +42,23 @@ class Assumptions:
     balance_fraction: Decimal = Decimal("0.99")
     leverage: int = 1
     initial_equity: Decimal = Decimal("10000")
+    #: The resolved Properties tab. Recorded whole, because "which numbers
+    #: produced this report" is the question a stored backtest has to be able to
+    #: answer a month later, and the script may have declared any of them.
+    properties: object = None
+    #: Fixed cash charged per order, and per contract, from
+    #: ``commission_type = strategy.commission.cash_per_order`` /
+    #: ``cash_per_contract``. Zero under the percentage model, which is the
+    #: default and the only one crypto venues actually use.
+    commission_per_order: Decimal = Decimal("0")
+    commission_per_contract: Decimal = Decimal("0")
+    #: Slippage in *ticks*, TradingView's own unit, when the script declared it.
+    #: ``None`` leaves ``slippage_bps`` in force — see ``StrategyProperties``.
+    slippage_ticks: int | None = None
+    mintick: Decimal = Decimal("0.01")
+    #: What the backtest simulates that live will not do, in the script's own
+    #: words. Empty is the common case and prints nothing.
+    departures: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -52,19 +69,67 @@ class Assumptions:
             "balance_fraction": str(self.balance_fraction),
             "leverage": self.leverage,
             "initial_equity": str(self.initial_equity),
+            "commission_per_order": str(self.commission_per_order),
+            "commission_per_contract": str(self.commission_per_contract),
+            "slippage_ticks": self.slippage_ticks,
+            "mintick": str(self.mintick),
+            "departures": list(self.departures),
+            "properties": self.properties.as_dict() if self.properties is not None else None,
         }
 
     def lines(self) -> list[str]:
         """The header every rendering of this report starts with."""
+        slippage = (
+            f"{self.slippage_ticks} tick(s)"
+            if self.slippage_ticks is not None
+            else f"{self.slippage_bps} bps"
+        )
+        fee = f"taker fee {self.fee_bps} bps per side"
+        if self.commission_per_order:
+            fee += f", plus {self.commission_per_order} per order"
+        if self.commission_per_contract:
+            fee += f", plus {self.commission_per_contract} per contract"
         return [
             f"Entries fill at the {self.entry_rule}, never the signal bar's close.",
-            f"Slippage {self.slippage_bps} bps per side; taker fee {self.fee_bps} bps per side.",
+            f"Slippage {slippage} per side; {fee}.",
             f"SL/TP are checked against following bars' high/low; {self.ambiguous_bar_rule}.",
-            f"Sizing mirrors spec §5: {self.balance_fraction} of equity as margin at "
-            f"{self.leverage}× leverage.",
+            self._sizing_line(),
+            *(
+                f"This backtest departs from live here: {line}"
+                for line in self.departures
+            ),
             "A backtest is a description of the past. It is not a forecast, and it does "
             "not include funding, exchange outages, or the account being unable to fill.",
         ]
+
+    def _sizing_line(self) -> str:
+        """Whose sizing rule this report used — the platform's, or the script's.
+
+        A report sized by ``default_qty_type`` describes an account the bot will
+        not trade (spec §5 sizes every account at 99% of its own balance), so
+        the line has to say which one it is rather than always claiming §5.
+        """
+        properties = self.properties
+        if properties is None or getattr(properties, "default_qty_type", None) is None:
+            return (
+                f"Sizing mirrors spec §5: {self.balance_fraction} of equity as margin at "
+                f"{self.leverage}× leverage."
+            )
+        qty_type = properties.default_qty_type
+        if qty_type.value == "platform":
+            return (
+                f"Sizing mirrors spec §5: {self.balance_fraction} of equity as margin at "
+                f"{self.leverage}× leverage."
+            )
+        described = {
+            "fixed": f"{properties.default_qty_value} contracts per entry",
+            "cash": f"{properties.default_qty_value} of equity currency per entry",
+            "percent_of_equity": f"{properties.default_qty_value}% of equity per entry",
+        }[qty_type.value]
+        return (
+            f"Sizing follows the script's own default_qty_type: {described}. Live sizes "
+            f"every account at {self.balance_fraction} of its own balance instead (§5)."
+        )
 
 
 @dataclass(slots=True)

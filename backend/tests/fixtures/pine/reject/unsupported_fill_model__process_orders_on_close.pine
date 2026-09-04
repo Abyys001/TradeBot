@@ -1,4 +1,0 @@
-//@version=5
-strategy("reject", process_orders_on_close=true)
-plot(close)
-//@expect code=unsupported_fill_model line=2 col=20

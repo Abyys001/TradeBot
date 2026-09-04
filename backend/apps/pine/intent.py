@@ -59,6 +59,18 @@ class StrategyIntent:
     source_span: Span | None = None
     plots: dict[str, object] = field(default_factory=dict)
     alerts: tuple[str, ...] = ()
+    #: The script called ``strategy.entry`` on this bar — as opposed to the
+    #: position simply persisting from an earlier one. It is **not** a quantity
+    #: and does not become one: §5 puts 99% of the account into the first entry
+    #: and leaves nothing for a second, so neither the translator nor the
+    #: backtest acts on a repeat. It is carried for the action log, where "the
+    #: script asked again" and "nothing happened" are different things worth
+    #: telling apart, and it is what a ``pyramiding`` implementation would read
+    #: if one is ever built (``questions.md`` Q33). Deliberately absent from
+    #: ``divergence.intent_fingerprint``: the digest compares the desired
+    #: *position*, which is what live routes, and adding this would make a bar
+    #: that re-issued an entry read as a divergence between two runs that agree.
+    entry_signal: bool = False
 
     def as_dict(self) -> dict:
         """Wire and storage shape. Decimals become strings so no float artefact
@@ -73,6 +85,7 @@ class StrategyIntent:
             "span": self.source_span.as_dict() if self.source_span else None,
             "plots": {k: (str(v) if isinstance(v, Decimal) else v) for k, v in self.plots.items()},
             "alerts": list(self.alerts),
+            "entry_signal": self.entry_signal,
         }
 
     def same_position_as(self, other: StrategyIntent | None) -> bool:

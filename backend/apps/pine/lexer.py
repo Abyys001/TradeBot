@@ -8,11 +8,20 @@ mechanism Python's own tokenizer uses. Two things suspend it:
   terminator and indentation carries no meaning, which is what lets a long
   ``ta.macd(...)`` argument list wrap.
 
-  **A trailing backslash.** ``bot-mode.md`` §1.1 asks for it explicitly. Real
-  TradingView continues a line when the next one is indented by a number of
-  spaces that is *not* a multiple of four; that rule is invisible in a diff and
-  a nightmare to explain in an error message, so this lexer accepts the explicit
-  form instead. Bracket wrapping covers the case scripts actually hit.
+  **A line indented by a number of spaces that is not a multiple of four.**
+  This is TradingView's own line-wrapping rule (``style_guide.md``, "Line
+  wrapping"): four spaces open a block, so *any other* indentation continues the
+  line above. It is invisible in a diff and hard to put in an error message,
+  which is why this lexer used to accept only the explicit form below — but
+  every real published strategy wraps its ternary chains and its ``strategy()``
+  call this way, and a subset that cannot read them is a subset of nothing.
+  Bracket wrapping (above) already worked, and is where v6 lifted the
+  indentation restriction entirely (``release_notes.md``, December 2025); this
+  is the unparenthesised half, where the restriction still stands in v6 too.
+
+  **A trailing backslash.** ``bot-mode.md`` §1.1 asks for it explicitly. Kept
+  alongside the indentation rule rather than replaced by it: it is the spelling
+  that survives an editor which reindents on save.
 
 Every token carries a full ``(line, col, end_line, end_col)`` span. That is not
 decoration: Phase 4 links a chart marker back to the line that drew it, and the
@@ -176,6 +185,15 @@ class Lexer:
                 self._advance(1)
             return
 
+        if width % TAB_WIDTH and self._wraps_previous_line():
+            # Line wrapping. Four spaces open a block, so an indentation that is
+            # not a multiple of four continues the logical line above — the
+            # NEWLINE just emitted did not, in fact, end a statement.
+            self._advance(scan - self.pos)
+            self.at_line_start = False
+            self.tokens.pop()
+            return
+
         self._advance(scan - self.pos)
         self.at_line_start = False
         if width > self.indents[-1]:
@@ -191,6 +209,15 @@ class Lexer:
                 start,
                 "bad_dedent",
             )
+
+    def _wraps_previous_line(self) -> bool:
+        """Whether there is a statement above for this line to be a wrap *of*.
+
+        A file whose very first line is indented has nothing to continue, and
+        neither has a line following a block boundary — reporting those as bad
+        indentation is more useful than silently gluing them to nothing.
+        """
+        return bool(self.tokens) and self.tokens[-1].kind == TokenKind.NEWLINE
 
     def _token(self) -> None:
         start = self._here()

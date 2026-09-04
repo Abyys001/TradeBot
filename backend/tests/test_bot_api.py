@@ -54,6 +54,24 @@ def test_every_read_endpoint_is_staff_only(url):
     assert anonymous().get(url).status_code in (401, 403)
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("url", ["/api/bots/policy/", "/api/trading/policy/"])
+def test_a_signed_in_non_staff_user_is_refused_too(url):
+    """"Staff-only" has to mean staff, not "anyone who got past the login".
+
+    Both `policy` endpoints relied on DRF's `IsAuthenticated` default, which on
+    a platform with one shared *staff* login is the same set of people — and
+    would stop being so the day a second account exists for any reason.
+    """
+    from django.contrib.auth.models import User
+    from django.test import Client
+
+    User.objects.create_user("watcher", password="pw12345!")
+    client = Client()
+    client.login(username="watcher", password="pw12345!")
+    assert client.get(url).status_code == 403
+
+
 def test_validate_is_staff_only():
     assert post(anonymous(), "/api/bots/validate/", {"source": GOOD}).status_code in (401, 403)
 
@@ -334,3 +352,49 @@ def test_the_gate_lists_a_soak_row():
 def test_the_gate_never_raises_for_a_bot_that_has_never_run():
     bot = make_bot(state=BotState.DRAFT)
     assert staff().get(f"/api/bots/bots/{bot.id}/promotion/").status_code == 200
+
+
+# --- the Properties tab, end to end -----------------------------------------
+
+PROPERTY_SCRIPT = """//@version=6
+strategy(
+     "props",
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=30,
+     commission_type=strategy.commission.percent,
+     commission_value=0.05,
+     initial_capital=100000,
+     process_orders_on_close=true,
+     max_lines_count=500
+)
+grp = "01. Engine"
+length = input.int(9, "Length", minval=1, step=1, group=grp)
+plot(ta.sma(close, length), color=color.new(color.blue, 20))
+"""
+
+
+@pytest.mark.django_db
+def test_a_saved_version_carries_the_properties_and_their_notes():
+    """The whole path a published strategy takes, in one assertion block.
+
+    v6, a wrapped `strategy()` call, a Properties tab, a `group=` named by a
+    constant, a colour built inline — every one of these was a rejection before
+    2026-09-04, and the version row is where the panel reads them back from.
+    """
+    client = staff()
+    strategy = post(client, "/api/bots/strategies/", {"name": "Properties"}).json()
+    version = post(
+        client,
+        f"/api/bots/strategies/{strategy['id']}/versions/",
+        {"source": PROPERTY_SCRIPT},
+    ).json()
+
+    assert version["parsed_ok"] is True, version["validation_errors"]
+    assert version["properties"]["default_qty_type"] == "percent_of_equity"
+    assert version["properties"]["initial_capital"] == "100000"
+    assert "default_qty_type" in version["properties"]["declared"]
+    # It sizes the backtest and not live, and the panel is told so by name.
+    assert version["property_notes"]["live_departures"]
+    # The layout half of an input, without which thirty controls are one list.
+    assert version["inputs_schema"][0]["group"] == "01. Engine"
+    assert version["inputs_schema"][0]["step"] == 1

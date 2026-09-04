@@ -44,8 +44,12 @@ from apps.bots.riskgate import RiskGate
 from apps.exchanges.base import MarketType
 from apps.logging.utils import system_log
 from apps.pine.errors import PineError, PineRuntimeError
+from apps.pine.intent import Side
 from apps.pine.runtime import Runtime
+from apps.pine.symbol import SymbolInfo, TimeframeInfo
 from apps.pine.validate import validate
+
+ZERO = Decimal("0")
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +260,8 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
         symbol=bot.symbol,
         inputs=bot.input_values or {},
         limits=await sync_to_async(limits)(),
+        symbol_info=await sync_to_async(_symbol_info)(bot),
+        timeframe=TimeframeInfo.for_interval(bot.interval),
     )
     feed = BarFeed(symbol=bot.symbol, interval=bot.interval, market=MarketType(bot.market))
     gate = RiskGate(bot, run)
@@ -302,6 +308,27 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
 
         before = await gate.before_bar(bar_time=feed_bar.bar.time)
 
+        # The exchange decides what is open, and the script has to be told
+        # *before* it evaluates. An intent is "what should be true after this
+        # bar", so it starts from what is actually held; a runtime that was
+        # never told anything starts every bar flat, which turns the first
+        # quiet bar after an entry into an instruction to close it, and makes
+        # `strategy.position_size` read zero live and the real sign in a
+        # backtest — a divergence in the one place this design says there is
+        # none. The backtest has always done this (`_Engine.step`); this side
+        # did not.
+        if before.allowed:
+            await _reconcile()
+        held = await translate.read_held(run)
+        equity, performance = await sync_to_async(_run_state)(run)
+        runtime.sync_position(
+            size_sign=0 if held.flat else (1 if held.side is Side.LONG else -1),
+            avg_price=held.avg_price,
+            equity=equity,
+            opentrades=0 if held.flat else 1,
+            performance=performance,
+        )
+
         try:
             outcome = runtime.run_bar(feed_bar.bar, enforce_budget=True)
         except PineRuntimeError as exc:
@@ -334,9 +361,6 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             # and nothing was routed.
             continue
 
-        # The exchange decides what is open. Re-read before diffing against it.
-        await _reconcile()
-        held = await translate.read_held(run)
         actions = translate.plan(
             intent=intent, held=held, default_sl=bot.sl_pct, default_tp=bot.tp_pct
         )
@@ -547,6 +571,92 @@ def _current_equity() -> Decimal | None:
         if v is not None
     ]
     return sum(values, Decimal("0")) if values else None
+
+
+def _symbol_info(bot: Bot) -> SymbolInfo:
+    """The instrument, from the exchange's own listing where there is one.
+
+    ``syminfo.mintick`` is the field with teeth — ``math.round_to_mintick`` and
+    any level a script rounds itself go through it — so it comes from
+    ``ExchangeSymbol``, which is downloaded at connect time, rather than from a
+    default that would be quietly wrong on a pair priced in eight decimals.
+    """
+    from apps.trading.models import ExchangeSymbol
+
+    listing = (
+        ExchangeSymbol.objects.filter(symbol=bot.symbol, market=bot.market, active=True)
+        .exclude(price_tick=None)
+        # The finest tick any connected venue quotes. A stop rounded to a
+        # coarser grid than some account's exchange uses would be rejected
+        # there and nowhere else, which is the one failure mode §4's account
+        # isolation cannot absorb.
+        .order_by("price_tick")
+        .first()
+    )
+    return SymbolInfo.for_symbol(
+        bot.symbol,
+        market=bot.market,
+        mintick=listing.price_tick if listing is not None else None,
+    )
+
+
+def _run_state(run: BotRun) -> tuple[Decimal, dict]:
+    """``(equity, performance)`` — everything the script reads about the account.
+
+    One call because the two share a query: the percentages below are against
+    equity, and reading it twice a bar for two callers is a query for nothing.
+    """
+    equity = _current_equity()
+    return (equity or ZERO), _performance(run, equity)
+
+
+def _performance(run: BotRun, capital: Decimal | None) -> dict:
+    """``strategy.closedtrades`` and the rest, for **this run's own** trades.
+
+    The live counterpart of ``backtest._Engine._performance``, and deliberately
+    the same shape: a script's dashboard has to read the same names in both, or
+    a strategy that guards on ``strategy.closedtrades > 5`` behaves differently
+    the day it goes live.
+
+    "This run's" is the scope on purpose. The account has a history of manual
+    trades and of earlier bots, and none of it is what this script's own
+    counters mean — ``apps.accounts.report`` is where the account's whole story
+    lives.
+    """
+    from apps.trading.models import Trade, TradeStatus
+
+    trades = list(
+        Trade.objects.filter(bot_run=run, status=TradeStatus.CLOSED).prefetch_related("legs")
+    )
+    realised = [
+        sum((leg.pnl for leg in trade.legs.all() if leg.pnl is not None), ZERO)
+        for trade in trades
+    ]
+    wins = [value for value in realised if value > ZERO]
+    losses = [value for value in realised if value < ZERO]
+    net = sum(realised, ZERO)
+    # What the accounts held before this run traded — equity now, less what the
+    # run made. Unknown when no account reports a balance, and the percentages
+    # are then zero rather than a ratio against a made-up denominator: a
+    # dashboard reading "+400%" because the base was 1 is worse than one
+    # reading nothing.
+    base = (capital - net) if capital is not None and capital - net > ZERO else None
+    percent = (lambda value: value / base * Decimal(100)) if base else (lambda _: ZERO)
+    return {
+        "closedtrades": Decimal(len(trades)),
+        "wintrades": Decimal(len(wins)),
+        "losstrades": Decimal(len(losses)),
+        "eventrades": Decimal(len(trades) - len(wins) - len(losses)),
+        "initial_capital": base if base is not None else ZERO,
+        "netprofit": net,
+        "netprofit_percent": percent(net),
+        "grossprofit": sum(wins, ZERO),
+        "grossprofit_percent": percent(sum(wins, ZERO)),
+        "grossloss": -sum(losses, ZERO),
+        "grossloss_percent": percent(-sum(losses, ZERO)),
+        "avg_trade": (net / Decimal(len(trades))) if trades else ZERO,
+        "account_currency": "USDT",
+    }
 
 
 async def _reconcile() -> None:

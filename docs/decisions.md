@@ -620,8 +620,12 @@ close — and the backtest never sees that, which is the mechanism behind nearly
 every "it backtested beautifully and lost money live". Removing it makes backtest
 and live identical except for slippage, which is measurable.
 
-`calc_on_every_tick=true` is therefore a **validation error, not a setting**:
-there is no configuration in which this platform evaluates intrabar in v1.
+`calc_on_every_tick=true` is therefore **honoured nowhere**: there is no
+configuration in which this platform evaluates intrabar in v1. It was a
+validation *error* until 2026-09-04 and is now an accepted-and-reported inert
+property (`properties.INERT`) — the behaviour is identical and the script still
+loads, because refusing a whole strategy over a setting that changes nothing
+here is a rejection with no remedy.
 Intrabar can return in v2 behind a per-bot flag, on top of the snapshot/restore
 hooks the runtime is built with anyway, and only with a divergence test.
 
@@ -656,6 +660,83 @@ lightweight `var → type` inference cannot reach is a located runtime error on
 the first bar, never a silent `na`. `apps/pine/parser.py`, `validate.py`,
 `runtime.py` and `objects.py` hold it; `tests/fixtures/pine/accept/24_*`,
 `25_*` and five `reject/semantic__*` fixtures pin it.
+
+**Amendment (2026-09-04): what a *published* strategy is made of.**
+Running the example the admin supplied — `McGinley T3 Flow Campaign`, 731 lines,
+`//@version=6` — through the engine produced sixty-eight errors, not one of which
+named the real problem. Q24's rule was intact; what was wrong was where the line
+had been drawn. Four changes, and one refusal that stands:
+
+- **Line wrapping is read.** TradingView continues a line indented by any number
+  of spaces that is *not* a multiple of four (`style_guide.md`). The lexer
+  accepted only a trailing backslash, which no exported script contains, so a
+  wrapped ternary chain was a syntax error — and the parse error was then
+  *replaced* by a sweep of the rest of the file for rejected namespaces, turning
+  one unreadable line into sixty confident errors about lines that were fine.
+  Both are fixed; the sweep now only reports what sits at or before the failure.
+- **Drawing objects are accepted and drawn nowhere.** `line`, `label`, `box`,
+  `table`, `polyline` and `linefill` used to be five rejections whose message
+  read "has no execution effect here" — and then errored, which is the one
+  combination that cannot be right, since a construct with no execution effect
+  is exactly the kind this subset already accepts and records (`plot`,
+  `bgcolor`). Constructors return an opaque handle so `if na(myLine)` decides
+  create-or-move as it does on TradingView. The half that *can* reach an order
+  is still refused by name: `DRAWING_READBACKS` — `line.get_price` and its
+  family — because a coordinate read back out of a drawing becomes a condition,
+  and a condition becomes an order.
+- **Decorative constants are values, not argument-list decorations.** `color.*`,
+  `size.*`, `position.*` and the rest were accepted only inside a `plot()`
+  argument list. Every real script writes `col = up ? color.green : color.red`
+  on a line of its own, so the rule cost scripts and bought nothing: a colour
+  still has no arithmetic that produces a side, a price or a percent.
+- **v6 is read as well as v5**, on the argument this repository already makes —
+  the operators, the execution model and every `ta.*` formula are shared, and
+  `reference/pinescriptv6/` is what the implementation is checked against. The
+  two differences that could bite are recorded as **Q34** rather than asserted.
+
+The refusal that stands is **`strategy.close(qty_percent = …)`** — a partial
+close. Q20 drops `strategy.entry(qty = …)` with a *warning* because the
+platform's own sizing is a complete answer to the question that argument asked.
+Nothing answers a scale-out: `ExchangeAdapter.close_position` takes no size, so
+the nearest available action is to flatten an account the script meant to keep
+most of. That is a different strategy and a silent one, which is what this
+decision exists to refuse. **Q33** carries the feature, alongside `pyramiding`,
+which is the same multi-lot position model seen from the other side.
+
+Also added rather than left to be discovered from a rejection: `syminfo.*`,
+`timeframe.*`, `chart.*`, `timenow`, the `int`/`float`/`bool`/`string` casts,
+the rest of `str.*` and `math.*`, `input.color`/`time`/`price`/`session`/
+`symbol`, and the `strategy.*` performance figures (`closedtrades`,
+`netprofit_percent`, `max_drawdown_percent`, …) that every published dashboard
+is built from. The performance figures come from the **driver** —
+`backtest._Engine._performance` and `supervisor._performance` — for the same
+reason `strategy.position_size` does: the account is the driver's, and a runtime
+keeping its own scoreboard would be a second one that could disagree.
+
+`tests/fixtures/pine/accept/27_published_strategy.pine` is that example, kept as
+a fixture with one edit (the scale-out), so it is lexed, parsed, validated, run
+and checked for reproducibility on every commit.
+
+### Q20 note (2026-09-04): the Properties tab is honoured by the backtest
+
+`strategy()`'s ten Properties-tab settings — initial capital, base currency,
+order size, pyramiding, commission, limit-fill verification, slippage, margin,
+recalculation, fill model — used to be nine warnings saying "parsed and then
+ignored". They are now `apps/pine/properties.py`, resolved in one direction
+(platform default → what the script declared → what the panel overrode) and
+honoured by the backtest, which is what makes a report comparable with the one
+TradingView produced from the same script.
+
+Q20 itself is unchanged and is why they are *backtest* properties: live margin
+is 99% of each account's own balance with leverage on top, identical across
+accounts. So `StrategyProperties.live_departures()` names every setting that
+would make the report describe a platform the bot will not run on, the report
+header prints them, and `Assumptions._sizing_line` says whose sizing rule
+produced the curve rather than always claiming §5. `inert_here()` is the second
+list: `calc_on_every_tick` (Q23 — no tick data to recalculate from) and
+`fill_orders_on_standard_ohlc` (no Heikin Ashi candles to correct) are accepted
+and reported as doing nothing, rather than refusing the script over a setting
+that changes no behaviour here.
 
 ### Q25. The bot's own halt ✅ Seven auto-stop triggers, none of them auto-resume
 

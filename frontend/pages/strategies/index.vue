@@ -57,6 +57,47 @@ const diagnostics = computed<PineDiagnostic[]>(() => [
   ...(validation.value?.warnings ?? []).map((row) => ({ ...row, kind: 'warning' as const })),
 ])
 
+/**
+ * The inputs, under the headings the script itself declared. A published
+ * strategy has thirty of them across five `group=` sections; listing all thirty
+ * in declaration order is technically the same settings and unusable.
+ */
+const inputGroups = computed(() => {
+  const groups = new Map<string, PineInput[]>()
+  for (const input of validation.value?.inputs ?? []) {
+    const key = input.group || ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(input)
+  }
+  return [...groups.entries()].map(([group, inputs]) => ({ group, inputs }))
+})
+
+/**
+ * The Properties tab, as rows. Only what the script actually declared, plus
+ * anything that departs from live — a full dump of sixteen defaults would bury
+ * the two lines that matter.
+ */
+const propertyRows = computed(() => {
+  const props = validation.value?.properties
+  if (!props) return []
+  const declared = new Set(props.declared ?? [])
+  const shown: Array<{ key: string; value: string }> = []
+  for (const key of declared) {
+    const value = (props as unknown as Record<string, unknown>)[key]
+    if (value === undefined || value === null) continue
+    shown.push({ key, value: String(value) })
+  }
+  return shown
+})
+
+const propertyNotes = computed(() => {
+  const notes = validation.value?.property_notes
+  return [
+    ...(notes?.live_departures ?? []).map((text) => ({ tone: 'signal' as const, text })),
+    ...(notes?.inert ?? []).map((text) => ({ tone: 'muted' as const, text })),
+  ]
+})
+
 const dirty = computed(() => source.value !== (selected.value?.latest_version?.source ?? ''))
 
 /** The dot next to a strategy in the list: green valid, red errors, grey no version. */
@@ -314,8 +355,46 @@ onMounted(load)
           </ul>
         </UiCard>
 
+        <UiCard
+          v-if="propertyRows.length || propertyNotes.length"
+          :title="t('bots.properties')"
+          flush
+        >
+          <p class="px-3 pt-3 text-tick text-ink-faint leading-relaxed">
+            {{ t('bots.propertiesLead') }}
+          </p>
+          <dl v-if="propertyRows.length" class="px-3 py-2 grid sm:grid-cols-2 gap-x-4 gap-y-1">
+            <div
+              v-for="row in propertyRows"
+              :key="row.key"
+              class="flex justify-between gap-3 text-xs"
+            >
+              <dt class="text-ink-muted truncate">{{ row.key }}</dt>
+              <dd class="num">{{ row.value }}</dd>
+            </div>
+          </dl>
+          <ul v-if="propertyNotes.length" class="divide-y divide-line border-t border-line">
+            <li
+              v-for="(note, index) in propertyNotes"
+              :key="index"
+              class="px-3 py-2 flex items-start gap-3"
+            >
+              <UiBadge :tone="note.tone === 'signal' ? 'signal' : 'neutral'">
+                {{ note.tone === 'signal' ? t('bots.backtestOnly') : t('bots.noEffect') }}
+              </UiBadge>
+              <span class="text-xs leading-relaxed min-w-0">{{ note.text }}</span>
+            </li>
+          </ul>
+        </UiCard>
+
         <UiCard v-if="validation?.inputs.length" :title="t('bots.inputs')" flush>
-          <div class="overflow-x-auto">
+          <div v-for="section in inputGroups" :key="section.group" class="overflow-x-auto">
+            <p
+              v-if="section.group"
+              class="label px-3 pt-3 pb-1 border-t border-line first:border-t-0"
+            >
+              {{ section.group }}
+            </p>
             <table class="w-full text-xs">
               <thead>
                 <tr class="label">
@@ -326,12 +405,25 @@ onMounted(load)
                 </tr>
               </thead>
               <tbody class="divide-y divide-line">
-                <tr v-for="input in validation.inputs" :key="input.name">
-                  <td class="px-3 py-2 num">{{ input.name }}</td>
-                  <td class="px-3 py-2 text-ink-muted">{{ input.kind }}</td>
+                <tr v-for="input in section.inputs" :key="input.name">
+                  <td class="px-3 py-2 num">
+                    {{ input.name }}
+                    <span v-if="input.title" class="block text-tick text-ink-faint">
+                      {{ input.title }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2 text-ink-muted">
+                    {{ input.kind }}
+                    <span v-if="input.tooltip" class="block text-tick text-ink-faint">
+                      {{ input.tooltip }}
+                    </span>
+                  </td>
                   <td class="px-3 py-2 num text-end">{{ input.default }}</td>
                   <td class="px-3 py-2 num text-end text-ink-muted">
                     {{ input.minval ?? '—' }} … {{ input.maxval ?? '—' }}
+                    <span v-if="input.step" class="block text-tick">
+                      {{ t('bots.inputStep', { n: String(input.step) }) }}
+                    </span>
                   </td>
                 </tr>
               </tbody>

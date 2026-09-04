@@ -35,6 +35,8 @@ class StrategyVersionSerializer(serializers.ModelSerializer):
             "validation_errors",
             "validation_warnings",
             "inputs_schema",
+            "properties",
+            "property_notes",
             "created_at",
             "created_by",
             "used_by",

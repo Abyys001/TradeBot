@@ -7,10 +7,13 @@ fixture cannot drift from the registry without one of these failing.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from apps.pine import subset
 from apps.pine.limits import Limits
+from apps.pine.properties import QtyType
 from apps.pine.validate import validate
 from tests import pine_corpus
 
@@ -111,10 +114,31 @@ def test_a_qty_on_an_entry_is_a_warning_not_an_error():
     assert "ignored_qty" in warning_codes(result)
 
 
-def test_default_qty_on_the_declaration_is_a_warning():
-    result = validate('//@version=5\nstrategy("t", default_qty_value=100)\nplot(close)\n')
+def test_default_qty_on_the_declaration_is_read_into_the_properties():
+    """Q20, amended: order size is now a *backtest* property, not a dropped one."""
+    result = validate(
+        '//@version=5\nstrategy("t", default_qty_type=strategy.percent_of_equity, '
+        'default_qty_value=40)\nplot(close)\n'
+    )
     assert result.ok
-    assert "ignored_strategy_arg" in warning_codes(result)
+    assert result.properties.default_qty_type is QtyType.PERCENT_OF_EQUITY
+    assert result.properties.default_qty_value == Decimal("40")
+    # Still never silent: it moves the backtest off live's §5 sizing and says so.
+    assert "backtest_only_strategy_property" in warning_codes(result)
+
+
+def test_a_property_left_at_the_platform_value_does_not_warn():
+    """`pyramiding = 0` is this platform's own behaviour written out."""
+    result = validate('//@version=5\nstrategy("t", pyramiding=0)\nplot(close)\n')
+    assert result.ok
+    assert not warning_codes(result)
+
+
+def test_a_property_constant_outside_the_declaration_is_refused():
+    result = validate(
+        '//@version=5\nstrategy("t")\nx = strategy.percent_of_equity\nplot(x)\n'
+    )
+    assert "declaration_constant_outside" in codes(result)
 
 
 def test_an_ignored_argument_is_never_silent():
@@ -151,9 +175,12 @@ def test_an_exit_with_no_percent_at_all_is_refused():
 # --- Q23: confirmed bars only -----------------------------------------------
 
 
-def test_calc_on_every_tick_is_a_validation_error_not_a_setting():
+def test_calc_on_every_tick_is_accepted_and_reported_as_inert():
+    """Q23 stands — the script loads, and the panel says the property does nothing."""
     result = validate('//@version=5\nstrategy("t", calc_on_every_tick=true)\nplot(close)\n')
-    assert "unsupported_intrabar" in codes(result)
+    assert result.ok
+    assert "inert_strategy_property" in warning_codes(result)
+    assert result.properties.inert_here()
 
 
 def test_varip_is_accepted_as_var_and_says_so():
@@ -229,10 +256,39 @@ def test_a_colour_inside_a_visual_call_is_accepted():
     assert check("plot(close, color=color.green)\n").ok
 
 
-def test_a_colour_outside_a_visual_call_is_refused():
-    """Nothing decorative may reach an order, so it may not reach a variable."""
-    result = check("c = color.green\nplot(close, color=c)\n")
-    assert "decorative_outside_visual" in codes(result)
+def test_a_colour_held_in_a_variable_is_accepted():
+    """The subset's rule is what a value *can become*, not where it is written.
+
+    This used to be refused, on the argument that a decorative value had to stay
+    inside a ``plot()`` argument list. Every published script names its colours
+    on a line of their own and passes the name in later, so the rule cost real
+    scripts and bought nothing: a colour still has no arithmetic that produces a
+    side, a price or a percent.
+    """
+    result = check("c = close > open ? color.green : color.red\nplot(close, color=c)\n")
+    assert result.ok
+
+
+def test_a_value_read_back_out_of_a_drawing_is_still_refused():
+    """The half of the drawing surface that *can* reach an order."""
+    result = check(
+        "var line l = na\n"
+        "l := line.new(bar_index, high, bar_index, low)\n"
+        "if close > line.get_price(l, bar_index)\n"
+        "    strategy.entry('L', strategy.long)\n"
+    )
+    assert "drawing_readback" in codes(result)
+
+
+def test_a_drawing_is_accepted_and_drawn_nowhere():
+    result = check(
+        "var label tag = na\n"
+        "if close > open\n"
+        "    tag := label.new(bar_index, high, 'up', style=label.style_label_down)\n"
+        "    label.set_color(tag, color.green)\n"
+        "plot(close)\n"
+    )
+    assert result.ok
 
 
 # --- inputs -----------------------------------------------------------------
@@ -297,9 +353,35 @@ def test_validate_never_raises_even_on_nonsense():
 # --- hoisting ---------------------------------------------------------------
 
 
-def test_a_ta_call_inside_a_function_is_warned_about_not_silently_wrong():
+def test_a_ta_call_inside_a_conditionally_called_function_is_warned_about():
+    result = check(
+        "f(x) =>\n"
+        "    ta.sma(x, 10)\n"
+        "s = 0.0\n"
+        "if close > open\n"
+        "    s := f(close)\n"
+        "plot(s)\n"
+    )
+    assert result.ok
+    assert "ta_not_hoisted" in warning_codes(result)
+
+
+def test_a_ta_call_inside_a_function_the_bar_always_calls_is_not_warned_about():
+    """A textbook T3 is six ``ta.ema`` calls in one always-called helper.
+
+    Each advances exactly once per bar, which is the behaviour the warning
+    exists to protect — so warning about all six is six lines of noise on the
+    one screen a real warning has to stand out on.
+    """
     result = check("f(x) =>\n    ta.sma(x, 10)\nplot(f(close))\n")
     assert result.ok
+    assert "ta_not_hoisted" not in warning_codes(result)
+
+
+def test_a_ta_call_inside_a_loop_is_warned_about_however_it_is_reached():
+    result = check(
+        "s = 0.0\nfor i = 0 to 2\n    s := s + ta.sma(close, 10)\nplot(s)\n"
+    )
     assert "ta_not_hoisted" in warning_codes(result)
 
 
@@ -415,3 +497,90 @@ def test_mutual_recursion_between_methods_is_refused():
 def test_an_undefined_object_root_in_member_position_is_named():
     result = check("z = bogus.field\nplot(z)\n")
     assert "undefined_name" in codes(result)
+
+
+# --- what a published strategy is actually made of --------------------------
+#
+# The example that prompted this pass (`McGinley T3 Flow Campaign`) is 731 lines
+# of which roughly half is chart furniture. It used to produce sixty-eight
+# errors, none of which named the real problem. These pin the surface that
+# closed the gap.
+
+
+def test_pine_v6_is_read_as_well_as_v5():
+    """The subset's semantics are the shared ones — see SUPPORTED_VERSIONS."""
+    result = validate('//@version=6\nstrategy("t")\nplot(close)\n')
+    assert result.ok
+
+
+def test_pine_v4_is_still_refused_and_says_which_versions_are_read():
+    result = validate('//@version=4\nstrategy("t")\nplot(close)\n')
+    assert "wrong_version" in codes(result)
+    assert "v5 and v6" in str(result.errors[0])
+
+
+def test_a_parse_error_is_not_replaced_by_a_sweep_of_the_rest_of_the_file():
+    """The failure the sweep is *supposed* to prevent, pointed the other way.
+
+    A file that fails to parse on line 3 used to come back as one error per
+    rejected namespace anywhere in it — sixty confident messages about lines
+    that were fine, and nothing at all about the line that stopped the parse.
+    """
+    result = validate(
+        '//@version=5\nstrategy("t")\nx = (1 +\ny = array.new<float>(0)\n'
+    )
+    assert result.errors
+    first = result.errors[0]
+    assert first.span.line <= 4
+    assert "unsupported_collections" not in [e.code for e in result.errors if e.span.line < 4]
+
+
+def test_a_rejected_namespace_at_the_failure_still_explains_it():
+    """The case the sweep exists for: the grammar fails *because* of the namespace."""
+    result = validate('//@version=5\nstrategy("t")\nx = array.new<float>(0)\n')
+    assert "unsupported_collections" in codes(result)
+
+
+def test_a_source_input_defaults_to_a_series_rather_than_to_nothing():
+    result = validate(
+        '//@version=5\nstrategy("t")\nsrc = input.source(close, "Source")\nplot(src)\n'
+    )
+    assert result.ok
+    assert result.inputs[0].default == "close"
+
+
+def test_a_colour_input_and_a_time_input_both_have_defaults():
+    result = validate(
+        "//@version=5\n"
+        'strategy("t")\n'
+        'bull = input.color(#00E5A8, "Bull")\n'
+        'start = input.time(timestamp("01 Jan 2026 00:00 +1100"), "Start")\n'
+        "plot(close, color=bull)\n"
+    )
+    assert result.ok
+    assert result.inputs[0].default == "#00E5A8"
+    # Folded to the number the form has to hold, not the word "timestamp".
+    assert isinstance(result.inputs[1].default, int)
+
+
+def test_an_inputs_group_survives_being_named_by_a_constant():
+    """`string G = "01. Window"` then `group = G` — the style guide's own shape."""
+    result = validate(
+        "//@version=5\n"
+        'strategy("t")\n'
+        'string G_ENGINE = "02. Signal Engine"\n'
+        'len = input.int(9, "Length", minval=1, step=1, group=G_ENGINE, tooltip="bars")\n'
+        "plot(ta.sma(close, len))\n"
+    )
+    assert result.ok
+    spec = result.inputs[0]
+    assert spec.group == "02. Signal Engine"
+    assert spec.step == 1
+    assert spec.tooltip == "bars"
+
+
+def test_the_drawing_pool_caps_on_the_declaration_are_accepted():
+    result = validate(
+        '//@version=5\nstrategy("t", max_lines_count=500, max_labels_count=500)\nplot(close)\n'
+    )
+    assert result.ok

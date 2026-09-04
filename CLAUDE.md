@@ -15,16 +15,20 @@ channel, all eight exchange adapters, a public market-data feed with live
 mark-to-market PnL, the runtime emergency halt, a watchlist, an installable
 (PWA) bilingual Nuxt panel with draggable chart order lines, and a financial
 ledger (manual deposits/withdrawals, per-account PnL since inception, a global
-profit split), **bot mode** — a Pine Script v5 engine (the v1 subset **plus
-user-defined types, methods and enums** — `docs/decisions.md` Q24 amendment,
-`apps/pine/objects.py`), backtest, supervisor and panel (`docs/bots.md`), gated
+profit split), **bot mode** — a Pine Script **v5/v6** engine (the v1 subset
+**plus user-defined types, methods and enums**, and plus what a *published*
+strategy is actually made of: line wrapping, drawing objects accepted and drawn
+nowhere, colours as ordinary values, `syminfo.*`/`timeframe.*`/`chart.*`, the
+`strategy.*` performance figures, and TradingView's Properties tab honoured by
+the backtest — `docs/decisions.md` Q24 amendments, `apps/pine/properties.py`),
+backtest, supervisor and panel (`docs/bots.md`), gated
 per account by two independent switches (`manual_trading_enabled`,
 `bot_trading_enabled` — `docs/bots.md` §7) and restricted to **one running bot
 at a time** — and an **optional security layer**: one On/Off row per control on
 `/settings`, every one off by default, none of them on the order-routing path
 (`docs/security-plan.md`).
-**~1740 backend tests pass, `ruff` clean on everything this touched, Nuxt build
-and typecheck clean.**
+**~1790 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
+setup`), **`ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
 recorded rather than silent: failure notices moved from a docked card into a
@@ -119,7 +123,7 @@ docs/
   decisions.md                       every closed question, Q1–Q28, with the setting that implements it
   security-plan.md                   the optional-by-default security layer: one switch per control,
                                      none of them on the order-routing path
-questions.md                         open questions only — Q29, Q31, Q32; new ones start at Q33
+questions.md                         open questions only — Q29, Q31–Q34; new ones start at Q35
 reference/                           read-only vendored docs & SDKs — never imported
   pinescriptv6/                      the Pine language reference (v6). The v1 subset is v5, but
                                      operators, the execution model and every ta.* formula are
@@ -157,8 +161,8 @@ reference/                           read-only vendored docs & SDKs — never im
 | `apps/accounts/report.py` | **One account, whole.** The per-account page's single payload: connection, ledger row, every leg with what it returned, the realised curve, cash flows and detections. Derives, never decides — the money is `ledger.py`'s arithmetic and the trades are the account's own legs. |
 | `apps/accounts/statement.py` | **The same account, as a document that leaves the platform.** Windowed by the two dates the operator picks, laid out with ReportLab and handed over as a PDF. It talks in money only — **no percentage appears anywhere in it**, because a rate on a page invites the reader to apply it to a number that is not there — and it says throughout that the bot placed every order. Derives nothing: `report.statement_report` does the arithmetic. |
 | `apps/accounts/statement_text.py` | **Both languages, side by side.** Every phrase in the statement in English and Persian, so a wording change cannot land in one and miss the other. Also owns what makes Persian *render*: the embedded Vazirmatn faces (Helvetica has no Arabic glyphs) and `shape()`, which reshapes and reorders a run — and deliberately leaves a run with no Arabic letter alone, since running bidi over `+$1,234.00` moves the sign to the wrong end. |
-| `apps/pine/` | **The Pine Script v5 engine.** Lexer, parser, the Q24 subset as data, validator, incremental `ta.*`, `objects.py` (the value model for user-defined types and enums), and a bar-at-a-time runtime that emits a `StrategyIntent`. Imports **stdlib only** — no `django.*`, no `apps.*` — which is what makes it the *same object* in a backtest and in the live loop. Checked against `reference/pinescriptv6/`, pinned by `tests/test_pine_purity.py`. |
-| `apps/bots/` | **A bot is a signal source, not a second execution path.** `translate.py` turns an intent into the `route_*` calls that already exist and nothing below it is forked; `backtest.py` replays; `riskgate.py` is Q25's seven auto-stops; `supervisor.py` is one asyncio task per bot in the ASGI process; `gate.py` is the measured `paper → live` gate. |
+| `apps/pine/` | **The Pine Script v5/v6 engine.** Lexer, parser, the Q24 subset as data, validator, incremental `ta.*`, `objects.py` (the value model for user-defined types and enums), `properties.py` (TradingView's Properties tab as data — resolved platform → script → panel, and naming every setting the backtest honours that live will not), `symbol.py` (the instrument and interval, fed in rather than looked up), and a bar-at-a-time runtime that emits a `StrategyIntent`. Imports **stdlib only** — no `django.*`, no `apps.*` — which is what makes it the *same object* in a backtest and in the live loop. Checked against `reference/pinescriptv6/`, pinned by `tests/test_pine_purity.py`. |
+| `apps/bots/` | **A bot is a signal source, not a second execution path.** `translate.py` turns an intent into the `route_*` calls that already exist and nothing below it is forked; `backtest.py` replays; `riskgate.py` is Q25's seven auto-stops; `supervisor.py` is one asyncio task per bot in the ASGI process; `gate.py` is the measured `paper → live` gate. **Both drivers tell the runtime what is held before the bar, never after** (`sync_position`): an intent is "what should be true *after* this bar", so it starts from the position the exchange says is open — a runtime that is never told starts every bar flat, and the first quiet bar after an entry becomes an instruction to close it. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map
@@ -368,6 +372,6 @@ Nothing here is runnable yet. In order:
   get recorded there, not silently in code.
 - Exchange API facts come from `reference/` or the `hyperliquid-docs` MCP server,
   not from memory. Exchange APIs drift.
-- New ambiguity found mid-task → append to `questions.md` (numbered from Q30),
+- New ambiguity found mid-task → append to `questions.md` (numbered from Q35),
   and move it to `docs/decisions.md` once answered. Keep building the
   parts that don't depend on the answer.

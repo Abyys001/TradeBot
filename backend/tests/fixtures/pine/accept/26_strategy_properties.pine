@@ -1,0 +1,30 @@
+//@version=5
+strategy("properties",
+     overlay = true,
+     initial_capital = 25000,
+     currency = currency.USD,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 50,
+     pyramiding = 2,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.075,
+     backtest_fill_limits_assumption = 1,
+     slippage = 2,
+     margin_long = 25,
+     margin_short = 25,
+     calc_on_order_fills = false,
+     calc_on_every_tick = false,
+     process_orders_on_close = false,
+     use_bar_magnifier = true,
+     fill_orders_on_standard_ohlc = false)
+
+fast = ta.ema(close, 9)
+slow = ta.ema(close, 21)
+
+if ta.crossover(fast, slow)
+    strategy.entry("L", strategy.long)
+if ta.crossunder(fast, slow)
+    strategy.close("L")
+
+plot(fast)
+plot(slow)

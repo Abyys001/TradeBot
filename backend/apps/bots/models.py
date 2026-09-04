@@ -97,6 +97,14 @@ class StrategyVersion(models.Model):
     validation_errors = models.JSONField(default=list, blank=True)
     validation_warnings = models.JSONField(default=list, blank=True)
     inputs_schema = models.JSONField(default=list, blank=True)
+    #: TradingView's Properties tab as ``strategy()`` declared it, resolved over
+    #: the platform's defaults, plus the two lists that say which of them the
+    #: bot will not honour. Stored with the version rather than recomputed,
+    #: because the version is immutable and this is part of what it *is* — a
+    #: report from three weeks ago has to be readable against the properties it
+    #: was produced with, not against whatever the parser says today.
+    properties = models.JSONField(default=dict, blank=True)
+    property_notes = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.CharField(max_length=150, blank=True)
 

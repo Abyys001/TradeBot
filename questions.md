@@ -1,8 +1,8 @@
 # Questions & decisions — open
 
-**Three are open: Q29, Q31 and Q32.** (Q30 was raised and answered in the same
-pass; it is kept here rather than in `docs/decisions.md` only until the next
-tidy.) Everything else this project has raised is answered and
+**Five are open: Q29, Q31, Q32, Q33 and Q34.** (Q30 was raised and answered in
+the same pass; it is kept here rather than in `docs/decisions.md` only until the
+next tidy.) Everything else this project has raised is answered and
 recorded in **`docs/decisions.md`** (Q1–Q28), with the reasoning and the setting
 or module that implements each. Code comments and `docs/spec/conformance.md`
 cite them by number; the numbering is shared, so a Q-number means the same
@@ -146,9 +146,74 @@ protected — so it is worth being a decision rather than a default.
 
 ---
 
+## Q33. Does a scale-out become a real feature, or stay refused?
+
+**Raised 2026-09-04, reading a published strategy through the engine. Blocks
+nothing; the subset refuses the construct by name today.**
+
+`strategy.close(id, qty_percent = 30)` — take 30% off, keep the rest running —
+is standard in published strategies, and the example that prompted this pass
+defaults to a TP1/TP2/TP3 scale-out. The platform cannot express it: the adapter
+seam is `close_position(symbol)`, with no size, across eight adapters none of
+which has been run live. So the validator refuses the argument by name
+(`partial_close`) rather than flattening an account the script meant to keep
+70% of, which would be a different strategy and a silent one.
+
+Building it is not a small change and it is not confined to `apps/bots/`:
+
+- `StrategyIntent` gains a *fraction of the original position* — the first
+  quantity that type has ever carried, and the reason it carries none today
+  (Q20: sizing is the platform's).
+- `ExchangeAdapter.close_position` gains a size, and eight adapters implement
+  it against eight different rounding grids. Spec §5's "round down, never up"
+  applies to each partial, so a 30/30/40 split does not necessarily close the
+  position on the third leg.
+- `TradeLeg` gains a remaining size; `possync`, the realised-PnL read-back and
+  the per-account report all currently assume a leg is open or closed.
+- **`pyramiding` is the same question from the other side.** An added entry in
+  a direction already held needs the same multi-lot position model, and
+  honouring one without the other would let a backtest scale in and never out.
+
+Both are reported today rather than silently dropped:
+`properties.BACKTEST_ONLY["pyramiding"]` and the `partial_close` rejection.
+
+The alternative answer — that one exit level is enough for a fan-out platform,
+because 99% of every partner's balance is committed on the first entry anyway
+and a partial exit leaves an awkward remainder on the accounts too small to
+have taken the trade at all — is a legitimate one, and is the current default.
+
+---
+
+## Q34. Which v5/v6 differences does the subset actually expose?
+
+**Raised 2026-09-04, accepting `//@version=6`. Blocks nothing; the same shape as
+Q29's missing golden values.**
+
+The subset now reads v5 and v6, on the argument `CLAUDE.md` already makes: the
+operators, the execution model and every `ta.*` formula are shared, and
+`reference/pinescriptv6/` is what `apps/pine/` is checked against. The vendored
+reference has no v5→v6 migration page, so two known differences are unverified
+here rather than asserted:
+
+- **Boolean short-circuiting.** v6 stops evaluating `and`/`or` once the answer
+  is known; v5 evaluates both sides. Inside this subset an operand has nowhere
+  to put a side effect — `strategy.*` cannot be called from an expression, and a
+  `ta.*` site advances every bar regardless of the branch that reached it
+  (`runtime._advance_untouched`) — so the difference should not be observable.
+  "Should not" is the part that wants a test.
+- **`na` in a condition.** Both versions treat it as false here
+  (`series._Na.__bool__`), which matches v5; whether v6 differs in a case this
+  subset can reach is unconfirmed.
+
+The check is the same one Q29 asks for: a TradingView export of the same script
+under both versions, compared against this runtime. Until then the platform
+runs one implementation for both, and says so.
+
+---
+
 ## Adding one
 
-New ambiguity found mid-task goes here, numbered from **Q33**, with the parts
+New ambiguity found mid-task goes here, numbered from **Q35**, with the parts
 that do not depend on the answer built in the meantime. Move it to
 `docs/decisions.md` once it is answered, keeping its number.
 

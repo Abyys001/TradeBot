@@ -1,0 +1,5 @@
+//@version=5
+strategy("reject")
+x = strategy.percent_of_equity
+plot(close)
+//@expect code=declaration_constant_outside line=3 col=5

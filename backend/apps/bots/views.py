@@ -122,6 +122,11 @@ class StrategyViewSet(viewsets.ModelViewSet):
             validation_errors=[e.as_dict() for e in result.errors],
             validation_warnings=[w.as_dict() for w in result.warnings],
             inputs_schema=[i.as_dict() for i in result.inputs],
+            properties=result.properties.as_dict(),
+            property_notes={
+                "live_departures": result.properties.live_departures(),
+                "inert": result.properties.inert_here(),
+            },
             created_by=request.user.get_username(),
         )
         return Response(StrategyVersionSerializer(version).data, status=201)
@@ -190,12 +195,19 @@ def validate_source(request: Request) -> Response:
 
 
 @api_view(["GET"])
+@permission_classes([IsAdminUser])
 def policy(request: Request) -> Response:
     """``settings.BOT`` as the panel sees it — the decisions, live.
 
     Mirrors ``trading/policy/``. The two Q25 triggers that are absent are
     absent on purpose and say so, rather than appearing as a blank field
     somebody would later "fix" by giving them a number.
+
+    Staff-gated like every other bot endpoint. It fell back to DRF's
+    ``IsAuthenticated`` default, which on a platform with one shared staff login
+    is the same set of people — but the test above is called
+    ``test_every_read_endpoint_is_staff_only`` and this is what makes that true
+    by construction rather than by there happening to be no other users.
     """
     values = settings.BOT
     return Response(

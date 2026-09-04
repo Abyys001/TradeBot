@@ -23,30 +23,48 @@ import difflib
 from dataclasses import dataclass, field
 
 from apps.pine import ast_nodes as ast
+from apps.pine import properties
 from apps.pine.errors import PineError, PineNameError, PineSyntaxError, PineUnsupported, PineWarning
 from apps.pine.lexer import declared_version, tokenize
 from apps.pine.limits import DEFAULT_LIMITS, Limits
 from apps.pine.parser import Parser
+from apps.pine.properties import StrategyProperties
 from apps.pine.subset import (
     BARE_FUNCTIONS,
     BUILTIN_SERIES,
     BUILTIN_VALUES,
+    CLOSE_SIZE_ARGS,
+    DECLARATION_CONSTANTS,
     DECORATIVE_NAMESPACES,
+    DRAWING_NAMESPACES,
+    DRAWING_READBACKS,
+    DRAWING_TYPES,
     EXIT_PERCENT_ARGS,
     NAMESPACE_FUNCTIONS,
     NAMESPACE_VALUES,
+    REJECTED_CLOSE_ARGS,
     REJECTED_EXIT_ARGS,
     REJECTED_KEYWORDS,
     REJECTED_NAMES,
     REJECTED_NAMESPACES,
     REJECTED_STRATEGY_ARGS,
     STRATEGY_ACCEPTED_ARGS,
-    STRATEGY_IGNORED_ARGS,
+    STRATEGY_PROPERTY_ARGS,
     VISUAL_FUNCTIONS,
 )
 from apps.pine.tokens import TokenKind
 
 ORDER_CALLS = frozenset({"strategy.entry", "strategy.close", "strategy.close_all", "strategy.exit"})
+
+#: The Pine versions this platform reads. v5 is what Q24 named; v6 is accepted
+#: because the subset's semantics are the shared ones — the operators, the
+#: execution model and every ``ta.*`` formula are identical between them, and
+#: ``reference/pinescriptv6/`` is what the implementation is checked against.
+#: The v5→v6 differences that could bite inside the subset are boolean
+#: short-circuiting and ``na``-in-a-condition; both are recorded as Q34 and
+#: neither is reachable from a construct this subset accepts without the script
+#: relying on a side effect inside an operand, which it has nowhere to put.
+SUPPORTED_VERSIONS = frozenset({5, 6})
 
 #: ``strategy.entry`` arguments that name a size. Parsed, ignored, reported (Q20).
 SIZE_ARGS = frozenset({"qty", "qty_percent"})
@@ -69,6 +87,14 @@ class InputSpec:
     minval: object = None
     maxval: object = None
     options: tuple = ()
+    #: ``step``, ``group``, ``inline`` and ``tooltip`` are the *layout* half of
+    #: an input. A form that drops them turns thirty labelled, grouped controls
+    #: into thirty rows in declaration order — technically the same settings,
+    #: and unusable, which is a control problem rather than a cosmetic one.
+    step: object = None
+    group: str = ""
+    inline: str = ""
+    tooltip: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -79,6 +105,10 @@ class InputSpec:
             "minval": self.minval,
             "maxval": self.maxval,
             "options": list(self.options),
+            "step": self.step,
+            "group": self.group,
+            "inline": self.inline,
+            "tooltip": self.tooltip,
         }
 
 
@@ -95,6 +125,11 @@ class ValidationResult:
     #: ``ta.*`` call sites the runtime cannot hoist to the top of the bar. See
     #: ``_check_hoistable`` — each one is a warning, never a silent difference.
     unhoistable: list[str] = field(default_factory=list)
+    #: TradingView's Properties tab as ``strategy()`` declared it, over the
+    #: platform's defaults. The panel's form and the backtest read this one
+    #: object, so the numbers a report was produced with are the numbers the
+    #: form showed.
+    properties: StrategyProperties = field(default_factory=StrategyProperties)
 
     @property
     def ok(self) -> bool:
@@ -108,6 +143,11 @@ class ValidationResult:
             "inputs": [i.as_dict() for i in self.inputs],
             "ta_call_sites": self.ta_call_sites,
             "node_count": self.node_count,
+            "properties": self.properties.as_dict(),
+            "property_notes": {
+                "live_departures": self.properties.live_departures(),
+                "inert": self.properties.inert_here(),
+            },
         }
 
 
@@ -153,9 +193,18 @@ def validate(source: str, *, limits: Limits = DEFAULT_LIMITS) -> ValidationResul
         # A construct outside the subset can also be outside the *grammar* —
         # `array.new<float>()` fails on the type parameters before anything
         # looks at the namespace. Q24 wants the construct named, so the token
-        # stream is swept for a rejected namespace before the parse error is
-        # reported as-is.
-        named = _rejected_namespace_tokens(tokens)
+        # stream is swept for a rejected namespace.
+        #
+        # Only a namespace *at or before* the failure explains it. A sweep of
+        # the whole file used to replace the parse error outright, which turned
+        # one unreadable line into sixty confident errors about lines that were
+        # fine — the failure mode this branch is supposed to prevent, pointed
+        # the other way.
+        named = [
+            row
+            for row in _rejected_namespace_tokens(tokens)
+            if exc.span is None or row.span is None or row.span.line <= exc.span.line
+        ]
         result.errors.extend(named or [exc])
         return result
 
@@ -207,10 +256,14 @@ class _Checker:
         #: declarations. Populated in ``_collect_globals``; used to check field
         #: and method access without a full type inference pass.
         self.var_types: dict[str, str] = {}
+        #: ``name -> literal`` for a top-level constant declaration. Only read
+        #: for an input's display metadata, never for anything that decides.
+        self.const_strings: dict[str, object] = {}
 
     # --- entry point --------------------------------------------------------
 
     def run(self) -> None:
+        self._collect_unconditional()
         self._check_version()
         self._check_declaration()
         self._count_nodes()
@@ -221,6 +274,59 @@ class _Checker:
         self._walk(self.program, ancestors=())
         self._check_recursion()
         self._check_exit_reachability()
+
+    def _collect_unconditional(self) -> None:
+        """Which user functions and methods run on **every** bar.
+
+        One a bar always reaches is, for the purposes of a stateful ``ta.*``
+        inside it, the same as top level: the indicator advances once per bar
+        either way. A function reached only from inside an ``if`` is not, and
+        that is what ``_check_hoistable`` warns about.
+
+        Fixpoint rather than one pass, because "unconditional" is transitive:
+        a helper called only from another helper is unconditional exactly when
+        that one is. Conservative in the direction that warns — a callee with
+        no call site at all is left out.
+        """
+        callers: dict[str, list[str | None]] = {}
+
+        def visit(node: ast.Node, ancestors: tuple[ast.Node, ...]) -> None:
+            if isinstance(node, ast.Call):
+                name = ast.dotted_name(node.func)
+                callee = name if name in self.functions else None
+                if callee is None and isinstance(node.func, ast.Member):
+                    attr = node.func.attr
+                    callee = attr if attr in self.methods else None
+                if callee is not None and not any(
+                    isinstance(a, ast.If | ast.Ternary | ast.Switch | ast.For | ast.ForIn
+                               | ast.While)
+                    for a in ancestors
+                ):
+                    owner = next(
+                        (
+                            a.name
+                            for a in reversed(ancestors)
+                            if isinstance(a, ast.FuncDef | ast.MethodDef)
+                        ),
+                        None,
+                    )
+                    callers.setdefault(callee, []).append(owner)
+            for child in ast.children(node):
+                visit(child, (*ancestors, node))
+
+        visit(self.program, ())
+
+        #: ``None`` as a caller means "called straight from the bar".
+        self._unconditional: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for callee, owners in callers.items():
+                if callee in self._unconditional:
+                    continue
+                if any(owner is None or owner in self._unconditional for owner in owners):
+                    self._unconditional.add(callee)
+                    changed = True
 
     def _error(self, message: str, *, code: str, span, cls=PineUnsupported) -> None:
         self.result.errors.append(cls(message, code=code, span=span))
@@ -239,9 +345,9 @@ class _Checker:
                 span=self.program.span,
                 cls=PineSyntaxError,
             )
-        elif version != 5:
+        elif version not in SUPPORTED_VERSIONS:
             self._error(
-                f"this script declares Pine v{version}; this platform runs v5",
+                f"this script declares Pine v{version}; this platform runs v5 and v6",
                 code="wrong_version",
                 span=self.program.span,
             )
@@ -317,13 +423,7 @@ class _Checker:
                     continue
                 self._error(row.message, code=row.code, span=arg.span)
                 continue
-            if name in STRATEGY_IGNORED_ARGS:
-                self._warn(
-                    f"{name} is parsed and then ignored — the platform decides size "
-                    f"(Q20): margin is 99% of each account's own balance",
-                    code="ignored_strategy_arg",
-                    span=arg.span,
-                )
+            if name in STRATEGY_PROPERTY_ARGS:
                 continue
             if name not in STRATEGY_ACCEPTED_ARGS:
                 self._error(
@@ -331,6 +431,16 @@ class _Checker:
                     code="unknown_strategy_arg",
                     span=arg.span,
                 )
+
+        declared, notes = properties.parse(call)
+        self.result.properties = properties.resolve(declared=declared)
+        for name, reason, span in notes:
+            # Q20's rule, widened to the Properties tab: a property that will
+            # not be honoured, or is honoured only in the backtest, says so at
+            # upload time rather than in a footnote nobody reads.
+            self.result.warnings.append(
+                PineWarning(reason, code=_PROPERTY_CODES[name in properties.INERT], span=span)
+            )
 
     # --- caps ---------------------------------------------------------------
 
@@ -369,8 +479,16 @@ class _Checker:
                     udt = self._constructed_type(node.value)
                     if udt is not None:
                         self.var_types[node.targets[0]] = udt
+                    literal = _literal(node.value)
+                    if literal is not None and not node.qualifier:
+                        # `string G_TARGET = "03. Targets / Stop"`, then
+                        # `group = G_TARGET` on every input below it. Without
+                        # this the form loses every group heading in a script
+                        # that names them the way the style guide asks for.
+                        self.const_strings[node.targets[0]] = literal
             elif isinstance(node, ast.Reassign):
                 self.globals.add(node.target)
+                self.const_strings.pop(node.target, None)
             elif isinstance(node, ast.FuncDef):
                 self.globals.add(node.name)
                 self.globals.update(node.params)
@@ -410,6 +528,7 @@ class _Checker:
             or name in NAMESPACE_VALUES
             or name in REJECTED_NAMESPACES
             or name in DECORATIVE_NAMESPACES
+            or name in DRAWING_NAMESPACES
         )
 
     def _suggest(self, name: str) -> str:
@@ -427,7 +546,7 @@ class _Checker:
     # --- user-defined types, enums, methods -------------------------------
 
     def _known_type(self, name: str) -> bool:
-        return name in FUNDAMENTAL_TYPES or name in self.types
+        return name in FUNDAMENTAL_TYPES or name in DRAWING_TYPES or name in self.types
 
     def _check_type_defs(self) -> None:
         seen: set[str] = set()
@@ -589,15 +708,30 @@ class _Checker:
             self._error(row.message, code=row.code, span=node.span)
             return
 
-        if root in DECORATIVE_NAMESPACES:
-            if not _inside_visual_call(ancestors):
+        if _is_declaration_constant(dotted):
+            if not _inside_strategy_declaration(ancestors):
                 self._error(
-                    f"{dotted} is outside the v1 subset — decorative namespaces are "
-                    f"accepted only inside plot/plotshape/hline/fill/bgcolor, where they "
-                    f"cannot reach an order",
-                    code="decorative_outside_visual",
+                    f"{dotted} is a strategy() property constant — it has no meaning "
+                    f"outside the declaration's argument list",
+                    code="declaration_constant_outside",
                     span=node.span,
                 )
+            return
+
+        if dotted in DRAWING_READBACKS:
+            self._error(
+                f"{dotted} reads a value back out of a drawing, and this platform draws "
+                f"none — it would return na into logic that places orders. Keep the "
+                f"coordinate in a variable of your own and read that",
+                code="drawing_readback",
+                span=node.span,
+            )
+            return
+
+        if root in DECORATIVE_NAMESPACES or root in DRAWING_NAMESPACES:
+            # Inert: a colour, a style, a corner, or a handle to something this
+            # platform does not draw. None of them has arithmetic that produces
+            # a side, a price or a percent — see the subset module docstring.
             return
 
         if root in NAMESPACE_FUNCTIONS or root in NAMESPACE_VALUES:
@@ -713,6 +847,8 @@ class _Checker:
                         code="ignored_qty",
                         span=arg.span,
                     )
+        if dotted in ("strategy.close", "strategy.close_all"):
+            self._check_close_call(node, dotted)
         if dotted == "strategy.exit":
             self._check_exit_call(node)
         if dotted and dotted.startswith("ta."):
@@ -773,6 +909,21 @@ class _Checker:
                 span=node.span,
             )
 
+    def _check_close_call(self, node: ast.Call, dotted: str) -> None:
+        """A close is whole or it is nothing.
+
+        ``strategy.entry(qty = 2)`` is a warning because the platform's own
+        sizing answers the question the argument asked. Nothing answers
+        ``qty_percent = 30``: ``ExchangeAdapter.close_position`` takes a symbol
+        and no size, so the nearest available action is to flatten an account
+        the script meant to keep most of. That is a different strategy, and a
+        silent one — the case Q24 exists to refuse.
+        """
+        for arg in node.args:
+            if arg.name in CLOSE_SIZE_ARGS:
+                row = REJECTED_CLOSE_ARGS[arg.name]
+                self._error(row.message, code=row.code, span=arg.span)
+
     def _check_exit_call(self, node: ast.Call) -> None:
         percent_given = False
         rejected_given = False
@@ -805,24 +956,36 @@ class _Checker:
         ``ta.*`` site whose arguments read only globals is evaluated first, in
         source order, before the statement walk.
 
-        A site inside a user function or a loop cannot be hoisted, because its
-        arguments do not exist yet outside the call. Those advance when they are
-        reached, which is Pine's behaviour for the *first* call in a bar and not
-        for a skipped one — a real difference, so it is reported rather than
-        left for someone to discover from a backtest that will not reproduce.
+        A site inside a loop, or inside a function the bar might not reach,
+        advances only when it is reached — which is Pine's behaviour for the
+        *first* call in a bar and not for a skipped one. A real difference, so
+        it is reported rather than left for someone to discover from a backtest
+        that will not reproduce.
+
+        A site inside a function that **every bar calls anyway** is not that
+        case, and used to be warned about anyway. A textbook T3 is six
+        ``ta.ema`` calls in one helper invoked once at the top level: six
+        warnings about a function that advances exactly once per bar, on the
+        one screen where a real warning has to stand out. ``_unconditional``
+        is the difference.
         """
-        if any(
-            isinstance(a, ast.FuncDef | ast.MethodDef | ast.For | ast.ForIn | ast.While)
-            for a in ancestors
-        ):
-            self.result.unhoistable.append(node.call_id)
-            self._warn(
-                f"{dotted} here is inside a function or a loop, so it advances only on the "
-                f"bars that reach it. Move it to the top level to have it advance every "
-                f"bar the way TradingView does",
-                code="ta_not_hoisted",
-                span=node.span,
-            )
+        enclosing = next(
+            (a for a in reversed(ancestors) if isinstance(a, ast.FuncDef | ast.MethodDef)),
+            None,
+        )
+        in_loop = any(isinstance(a, ast.For | ast.ForIn | ast.While) for a in ancestors)
+        if not in_loop and (enclosing is None or enclosing.name in self._unconditional):
+            return
+
+        self.result.unhoistable.append(node.call_id)
+        where = "a loop" if in_loop else "a function the bar may not reach"
+        self._warn(
+            f"{dotted} here is inside {where}, so it advances only on the bars that "
+            f"reach it. Move it to the top level to have it advance every bar the way "
+            f"TradingView does",
+            code="ta_not_hoisted",
+            span=node.span,
+        )
 
     def _collect_input(
         self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]
@@ -837,9 +1000,10 @@ class _Checker:
             )
             return
         kind = dotted.split(".", 1)[1] if "." in dotted else "float"
-        default = _literal(node.args[0].value) if node.args and not node.args[0].name else None
-        if default is None:
-            default = _literal(node.keyword("defval"))
+        given = node.args[0].value if node.args and not node.args[0].name else None
+        if given is None:
+            given = node.keyword("defval")
+        default = _input_default(kind, given)
         if default is None:
             self._error(
                 "this input has no default — a bot cannot start without one",
@@ -847,9 +1011,9 @@ class _Checker:
                 span=node.span,
             )
             return
-        title = _literal(node.keyword("title"))
+        title = self._const(node.keyword("title"))
         if title is None and len(node.args) > 1 and not node.args[1].name:
-            title = _literal(node.args[1].value)
+            title = self._const(node.args[1].value)
         self.result.inputs.append(
             InputSpec(
                 name=assignment.targets[0],
@@ -862,10 +1026,23 @@ class _Checker:
                     _literal(item)
                     for item in getattr(node.keyword("options"), "items", ())
                 ),
+                step=_literal(node.keyword("step")),
+                group=str(self._const(node.keyword("group")) or ""),
+                inline=str(self._const(node.keyword("inline")) or ""),
+                tooltip=str(self._const(node.keyword("tooltip")) or ""),
             )
         )
 
     # --- loops and recursion ------------------------------------------------
+
+    def _const(self, node) -> object:
+        """A literal, or the literal a top-level constant name stands for."""
+        literal = _literal(node)
+        if literal is not None:
+            return literal
+        if isinstance(node, ast.Name):
+            return self.const_strings.get(node.name)
+        return None
 
     def _check_while(self, node: ast.While) -> None:
         """Reject a ``while`` nothing in its own body can end.
@@ -974,12 +1151,37 @@ class _Checker:
 # --- helpers ----------------------------------------------------------------
 
 
+#: A property that cannot work here is reported under a different code from one
+#: that works but only in the backtest — the panel colours them differently and
+#: the first is the one an author has to act on.
+_PROPERTY_CODES = {True: "inert_strategy_property", False: "backtest_only_strategy_property"}
+
+
+def _is_declaration_constant(dotted: str) -> bool:
+    """``strategy.percent_of_equity``, or the ``strategy.commission`` under one.
+
+    The walker visits the inner member of a three-segment constant too, so a
+    prefix counts: rejecting ``strategy.commission`` on its way to
+    ``strategy.commission.percent`` would report one mistake as two.
+    """
+    return dotted in DECLARATION_CONSTANTS or any(
+        constant.startswith(dotted + ".") for constant in DECLARATION_CONSTANTS
+    )
+
+
+def _inside_strategy_declaration(ancestors: tuple[ast.Node, ...]) -> bool:
+    return any(
+        isinstance(node, ast.Call) and ast.dotted_name(node.func) == "strategy"
+        for node in ancestors
+    )
+
+
 def _inside_visual_call(ancestors: tuple[ast.Node, ...]) -> bool:
     """True when this node sits in the argument list of a recorded-only call.
 
     ``plot`` and friends are annotations: nothing they are handed can reach an
-    order, which is the whole reason ``color.*`` and the other decorative
-    namespaces are accepted there and rejected everywhere else.
+    order. Used by the ``ta.*`` hoisting check, which does not need to warn
+    about a call whose value is only ever drawn.
     """
     return any(
         isinstance(node, ast.Call) and ast.dotted_name(node.func) in VISUAL_FUNCTIONS
@@ -1007,6 +1209,59 @@ def _literal(node) -> object:
         inner = _literal(node.operand)
         return -inner if isinstance(inner, int | float) else None
     return None
+
+
+#: An ``input.*`` whose default is not a plain literal. ``input.source(close)``
+#: takes a *series*, ``input.color(#00E5A8)`` a colour and ``input.time(
+#: timestamp(...))`` a call — all three are perfectly good defaults, and reading
+#: only literals reported every one of them as "this input has no default".
+def _input_default(kind: str, node) -> object:
+    """The recorded default for an input, or ``None`` when there really is none.
+
+    The value stored here is what the parameter form shows and what the runtime
+    falls back to, so a shape it cannot render is stored by its source spelling
+    rather than dropped — ``"close"``, ``"#00E5A8"`` — which is exactly what the
+    form needs to show and what ``_coerce_input`` maps back.
+    """
+    if node is None:
+        return None
+    literal = _literal(node)
+    if literal is not None:
+        return literal
+    if isinstance(node, ast.ColorLit):
+        return node.value
+    if kind == "source" and isinstance(node, ast.Name) and node.name in BUILTIN_SERIES:
+        return node.name
+    dotted = ast.dotted_name(node) if isinstance(node, ast.Member | ast.Name) else None
+    if dotted and dotted.split(".", 1)[0] in DECORATIVE_NAMESPACES:
+        return dotted
+    if isinstance(node, ast.Call):
+        called = ast.dotted_name(node.func) or ""
+        if called == "timestamp":
+            # Folded to the number it is, so the "Backtest Start" field the
+            # panel draws holds a date rather than the word "timestamp".
+            return _fold_timestamp(node)
+        if called.split(".", 1)[0] in DECORATIVE_NAMESPACES:
+            return called
+    return None
+
+
+def _fold_timestamp(node: ast.Call) -> object:
+    """``timestamp(...)`` evaluated at validation, or ``None`` when it cannot be.
+
+    Runs the *runtime's own* implementation rather than a second copy of the
+    date arithmetic, so the number the form shows and the number the first bar
+    computes cannot disagree.
+    """
+    from apps.pine import builtins as bi
+
+    args = [_literal(arg.value) for arg in node.args]
+    if any(value is None for value in args):
+        return None
+    try:
+        return bi.builtin_timestamp(None, *args)
+    except Exception:  # noqa: BLE001 - a bad date is "no default", not a crash here
+        return None
 
 
 def _literal_is_zero(node) -> bool:

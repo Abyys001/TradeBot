@@ -422,7 +422,10 @@ async def _protect(
                 attempt + 1,
                 retries + 1,
                 exc,
-                extra={"exchange": adapter.name, "error_code": getattr(exc, "code", None) or type(exc).__name__},
+                extra={
+                    "exchange": adapter.name,
+                    "error_code": getattr(exc, "code", None) or type(exc).__name__,
+                },
             )
 
     if policy == "retry_then_close":
@@ -440,7 +443,11 @@ async def _protect(
         await adapter.close_position(intent.symbol)
         raise AdapterError(f"SL/TP attach failed ({last_error}); position closed at market")
     if policy == "retry_then_notify":
-        logger.error("SL/TP could not be attached to %s — position is UNPROTECTED", intent.symbol, extra={"exchange": adapter.name, "error_code": "sltp_unprotected"})
+        logger.error(
+            "SL/TP could not be attached to %s — position is UNPROTECTED",
+            intent.symbol,
+            extra={"exchange": adapter.name, "error_code": "sltp_unprotected"},
+        )
         return SltpResult(stop_loss, take_profit, attached=False, verified=False)
     raise ValueError(f"unknown SLTP_FAILURE_POLICY: {policy!r}")
 

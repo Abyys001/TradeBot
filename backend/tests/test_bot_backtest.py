@@ -128,10 +128,23 @@ def test_the_assumptions_travel_in_the_payload_too():
 def test_a_backtest_over_a_script_outside_the_subset_refuses():
     with pytest.raises(BacktestError) as caught:
         go(
-            '//@version=5\nstrategy("x")\nmark = label.new(bar_index, high, "hi")\n',
+            '//@version=5\nstrategy("x")\n'
+            'prices = request.security(syminfo.tickerid, "D", close)\n',
             pine_corpus.bars(20),
         )
-    assert "label" in str(caught.value)
+    assert "request.security" in str(caught.value)
+
+
+def test_a_backtest_over_a_script_that_only_draws_runs():
+    """A drawing is not a reason to refuse a report — see ``subset.py``."""
+    report = go(
+        CROSS.replace(
+            "plot(fast)",
+            'mark = label.new(bar_index, high, "hi")\nplot(fast)',
+        ),
+        pine_corpus.bars(120),
+    )
+    assert report.bars > 0
 
 
 def test_a_backtest_with_no_bars_says_so_rather_than_reporting_zero():
@@ -268,3 +281,106 @@ def _bot_settings() -> dict:
     from django.conf import settings
 
     return dict(settings.BOT)
+
+
+# --- TradingView's Properties tab -------------------------------------------
+#
+# The ten settings behind `strategy()`. They describe the *simulated* account —
+# spec §5 sizes every live account at 99% of its own balance — and honouring
+# them is what makes this report comparable with the one TradingView produced
+# from the same script. Every one that departs from live is named in the header
+# rather than left for the reader to notice.
+
+
+PERCENT_OF_EQUITY = """//@version=5
+strategy(
+     "sized",
+     initial_capital=50000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=25,
+     commission_type=strategy.commission.percent,
+     commission_value=0.05
+)
+if strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+"""
+
+
+def test_initial_capital_from_the_script_sizes_the_report():
+    report = go(PERCENT_OF_EQUITY, pine_corpus.trending(40))
+    assert report.assumptions.initial_equity == D("50000")
+    assert report.assumptions.properties.default_qty_value == D("25")
+
+
+def test_percent_of_equity_sizes_the_position_the_way_the_script_asked():
+    bars = pine_corpus.trending(40)
+    report = go(PERCENT_OF_EQUITY, bars)
+    trade = report.trades[0]
+    # 25% of 50,000, in currency, converted to contracts at the fill price.
+    assert trade.qty * trade.entry_price == pytest.approx(
+        D("12500"), rel=D("0.01")
+    )
+
+
+def test_a_commission_declared_by_the_script_beats_the_platform_default():
+    with override_settings(BOT={**_bot_settings(), "BACKTEST_FEE_BPS": "99"}):
+        report = go(PERCENT_OF_EQUITY, pine_corpus.trending(40))
+    # 0.05% == 5 bps, from the script, not the 99 the platform assumes.
+    assert report.assumptions.fee_bps == D("5.00")
+
+
+def test_a_cash_commission_is_charged_per_order_rather_than_per_notional():
+    source = PERCENT_OF_EQUITY.replace(
+        "strategy.commission.percent", "strategy.commission.cash_per_order"
+    ).replace("commission_value=0.05", "commission_value=7")
+    report = go(source, pine_corpus.trending(40))
+    assert report.assumptions.commission_per_order == D("7")
+    assert report.assumptions.fee_bps == D("0")
+
+
+def test_slippage_in_ticks_is_reported_in_ticks_never_averaged_into_bps():
+    source = PERCENT_OF_EQUITY.replace(
+        "commission_value=0.05", "commission_value=0.05,\n     slippage=3"
+    )
+    report = go(source, pine_corpus.trending(40))
+    assert report.assumptions.slippage_ticks == 3
+    assert any("3 tick" in line for line in report.assumptions.lines())
+
+
+def test_the_header_says_whose_sizing_rule_produced_the_curve():
+    """A percent-of-equity curve read as a prediction of live is the failure."""
+    lines = go(PERCENT_OF_EQUITY, pine_corpus.trending(40)).assumptions.lines()
+    assert any("default_qty_type" in line for line in lines)
+    assert any("99" in line and "own balance" in line for line in lines)
+
+
+def test_a_script_that_declares_nothing_still_sizes_by_spec_5():
+    report = go(ALWAYS_LONG, pine_corpus.trending(30), initial_equity=D("1000"))
+    assert report.assumptions.properties.default_qty_type.value == "platform"
+    assert any("spec §5" in line for line in report.assumptions.lines())
+
+
+def test_an_inert_property_is_reported_as_a_warning_on_the_report():
+    source = ALWAYS_LONG.replace(
+        'strategy("always long")', 'strategy("always long", calc_on_every_tick=true)'
+    )
+    report = go(source, pine_corpus.trending(30))
+    assert any("tick" in warning for warning in report.warnings)
+
+
+DASHBOARD = """//@version=5
+strategy("dashboard")
+if strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+if strategy.position_size > 0 and strategy.closedtrades >= 0
+    strategy.close("L")
+plot(strategy.closedtrades, "closed")
+plot(strategy.netprofit_percent, "pnl")
+"""
+
+
+def test_the_dashboard_figures_reach_the_script_from_the_backtest():
+    """`strategy.closedtrades` and friends are what every published strategy
+    draws its table from — a subset without them refuses the script over it."""
+    report = go(DASHBOARD, pine_corpus.trending(40), initial_equity=D("1000"))
+    assert report.metrics["trades"] > 0

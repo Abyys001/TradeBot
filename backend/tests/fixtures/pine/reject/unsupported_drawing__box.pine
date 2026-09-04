@@ -1,4 +1,0 @@
-//@version=5
-strategy("reject")
-b = box.new(bar_index, high, bar_index, low)
-//@expect code=unsupported_drawing line=3 col=5

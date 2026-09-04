@@ -1,5 +1,0 @@
-//@version=5
-strategy("decorative")
-c = color.green
-plot(close, color=c)
-//@expect code=decorative_outside_visual line=3 col=5

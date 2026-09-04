@@ -638,7 +638,11 @@ class Parser:
                 continue
             if self.at(TokenKind.OP, "."):
                 self.index += 1
-                attr = self.expect(TokenKind.NAME)
+                # A keyword is a perfectly good *member* name: `syminfo.type`
+                # and `strategy.risk.max_position_size` both exist, and nothing
+                # after a dot can be read as the start of a statement. Refusing
+                # them made `syminfo.type` a syntax error pointing at the dot.
+                attr = self.accept(TokenKind.KEYWORD) or self.expect(TokenKind.NAME)
                 node = Member(span=node.span.to(attr.span), obj=node, attr=attr.value)
                 continue
             if self.at(TokenKind.OP, "("):

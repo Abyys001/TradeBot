@@ -508,3 +508,194 @@ def test_a_udt_strategy_snapshot_round_trips():
     assert rt.ctx.globals["p"].value.fields["n"] == D("4")
     rt.restore(saved)
     assert rt.ctx.globals["p"].value.fields["n"] == D("3")
+
+
+# --- the instrument, the timeframe and the chart -----------------------------
+
+
+def info_runtime(body: str, *, symbol: str = "BTCUSDT", interval: str = "1h") -> Runtime:
+    from apps.pine.symbol import SymbolInfo, TimeframeInfo
+
+    result = validate(HEAD + body)
+    assert result.errors == [], [e.as_dict() for e in result.errors]
+    return Runtime(
+        result.program,
+        symbol=symbol,
+        symbol_info=SymbolInfo.for_symbol(symbol, mintick=D("0.5")),
+        timeframe=TimeframeInfo.for_interval(interval),
+    )
+
+
+def test_syminfo_describes_the_bots_own_pair():
+    rt = info_runtime(
+        'plot(1, "ticker" + syminfo.ticker + syminfo.basecurrency + syminfo.currency)\n'
+    )
+    rt.run_bar(bar("100"))
+    assert "tickerBTCUSDTBTCUSDT" in "".join(rt.ctx.plots)
+
+
+def test_syminfo_mintick_is_the_exchanges_tick_not_a_guess():
+    rt = info_runtime("x = math.round_to_mintick(close)\nplot(x)\n")
+    result = rt.run_bar(bar("100.3"))
+    assert result.intent.plots["plot_1"] == D("100.5")
+
+
+def test_timeframe_answers_in_tradingviews_own_spelling():
+    rt = info_runtime('plot(1, timeframe.period)\n', interval="4h")
+    result = rt.run_bar(bar("100"))
+    assert "240" in result.intent.plots
+
+
+def test_the_chart_is_standard_candles_definitely_not_unknown():
+    """A strategy guarding against synthetic prices needs a definite answer."""
+    rt = info_runtime("x = chart.is_heikinashi ? 1 : 0\nplot(x)\n")
+    assert rt.run_bar(bar("100")).intent.plots["plot_1"] == 0
+
+
+# --- the dashboard figures ---------------------------------------------------
+
+
+def test_the_performance_figures_come_from_the_driver():
+    rt = runtime("plot(strategy.closedtrades)\nplot(strategy.netprofit_percent, 'pnl')\n")
+    rt.sync_position(
+        size_sign=0,
+        performance={"closedtrades": D("7"), "netprofit_percent": D("12.5")},
+    )
+    result = rt.run_bar(bar("100"))
+    assert result.intent.plots["plot_1"] == D("7")
+    assert result.intent.plots["pnl"] == D("12.5")
+
+
+def test_a_figure_the_driver_has_not_supplied_is_zero_not_na():
+    """A fresh run really has closed no trades, and `na` would poison the ratio
+    every dashboard computes on its first bar."""
+    rt = runtime("plot(strategy.wintrades)\n")
+    assert rt.run_bar(bar("100")).intent.plots["plot_1"] == 0
+
+
+# --- strategy.close takes an entry id ----------------------------------------
+
+
+CLOSE_THE_OTHER_SIDE = (
+    "if close > open\n"
+    "    strategy.close('Short')\n"
+    "    strategy.entry('Long', strategy.long)\n"
+)
+
+
+def test_closing_an_id_nothing_is_holding_does_nothing():
+    """The ubiquitous "close the other side, then enter" pair.
+
+    On TradingView `strategy.close("Short")` while long is a no-op. This used to
+    flatten regardless, so the pair read as close-then-open every bar.
+    """
+    rt = runtime(CLOSE_THE_OTHER_SIDE)
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="Long")
+    result = rt.run_bar(bar("110", low="90"))
+    assert result.intent.desired_side is Side.LONG
+
+
+def test_closing_the_id_that_is_held_still_closes():
+    rt = runtime("strategy.close('Long')\n")
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="Long")
+    assert rt.run_bar(bar("110")).intent.desired_side is None
+
+
+def test_close_all_ignores_the_id_entirely():
+    rt = runtime("strategy.close_all()\n")
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="Long")
+    assert rt.run_bar(bar("110")).intent.desired_side is None
+
+
+def test_a_restored_position_with_no_recorded_name_can_still_be_closed():
+    """Refusing to close a real position over a missing label is the dangerous
+    direction, so an unknown name matches any close."""
+    rt = runtime("strategy.close('Long')\n")
+    rt.sync_position(size_sign=1, avg_price=D("100"))
+    assert rt.run_bar(bar("110")).intent.desired_side is None
+
+
+# --- drawings ----------------------------------------------------------------
+
+
+def test_a_drawing_constructor_returns_a_handle_not_na():
+    """`if na(myLine)` decides create-or-move; `na` would create every bar."""
+    rt = runtime(
+        "var line l = na\n"
+        "created = 0\n"
+        "if na(l)\n"
+        "    l := line.new(bar_index, high, bar_index, low)\n"
+        "    created := 1\n"
+        "plot(created)\n"
+    )
+    first = rt.run_bar(bar("100", time=0))
+    second = rt.run_bar(bar("101", time=3600))
+    assert first.intent.plots["plot_1"] == 1
+    assert second.intent.plots["plot_1"] == 0
+
+
+def test_a_drawing_setter_is_a_no_op_and_does_not_raise():
+    rt = runtime(
+        "var label t = na\n"
+        "t := label.new(bar_index, high, 'x')\n"
+        "label.set_text(t, 'y')\n"
+        "label.delete(t)\n"
+        "plot(close)\n"
+    )
+    assert rt.run_bar(bar("100")).intent.plots
+
+
+def test_a_remembered_entry_name_cannot_veto_a_close_of_the_other_side():
+    """The name is this runtime's memory of a call *it* made.
+
+    A driver that reports the opposite position has proved that memory stale, so
+    it is dropped — a name kept past that point would refuse to close a real
+    position, which is the dangerous direction.
+    """
+    rt = runtime("strategy.close('Short')\n")
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="Long")
+    rt.run_bar(bar("100", time=0))
+    # The venue flipped underneath: the platform now holds a short.
+    rt.sync_position(size_sign=-1, avg_price=D("100"))
+    assert rt.run_bar(bar("100", time=3600)).intent.desired_side is None
+
+
+def test_going_flat_forgets_who_entered():
+    rt = runtime("strategy.close('Long')\n")
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="Long")
+    rt.run_bar(bar("100", time=0))
+    rt.sync_position(size_sign=0)
+    assert rt.ctx.position_entry_name == ""
+
+
+def test_a_keyword_is_a_legal_member_name():
+    """`syminfo.type` — nothing after a dot can start a statement.
+
+    Refusing it made a perfectly ordinary built-in a syntax error pointing at
+    the dot, which is the least useful place it could point.
+    """
+    rt = info_runtime("plot(1, syminfo.type)\n")
+    assert "crypto" in rt.run_bar(bar("100")).intent.plots
+
+
+def test_time_close_is_the_bars_open_plus_one_interval():
+    """The interval is a fact about the bot, not about the bar.
+
+    Deriving it from the gap to the previous bar would read a *missing* bar as
+    a longer timeframe.
+    """
+    rt = info_runtime("plot(time_close - time, 'span')\n", interval="4h")
+    assert rt.run_bar(bar("100", time=0)).intent.plots["span"] == 4 * 3600
+
+
+def test_timeframe_in_seconds_answers_for_the_bot_and_for_a_named_interval():
+    rt = info_runtime("plot(timeframe.in_seconds(), 'own')\n", interval="15m")
+    assert rt.run_bar(bar("100")).intent.plots["own"] == 900
+
+
+def test_a_dashboard_figure_that_is_not_a_number_defaults_to_a_string():
+    """Everything else defaults to zero; a currency code is not a number."""
+    rt = runtime("plot(1, 'ccy:' + strategy.account_currency)\n")
+    assert "ccy:" in rt.run_bar(bar("100")).intent.plots
+    rt.sync_position(size_sign=0, performance={"account_currency": "USDT"})
+    assert "ccy:USDT" in rt.run_bar(bar("101", time=3600)).intent.plots

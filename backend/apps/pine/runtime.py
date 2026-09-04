@@ -49,7 +49,13 @@ from apps.pine.intent import Annotation, Side, StrategyIntent
 from apps.pine.limits import DEFAULT_LIMITS, Limits
 from apps.pine.objects import EnumType, EnumValue, PineObject
 from apps.pine.series import NA, Series, is_na
-from apps.pine.subset import BUILTIN_SERIES, DECORATIVE_NAMESPACES, VISUAL_FUNCTIONS
+from apps.pine.subset import (
+    BUILTIN_SERIES,
+    DECORATIVE_NAMESPACES,
+    DRAWING_NAMESPACES,
+    VISUAL_FUNCTIONS,
+)
+from apps.pine.symbol import SymbolInfo, TimeframeInfo
 from apps.pine.tokens import Span
 
 ZERO = Decimal("0")
@@ -122,20 +128,35 @@ class RunContext:
         "alerts",
         "annotations",
         "desired_side",
+        "entry_signal",
         "reason",
         "order_span",
         "sl_pct",
         "tp_pct",
         "position_size",
         "position_avg_price",
+        "position_entry_name",
+        "position_entry_side",
         "equity",
         "netprofit",
         "opentrades",
+        "performance",
+        "symbol_info",
+        "timeframe",
         "limits",
     )
 
-    def __init__(self, *, limits: Limits, seed: int) -> None:
+    def __init__(
+        self,
+        *,
+        limits: Limits,
+        seed: int,
+        symbol_info: SymbolInfo | None = None,
+        timeframe: TimeframeInfo | None = None,
+    ) -> None:
         self.limits = limits
+        self.symbol_info = symbol_info or SymbolInfo()
+        self.timeframe = timeframe or TimeframeInfo()
         self.bar: Bar | None = None
         self.bar_index = -1
         self.state = BarState()
@@ -164,15 +185,29 @@ class RunContext:
         self.alerts: list[str] = []
         self.annotations: list[Annotation] = []
         self.desired_side: Side | None = None
+        self.entry_signal: bool = False
         self.reason = ""
         self.order_span: Span | None = None
         self.sl_pct: Decimal | None = None
         self.tp_pct: Decimal | None = None
         self.position_size = 0
         self.position_avg_price: Decimal | None = None
+        #: The ``id`` of the entry that opened what is held, and the side it
+        #: was entered on. ``strategy.close`` takes an id, and closing by an id
+        #: nothing is holding is a no-op on TradingView — this is what makes it
+        #: one here. The *side* is carried with it because the name is the
+        #: runtime's own memory of a call it made, and a driver that later
+        #: reports the opposite position has proved that memory stale: a name
+        #: kept past that point would veto a close of a real position.
+        self.position_entry_name: str = ""
+        self.position_entry_side: Side | None = None
         self.equity = ZERO
         self.netprofit = ZERO
         self.opentrades = 0
+        #: ``strategy.closedtrades``, ``strategy.netprofit_percent`` and the
+        #: rest of the dashboard figures. Supplied by the driver, never tallied
+        #: here — same rule as ``position_size``, and for the same reason.
+        self.performance: dict[str, object] = {}
 
     def builtin(self, name: str):
         return self.series[name].value
@@ -189,6 +224,8 @@ class Runtime:
         inputs: dict | None = None,
         limits: Limits = DEFAULT_LIMITS,
         seed: int = 0,
+        symbol_info: SymbolInfo | None = None,
+        timeframe: TimeframeInfo | None = None,
     ) -> None:
         self.program = program
         self.symbol = symbol
@@ -203,7 +240,12 @@ class Runtime:
         self.methods: dict[str, list[ast.MethodDef]] = {}
         for method in program.methods:
             self.methods.setdefault(method.name, []).append(method)
-        self.ctx = RunContext(limits=limits, seed=seed)
+        self.ctx = RunContext(
+            limits=limits,
+            seed=seed,
+            symbol_info=symbol_info or SymbolInfo.for_symbol(symbol),
+            timeframe=timeframe,
+        )
         #: ``ta.*`` sites the end-of-bar sweep is responsible for. Registered in
         #: one AST walk at load, in source order.
         self.stateful_sites: list[ast.Call] = []
@@ -253,12 +295,22 @@ class Runtime:
         equity: Decimal = ZERO,
         netprofit: Decimal = ZERO,
         opentrades: int = 0,
+        entry_name: str | None = None,
+        performance: dict | None = None,
     ) -> None:
         """Tell the runtime what is actually true before the next bar.
 
         Called by the backtest and by the supervisor with the same shape, which
         is what keeps ``strategy.position_size`` from becoming a second, private
         idea of the position.
+
+        ``performance`` carries the rest of what TradingView's own dashboard
+        shows — ``closedtrades``, ``wintrades``, ``netprofit_percent``,
+        ``max_drawdown_percent``. Published strategies read those to draw a
+        panel and to build alert payloads, so a subset without them refuses
+        scripts over a table. They are supplied here, not tallied here: the
+        backtest knows its simulated account and the supervisor knows the run's
+        own closed trades, and neither answer is the runtime's to invent.
         """
         if size_sign not in (-1, 0, 1):
             size_sign = (size_sign > 0) - (size_sign < 0)
@@ -267,6 +319,24 @@ class Runtime:
         self.ctx.equity = equity
         self.ctx.netprofit = netprofit
         self.ctx.opentrades = opentrades
+
+        held = Side.LONG if size_sign > 0 else Side.SHORT if size_sign < 0 else None
+        if entry_name is not None:
+            # ``None`` means "you know the position, I know who opened it".
+            # Only a driver restoring a position it read back out of the
+            # database has a name to assert, and it usually has none — an empty
+            # one matches any close, which is the safe direction. A name it does
+            # assert belongs to the side it is reporting in the same call.
+            self.ctx.position_entry_name = entry_name
+            self.ctx.position_entry_side = held
+        if held is None or self.ctx.position_entry_side is not held:
+            # Flat, or holding the other way round from whatever this runtime
+            # remembers entering: that memory is not about what is held now, and
+            # keeping it would let it veto a close of a real position.
+            self.ctx.position_entry_name = ""
+            self.ctx.position_entry_side = None
+        if performance is not None:
+            self.ctx.performance = dict(performance)
 
     # --- the bar ------------------------------------------------------------
 
@@ -300,6 +370,7 @@ class Runtime:
         ctx.annotations = []
         ctx.reason = ""
         ctx.order_span = None
+        ctx.entry_signal = False
         ctx.locals = []
         # A position persists until something closes it — an intent is "what
         # should be true *after* this bar", not "what this bar asked for". So the
@@ -356,6 +427,7 @@ class Runtime:
             tp_pct=ctx.tp_pct,
             reason=ctx.reason,
             source_span=ctx.order_span,
+            entry_signal=ctx.entry_signal,
             plots=dict(ctx.plots),
             alerts=tuple(ctx.alerts),
         )
@@ -373,6 +445,12 @@ class Runtime:
         series["ohlc4"].push((bar.open + bar.high + bar.low + bar.close) / 4)
         series["hlcc4"].push((bar.high + bar.low + bar.close + bar.close) / 4)
         series["time"].push(bar.time)
+        # Pine's `time_close` is the bar's *close*, which is its open plus one
+        # interval — the interval being a fact about the bot, not about the bar,
+        # which is why it arrives with `TimeframeInfo` rather than being guessed
+        # from the gap to the previous bar (a gap is also what a missing bar
+        # looks like).
+        series["time_close"].push(bar.time + self.ctx.timeframe.seconds)
         series["bar_index"].push(self.ctx.bar_index)
 
     def _carry_var_series(self) -> None:
@@ -443,6 +521,9 @@ class Runtime:
                     ctx.netprofit,
                     ctx.opentrades,
                 ),
+                "entry_name": ctx.position_entry_name,
+                "entry_side": ctx.position_entry_side,
+                "performance": ctx.performance,
                 "random": ctx.random.getstate(),
             }
         )
@@ -463,6 +544,9 @@ class Runtime:
             ctx.netprofit,
             ctx.opentrades,
         ) = restored["position"]
+        ctx.position_entry_name = restored.get("entry_name", "")
+        ctx.position_entry_side = restored.get("entry_side")
+        ctx.performance = restored.get("performance", {})
         ctx.random.setstate(restored["random"])
 
     # --- statements ---------------------------------------------------------
@@ -808,6 +892,13 @@ class Runtime:
             return NA
         if name == "last_bar_index":
             return ctx.bar_index
+        if name == "last_bar_time":
+            return ctx.series["time"].value
+        if name == "timenow":
+            # The *bar's* clock, not the wall clock. A wall-clock read would make
+            # the same bars produce different intents on a replay, which is the
+            # one property the backtest rests on (see the module docstring).
+            return ctx.series["time"].value
         if name in bi.CALENDAR_VALUES:
             return bi.CALENDAR_VALUES[name](ctx)
         if name in self.functions or name in bi.BARE_CALLS or name in VISUAL_FUNCTIONS:
@@ -881,6 +972,8 @@ class Runtime:
             return Decimal(ctx.position_size)
         if dotted == "strategy.position_avg_price":
             return ctx.position_avg_price if ctx.position_avg_price is not None else NA
+        if dotted == "strategy.position_entry_name":
+            return ctx.position_entry_name
         if dotted == "strategy.equity":
             return ctx.equity
         if dotted == "strategy.netprofit":
@@ -891,6 +984,23 @@ class Runtime:
             return Side.LONG
         if dotted == "strategy.short":
             return Side.SHORT
+        if dotted is not None and dotted.startswith("strategy."):
+            # The dashboard figures. Absent means the driver has not supplied
+            # one, and the honest answer is zero rather than `na`: a fresh run
+            # really has closed no trades, and `na` here would poison the ratio
+            # every script computes from them on the first bar.
+            return _performance(ctx.performance, dotted.split(".", 1)[1])
+        if dotted is not None and dotted.startswith("syminfo."):
+            return _attribute(ctx.symbol_info, dotted.split(".", 1)[1], node)
+        if dotted is not None and dotted.startswith("timeframe."):
+            attribute = dotted.split(".", 1)[1]
+            if attribute == "main_period":
+                return ctx.timeframe.period
+            return _attribute(ctx.timeframe, attribute, node)
+        if dotted == "chart.point":
+            return NA
+        if dotted is not None and dotted.startswith("chart."):
+            return _CHART.get(dotted.split(".", 1)[1], NA)
         if dotted == "ta.tr":
             return self._ta_state("ta.tr:" + node.call_id, "tr").update(ctx, False)
         if dotted is not None and dotted.startswith("barstate."):
@@ -1046,6 +1156,11 @@ class Runtime:
             return self._call_ta(node)
         if dotted and dotted.startswith("input"):
             return self._call_input(node, dotted)
+        if dotted == "timeframe.in_seconds":
+            values = self._args(node)
+            if values and isinstance(values[0], str):
+                return Decimal(TimeframeInfo.for_interval(values[0]).seconds)
+            return Decimal(ctx.timeframe.seconds)
         if dotted and "." in dotted:
             root, name = dotted.split(".", 1)
             table = bi.NAMESPACE_CALLS.get(root, {})
@@ -1053,6 +1168,8 @@ class Runtime:
                 return table[name](ctx, *self._args(node))
         if dotted in bi.BARE_CALLS:
             return bi.BARE_CALLS[dotted](ctx, *self._args(node))
+        if dotted and dotted.split(".", 1)[0] in DRAWING_NAMESPACES:
+            return self._call_drawing(dotted)
         if dotted and dotted.split(".", 1)[0] in DECORATIVE_NAMESPACES:
             # `color.new(color.green, 90)` and friends. The validator has already
             # confined these to a visual call's arguments, which are recorded and
@@ -1065,6 +1182,21 @@ class Runtime:
             code="unknown_call",
             span=node.span,
         )
+
+    def _call_drawing(self, dotted: str):
+        """``line.new`` and friends. Nothing is drawn; a constructor still
+        returns a handle.
+
+        The handle matters: a script does ``if na(myLine)`` to decide whether to
+        create or to move, and returning ``na`` from the constructor would send
+        it down the create branch on every bar for ever. Nothing can be read
+        back out of one — ``DRAWING_READBACKS`` is refused at validation — so an
+        object with an identity and no content is the whole of what is needed.
+        """
+        _, _, tail = dotted.partition(".")
+        if tail in ("new", "copy", "cell"):
+            return _Drawing(dotted)
+        return NA
 
     def _args(self, node: ast.Call) -> list:
         return [self._eval(arg.value) for arg in node.args]
@@ -1247,15 +1379,27 @@ class Runtime:
             # Last entry in the bar wins. Enforced here rather than left to
             # convention, so one intent per bar produces at most one entry.
             ctx.desired_side = side
+            ctx.entry_signal = True
+            ctx.position_entry_name = label
+            ctx.position_entry_side = side
             ctx.reason = f"entry: {label}" if label else "entry"
             ctx.order_span = node.span
             return NA
 
         if dotted in ("strategy.close", "strategy.close_all"):
+            if dotted == "strategy.close" and not self._holds_entry(label):
+                # TradingView closes *the part of the position opened by entries
+                # with this id*, so closing an id nothing is holding does
+                # nothing. This platform used to flatten regardless, which turns
+                # the standard `close("Short"); entry("Long")` reversal pair into
+                # a close of the long the script had just decided to keep.
+                return NA
             ctx.desired_side = None
             # The SL/TP a `strategy.exit` set belonged to the trade being closed.
             ctx.sl_pct = None
             ctx.tp_pct = None
+            ctx.position_entry_name = ""
+            ctx.position_entry_side = None
             ctx.reason = f"close: {label}" if label else "close all"
             ctx.order_span = node.span
             return NA
@@ -1270,6 +1414,23 @@ class Runtime:
             return NA
 
         raise PineNameError(f"{dotted} is not supported", code="unknown_call", span=node.span)
+
+    def _holds_entry(self, label: str) -> bool:
+        """Whether what is held was opened by an entry with this id.
+
+        Nothing held is *not* a match — a close while flat is a no-op, which is
+        what lets the ubiquitous "close the other side, then enter" pair read
+        the same here as on TradingView. An unnamed close (``strategy.close("")``)
+        matches whatever is held, since there is no id to disagree with; so does
+        a position the driver restored without a name, because refusing to close
+        a real position over a missing label would be the dangerous direction.
+        """
+        ctx = self.ctx
+        if ctx.desired_side is None:
+            return False
+        if not label or not ctx.position_entry_name:
+            return True
+        return ctx.position_entry_name == label
 
     def _call_input(self, node: ast.Call, dotted: str):
         """An ``input.*`` reads the bot's configured value, or the script's default.
@@ -1286,7 +1447,15 @@ class Runtime:
 
         name = self._input_names.get(node.call_id)
         if name and name in self.input_values:
-            return _coerce_input(self.input_values[name], default)
+            configured = self.input_values[name]
+            if dotted == "input.source":
+                # A source input is a *series*, and the form sends its name.
+                # Coercing "high" against a Decimal default would raise on the
+                # first bar, so the name is resolved here — and an unknown one
+                # keeps the script's own default rather than becoming `na`.
+                series = self.ctx.series.get(str(configured))
+                return series.value if series is not None else default
+            return _coerce_input(configured, default)
         return default
 
     def _call_visual(self, node: ast.Call, dotted: str):
@@ -1320,6 +1489,61 @@ class Runtime:
         ctx.plots[title] = None if is_na(value) else value
         ctx.annotations.append(Annotation(dotted, title, ctx.plots[title], node.span))
         return NA
+
+
+class _Drawing:
+    """A handle to something this platform does not draw. Identity only."""
+
+    __slots__ = ("kind",)
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"<{self.kind}>"
+
+
+#: ``chart.*``. Constant because this platform draws one chart, one theme, and
+#: standard candles only — a strategy that guards against synthetic prices with
+#: ``chart.is_standard`` needs a definite ``true``, not an unknown.
+_CHART: dict[str, object] = {
+    "fg_color": "chart.fg_color",
+    "bg_color": "chart.bg_color",
+    "is_standard": True,
+    "is_heikinashi": False,
+    "is_renko": False,
+    "is_kagi": False,
+    "is_pnf": False,
+    "is_linebreak": False,
+    "is_range": False,
+}
+
+#: The dashboard figures that are not numbers. Everything else defaults to zero.
+_PERFORMANCE_STRINGS = frozenset({"account_currency", "position_entry_name"})
+
+
+def _performance(values: dict, name: str):
+    value = values.get(name)
+    if value is None:
+        # Zero rather than `na` — a fresh run really has closed no trades, and
+        # `na` would poison the ratio every dashboard computes on its first bar.
+        # The one figure that is not a number says so.
+        return "" if name in _PERFORMANCE_STRINGS else Decimal(0)
+    if isinstance(value, Decimal | str | bool):
+        return value
+    return Decimal(str(value))
+
+
+def _attribute(source, name: str, node: ast.Member):
+    try:
+        return getattr(source, name)
+    except AttributeError as exc:
+        raise PineNameError(
+            f"{ast.dotted_name(node)} is not something this platform knows about "
+            f"this symbol",
+            code="undefined_member",
+            span=node.span,
+        ) from exc
 
 
 # --- coercion ---------------------------------------------------------------

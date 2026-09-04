@@ -23,16 +23,28 @@ past that is a located runtime error on the first bar, never a silent ``na``.
 Object field history — ``obj.field[n]`` — is still rejected by name, the same
 way ``(a + b)[n]`` is: assign it to a variable first.
 
-Two deliberate narrowings of "reject everything else" are recorded here rather
+Three deliberate narrowings of "reject everything else" are recorded here rather
 than left implicit:
 
-  **Decorative constants inside visual calls.** ``plot``/``plotshape`` and
-  friends are recorded, never executed (§1.3), so their arguments have no
-  execution effect at all. ``color.*``, ``shape.*``, ``location.*``, ``size.*``
-  and ``plot.style_*`` are therefore accepted *only* inside those calls' argument
-  lists and rejected by name anywhere else. Without this, nearly every real
-  script fails on its first ``color=color.green`` — over a value that cannot
-  reach an order.
+  **Decorative constants, and the drawings they decorate.** ``plot``/
+  ``plotshape`` and friends are recorded, never executed (§1.3). ``color.*``,
+  ``shape.*``, ``line.style_*``, ``position.*`` and the rest of
+  ``DECORATIVE_NAMESPACES`` are accepted **wherever a value is accepted** —
+  originally only inside a visual call's argument list, which was one step too
+  tight, because every real script names its colours on a line of their own
+  first. The drawing namespaces (``line``, ``label``, ``box``, ``table``,
+  ``polyline``, ``linefill``) are accepted the same way and draw nothing. The
+  one thing refused out of all of it is ``DRAWING_READBACKS`` — ``line.get_price``
+  and its family — because a coordinate read back out of a drawing *can* become
+  a condition, and a condition becomes an order.
+
+  **A partial close is refused, where a fixed ``qty`` is only reported.** Q20
+  drops ``strategy.entry(qty=)`` with a warning because the platform's own
+  sizing is a *complete* answer to the question the argument asked. There is no
+  such answer for ``strategy.close(qty_percent = 30)``: the adapter seam closes
+  a position whole, so the nearest thing the platform can do is flatten an
+  account the script meant to keep 70% of — a different strategy, silently. So
+  it is an error, and ``questions.md`` Q33 carries the feature.
 
   **``strategy.exit`` takes percent through ``loss_pct``/``profit_pct``.**
   Q21 says a percent exit wins and a tick/point exit is rejected, but Pine's own
@@ -45,6 +57,13 @@ than left implicit:
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from apps.pine.properties import (
+    COMMISSION_CONSTANTS,
+    CURRENCIES,
+    PROPERTY_ARGS,
+    QTY_CONSTANTS,
+)
 
 # --- accepted ---------------------------------------------------------------
 
@@ -61,12 +80,15 @@ BUILTIN_SERIES = frozenset(
         "ohlc4",
         "hlcc4",
         "time",
+        "time_close",
         "bar_index",
     }
 )
 
 #: Scalars and namespaces that are values rather than calls.
-BUILTIN_VALUES = frozenset({"na", "last_bar_index"})
+BUILTIN_VALUES = frozenset(
+    {"na", "last_bar_index", "last_bar_time", "timenow", "weekofyear"}
+)
 
 NAMESPACE_FUNCTIONS: dict[str, frozenset[str]] = {
     "ta": frozenset(
@@ -126,25 +148,154 @@ NAMESPACE_FUNCTIONS: dict[str, frozenset[str]] = {
             "avg",
             "sum",
             "random",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "todegrees",
+            "toradians",
+            "round_to_mintick",
         }
     ),
-    "str": frozenset({"tostring", "tonumber", "format", "length", "contains"}),
-    "input": frozenset({"int", "float", "bool", "string", "source", "timeframe"}),
+    "str": frozenset(
+        {
+            "tostring",
+            "tonumber",
+            "format",
+            "format_time",
+            "length",
+            "contains",
+            "startswith",
+            "endswith",
+            "substring",
+            "replace_all",
+            "split",
+            "trim",
+            "upper",
+            "lower",
+            "repeat",
+            "pos",
+        }
+    ),
+    "input": frozenset(
+        {
+            "int",
+            "float",
+            "bool",
+            "string",
+            "source",
+            "timeframe",
+            "color",
+            "time",
+            "price",
+            "session",
+            "symbol",
+            "text_area",
+        }
+    ),
     "strategy": frozenset({"entry", "close", "close_all", "exit"}),
+    #: Colour arithmetic. Inert here for the same reason the constants are —
+    #: nothing derived from a colour reaches a side, a price or a percent — but
+    #: real functions rather than names, because ``color.new(c, 90)`` is written
+    #: inline in every script that draws anything.
+    "color": frozenset({"new", "rgb", "from_gradient", "r", "g", "b", "t"}),
+    "timeframe": frozenset({"in_seconds"}),
 }
 
 #: Namespace members that are values, not calls.
 NAMESPACE_VALUES: dict[str, frozenset[str]] = {
     "ta": frozenset({"tr"}),
+    #: The performance figures TradingView's own dashboard is built from. The
+    #: *driver* supplies every one of them (``Runtime.sync_position``) for the
+    #: same reason it supplies ``position_size``: the exchange and the ledger
+    #: are the source of truth, and a runtime keeping its own tally would be a
+    #: second one. In a backtest they are the simulated account's; live they
+    #: are the run's own closed trades.
     "strategy": frozenset(
         {
             "position_size",
             "position_avg_price",
+            "position_entry_name",
             "opentrades",
+            "closedtrades",
+            "wintrades",
+            "losstrades",
+            "eventrades",
             "equity",
+            "initial_capital",
             "netprofit",
+            "netprofit_percent",
+            "openprofit",
+            "openprofit_percent",
+            "grossprofit",
+            "grossprofit_percent",
+            "grossloss",
+            "grossloss_percent",
+            "max_drawdown",
+            "max_drawdown_percent",
+            "max_runup",
+            "max_runup_percent",
+            "avg_trade",
+            "avg_trade_percent",
+            "avg_winning_trade",
+            "avg_losing_trade",
+            "account_currency",
             "long",
             "short",
+        }
+    ),
+    #: The symbol, as the platform knows it. Fed in at load from the bot's own
+    #: pair and market (``SymbolInfo``) — never guessed, and never read from a
+    #: clock or an environment, so a backtest and a live run see one answer.
+    "syminfo": frozenset(
+        {
+            "ticker",
+            "tickerid",
+            "prefix",
+            "currency",
+            "basecurrency",
+            "mintick",
+            "minmove",
+            "pricescale",
+            "pointvalue",
+            "type",
+            "timezone",
+            "session",
+            "description",
+            "root",
+        }
+    ),
+    #: The bot's timeframe, likewise fed in rather than derived.
+    "timeframe": frozenset(
+        {
+            "period",
+            "multiplier",
+            "isseconds",
+            "isminutes",
+            "isintraday",
+            "isdaily",
+            "isweekly",
+            "ismonthly",
+            "isdwm",
+            "main_period",
+        }
+    ),
+    #: Chart appearance. Constant here: this platform draws standard candles on
+    #: one theme, so ``chart.is_heikinashi`` is *false* rather than unknown —
+    #: which is what a strategy guarding against synthetic prices needs to read.
+    "chart": frozenset(
+        {
+            "fg_color",
+            "bg_color",
+            "is_standard",
+            "is_heikinashi",
+            "is_renko",
+            "is_kagi",
+            "is_pnf",
+            "is_linebreak",
+            "is_range",
         }
     ),
     "barstate": frozenset(
@@ -172,30 +323,160 @@ BARE_FUNCTIONS = frozenset(
         "max",
         "min",
         "abs",
+        "weekofyear",
+        #: Explicit casts. Pine has them as bare names shadowing the type
+        #: keywords, and real scripts use `float(a + b)` to force a division to
+        #: be a float one — refusing them fails on arithmetic, not on a feature.
+        "int",
+        "float",
+        "bool",
+        "string",
+        "color",
     }
 )
 
 #: Recorded as annotations and never executed (§1.3). Their arguments cannot
 #: reach an order, which is what licenses DECORATIVE_NAMESPACES below.
 VISUAL_FUNCTIONS = frozenset(
-    {"plot", "plotshape", "plotchar", "hline", "fill", "bgcolor", "alert", "alertcondition"}
+    {
+        "plot",
+        "plotshape",
+        "plotchar",
+        "plotarrow",
+        "plotcandle",
+        "plotbar",
+        "hline",
+        "fill",
+        "bgcolor",
+        "barcolor",
+        "alert",
+        "alertcondition",
+    }
 )
 
-#: Accepted only inside a VISUAL_FUNCTIONS argument list. See the module docstring.
-DECORATIVE_NAMESPACES = frozenset({"color", "shape", "location", "size", "plot", "display"})
+#: Namespaces whose members are **inert constants**: a colour, a marker shape, a
+#: line style, a table corner. Accepted wherever a value is accepted.
+#:
+#: This used to be "accepted only inside a plot() argument list", which was one
+#: step too tight: every real script writes ``col = trendUp ? color.green :
+#: color.red`` on its own line and passes ``col`` in later, and refusing that
+#: rejects the script over a value that still cannot reach an order. The
+#: property that licenses it is unchanged — a colour has no arithmetic that
+#: produces a side, a price or a percent, and the two places a number *can*
+#: leave the script (``strategy.exit`` percents and the intent's side) take
+#: neither a colour nor a style.
+DECORATIVE_NAMESPACES = frozenset(
+    {
+        "color",
+        "shape",
+        "location",
+        "size",
+        "plot",
+        "display",
+        "text",
+        "font",
+        "xloc",
+        "yloc",
+        "extend",
+        "position",
+        "format",
+        "hline",
+        "scale",
+        "order",
+        "adjustment",
+        "barmerge",
+        "alert",
+    }
+)
+
+#: Drawing objects: ``line``, ``label``, ``box``, ``table``, ``polyline``,
+#: ``linefill``.
+#:
+#: **Accepted, and drawn nowhere.** They used to be five rows in ``REJECTIONS``
+#: whose message read "line.* has no execution effect here" — and then errored,
+#: which is the one combination that cannot be right: a construct with no
+#: execution effect is exactly the kind this file already accepts and records
+#: (``plot``, ``plotshape``, ``bgcolor``). Half of a published strategy is its
+#: chart furniture, so refusing it refuses the strategy over its decoration.
+#:
+#: ``line.new`` and friends return an opaque handle, the setters and ``delete``
+#: are no-ops, and the panel draws none of it — the chart the admin looks at is
+#: the platform's own, not the script's.
+DRAWING_NAMESPACES = frozenset({"line", "label", "box", "table", "polyline", "linefill"})
+
+#: Members of those namespaces that **read a value back out of a drawing**.
+#: Refused by name, and this is the whole reason the split exists: a coordinate
+#: read out of a line can become a condition, and a condition becomes an order.
+#: Accepting these as no-ops would return ``na`` into live logic, which is Q24's
+#: "loads and quietly does not do what it says".
+DRAWING_READBACKS: frozenset[str] = frozenset(
+    {
+        "line.get_price",
+        "line.get_x1",
+        "line.get_x2",
+        "line.get_y1",
+        "line.get_y2",
+        "label.get_text",
+        "label.get_x",
+        "label.get_y",
+        "box.get_top",
+        "box.get_bottom",
+        "box.get_left",
+        "box.get_right",
+        "linefill.get_line1",
+        "linefill.get_line2",
+    }
+)
+
+#: The types those namespaces also name, so ``var line myLine = na`` declares.
+DRAWING_TYPES = frozenset(DRAWING_NAMESPACES | {"chart.point"})
 
 #: ``strategy.exit`` percent arguments (Q21, and see the module docstring).
 EXIT_PERCENT_ARGS = frozenset({"loss_pct", "profit_pct"})
 
-#: ``strategy()`` arguments that are parsed, ignored, and **reported** (Q20).
-STRATEGY_IGNORED_ARGS = frozenset(
-    {"default_qty_type", "default_qty_value", "initial_capital", "currency", "commission_value",
-     "commission_type", "margin_long", "margin_short", "slippage"}
-)
+#: ``strategy.close`` arguments that ask for a **partial** exit. Refused — see
+#: the ``partial_close`` rejection below for why this one is an error and
+#: ``strategy.entry``'s ``qty`` is only a warning.
+CLOSE_SIZE_ARGS = frozenset({"qty", "qty_percent"})
 
 #: ``strategy()`` arguments that carry no risk and are simply accepted.
+#: The ``max_*_count`` family sizes TradingView's drawing pools; this platform
+#: draws none of them, and a cap on nothing is not worth an error.
 STRATEGY_ACCEPTED_ARGS = frozenset(
-    {"title", "shorttitle", "overlay", "format", "precision", "max_bars_back", "scale"}
+    {
+        "title",
+        "shorttitle",
+        "overlay",
+        "format",
+        "precision",
+        "max_bars_back",
+        "scale",
+        "max_lines_count",
+        "max_labels_count",
+        "max_boxes_count",
+        "max_polylines_count",
+        "explicit_plot_zorder",
+        "behind_chart",
+        "linktoseries",
+        "close_entries_rule",
+        "risk_free_rate",
+        "calc_bars_count",
+    }
+)
+
+#: TradingView's Properties tab. Honoured by the backtest, and reported wherever
+#: one of them would describe a platform the bot will not run on.
+#: ``apps.pine.properties`` owns what each means; this alias is so the validator
+#: has one place to ask "is this a property?".
+STRATEGY_PROPERTY_ARGS = PROPERTY_ARGS
+
+#: Constants legal **only** inside the ``strategy()`` declaration:
+#: ``strategy.percent_of_equity``, ``strategy.commission.percent``,
+#: ``currency.USD``. They never reach the runtime — the declaration returns
+#: ``na`` without evaluating its arguments — so accepting them is what lets a
+#: TradingView strategy paste in unchanged.
+DECLARATION_CONSTANTS: frozenset[str] = frozenset(
+    set(QTY_CONSTANTS) | set(COMMISSION_CONSTANTS) | {f"currency.{c}" for c in CURRENCIES}
 )
 
 
@@ -243,34 +524,26 @@ REJECTIONS: tuple[Rejection, ...] = (
         message="collections are not supported yet — map.* needs a runtime value model",
     ),
     Rejection(
-        code="unsupported_drawing",
-        kind="namespace",
-        pattern="line",
-        message="drawing objects are not supported — line.* has no execution effect here",
+        code="partial_close",
+        kind="close_arg",
+        pattern="qty_percent",
+        message=(
+            "a partial close is not supported — this platform closes a position whole "
+            "(the adapter seam's close_position takes no size), so honouring qty_percent "
+            "would flatten the account the script meant to scale out of. Use "
+            "strategy.close_all(), or take the whole exit at one level"
+        ),
     ),
     Rejection(
-        code="unsupported_drawing",
-        kind="namespace",
-        pattern="label",
-        message="drawing objects are not supported — label.* has no execution effect here",
-    ),
-    Rejection(
-        code="unsupported_drawing",
-        kind="namespace",
-        pattern="box",
-        message="drawing objects are not supported — box.* has no execution effect here",
-    ),
-    Rejection(
-        code="unsupported_drawing",
-        kind="namespace",
-        pattern="table",
-        message="drawing objects are not supported — table.* has no execution effect here",
-    ),
-    Rejection(
-        code="unsupported_drawing",
-        kind="namespace",
-        pattern="polyline",
-        message="drawing objects are not supported — polyline.* has no execution effect here",
+        code="partial_close",
+        kind="close_arg",
+        pattern="qty",
+        message=(
+            "a partial close is not supported — this platform closes a position whole "
+            "(the adapter seam's close_position takes no size), so honouring qty would "
+            "flatten the account the script meant to scale out of. Use "
+            "strategy.close_all(), or take the whole exit at one level"
+        ),
     ),
     Rejection(
         code="unsupported_strategy_risk",
@@ -307,36 +580,6 @@ REJECTIONS: tuple[Rejection, ...] = (
             "use strategy.entry / strategy.close — raw order primitives do not map to §5 "
             "sizing"
         ),
-    ),
-    Rejection(
-        code="unsupported_pyramiding",
-        kind="strategy_arg",
-        pattern="pyramiding",
-        message=(
-            "pyramiding is not supported — the platform commits 99% of the account on the "
-            "first entry, so there is nothing left for a second"
-        ),
-    ),
-    Rejection(
-        code="unsupported_intrabar",
-        kind="strategy_arg",
-        pattern="calc_on_every_tick",
-        message=(
-            "this platform evaluates on bar close only (Q23) — calc_on_every_tick has no "
-            "setting"
-        ),
-    ),
-    Rejection(
-        code="unsupported_fill_model",
-        kind="strategy_arg",
-        pattern="calc_on_order_fills",
-        message="calc_on_order_fills describes a fill model that does not exist here",
-    ),
-    Rejection(
-        code="unsupported_fill_model",
-        kind="strategy_arg",
-        pattern="process_orders_on_close",
-        message="process_orders_on_close describes a fill model that does not exist here",
     ),
     Rejection(
         code="unsupported_import",
@@ -417,3 +660,4 @@ REJECTED_NAMES = {r.pattern: r for r in REJECTIONS if r.kind == "name"}
 REJECTED_STRATEGY_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "strategy_arg"}
 REJECTED_KEYWORDS = {r.pattern: r for r in REJECTIONS if r.kind == "keyword"}
 REJECTED_EXIT_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "exit_arg"}
+REJECTED_CLOSE_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "close_arg"}
