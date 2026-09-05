@@ -17,7 +17,7 @@ from typing import Any
 
 from django.conf import settings
 
-from apps.core.money import D
+from apps.core.money import D, floor_to_step, human
 from apps.engine.fanout import FanOutResult, LegResult, fan_out
 from apps.exchanges.base import (
     AdapterError,
@@ -1089,6 +1089,211 @@ async def amend_sltp(
     return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
 
 
+@dataclass(slots=True)
+class LegReduction:
+    """One account's share of a scale-out, after the rounding grid has spoken."""
+
+    account_id: object
+    #: What was actually taken off, in base units.
+    qty: Decimal
+    #: What is left on the account afterwards.
+    remaining: Decimal
+    price: Decimal | None
+    order_id: str = ""
+
+
+async def _reduce_one(
+    account_id: object,
+    adapter: ExchangeAdapter,
+    *,
+    symbol: str,
+    market: MarketType,
+    side: Side,
+    entry_qty: Decimal,
+    target_fraction: Decimal,
+) -> LegReduction:
+    """Take a share off one account's position, or say why this account cannot.
+
+    A reduce is a **reduce-only market order in the opposite direction**, not a
+    sized close: ``ExchangeAdapter.close_position`` takes no size, but
+    ``place_order`` has carried ``reduce_only`` since the seam was written and
+    every adapter that declares the capability honours it. So a scale-out costs
+    no change at the adapter layer, and reduce-only is what makes it safe —
+    without it a market order the other way is a *reversal* on a venue that
+    nets, and a second position on one that hedges.
+
+    Spec §5's rounding rule is unchanged and applies to what is *kept*: the
+    remainder is floored to the exchange's step, and the difference is what
+    goes out. An account where either side of that lands under the exchange's
+    minimum sits the scale-out out and keeps the whole position, with a
+    notification — the same treatment as an account too small to take the entry.
+    Rounding up to reach the minimum would exit more than the script asked for.
+    """
+    if not adapter.capabilities.supports_reduce_only:
+        raise AdapterError(
+            f"{adapter.name} cannot place a reduce-only order, so a partial exit here "
+            f"would be an order to reverse the position — this account keeps the whole "
+            f"position and takes the exit at the next full close",
+            code="no_reduce_only",
+        )
+
+    rules, position = await asyncio.gather(
+        adapter.get_symbol_rules(symbol, market), adapter.get_position(symbol)
+    )
+    if position is None:
+        raise AdapterError(
+            f"no open position on {symbol} to scale out of", code="no_position"
+        )
+
+    # The target is a share of what the *entry* filled, never of the last
+    # remainder: compounding the floor at every level is how a 40/30/30 split
+    # arrives at the third with a size the exchange will not accept.
+    base = entry_qty if entry_qty and entry_qty > 0 else position.size
+    remaining = floor_to_step(base * target_fraction, rules.qty_step)
+    qty = floor_to_step(position.size - remaining, rules.qty_step)
+
+    if qty <= 0:
+        raise AdapterError(
+            f"scaling to {target_fraction:%} of {human(base)} {symbol} rounds to nothing "
+            f"on this exchange's {human(rules.qty_step)} step — nothing was sent",
+            code="reduce_below_step",
+        )
+    if qty < rules.min_qty or qty * position.entry_price < rules.min_notional:
+        raise AdapterError(
+            f"this account's share of the exit is {human(qty)} {symbol}, below the "
+            f"exchange minimum — it keeps the whole position rather than exit more "
+            f"than the script asked for",
+            code="reduce_below_min",
+        )
+    if remaining < rules.min_qty:
+        raise AdapterError(
+            f"the exit would leave {human(remaining)} {symbol} on this account, below "
+            f"the exchange minimum, which is a remainder nothing could later close — "
+            f"it keeps the whole position",
+            code="remainder_below_min",
+        )
+
+    result = await adapter.place_order(
+        symbol=symbol,
+        market=market,
+        side=Side.SHORT if side is Side.LONG else Side.LONG,
+        qty=qty,
+        order_type=OrderType.MARKET,
+        reduce_only=True,
+    )
+    filled = result.filled_qty or qty
+    return LegReduction(
+        account_id=account_id,
+        qty=filled,
+        remaining=position.size - filled,
+        price=result.avg_price or None,
+        order_id=str(result.order_id or ""),
+    )
+
+
+async def reduce_trade(
+    accounts: list[tuple[object, ExchangeAdapter]],
+    *,
+    symbol: str,
+    market: MarketType,
+    side: Side,
+    target_fraction: Decimal,
+    entry_qty: dict[object, Decimal],
+    timeout: float | None = None,
+) -> FanOutResult[LegReduction]:
+    """A scale-out, fanned out (Q33).
+
+    ``respect_stop_all`` is False for the same reason ``close_trade`` sets it:
+    the kill switch stops *new* exposure, and this only ever lowers it.
+    """
+    deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
+
+    def make(account_id, adapter):
+        async def op() -> LegReduction:
+            try:
+                return await _reduce_one(
+                    account_id,
+                    adapter,
+                    symbol=symbol,
+                    market=market,
+                    side=side,
+                    entry_qty=D(entry_qty.get(account_id) or 0),
+                    target_fraction=target_fraction,
+                )
+            except SizingRejection as exc:
+                raise AdapterError(str(exc), code=exc.code) from exc
+
+        return op
+
+    result = await fan_out(
+        [(aid, make(aid, adapter)) for aid, adapter in accounts],
+        respect_stop_all=False,
+        timeout=timeout,
+    )
+
+    async def confirm(leg, adapter, budget, dl):
+        return await _reconcile_reduce(
+            leg,
+            adapter,
+            symbol=symbol,
+            entry_qty=D(entry_qty.get(leg.account_id) or 0),
+            target_fraction=target_fraction,
+            budget=budget,
+            deadline=dl,
+        )
+
+    return await _reconcile(result, accounts, deadline=deadline, per_leg=confirm)
+
+
+async def _reconcile_reduce(
+    leg: LegResult,
+    adapter: ExchangeAdapter,
+    *,
+    symbol: str,
+    entry_qty: Decimal,
+    target_fraction: Decimal,
+    budget: float,
+    deadline: float,
+) -> Reconcile | None:
+    """Did a timed-out reduce actually take the size off?
+
+    This cannot reuse ``_reconcile_close``, which reads "the position is still
+    there" as proof the close never happened. Here that is the *success* state,
+    so the question is about sizes: the order landed if what is left is at or
+    below the target. A position that is still full size is a reduce that did
+    not happen, and the leg keeps its failure.
+    """
+    try:
+        position = await asyncio.wait_for(adapter.get_position(symbol), timeout=budget)
+    except TimeoutError:
+        return None
+    except Exception as exc:  # noqa: BLE001 - an unanswered re-read keeps the timeout
+        logger.warning("reconcile reduce account=%s: %s", leg.account_id, exc)
+        return None
+
+    if entry_qty <= 0:
+        # Nothing to measure against; an unmeasurable re-read is reported as
+        # unverifiable, never as a fill.
+        return None
+    held = position.size if position is not None else D(0)
+    target = entry_qty * target_fraction
+    if held > target:
+        return None
+
+    reduction = LegReduction(
+        account_id=leg.account_id,
+        qty=entry_qty - held,
+        remaining=held,
+        price=position.entry_price if position is not None else None,
+    )
+    return (
+        True,
+        reduction,
+        f"scale-out executed after the {deadline:g}s deadline — confirmed on the exchange",
+        "late_reduce",
+    )
+
+
 async def close_trade(
     accounts: list[tuple[object, ExchangeAdapter]],
     *,
@@ -1144,5 +1349,7 @@ __all__ = [
     "confirm_open",
     "amend_sltp",
     "close_trade",
+    "reduce_trade",
+    "LegReduction",
     "failure_notifications",
 ]

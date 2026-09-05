@@ -910,19 +910,41 @@ class _Checker:
             )
 
     def _check_close_call(self, node: ast.Call, dotted: str) -> None:
-        """A close is whole or it is nothing.
+        """A close takes a share of the position, never a number of contracts.
 
-        ``strategy.entry(qty = 2)`` is a warning because the platform's own
-        sizing answers the question the argument asked. Nothing answers
-        ``qty_percent = 30``: ``ExchangeAdapter.close_position`` takes a symbol
-        and no size, so the nearest available action is to flatten an account
-        the script meant to keep most of. That is a different strategy, and a
-        silent one — the case Q24 exists to refuse.
+        ``qty_percent`` is honoured (Q33): a percentage is identical across
+        accounts and only the dollar size differs, which is spec §5's rule for
+        leverage and SL/TP applied to the exit. ``qty`` has no such reading —
+        each account is sized against its own balance, so one contract count
+        cannot mean the same thing on all of them — and ``strategy.entry(qty=)``
+        is only a warning because there the platform's own sizing *is* a
+        complete answer to the question the argument asked.
+
+        A literal ``qty_percent`` outside ``0 < p <= 100`` is refused here
+        rather than clamped: TradingView clamps, and a clamp would turn what is
+        plainly a bug in the arithmetic into a full exit without saying so.
         """
         for arg in node.args:
             if arg.name in CLOSE_SIZE_ARGS:
                 row = REJECTED_CLOSE_ARGS[arg.name]
                 self._error(row.message, code=row.code, span=arg.span)
+            elif arg.name == "qty_percent":
+                self._check_close_percent(arg)
+
+    def _check_close_percent(self, arg: ast.Argument) -> None:
+        percent = _literal(arg.value)
+        if not isinstance(percent, int | float):
+            # Computed at run time — the runtime raises there instead, with the
+            # same message. A validator that guessed at the value of an
+            # expression would refuse working scripts.
+            return
+        if percent <= 0 or percent > 100:
+            self._error(
+                f"qty_percent is {percent:g}, which is not a percentage of a position "
+                f"— it has to be above 0 and at most 100",
+                code="bad_close_percent",
+                span=arg.span,
+            )
 
     def _check_exit_call(self, node: ast.Call) -> None:
         percent_given = False

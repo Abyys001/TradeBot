@@ -19,8 +19,12 @@ import pytest
 BOTS = pathlib.Path(__file__).resolve().parent.parent / "apps" / "bots"
 PINE = pathlib.Path(__file__).resolve().parent.parent / "apps" / "pine"
 
-#: The routing functions a bot is allowed to reach for. There are three.
-ROUTES = {"route_open", "route_amend", "route_close"}
+#: The routing functions a bot is allowed to reach for. There are four —
+#: ``route_reduce`` was added deliberately for Q33's scale-out, and widening
+#: this set is what admitting a fourth path looks like. It is not a formality:
+#: the set is what ``test_exactly_one_module_calls_the_routing_layer`` uses to
+#: prove no second module reaches the order path.
+ROUTES = {"route_open", "route_amend", "route_close", "route_reduce"}
 
 #: Anything below them. A bot that called one of these would be placing an
 #: order without the sizing, the deadline or the reconciliation above it.
@@ -37,6 +41,7 @@ BELOW_THE_LINE = {
     "open_trade",
     "amend_sltp_trade",
     "close_trade",
+    "reduce_trade",
 }
 
 
@@ -81,9 +86,12 @@ def test_exactly_one_module_calls_the_routing_layer():
     assert callers == {"translate.py"}
 
 
-def test_the_dispatcher_calls_all_three_routes_and_nothing_else():
+def test_the_dispatcher_calls_every_route_and_nothing_else():
     called = called_names(ast.parse((BOTS / "translate.py").read_text()))
     assert ROUTES <= called
+    # "Nothing else" was in the name and not in the assertion: a fifth
+    # ``route_*`` added here would have passed silently.
+    assert {name for name in called if name.startswith("route_")} == ROUTES
 
 
 def test_the_supervisor_reconciles_before_it_diffs():

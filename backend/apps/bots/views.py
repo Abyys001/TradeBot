@@ -42,6 +42,7 @@ from apps.bots.models import (
     StrategyVersion,
 )
 from apps.bots.serializers import (
+    BacktestRunRowSerializer,
     BacktestRunSerializer,
     BotActionSerializer,
     BotBarSerializer,
@@ -174,10 +175,41 @@ class BotViewSet(viewsets.ModelViewSet):
         return Response(gate.evaluate(self.get_object()))
 
 
+#: How many stored runs the history endpoint will hand back at once.
+HISTORY_LIMIT = 200
+
+
 class BacktestViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = BacktestRun.objects.select_related("strategy_version__strategy")
-    serializer_class = BacktestRunSerializer
+    """Every backtest ever run, newest first.
+
+    Stored rather than recomputed: a replay costs seconds and a download, and
+    the number an operator acted on last week has to still be the number they
+    saw. ``?strategy_version=`` narrows it to one version's own history.
+    """
+
+    queryset = BacktestRun.objects.select_related("strategy_version__strategy").order_by(
+        "-created_at"
+    )
     permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        # The list is a table of headline numbers; only the detail view renders
+        # the curve and the trades, so only it pays for them.
+        return BacktestRunSerializer if self.action == "retrieve" else BacktestRunRowSerializer
+
+    def get_queryset(self):
+        rows = super().get_queryset()
+        version = self.request.query_params.get("strategy_version")
+        if version:
+            rows = rows.filter(strategy_version_id=version)
+        strategy = self.request.query_params.get("strategy")
+        if strategy:
+            rows = rows.filter(strategy_version__strategy_id=strategy)
+        # Capped rather than paginated: the panel reads this as a history strip,
+        # and nobody scrolls to the two-hundredth backtest of a script. Only on
+        # the list — `get_object` filters this queryset again, and a slice
+        # cannot be filtered.
+        return rows[:HISTORY_LIMIT] if self.action == "list" else rows
 
 
 @api_view(["POST"])
@@ -409,7 +441,11 @@ def _store_backtest(version, report, payload, actor: str) -> BacktestRun:
         bars=report.bars,
         trades=len(report.trades),
         metrics=data["metrics"],
-        assumptions=data["assumptions"],
+        # The sentences travel with the numbers. Reopening a stored run has to
+        # show the same header the run was read under, and `lines()` is derived
+        # from wording that will be edited — a row rebuilt from today's code
+        # would caption last month's report with this month's assumptions.
+        assumptions={**data["assumptions"], "lines": report.assumptions.lines()},
         equity_curve=data["equity_curve"],
         trade_log=data["trades"],
         intent_digest=report.intent_digest,

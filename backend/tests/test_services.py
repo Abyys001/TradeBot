@@ -21,7 +21,7 @@ from apps.core.money import D
 from apps.exchanges import pool
 from apps.exchanges.base import AdapterError, MarketType, OrderType, Side
 from apps.exchanges.paper import PaperAdapter
-from apps.trading.models import Trade, TradeLeg, TradeStatus
+from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 from apps.trading.services import (
     NoLegsToRoute,
     eligible_accounts,
@@ -31,6 +31,7 @@ from apps.trading.services import (
     route_close,
     route_close_all,
     route_open,
+    route_reduce,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
@@ -832,3 +833,62 @@ async def test_close_all_with_nothing_open_is_not_an_error():
     await route_close_all()
 
     assert await route_close_all() == []
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_scale_out_banks_the_slice_and_leaves_the_trade_open():
+    await make_account("partner-a", balance="1000")
+    await make_account("partner-b", balance="2000")
+
+    trade, _ = await open_a_trade()
+    result = await route_reduce(trade=trade, fraction=D("0.6"))
+
+    assert result.all_ok
+    refreshed = await sync_to_async(Trade.objects.get)(pk=trade.pk)
+    assert refreshed.status == TradeStatus.OPEN
+    assert refreshed.open_fraction == D("0.6")
+
+    legs = await sync_to_async(lambda: list(TradeLeg.objects.filter(trade=trade)))()
+    for leg in legs:
+        assert leg.closed_at is None, "a partial exit is not a close"
+        assert leg.qty < leg.entry_qty
+        assert leg.realized_pnl is not None
+
+    rows = await sync_to_async(lambda: list(TradeReduction.objects.filter(leg__trade=trade)))()
+    assert len(rows) == len(legs)
+    assert all(row.to_fraction == D("0.6") for row in rows)
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_the_final_close_prices_only_what_is_left():
+    """`_persist_close` computes from `leg.qty`, which by then is the
+    remainder — so the account's realised total is the close plus what the
+    levels banked, and neither half is counted twice."""
+    await make_account("partner-a", balance="1000")
+
+    trade, _ = await open_a_trade()
+    await route_reduce(trade=trade, fraction=D("0.5"))
+    leg = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+    remaining, banked = leg.qty, leg.realized_pnl
+
+    await route_close(trade=trade)
+    leg = await sync_to_async(lambda: TradeLeg.objects.get(trade=trade))()
+    assert leg.qty == remaining
+    assert leg.realized_pnl == banked
+    assert leg.closed_at is not None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_scale_out_reaches_a_leg_whose_protection_failed():
+    """The same asymmetry close relies on: a leg recorded ok=False may still be
+    a live position at leverage, and it must not be left out of the exit."""
+    await make_account("unprotected", balance="1000")
+    trade, _ = await open_a_trade()
+    await sync_to_async(TradeLeg.objects.filter(trade=trade).update)(
+        ok=False, error_code="sltp_failed"
+    )
+    accounts = await eligible_accounts(trade)
+    assert len(accounts) == 1

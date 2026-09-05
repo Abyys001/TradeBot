@@ -21,7 +21,8 @@
     "chart": "Chart",
     "expand": "Expand menu",
     "language": "Language",
-    "bots": "Bots"
+    "bots": "Bots",
+    "strategies": "Strategies"
   },
   "common": {
     "loading": "Loading…",
@@ -44,7 +45,9 @@
     "copied": "Copied",
     "showLess": "Show less",
     "create": "Create",
-    "delete": "Delete"
+    "delete": "Delete",
+    "save": "Save",
+    "change": "Change"
   },
   "theme": {
     "toLight": "Switch to light",
@@ -1136,6 +1139,7 @@
     "noActions": "Nothing routed yet",
     "noActionsBody": "Every order this bot sends appears here with the result each account gave back.",
     "shadowNote": "recorded, not sent",
+    "stillOpen": "{pct}% still open",
     "noBars": "No bars recorded yet",
     "barTime": "Bar",
     "close": "Close",
@@ -1184,6 +1188,7 @@
       "open": "Open",
       "amend": "Amend",
       "close": "Close",
+      "reduce": "Scale out",
       "shadow": "Shadow"
     },
     "stop": {
@@ -1216,7 +1221,22 @@
     "selectStrategyBody": "Pick one from the list, or create a new script.",
     "unsaved": "Unsaved",
     "window": "Window",
-    "execution": "Execution"
+    "execution": "Execution",
+    "countN": "{n} saved",
+    "renameStrategy": "Rename strategy",
+    "renameNote": "The versions under it keep their numbers and their source, and a running bot keeps pointing at the same one. A name is a label, not part of what a bot executes.",
+    "savedBy": "Saved by",
+    "diagnosticsHint": "Click a line to jump to it in the editor.",
+    "pickStrategyLead": "A bot is one version of one script, on one pair. Pick the script first — there is nothing to configure without it.",
+    "noStrategiesForBot": "Write a strategy first — a bot has nothing to run without one.",
+    "history": "Recent backtests",
+    "historyLead": "Every run is kept. Click one to read it back.",
+    "noHistory": "No backtests yet",
+    "noHistoryBody": "Run one above and it is stored here, numbers and all, exactly as it was read.",
+    "historyNote": "History this window needs but the archive does not hold is downloaded and stored on the first run. A venue that cannot go back this far is reported above the numbers, never refused.",
+    "replayingNote": "First run on a new pair also downloads its history.",
+    "viewingStored": "Stored run · {name}",
+    "renameBot": "Rename bot"
   },
   "security": {
     "title": "Security",

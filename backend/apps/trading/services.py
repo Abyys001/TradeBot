@@ -40,12 +40,13 @@ from apps.engine.executor import (
     confirm_open,
     failure_notifications,
     open_trade,
+    reduce_trade,
 )
 from apps.engine.fanout import NEVER_SENT_CODES, FanOutResult, LegResult, StopAllActive
 from apps.exchanges import pool
 from apps.exchanges.base import ExchangeAdapter, MarketType, OrderType, Side
 from apps.trading import killswitch
-from apps.trading.models import Trade, TradeLeg, TradeStatus
+from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,7 @@ def _persist_open(
                 error_code=leg.error_code,
                 dispatch_ms=leg.duration_ms,
                 qty=getattr(fill, "qty", None),
+                entry_qty=getattr(fill, "qty", None),
                 entry_price=getattr(fill, "entry_price", None),
                 margin=getattr(fill, "margin", None),
                 stop_loss=getattr(fill, "stop_loss", None),
@@ -539,6 +541,7 @@ def _settle_unconfirmed(trade: Trade, result: FanOutResult) -> bool:
         leg.error_code = outcome.error_code
         if fill is not None:
             leg.qty = fill.qty
+            leg.entry_qty = fill.qty
             leg.entry_price = fill.entry_price
             leg.margin = fill.margin
             leg.stop_loss = fill.stop_loss
@@ -556,6 +559,7 @@ def _settle_unconfirmed(trade: Trade, result: FanOutResult) -> bool:
             "error",
             "error_code",
             "qty",
+            "entry_qty",
             "entry_price",
             "margin",
             "stop_loss",
@@ -748,6 +752,94 @@ async def route_close(*, trade: Trade) -> FanOutResult:
         await _broadcast("notification", notification)
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
     return result
+
+
+async def route_reduce(*, trade: Trade, fraction: Decimal) -> FanOutResult:
+    """Take a share off every account holding this trade, and keep it open (Q33).
+
+    The instruction is a *fraction of the entry*, identical on every account —
+    spec §5's rule that only the dollar size differs, applied to the exit. It is
+    also idempotent: the target is where the position should end up, not how
+    much to remove, so re-sending the same fraction after a restart asks the
+    exchanges for a size they are already at and the fan-out reports each leg
+    as already there rather than exiting twice.
+
+    An account that cannot express a partial exit — no reduce-only, or a share
+    that lands under the exchange's minimum — keeps the **whole** position and
+    raises a notification, the same treatment as an account too small to have
+    taken the entry. Exiting it fully instead would be the silent approximation
+    the subset refuses in the first place.
+    """
+    accounts = await eligible_accounts(trade)
+    adapters = _adapters(accounts)
+    if not adapters:
+        raise NoLegsToRoute(
+            "no account could be reached for this trade — nothing was sent to any "
+            "exchange and the position was NOT reduced"
+        )
+    entry_qty = await _entry_sizes(trade)
+    result = await reduce_trade(
+        adapters,
+        symbol=trade.symbol,
+        market=MarketType(trade.market),
+        side=Side(trade.side),
+        target_fraction=fraction,
+        entry_qty=entry_qty,
+    )
+    await sync_to_async(_persist_reduce)(trade, result, fraction)
+    for notification in await _persist_notifications(result):
+        await _broadcast("notification", notification)
+    await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
+    return result
+
+
+@sync_to_async
+def _entry_sizes(trade: Trade) -> dict[int, Decimal]:
+    """What each account's entry filled, so a level is a share of that.
+
+    ``entry_qty`` is null on legs opened before the column existed; ``qty`` is
+    the right answer for those, because a leg that predates scale-out has never
+    been reduced.
+    """
+    return {
+        leg.account_id: D(leg.entry_qty if leg.entry_qty is not None else (leg.qty or 0))
+        for leg in trade.legs.all()
+    }
+
+
+def _persist_reduce(trade: Trade, result: FanOutResult, fraction: Decimal) -> None:
+    """Bank the slice. The trade stays OPEN — this is not a close."""
+    legs = {leg.account_id: leg for leg in trade.legs.all()}
+    direction = Decimal("1") if trade.side == Side.LONG.value else Decimal("-1")
+    updated: list[TradeLeg] = []
+    reductions: list[TradeReduction] = []
+    for outcome in result.legs:
+        leg = legs.get(outcome.account_id)
+        reduction = outcome.value
+        if leg is None or not outcome.ok or reduction is None:
+            continue
+        pnl = None
+        if reduction.price is not None and leg.entry_price:
+            pnl = (D(reduction.price) - leg.entry_price) * D(reduction.qty) * direction
+        leg.qty = D(reduction.remaining)
+        leg.realized_pnl = (leg.realized_pnl or Decimal("0")) + (pnl or Decimal("0"))
+        updated.append(leg)
+        reductions.append(
+            TradeReduction(
+                leg=leg,
+                qty=D(reduction.qty),
+                to_fraction=fraction,
+                price=reduction.price,
+                pnl=pnl,
+            )
+        )
+    if updated:
+        TradeLeg.objects.bulk_update(updated, ["qty", "realized_pnl"])
+        TradeReduction.objects.bulk_create(reductions)
+    # Recorded even when every leg refused, so the next bar's diff does not keep
+    # re-issuing a level the accounts have already been asked for and declined.
+    trade.open_fraction = fraction
+    trade.save(update_fields=["open_fraction"])
 
 
 @sync_to_async

@@ -3,5 +3,5 @@ strategy("scale out")
 if close > open
     strategy.entry("L", strategy.long)
 if close < open
-    strategy.close("L", qty_percent=30)
-//@expect code=partial_close line=6 col=25
+    strategy.close("L", qty_percent=150)
+//@expect code=bad_close_percent line=6 col=25

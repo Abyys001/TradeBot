@@ -23,7 +23,7 @@ from apps.core.money import D
 from apps.exchanges import pool
 from apps.exchanges.base import MarketType, OrderType, Position, Side
 from apps.exchanges.paper import _SHARED_STATE
-from apps.trading.models import Trade, TradeLeg, TradeStatus
+from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 from apps.trading.possync import GRACE, sync_positions
 from apps.trading.services import route_open
 
@@ -291,6 +291,64 @@ async def test_size_drift_is_taken_from_the_exchange():
 
     assert report.drifted == [account.id]
     assert (await leg_for(trade, account)).qty == D("0.007")
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_position_that_shrank_is_written_down_as_a_partial_exit():
+    """It used to be swallowed as drift: the size was copied over and the
+    difference — real money, out of the position — left no row at all, which
+    `accounts.detection` then offered to the operator as somebody's deposit."""
+    account = await make_account("partner-a")
+    trade, _ = await open_a_trade()
+    await age_legs(trade)
+    before = (await leg_for(trade, account)).qty
+
+    hold_on_exchange(account, size=str(before / 2))
+    await sync_positions(force=True)
+
+    rows = await sync_to_async(lambda: list(TradeReduction.objects.filter(leg__trade=trade)))()
+    assert len(rows) == 1
+    assert rows[0].qty == before - before / 2
+    assert rows[0].source_code == "shrank_on_exchange"
+    # Unknown, never estimated from a mark: `get_closed_pnl` reports a closed
+    # position, not a slice of an open one, so there is nothing to price it from.
+    assert rows[0].price is None and rows[0].pnl is None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_shrink_the_platform_already_recorded_is_not_written_twice():
+    account = await make_account("partner-a")
+    trade, _ = await open_a_trade()
+    await age_legs(trade)
+    leg = await leg_for(trade, account)
+    taken = leg.qty / 2
+
+    await sync_to_async(TradeReduction.objects.create)(
+        leg=leg, qty=taken, to_fraction=D("0.5"), price=D("100000"), pnl=D("0")
+    )
+    hold_on_exchange(account, size=str(leg.qty - taken))
+    await sync_positions(force=True)
+
+    rows = await sync_to_async(lambda: list(TradeReduction.objects.filter(leg__trade=trade)))()
+    assert len(rows) == 1
+    assert rows[0].price == D("100000")
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_position_that_grew_is_still_only_drift():
+    """A reduction is a shrink. Copying a *larger* size over is the existing
+    behaviour and must not start minting exit rows."""
+    account = await make_account("partner-a")
+    trade, _ = await open_a_trade()
+    await age_legs(trade)
+    before = (await leg_for(trade, account)).qty
+
+    hold_on_exchange(account, size=str(before * 2))
+    await sync_positions(force=True)
+
+    assert not await sync_to_async(
+        TradeReduction.objects.filter(leg__trade=trade).exists
+    )()
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

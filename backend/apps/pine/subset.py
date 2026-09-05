@@ -38,13 +38,15 @@ than left implicit:
   and its family — because a coordinate read back out of a drawing *can* become
   a condition, and a condition becomes an order.
 
-  **A partial close is refused, where a fixed ``qty`` is only reported.** Q20
-  drops ``strategy.entry(qty=)`` with a warning because the platform's own
-  sizing is a *complete* answer to the question the argument asked. There is no
-  such answer for ``strategy.close(qty_percent = 30)``: the adapter seam closes
-  a position whole, so the nearest thing the platform can do is flatten an
-  account the script meant to keep 70% of — a different strategy, silently. So
-  it is an error, and ``questions.md`` Q33 carries the feature.
+  **A partial close takes a percentage; a fixed ``qty`` is still refused.**
+  ``strategy.close(qty_percent = 30)`` is a real scale-out here (Q33, answered):
+  a percentage of the position is identical across accounts and only the dollar
+  size differs, which is spec §5's existing rule applied to the exit rather than
+  to the entry. ``qty = 2`` has no such reading — an absolute contract count is
+  the platform's answer to give under Q20, and unlike a percentage there is
+  nothing to translate it into across accounts of different sizes — so it stays
+  an error rather than the warning ``strategy.entry(qty=)`` gets, where the
+  platform's own sizing *is* a complete answer to the question asked.
 
   **``strategy.exit`` takes percent through ``loss_pct``/``profit_pct``.**
   Q21 says a percent exit wins and a tick/point exit is rejected, but Pine's own
@@ -434,10 +436,11 @@ DRAWING_TYPES = frozenset(DRAWING_NAMESPACES | {"chart.point"})
 #: ``strategy.exit`` percent arguments (Q21, and see the module docstring).
 EXIT_PERCENT_ARGS = frozenset({"loss_pct", "profit_pct"})
 
-#: ``strategy.close`` arguments that ask for a **partial** exit. Refused — see
-#: the ``partial_close`` rejection below for why this one is an error and
-#: ``strategy.entry``'s ``qty`` is only a warning.
-CLOSE_SIZE_ARGS = frozenset({"qty", "qty_percent"})
+#: ``strategy.close`` arguments that name a **size** rather than a share.
+#: ``qty_percent`` is not here: it is honoured (Q33). See the ``partial_close``
+#: rejection below for why this one is an error where ``strategy.entry``'s own
+#: ``qty`` is only a warning.
+CLOSE_SIZE_ARGS = frozenset({"qty"})
 
 #: ``strategy()`` arguments that carry no risk and are simply accepted.
 #: The ``max_*_count`` family sizes TradingView's drawing pools; this platform
@@ -526,23 +529,12 @@ REJECTIONS: tuple[Rejection, ...] = (
     Rejection(
         code="partial_close",
         kind="close_arg",
-        pattern="qty_percent",
-        message=(
-            "a partial close is not supported — this platform closes a position whole "
-            "(the adapter seam's close_position takes no size), so honouring qty_percent "
-            "would flatten the account the script meant to scale out of. Use "
-            "strategy.close_all(), or take the whole exit at one level"
-        ),
-    ),
-    Rejection(
-        code="partial_close",
-        kind="close_arg",
         pattern="qty",
         message=(
-            "a partial close is not supported — this platform closes a position whole "
-            "(the adapter seam's close_position takes no size), so honouring qty would "
-            "flatten the account the script meant to scale out of. Use "
-            "strategy.close_all(), or take the whole exit at one level"
+            "a close cannot name a number of contracts — every account is sized at 99% "
+            "of its own balance (spec §5), so there is no one quantity that means the "
+            "same thing on all of them. Use qty_percent=, which is a share of whatever "
+            "each account is holding"
         ),
     ),
     Rejection(

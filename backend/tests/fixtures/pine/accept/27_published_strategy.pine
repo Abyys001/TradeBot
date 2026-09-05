@@ -1,16 +1,15 @@
-// A real published strategy, kept verbatim except where noted.
+// A real published strategy, kept **verbatim**.
 //
 // Provenance: "McGinley T3 Flow Campaign [NICK789]", MPL-2.0, //@version=6.
 // It is here because it is what an admin actually pastes in: 731 lines of which
 // roughly half is chart furniture, wrapped ternary chains, a user-defined type
-// with methods, a dashboard built from strategy.* performance figures, and a
-// JSON alert payload. Every one of those was a rejection before this fixture
-// existed, and none of the errors named the real problem.
+// with methods, a dashboard built from strategy.* performance figures, a JSON
+// alert payload, and a TP1/TP2/TP3 scale-out. Every one of those was a
+// rejection before this fixture existed, and none of the errors named the real
+// problem.
 //
-// ONE EDIT: `strategy.close(..., qty_percent = safeTn)` is refused by the
-// subset — the adapter seam closes a position whole, so a partial close would
-// flatten an account the script meant to keep most of (see subset.py and
-// questions.md Q33). Each level takes the whole exit here instead.
+// Not one line is edited. If this file stops validating, a published strategy
+// stopped loading.
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © NICK789
 
@@ -358,7 +357,7 @@ if allowTrading
 
         else
             if useTargets and useTP1Exit and not na(liveLongT1) and high > liveLongT1
-                strategy.close("Long", comment="Long TP1", alert_message=f_json("exit_buy", safeT1, liveLongT1, liveLongSL))
+                strategy.close("Long", comment="Long TP1", qty_percent=safeT1, alert_message=f_json("exit_buy", safeT1, liveLongT1, liveLongSL))
 
                 if scaleOutMode
                     liveLongT1 := na
@@ -370,7 +369,7 @@ if allowTrading
                     campaign.finish()
 
             if useTargets and useTP2Exit and not na(liveLongT2) and high > liveLongT2
-                strategy.close("Long", comment="Long TP2", alert_message=f_json("exit_buy", safeT2, liveLongT2, liveLongSL))
+                strategy.close("Long", comment="Long TP2", qty_percent=safeT2, alert_message=f_json("exit_buy", safeT2, liveLongT2, liveLongSL))
 
                 if scaleOutMode
                     liveLongT2 := na
@@ -382,7 +381,7 @@ if allowTrading
                     campaign.finish()
 
             if useTargets and useTP3Exit and not na(liveLongT3) and high > liveLongT3
-                strategy.close("Long", comment="Long TP3", alert_message=f_json("exit_buy", safeT3, liveLongT3, liveLongSL))
+                strategy.close("Long", comment="Long TP3", qty_percent=safeT3, alert_message=f_json("exit_buy", safeT3, liveLongT3, liveLongSL))
                 liveLongT1 := na
                 liveLongT2 := na
                 liveLongT3 := na
@@ -401,7 +400,7 @@ if allowTrading
 
         else
             if useTargets and useTP1Exit and not na(liveShortT1) and low < liveShortT1
-                strategy.close("Short", comment="Short TP1", alert_message=f_json("exit_sell", safeT1, liveShortT1, liveShortSL))
+                strategy.close("Short", comment="Short TP1", qty_percent=safeT1, alert_message=f_json("exit_sell", safeT1, liveShortT1, liveShortSL))
 
                 if scaleOutMode
                     liveShortT1 := na
@@ -413,7 +412,7 @@ if allowTrading
                     campaign.finish()
 
             if useTargets and useTP2Exit and not na(liveShortT2) and low < liveShortT2
-                strategy.close("Short", comment="Short TP2", alert_message=f_json("exit_sell", safeT2, liveShortT2, liveShortSL))
+                strategy.close("Short", comment="Short TP2", qty_percent=safeT2, alert_message=f_json("exit_sell", safeT2, liveShortT2, liveShortSL))
 
                 if scaleOutMode
                     liveShortT2 := na
@@ -425,7 +424,7 @@ if allowTrading
                     campaign.finish()
 
             if useTargets and useTP3Exit and not na(liveShortT3) and low < liveShortT3
-                strategy.close("Short", comment="Short TP3", alert_message=f_json("exit_sell", safeT3, liveShortT3, liveShortSL))
+                strategy.close("Short", comment="Short TP3", qty_percent=safeT3, alert_message=f_json("exit_sell", safeT3, liveShortT3, liveShortSL))
                 liveShortT1 := na
                 liveShortT2 := na
                 liveShortT3 := na

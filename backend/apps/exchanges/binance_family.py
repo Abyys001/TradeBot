@@ -930,10 +930,21 @@ class ToobitAdapter(BinanceStyleAdapter):
                 f"({multiplier} {symbol} per contract)"
             )
 
+        # Toobit is hedge-mode: `positionSide` names the position the order acts
+        # on, not the direction of the order. Deriving it from `side` is right
+        # for an entry and **backwards for a reduce** — a reduce-only sell
+        # against a long would carry positionSide=SHORT and open a second,
+        # opposing position instead of taking size off the first. `side` is
+        # already the opposite of what is held when reduce_only is set, so the
+        # position being reduced is the other one. `close_position` below has
+        # always read the held side for the same reason.
+        position_side = side
+        if reduce_only:
+            position_side = Side.SHORT if side is Side.LONG else Side.LONG
         body: dict[str, Any] = {
             "symbol": contract,
             "side": "BUY" if side is Side.LONG else "SELL",
-            "positionSide": "LONG" if side is Side.LONG else "SHORT",
+            "positionSide": "LONG" if position_side is Side.LONG else "SHORT",
             "type": "MARKET" if order_type is OrderType.MARKET else "LIMIT",
             "quantity": str(int(contracts)),
             # Mandatory on Toobit; the engine does not pass one.

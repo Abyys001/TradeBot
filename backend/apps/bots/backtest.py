@@ -26,7 +26,9 @@ inventing precision it does not have. ``sizing.py`` owns that at execution time.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from django.conf import settings
@@ -64,10 +66,84 @@ class _Position:
     bars: int = 0
     reason: str = ""
     span: dict | None = None
+    #: What the entry filled. ``qty`` shrinks as the position is scaled out
+    #: (Q33); every level is a share of *this*, so the rounding does not
+    #: compound and a 40/30/30 split arrives at the third with the size the
+    #: script asked for.
+    entry_qty: Decimal = ZERO
+    #: How much of the entry is still open, in ``(0, 1]``.
+    fraction: Decimal = Decimal(1)
+    #: Banked by the scale-outs, net of their fees and their share of the entry
+    #: fee. Added to the final close so a scaled-out trade is still one trade.
+    realized: Decimal = ZERO
+    fees_paid: Decimal = ZERO
+    scale_outs: list = field(default_factory=list)
 
 
 class BacktestError(Exception):
     """The run could not be produced. Never a partial report presented as whole."""
+
+
+#: How long a backtest may spend downloading history it does not hold before it
+#: settles for the span it managed to cover. A backtest is a foreground request:
+#: a five-minute download behind a spinner is a hang. What arrives inside the
+#: budget is replayed and the report says where the data actually started.
+DOWNLOAD_BUDGET_SECONDS = 90.0
+
+#: A window is "covered" when the archive holds this share of the bars the
+#: interval implies. Venues skip bars (halts, listings, thin pairs), so
+#: demanding every one would re-download a series that is already whole.
+COVERAGE_RATIO = Decimal("0.9")
+
+
+@dataclass(slots=True)
+class HistoryWindow:
+    """The bars a backtest will replay, and what had to happen to get them."""
+
+    bars: list[Bar]
+    #: Rows written to the archive by this call. Zero on the second run of the
+    #: same window, which is the whole point of writing them.
+    downloaded: int = 0
+    #: Said in the report when the venue could not go back as far as asked.
+    notes: list[str] = field(default_factory=list)
+
+
+def _download_window(
+    *, exchange: str, symbol: str, interval: str, market: MarketType, since: int
+) -> int:
+    """Page back to ``since`` from now, writing every page to the archive.
+
+    Deliberately not ``catalogue.backfill_series``: that one is expressed in
+    whole days from now and runs on a worker for the chart. A backtest asks for
+    an exact second, in the foreground, on a clock — so the walk is here, and
+    it stops on the budget rather than on a page count.
+    """
+    from apps.exchanges import catalogue
+    from apps.exchanges.feed_base import BACKFILL_TIMEOUT
+    from apps.exchanges.marketdata import source_for
+
+    source = source_for(exchange, timeout=BACKFILL_TIMEOUT)
+    page = max(1, source.page_limit)
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    end: int | None = None
+    written = 0
+
+    while time.monotonic() < deadline:
+        candles = source.candles(
+            symbol=symbol, interval=interval, market=market, limit=page, end=end
+        )
+        if not candles:
+            break
+        written += catalogue.write_candles(exchange, symbol, market, interval, candles)
+        oldest = min(candle.time for candle in candles)
+        if end is not None and oldest >= end:
+            break  # the venue is not paging any further back
+        if oldest <= since:
+            break
+        end = oldest - 1
+        time.sleep(catalogue.REQUEST_PAUSE)
+
+    return written
 
 
 def load_bars(
@@ -78,53 +154,118 @@ def load_bars(
     from_time: int,
     to_time: int,
     warmup: int,
-) -> list[Bar]:
+) -> HistoryWindow:
     """Bars for the window plus ``warmup`` bars before it, oldest first.
 
-    Reads the archive first — it is a local table with an index on exactly this
-    query, and serving depth out of it is the reason bars are kept — then fills
-    the head from the live feed. Nothing is invented: a window the archive does
-    not cover comes back short and the caller says so.
+    The archive is read first — it is a local table with an index on exactly
+    this query, and serving depth out of it is the reason bars are kept. A
+    window it does not cover is **downloaded here and written back**, so the
+    second backtest of a pair costs one query: "run market_sync first" is a
+    chore handed to the operator for something the platform can do itself.
+
+    Nothing is invented. When the venue's own history stops short of the
+    request the run proceeds over what exists and ``notes`` says where it
+    really began — a shorter honest window beats a refusal.
     """
     from apps.exchanges import candlestore, marketdata
 
     step = interval_seconds(interval)
     wanted_from = from_time - warmup * step
+    symbol = symbol.upper()
+    exchange = marketdata.pinned_provider() or _first_provider()
+    notes: list[str] = []
 
-    stored = candlestore.read_window(
-        symbol=symbol.upper(),
-        interval=interval,
-        market=market,
-        limit=int((to_time - wanted_from) / step) + warmup + 10,
-        end=to_time,
-        exchange=marketdata.pinned_provider(),
-    )
-    candles = list(stored[0]) if stored else []
+    def archived() -> list:
+        stored = candlestore.read_window(
+            symbol=symbol,
+            interval=interval,
+            market=market,
+            limit=int((to_time - wanted_from) / step) + warmup + 10,
+            end=to_time,
+            exchange=marketdata.pinned_provider(),
+        )
+        rows = list(stored[0]) if stored else []
+        return [c for c in rows if wanted_from <= c.time <= to_time]
+
+    candles = archived()
+    downloaded = 0
+
+    if not _covers(candles, wanted_from=wanted_from, to_time=to_time, step=step):
+        if not exchange:
+            raise BacktestError(
+                f"no stored history for {symbol} {interval} and no public market-data "
+                f"source is configured, so there is nothing to download it from"
+            )
+        try:
+            downloaded = _download_window(
+                exchange=exchange,
+                symbol=symbol,
+                interval=interval,
+                market=market,
+                since=wanted_from,
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, never a silent empty series
+            logger.warning("backtest history download failed for %s %s: %s", symbol, interval, exc)
+            if not candles:
+                raise BacktestError(
+                    f"{symbol} {interval} has no stored history and {exchange} could not "
+                    f"be reached to download it ({exc})"
+                ) from exc
+            notes.append(
+                f"{exchange} could not be reached to extend this window ({exc}), so the "
+                f"report covers only the history already stored"
+            )
+        else:
+            candles = archived()
 
     if not candles:
-        try:
-            payload = marketdata.get_candles(
-                symbol=symbol.upper(), interval=interval, market=market, limit=1000, end=to_time
-            )
-            candles = [
-                candlestore.Candle(
-                    time=int(row["t"]),
-                    open=Decimal(row["o"]),
-                    high=Decimal(row["h"]),
-                    low=Decimal(row["l"]),
-                    close=Decimal(row["c"]),
-                    volume=Decimal(row.get("v", "0")),
-                )
-                for row in payload.get("candles", [])
-            ]
-        except Exception as exc:  # noqa: BLE001 - reported, never silently empty
-            raise BacktestError(
-                f"no stored history for {symbol} {interval} and the live feed could not "
-                f"be reached ({exc}). Run `manage.py market_sync` or open the chart for "
-                f"this pair first."
-            ) from exc
+        raise BacktestError(
+            f"{exchange or 'the configured feed'} returned no {interval} bars for "
+            f"{symbol} in this window — check the symbol, or pick a market this pair "
+            f"actually trades on"
+        )
 
-    return [to_bar(c) for c in candles if wanted_from <= c.time <= to_time]
+    earliest = min(candle.time for candle in candles)
+    if earliest > from_time + step:
+        notes.append(
+            f"history for {symbol} {interval} begins at {utc_text(earliest)}, so the "
+            f"report starts there rather than at the date requested"
+        )
+
+    return HistoryWindow(
+        bars=[to_bar(candle) for candle in candles],
+        downloaded=downloaded,
+        notes=notes,
+    )
+
+
+def _covers(candles: list, *, wanted_from: int, to_time: int, step: int) -> bool:
+    """True when the archive already holds this window densely enough.
+
+    Both ends matter: a pair downloaded a month ago has the start of the window
+    and none of the end, and a run that only checked the count would replay it
+    and stop early without saying so.
+    """
+    if not candles:
+        return False
+    expected = max(1, (to_time - wanted_from) // step)
+    if Decimal(len(candles)) < COVERAGE_RATIO * Decimal(expected):
+        return False
+    newest = max(candle.time for candle in candles)
+    oldest = min(candle.time for candle in candles)
+    return oldest <= wanted_from + step and newest >= to_time - 2 * step
+
+
+def _first_provider() -> str:
+    """The venue an unpinned feed would quote, used as the download source."""
+    from apps.exchanges import marketdata
+
+    providers = marketdata._configured_providers()
+    return providers[0] if providers else ""
+
+
+def utc_text(seconds: int) -> str:
+    return datetime.fromtimestamp(seconds, tz=UTC).strftime("%Y-%m-%d %H:%M")
 
 
 def run(
@@ -150,14 +291,19 @@ def run(
         raise BacktestError("; ".join(str(e) for e in result.errors))
 
     warmup = warmup_bars_needed(_longest_lookback(result))
-    series = bars if bars is not None else load_bars(
-        symbol=symbol,
-        interval=interval,
-        market=market,
-        from_time=from_time,
-        to_time=to_time,
-        warmup=warmup,
-    )
+    history_notes: list[str] = []
+    if bars is not None:
+        series = bars
+    else:
+        window = load_bars(
+            symbol=symbol,
+            interval=interval,
+            market=market,
+            from_time=from_time,
+            to_time=to_time,
+            warmup=warmup,
+        )
+        series, history_notes = window.bars, window.notes
     if not series:
         raise BacktestError(
             f"no bars for {symbol} {interval} between {from_time} and {to_time}"
@@ -225,7 +371,7 @@ def run(
         tp_pct=tp_pct,
     )
 
-    warnings: list[str] = []
+    warnings: list[str] = list(history_notes)
     evaluated = 0
     for index, bar in enumerate(series):
         history = bar.time < from_time
@@ -346,6 +492,9 @@ class _Engine:
         self.pending: (
             tuple[Side | None, Decimal | None, Decimal | None, str, dict | None] | None
         ) = None
+        #: A scale-out asked for on the last bar, filling at this one's open —
+        #: the same no-look-ahead rule an entry follows.
+        self.pending_reduce: tuple[Decimal, str] | None = None
         self.trades: list[ClosedTrade] = []
         self.curve: list[tuple[int, Decimal]] = []
         self.intents: list = []
@@ -355,6 +504,10 @@ class _Engine:
     def step(self, bar: Bar, *, ishistory: bool) -> None:
         # 1. Yesterday's signal fills at *this* bar's open. Never at the close
         #    of the bar that produced it — that is the look-ahead bug.
+        if self.pending_reduce is not None and not ishistory:
+            to_fraction, why = self.pending_reduce
+            self._reduce(bar, self._slipped(bar.open, closing=True), to_fraction, why)
+            self.pending_reduce = None
         if self.pending is not None and not ishistory:
             self._execute(self.pending, bar)
             self.pending = None
@@ -398,6 +551,11 @@ class _Engine:
                 intent.reason,
                 intent.source_span.as_dict() if intent.source_span else None,
             )
+        elif self.position is not None and intent.position_fraction < self.position.fraction:
+            # Q33: the side is unchanged and the size is not, which is the one
+            # change the side comparison above cannot see. Same fill rule as an
+            # entry — decided on this bar, filled at the next one's open.
+            self.pending_reduce = (intent.position_fraction, intent.reason or "scale out")
 
     def finish(self, last: Bar) -> None:
         """Close anything still open at the last bar, so the report is complete.
@@ -442,6 +600,7 @@ class _Engine:
             entry_time=bar.time,
             entry_price=price,
             qty=qty,
+            entry_qty=qty,
             notional=notional,
             entry_fee=fee,
             stop=stop,
@@ -563,6 +722,50 @@ class _Engine:
         elif hit_target:
             self._close(bar, position.target, "target")
 
+    def _reduce(self, bar: Bar, price: Decimal, to_fraction: Decimal, reason: str) -> None:
+        """Take a share off and leave the rest running (Q33).
+
+        Realised now, not at the final close: a scale-out is money in the
+        account from this bar on, and an equity curve that banked it only at the
+        end would understate the drawdown the strategy actually ran.
+
+        It stays **one** trade. The slices' PnL is carried on the position and
+        added to the close, because a partial exit is not a trade a win rate can
+        count — counting three of them would make one losing position that
+        happened to touch TP1 read as two wins and a loss.
+        """
+        position = self.position
+        if position is None or position.entry_qty <= ZERO:
+            return
+        remaining = position.entry_qty * to_fraction
+        qty = position.qty - remaining
+        if qty <= ZERO:
+            return
+
+        direction = Decimal(1) if position.side is Side.LONG else Decimal(-1)
+        gross = (price - position.entry_price) * qty * direction
+        exit_fee = self._commission(price * qty, qty)
+        # The entry fee follows the size out of the position, so the slice
+        # carries its own share and the remainder is not charged for it twice.
+        entry_share = position.entry_fee * qty / position.entry_qty
+
+        self.equity += gross - exit_fee
+        position.qty = remaining
+        position.fraction = to_fraction
+        position.entry_fee -= entry_share
+        position.realized += gross - exit_fee - entry_share
+        position.fees_paid += exit_fee + entry_share
+        position.scale_outs.append(
+            {
+                "time": bar.time,
+                "price": str(price),
+                "qty": str(qty),
+                "to_fraction": str(to_fraction),
+                "pnl": str(gross - exit_fee - entry_share),
+                "reason": reason,
+            }
+        )
+
     def _close(self, bar: Bar, price: Decimal, reason: str) -> None:
         position = self.position
         if position is None:
@@ -579,16 +782,20 @@ class _Engine:
                 entry_price=position.entry_price,
                 exit_time=bar.time,
                 exit_price=price,
-                qty=position.qty,
-                pnl=gross - exit_fee - position.entry_fee,
-                fees=exit_fee + position.entry_fee,
+                # The whole position the trade opened, so a scaled-out trade is
+                # not reported as the size of whatever happened to be left.
+                qty=position.entry_qty or position.qty,
+                pnl=gross - exit_fee - position.entry_fee + position.realized,
+                fees=exit_fee + position.entry_fee + position.fees_paid,
                 bars_held=position.bars,
                 exit_reason=reason,
                 entry_reason=position.reason,
                 entry_span=position.span,
+                scale_outs=list(position.scale_outs),
             )
         )
         self.position = None
+        self.pending_reduce = None
 
     def _slipped(self, price: Decimal, *, closing: bool, side: Side | None = None) -> Decimal:
         """Slippage always against the trade — the only assumption worth making.

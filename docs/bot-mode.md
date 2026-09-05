@@ -237,6 +237,7 @@ TradingView — see [`bot-plan.md`](bot-plan.md) §1.3.
 | `array.*`, `matrix.*`, `map.*` | collection types need a whole runtime value model | "collections are not supported yet" |
 | `line.*`, `label.*`, `box.*`, `table.*`, `polyline.*` | drawing objects, no execution effect, large surface | "drawing objects are not supported" |
 | `strategy.order`, `strategy.cancel`, `strategy.cancel_all` | raw order primitives do not map to §5 sizing | "use strategy.entry / strategy.close" |
+| `strategy.close(qty = n)` | a contract count means a different thing on every account under §5 sizing | "use qty_percent=" (`qty_percent` itself is supported — Q33) |
 | `pyramiding > 0` | contradicts one-open-trade-per-account and 99% margin | "pyramiding is not supported — the platform commits 99% on the first entry" |
 | `calc_on_every_tick=true` | Q23 | "this platform evaluates on bar close only" |
 | `calc_on_order_fills`, `process_orders_on_close` | fill-model semantics that do not exist here | name the parameter |
@@ -508,13 +509,23 @@ translator diffs desired state against actual state and emits the difference.
 | flat | flat | nothing |
 | long | flat | `route_open(side=long, ...)` |
 | flat | long | `route_close(trade)` |
-| long | long, same SL/TP | nothing |
+| long | long, same SL/TP and same fraction | nothing |
+| long, 60% of the entry | long, whole | `route_reduce(trade, 0.6)` — Q33's scale-out |
+| long, 60% | long, already 60% | nothing; the level has been taken |
 | long | long, different SL/TP | `route_amend(trade, sl_pct, tp_pct)` |
 | long | **short** | `route_close(trade)` → confirm flat → `route_open(long)` |
 | long | long on *some* accounts | leave it; the sat-out accounts join the next trade (spec §6) |
 
 Non-obvious parts:
 
+- [ ] **The fraction is checked before the SL/TP comparison.** A TP1 that also
+      trailed the stop leaves the side unchanged, so a diff that asked about
+      SL/TP first would plan an amend and the exit would never go out.
+- [ ] **A reduce is a *target*, not an amount.** "End up at 60% of the entry",
+      never "take 40% off" — so re-planning the same bar after a restart asks
+      the exchanges for a size they are already at, and the level is not taken
+      twice. Every level is a share of what the entry filled, so the exchange's
+      rounding does not compound across TP1/TP2/TP3.
 - [ ] **A reversal is two actions, sequenced, never concurrent.** Close, wait for
       the close to confirm flat, then open. Firing both at once on an exchange
       that nets positions gives you a doubled or a cancelled order depending on

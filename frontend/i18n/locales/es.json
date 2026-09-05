@@ -21,7 +21,8 @@
     "chart": "Gráfico",
     "expand": "Expandir menú",
     "language": "Idioma",
-    "bots": "Bots"
+    "bots": "Bots",
+    "strategies": "Estrategias"
   },
   "common": {
     "loading": "Cargando…",
@@ -40,7 +41,9 @@
     "off": "Desactivado",
     "refused": "Rechazado",
     "create": "Crear",
-    "delete": "Eliminar"
+    "delete": "Eliminar",
+    "save": "Guardar",
+    "change": "Cambiar"
   },
   "theme": {
     "toLight": "Cambiar a claro",
@@ -259,6 +262,7 @@
     "noActions": "Aún no se ha enrutado nada",
     "noActionsBody": "Cada orden que envía este bot aparece aquí con lo que devolvió cada cuenta.",
     "shadowNote": "registrado, no enviado",
+    "stillOpen": "{pct}% sigue abierto",
     "noBars": "Aún no hay velas registradas",
     "barTime": "Vela",
     "close": "Cierre",
@@ -307,6 +311,7 @@
       "open": "Abrir",
       "amend": "Modificar",
       "close": "Cerrar",
+      "reduce": "Salida parcial",
       "shadow": "Sombra"
     },
     "stop": {
@@ -339,6 +344,21 @@
     "selectStrategyBody": "Elige una de la lista o crea un script nuevo.",
     "unsaved": "Sin guardar",
     "window": "Periodo",
-    "execution": "Ejecución"
+    "execution": "Ejecución",
+    "countN": "{n} guardadas",
+    "renameStrategy": "Renombrar estrategia",
+    "renameNote": "Las versiones bajo ella conservan su número y su código, y un bot en marcha sigue apuntando a la misma. Un nombre es una etiqueta, no parte de lo que ejecuta un bot.",
+    "savedBy": "Guardado por",
+    "diagnosticsHint": "Haz clic en una línea para ir a ella en el editor.",
+    "pickStrategyLead": "Un bot es una versión de un script sobre un par. Elige primero el script — sin él no hay nada que configurar.",
+    "noStrategiesForBot": "Escribe una estrategia primero — sin ella un bot no tiene nada que ejecutar.",
+    "history": "Backtests recientes",
+    "historyLead": "Cada ejecución se conserva. Haz clic para releerla.",
+    "noHistory": "Aún no hay backtests",
+    "noHistoryBody": "Ejecuta uno arriba y se guardará aquí, con todos sus números, tal como se leyó.",
+    "historyNote": "El historial que esta ventana necesita y el archivo no tiene se descarga y se guarda en la primera ejecución. Un mercado que no llega tan atrás se informa sobre los números, nunca se rechaza.",
+    "replayingNote": "La primera ejecución sobre un par nuevo también descarga su historial.",
+    "viewingStored": "Ejecución guardada · {name}",
+    "renameBot": "Renombrar bot"
   }
 }

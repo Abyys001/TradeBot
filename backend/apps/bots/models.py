@@ -61,6 +61,10 @@ class ActionType(models.TextChoices):
     OPEN = "open"
     AMEND = "amend"
     CLOSE = "close"
+    #: A scale-out: take a share off and keep the rest running (Q33). Distinct
+    #: from CLOSE because the trade stays open and the idempotency key is keyed
+    #: on the type — a TP1 and a stop on the same bar must not collide.
+    REDUCE = "reduce"
     #: Recorded, routed nowhere — a dry-run bot's would-have-been (Phase 7).
     SHADOW = "shadow"
 

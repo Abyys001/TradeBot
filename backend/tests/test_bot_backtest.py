@@ -15,6 +15,7 @@ from django.test import override_settings
 from apps.bots import backtest
 from apps.bots.backtest import BacktestError
 from apps.bots.report import ClosedTrade, compute_metrics
+from apps.exchanges.base import MarketType
 from apps.pine.bar import Bar
 from tests import pine_corpus
 
@@ -384,3 +385,275 @@ def test_the_dashboard_figures_reach_the_script_from_the_backtest():
     draws its table from — a subset without them refuses the script over it."""
     report = go(DASHBOARD, pine_corpus.trending(40), initial_equity=D("1000"))
     assert report.metrics["trades"] > 0
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+SCALE_OUT = """//@version=5
+strategy("scale out")
+if bar_index == 1
+    strategy.entry("L", strategy.long)
+if bar_index == 3
+    strategy.close("L", qty_percent=50)
+if bar_index == 5
+    strategy.close("L")
+"""
+
+WHOLE_EXIT = """//@version=5
+strategy("whole exit")
+if bar_index == 1
+    strategy.entry("L", strategy.long)
+if bar_index == 5
+    strategy.close("L")
+"""
+
+
+def _rising(count: int = 8) -> list[Bar]:
+    out = []
+    for i in range(count):
+        price = str(100 + i * 10)
+        out.append(bar(price, price, price, price, time=i * 900))
+    return out
+
+
+def test_a_scale_out_is_still_one_trade():
+    """Three exits from one entry are not three trades. Counting them that way
+    would make one losing position that happened to touch TP1 read as two wins
+    and a loss, and every metric that divides by trade count would move."""
+    report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
+    assert len(report.trades) == 1
+    assert len(report.trades[0].scale_outs) == 1
+
+
+def test_the_scale_out_slice_realises_at_its_own_price_not_the_final_exit():
+    report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
+    slice_ = report.trades[0].scale_outs[0]
+    assert D(slice_["price"]) < report.trades[0].exit_price
+    assert D(slice_["to_fraction"]) == D("0.5")
+
+
+def test_taking_half_off_early_earns_less_than_holding_it_all_in_a_rising_market():
+    """The point of the whole feature: the halves have to be priced separately,
+    or the report would say a scale-out and a full exit made the same money."""
+    with override_settings(BOT={**_bot_settings(), "BACKTEST_FEE_BPS": "0",
+                               "BACKTEST_SLIPPAGE_BPS": "0"}):
+        scaled = go(SCALE_OUT, _rising(), initial_equity=D("10000")).metrics["net_pnl"]
+        whole = go(WHOLE_EXIT, _rising(), initial_equity=D("10000")).metrics["net_pnl"]
+    assert scaled < whole
+
+
+def test_the_trade_reports_the_size_it_opened_not_the_remainder():
+    report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
+    taken = D(report.trades[0].scale_outs[0]["qty"])
+    assert abs(report.trades[0].qty - taken * 2) < D("1e-20")
+
+
+def test_a_scale_out_fills_at_the_next_bars_open_like_every_other_signal():
+    report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
+    # Decided on bar 3, filled at bar 4's open.
+    assert report.trades[0].scale_outs[0]["time"] == 4 * 900
+
+
+# --- history the archive does not hold --------------------------------------
+#
+# "Run market_sync first" is a chore handed to the operator for something the
+# platform can do itself. A window the archive does not cover is downloaded
+# here, written back, and — when the venue's own history stops short — replayed
+# over what exists with a note saying where it really began. Never a refusal.
+
+
+class _Source:
+    """A public source with a fixed amount of history, paged newest-first."""
+
+    page_limit = 3
+
+    def __init__(self, times: list[int], *, step: int = 3600):
+        from apps.exchanges.candlestore import Candle
+
+        self.step = step
+        self.calls = 0
+        self.all = [
+            Candle(
+                time=t,
+                open=D("100"),
+                high=D("101"),
+                low=D("99"),
+                close=D("100"),
+                volume=D("1"),
+            )
+            for t in sorted(times)
+        ]
+
+    def candles(self, *, symbol, interval, market, limit, end=None):
+        self.calls += 1
+        rows = [c for c in self.all if end is None or c.time <= end]
+        return rows[-min(limit, self.page_limit):]
+
+
+@pytest.fixture
+def archive(monkeypatch):
+    """A candle archive in memory, with the source that fills it."""
+    from apps.exchanges import candlestore
+
+    stored: dict[int, object] = {}
+
+    def read_window(*, symbol, interval, market, limit, end=None, exchange=""):
+        rows = sorted(
+            (c for c in stored.values() if end is None or c.time <= end),
+            key=lambda c: c.time,
+        )
+        return (rows[-limit:], "test") if rows else ([], "test")
+
+    def write_candles(exchange, symbol, market, interval, candles):
+        written = 0
+        for candle in candles:
+            if candle.time not in stored:
+                stored[candle.time] = candle
+                written += 1
+        return written
+
+    monkeypatch.setattr(candlestore, "read_window", read_window)
+    monkeypatch.setattr("apps.exchanges.catalogue.write_candles", write_candles)
+    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "binance")
+    monkeypatch.setattr("apps.exchanges.catalogue.REQUEST_PAUSE", 0)
+    return stored
+
+
+def _serve(monkeypatch, source):
+    monkeypatch.setattr("apps.exchanges.marketdata.source_for", lambda name, **kw: source)
+    return source
+
+
+STEP = 3600
+
+
+def test_a_window_the_archive_does_not_hold_is_downloaded_rather_than_refused(
+    archive, monkeypatch
+):
+    source = _serve(monkeypatch, _Source([n * STEP for n in range(1, 21)]))
+    window = backtest.load_bars(
+        symbol="btcusdt",
+        interval="1h",
+        market=MarketType.FUTURES,
+        from_time=10 * STEP,
+        to_time=20 * STEP,
+        warmup=5,
+    )
+    assert window.bars, "the download produced no bars"
+    assert window.downloaded > 0
+    assert source.calls > 1, "one page is not a walk — it has to page back"
+
+
+def test_what_was_downloaded_is_written_to_the_archive(archive, monkeypatch):
+    _serve(monkeypatch, _Source([n * STEP for n in range(1, 21)]))
+    backtest.load_bars(
+        symbol="BTCUSDT",
+        interval="1h",
+        market=MarketType.FUTURES,
+        from_time=10 * STEP,
+        to_time=20 * STEP,
+        warmup=5,
+    )
+    assert archive, "nothing was stored, so the next run downloads it all again"
+
+
+def test_the_second_run_of_the_same_window_downloads_nothing(archive, monkeypatch):
+    source = _serve(monkeypatch, _Source([n * STEP for n in range(1, 21)]))
+    kwargs = dict(
+        symbol="BTCUSDT",
+        interval="1h",
+        market=MarketType.FUTURES,
+        from_time=10 * STEP,
+        to_time=20 * STEP,
+        warmup=5,
+    )
+    backtest.load_bars(**kwargs)
+    calls_after_first = source.calls
+    again = backtest.load_bars(**kwargs)
+    assert again.downloaded == 0
+    assert source.calls == calls_after_first, "a covered window still hit the network"
+
+
+def test_a_venue_that_cannot_go_back_far_enough_reports_where_the_data_starts(
+    archive, monkeypatch
+):
+    """The honest answer is a shorter window and a sentence, not a 409."""
+    _serve(monkeypatch, _Source([n * STEP for n in range(15, 21)]))
+    window = backtest.load_bars(
+        symbol="BTCUSDT",
+        interval="1h",
+        market=MarketType.FUTURES,
+        from_time=1 * STEP,
+        to_time=20 * STEP,
+        warmup=0,
+    )
+    assert window.bars
+    assert any("begins at" in note for note in window.notes)
+
+
+def test_a_symbol_the_venue_does_not_list_says_so_by_name(archive, monkeypatch):
+    _serve(monkeypatch, _Source([]))
+    with pytest.raises(BacktestError, match="NOTACOIN"):
+        backtest.load_bars(
+            symbol="NOTACOIN",
+            interval="1h",
+            market=MarketType.FUTURES,
+            from_time=10 * STEP,
+            to_time=20 * STEP,
+            warmup=0,
+        )
+
+
+def test_a_feed_that_will_not_answer_and_an_empty_archive_is_an_error_not_an_empty_report(
+    archive, monkeypatch
+):
+    class _Down:
+        page_limit = 3
+
+        def candles(self, **kwargs):
+            raise RuntimeError("connection refused")
+
+    _serve(monkeypatch, _Down())
+    with pytest.raises(BacktestError, match="connection refused"):
+        backtest.load_bars(
+            symbol="BTCUSDT",
+            interval="1h",
+            market=MarketType.FUTURES,
+            from_time=10 * STEP,
+            to_time=20 * STEP,
+            warmup=0,
+        )
+
+
+def test_a_feed_that_will_not_answer_over_a_partial_archive_replays_what_is_stored(
+    archive, monkeypatch
+):
+    from apps.exchanges.candlestore import Candle
+
+    for n in range(1, 21):
+        archive[n * STEP] = Candle(
+            time=n * STEP,
+            open=D("100"),
+            high=D("101"),
+            low=D("99"),
+            close=D("100"),
+            volume=D("1"),
+        )
+
+    class _Down:
+        page_limit = 3
+
+        def candles(self, **kwargs):
+            raise RuntimeError("gateway timeout")
+
+    _serve(monkeypatch, _Down())
+    window = backtest.load_bars(
+        symbol="BTCUSDT",
+        interval="1h",
+        market=MarketType.FUTURES,
+        from_time=1 * STEP,
+        to_time=40 * STEP,
+        warmup=0,
+    )
+    assert window.bars
+    assert any("gateway timeout" in note for note in window.notes)

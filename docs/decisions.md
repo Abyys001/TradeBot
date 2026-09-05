@@ -898,3 +898,80 @@ Backed by `backend/apps/accounts/detection.py`, `backend/apps/accounts/
 bookkeeping.py`, `/accounts/ledger/detections/*` and `/accounts/ledger/events/`
 (`tests/test_ledger_detection.py`), and the `/finance` page's "Unexplained
 balance changes" and "Who changed what" cards.
+
+---
+
+## Q33. A scale-out is a real feature, not a refusal
+
+**Raised 2026-09-04 reading a published strategy through the engine; answered
+the same day.** `apps/pine/subset.py`, `apps/engine/executor.py:reduce_trade`,
+`apps/trading/services.py:route_reduce`, `TradeReduction`.
+
+`strategy.close(id, qty_percent = 30)` — take 30% off, keep the rest running —
+is standard in published strategies, and the example that prompted this pass
+defaults to a TP1/TP2/TP3 scale-out. It is now supported.
+
+**The cost estimate that came with the question was wrong, in the platform's
+favour.** It said `ExchangeAdapter.close_position` would have to gain a size
+across eight adapters, none of which has been run live. It does not: a partial
+exit is a **reduce-only market order in the opposite direction**, and
+`place_order(..., reduce_only=True)` has been on the seam since it was written.
+So the whole change sits above the adapter layer, and **the Hyperliquid adapter
+is not touched**.
+
+Five decisions inside it:
+
+1. **The intent carries a fraction, and a fraction is not a quantity.**
+   `StrategyIntent.position_fraction` is a proportion of a position the platform
+   already sized — no currency, no contracts, no account — which makes it the
+   same kind of field as `sl_pct`: identical on every account, with only the
+   dollar size differing (spec §5). `strategy.close(qty = 2)` stays refused,
+   because a contract count means a different thing on every account under Q20
+   sizing and there is nothing to translate it into.
+
+2. **The instruction is a target, not an amount.** "End up at 60% of the entry",
+   never "take 40% off". That makes it idempotent: re-planning the same bar
+   after a restart asks the exchanges for a size they are already at, and the
+   level is not taken twice. Every level is a share of what the *entry* filled,
+   so the exchange's rounding grid does not compound across TP1/TP2/TP3.
+
+3. **Percent-of-remaining, because that is what TradingView does.** A 40/30/30
+   split leaves **29.4% running**, which exits on the stop or a reversal rather
+   than on TP3. Surprising, and correct: the alternative is a script that
+   backtests differently here than on the chart it was written against, which is
+   the one thing Q24 exists to prevent.
+
+4. **An account that cannot take its share keeps the whole position**, with a
+   spec §4 notification — no reduce-only on the venue, or a share (or a
+   remainder) under the exchange's minimum. Rounding up to reach the minimum
+   would exit *more* than the script asked for, and flattening the account
+   instead would be a different strategy, silently. Same treatment as an account
+   too small to have taken the entry.
+
+5. **Out of range is refused, not clamped.** TradingView clamps `qty_percent` to
+   0–100. A clamp here would turn a bug in the arithmetic that produced the
+   number into a full exit without saying so, so a literal outside the range is
+   a validation error (`bad_close_percent`) and a computed one stops the bar.
+
+Two things found on the way, both fixed:
+
+- **Toobit's `place_order` accepted `reduce_only` and ignored it**, deriving the
+  hedge-mode `positionSide` from the *order* side. A reduce-only sell against a
+  long would have opened a short instead of reducing the long. Latent until this
+  feature made it reachable.
+- **The paper adapter ignored it too**, which would have made the scale-out
+  tests pass against a fixture that replaces a long with a small short.
+
+**`pyramiding` is still refused and still reported.** It is the same multi-lot
+question from the other side, but §5 commits 99% of each balance on the first
+entry, so there is nothing left to add to — and honouring one direction without
+the other would let a backtest scale in and never out.
+
+A scale-out is money that settles into the account long before the leg closes,
+so it gets its own row (`TradeReduction`) rather than waiting for
+`TradeLeg.pnl`: without one the cash surfaces in `accounts.detection` as an
+unexplained balance change and is offered to the operator as somebody's deposit.
+`possync` writes one for a position that shrank with no order from here, at an
+**unknown** price — `get_closed_pnl` reports a closed position, not a slice of an
+open one, so there is nothing at that seam to price it from, and a mark price is
+not a fill.

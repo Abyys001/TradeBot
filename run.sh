@@ -247,6 +247,7 @@ start_panel() {
   say "panel on http://localhost:$PANEL_PORT"
   (cd "$FRONTEND" && \
     NUXT_PUBLIC_API_BASE="http://localhost:$BACKEND_PORT/api" \
+    NUXT_API_PROXY_TARGET="http://localhost:$BACKEND_PORT/api" \
     NUXT_WS_PROXY_TARGET="ws://localhost:$BACKEND_PORT" \
     PORT="$PANEL_PORT" exec npx nuxt dev) > "$RUNDIR/panel.log" 2>&1 &
   echo $! > "$RUNDIR/panel.pid"

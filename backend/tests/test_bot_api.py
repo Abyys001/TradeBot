@@ -153,6 +153,64 @@ def test_saving_a_version_stores_its_validation_result():
     assert body["parsed_ok"] is True
 
 
+def test_the_strategy_list_carries_the_latest_version_whole_not_its_number():
+    """The panel builds every strategy-shaped control off this one field.
+
+    A bare integer here typechecks on the wire and leaves the backtest's
+    strategy list empty, the editor showing the starter template over saved
+    work, and "New bot" posting an undefined version — so the shape is pinned.
+    """
+    client = staff()
+    strategy = Strategy.objects.create(name="s")
+    post(client, f"/api/bots/strategies/{strategy.id}/versions/", {"source": GOOD})
+
+    row = client.get("/api/bots/strategies/").json()[0]
+    latest = row["latest_version"]
+    assert isinstance(latest, dict)
+    assert latest["version"] == 1
+    assert latest["parsed_ok"] is True
+    assert latest["source"] == GOOD
+    assert isinstance(latest["id"], int)
+
+
+def test_a_strategy_with_no_versions_has_no_latest_version():
+    client = staff()
+    Strategy.objects.create(name="empty")
+    assert client.get("/api/bots/strategies/").json()[0]["latest_version"] is None
+
+
+def test_a_strategy_can_be_renamed_without_touching_its_versions():
+    """A name is a label on a shelf, not part of what a bot executes."""
+    client = staff()
+    strategy = Strategy.objects.create(name="old name")
+    saved = post(
+        client, f"/api/bots/strategies/{strategy.id}/versions/", {"source": GOOD}
+    ).json()
+
+    response = client.patch(
+        f"/api/bots/strategies/{strategy.id}/",
+        data=json.dumps({"name": "new name"}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "new name"
+    assert body["latest_version"]["id"] == saved["id"]
+    assert body["latest_version"]["source"] == GOOD
+
+
+def test_renaming_a_strategy_is_staff_only():
+    strategy = Strategy.objects.create(name="s")
+    response = anonymous().patch(
+        f"/api/bots/strategies/{strategy.id}/",
+        data=json.dumps({"name": "mine now"}),
+        content_type="application/json",
+    )
+    assert response.status_code in (401, 403)
+    strategy.refresh_from_db()
+    assert strategy.name == "s"
+
+
 def test_a_version_that_does_not_validate_is_still_saved_with_its_errors():
     """A draft you cannot save is a draft you cannot come back to."""
     client = staff()
@@ -398,3 +456,75 @@ def test_a_saved_version_carries_the_properties_and_their_notes():
     # The layout half of an input, without which thirty controls are one list.
     assert version["inputs_schema"][0]["group"] == "01. Engine"
     assert version["inputs_schema"][0]["step"] == 1
+
+
+# --- backtest history -------------------------------------------------------
+#
+# Every run is kept. A replay costs seconds and, the first time a pair is asked
+# for, a download — and the number an operator acted on last week has to still
+# be the number they saw, not one recomputed under today's code.
+
+
+def _stored_run(version, **overrides):
+    from apps.bots.models import BacktestRun
+
+    fields = dict(
+        strategy_version=version,
+        symbol="BTCUSDT",
+        interval="1h",
+        market="futures",
+        from_time=1_000,
+        to_time=2_000,
+        bars=100,
+        trades=3,
+        metrics={"net_pnl": "12.50"},
+        assumptions={"leverage": 1, "lines": ["Entries fill at the next bar's open."]},
+        equity_curve=[[1_000, "10000"], [2_000, "10012.50"]],
+        trade_log=[{"side": "long", "pnl": "12.50"}],
+        intent_digest="abc",
+        created_by="boss",
+    )
+    fields.update(overrides)
+    return BacktestRun.objects.create(**fields)
+
+
+def _version(name: str = "s") -> StrategyVersion:
+    strategy = Strategy.objects.create(name=name)
+    return StrategyVersion.objects.create(strategy=strategy, version=1, source=GOOD)
+
+
+def test_the_backtest_list_omits_the_curve_and_the_trade_log():
+    """They are the bulk of a stored run and a list renders neither."""
+    _stored_run(_version())
+    row = staff().get("/api/bots/backtests/").json()[0]
+    assert row["metrics"]["net_pnl"] == "12.50"
+    assert row["trades"] == 3
+    assert "equity_curve" not in row
+    assert "trade_log" not in row
+
+
+def test_one_stored_run_reads_back_whole():
+    run = _stored_run(_version())
+    body = staff().get(f"/api/bots/backtests/{run.id}/").json()
+    assert body["equity_curve"]
+    assert body["trade_log"]
+    # The sentences travel with the numbers: a report reopened next month is
+    # captioned with the assumptions it was read under, not today's wording.
+    assert body["assumptions"]["lines"]
+
+
+def test_the_backtest_list_can_be_narrowed_to_one_strategy():
+    mine = _version("mine")
+    theirs = _version("theirs")
+    _stored_run(mine)
+    _stored_run(theirs)
+    rows = staff().get(f"/api/bots/backtests/?strategy_version={mine.id}").json()
+    assert [row["strategy_name"] for row in rows] == ["mine"]
+
+
+def test_the_backtest_list_is_newest_first():
+    version = _version()
+    _stored_run(version, symbol="OLDER")
+    _stored_run(version, symbol="NEWER")
+    rows = staff().get("/api/bots/backtests/").json()
+    assert [row["symbol"] for row in rows] == ["NEWER", "OLDER"]

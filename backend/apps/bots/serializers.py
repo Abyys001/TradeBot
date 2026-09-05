@@ -61,10 +61,18 @@ class StrategySerializer(serializers.ModelSerializer):
             "versions",
             "latest_version",
         )
+        read_only_fields = ("created_at", "created_by")
 
     def get_latest_version(self, obj):
+        """The newest version, whole.
+
+        The panel builds every strategy-shaped control off this one field — the
+        editor's source, the "does it validate" dot, and the id every bot and
+        backtest is created from — so it is the object, not its number. A bare
+        integer here is what left the backtest's strategy list empty.
+        """
         latest = obj.versions.order_by("-version").first()
-        return latest.version if latest else None
+        return StrategyVersionSerializer(latest).data if latest else None
 
 
 class BotSerializer(serializers.ModelSerializer):
@@ -174,6 +182,38 @@ class BotActionSerializer(serializers.ModelSerializer):
         hidden = self.context.get("hidden_ids") or set()
         legs = (obj.result or {}).get("legs", [])
         return [leg for leg in legs if leg.get("account_id") not in hidden]
+
+
+class BacktestRunRowSerializer(serializers.ModelSerializer):
+    """One line of backtest history.
+
+    Deliberately without ``equity_curve`` and ``trade_log``: they are the bulk
+    of a stored run and a list renders neither, so sending them turns opening
+    the page into a megabyte download per row.
+    """
+
+    strategy_name = serializers.CharField(source="strategy_version.strategy.name", read_only=True)
+    version = serializers.IntegerField(source="strategy_version.version", read_only=True)
+
+    class Meta:
+        model = BacktestRun
+        fields = (
+            "id",
+            "strategy_version",
+            "strategy_name",
+            "version",
+            "symbol",
+            "interval",
+            "market",
+            "from_time",
+            "to_time",
+            "bars",
+            "trades",
+            "metrics",
+            "intent_digest",
+            "created_at",
+            "created_by",
+        )
 
 
 class BacktestRunSerializer(serializers.ModelSerializer):

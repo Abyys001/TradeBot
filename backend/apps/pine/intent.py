@@ -7,6 +7,13 @@ quantity field, no leverage field, no account field and no price field, so a
 script's ``qty=2`` has nowhere to travel to even if some future translator
 wanted to honour it.
 
+``position_fraction`` is not an exception to that, and the distinction is worth
+stating because it looks like one. It is a *proportion of the position the
+platform already sized* — no currency, no contracts, no account — so it answers
+"how much of this should still be open", which is the same kind of question as
+``sl_pct``: identical across every account, with only the dollar size differing
+(spec §5). ``qty = 2`` remains unrepresentable and is still refused by name.
+
 ``Side`` is redeclared here rather than imported from ``apps.exchanges.base``
 because this package may not import ``apps.*`` (``bot-plan.md`` §1.1). The
 values are identical strings, so ``apps.bots.translate`` converts with
@@ -71,6 +78,14 @@ class StrategyIntent:
     #: *position*, which is what live routes, and adding this would make a bar
     #: that re-issued an entry read as a divergence between two runs that agree.
     entry_signal: bool = False
+    #: How much of the entry should still be open after this bar, in ``(0, 1]``.
+    #: ``1`` is the whole position and is what every bar of a script that never
+    #: scales out reports. A ``strategy.close(id, qty_percent = 40)`` takes it
+    #: to ``0.6``; a second one at 30% takes it to ``0.42``, because TradingView
+    #: applies the percentage to what is *still open*, not to the original.
+    #: Going to zero is not expressed here — that is ``desired_side = None``,
+    #: so there stays exactly one way to say flat.
+    position_fraction: Decimal = Decimal(1)
 
     def as_dict(self) -> dict:
         """Wire and storage shape. Decimals become strings so no float artefact
@@ -86,14 +101,17 @@ class StrategyIntent:
             "plots": {k: (str(v) if isinstance(v, Decimal) else v) for k, v in self.plots.items()},
             "alerts": list(self.alerts),
             "entry_signal": self.entry_signal,
+            "position_fraction": str(self.position_fraction),
         }
 
     def same_position_as(self, other: StrategyIntent | None) -> bool:
         """Whether these two describe the same desired position.
 
-        Compares side and the SL/TP pair only — not the bar, not the plots.
-        Phase 5 uses it to answer "did anything change?" without re-deriving the
-        rule in two places.
+        Compares side, the SL/TP pair and the surviving fraction — not the bar,
+        not the plots. Phase 5 uses it to answer "did anything change?" without
+        re-deriving the rule in two places, and a scale-out is a change: the
+        side is identical on both sides of a TP1, which is exactly why the
+        fraction has to be in here.
         """
         if other is None:
             return False
@@ -101,4 +119,5 @@ class StrategyIntent:
             self.desired_side == other.desired_side
             and self.sl_pct == other.sl_pct
             and self.tp_pct == other.tp_pct
+            and self.position_fraction == other.position_fraction
         )

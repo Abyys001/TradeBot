@@ -21,7 +21,8 @@
     "chart": "Chart",
     "expand": "Menü erweitern",
     "language": "Sprache",
-    "bots": "Bots"
+    "bots": "Bots",
+    "strategies": "Strategien"
   },
   "common": {
     "loading": "Wird geladen…",
@@ -40,7 +41,9 @@
     "off": "Aus",
     "refused": "Abgelehnt",
     "create": "Erstellen",
-    "delete": "Löschen"
+    "delete": "Löschen",
+    "save": "Speichern",
+    "change": "Ändern"
   },
   "theme": {
     "toLight": "Zu hell wechseln",
@@ -259,6 +262,7 @@
     "noActions": "Noch nichts geroutet",
     "noActionsBody": "Jede Order dieses Bots erscheint hier mit dem, was jedes Konto zurückgemeldet hat.",
     "shadowNote": "aufgezeichnet, nicht gesendet",
+    "stillOpen": "{pct}% weiterhin offen",
     "noBars": "Noch keine Kerzen aufgezeichnet",
     "barTime": "Kerze",
     "close": "Schluss",
@@ -307,6 +311,7 @@
       "open": "Eröffnen",
       "amend": "Ändern",
       "close": "Schließen",
+      "reduce": "Teilausstieg",
       "shadow": "Schatten"
     },
     "stop": {
@@ -339,6 +344,21 @@
     "selectStrategyBody": "Wählen Sie eine aus der Liste oder erstellen Sie ein neues Skript.",
     "unsaved": "Ungespeichert",
     "window": "Zeitfenster",
-    "execution": "Ausführung"
+    "execution": "Ausführung",
+    "countN": "{n} gespeichert",
+    "renameStrategy": "Strategie umbenennen",
+    "renameNote": "Die Versionen darunter behalten Nummer und Quelltext, und ein laufender Bot zeigt weiter auf dieselbe. Ein Name ist ein Etikett, kein Teil dessen, was ein Bot ausführt.",
+    "savedBy": "Gespeichert von",
+    "diagnosticsHint": "Auf eine Zeile klicken, um im Editor dorthin zu springen.",
+    "pickStrategyLead": "Ein Bot ist eine Version eines Skripts auf einem Paar. Zuerst das Skript wählen — ohne es gibt es nichts zu konfigurieren.",
+    "noStrategiesForBot": "Zuerst eine Strategie schreiben — ohne sie hat ein Bot nichts auszuführen.",
+    "history": "Letzte Backtests",
+    "historyLead": "Jeder Lauf wird aufbewahrt. Zum Nachlesen anklicken.",
+    "noHistory": "Noch keine Backtests",
+    "noHistoryBody": "Oben einen ausführen — er wird hier mit allen Zahlen genau so gespeichert, wie er gelesen wurde.",
+    "historyNote": "Historie, die dieses Fenster braucht und das Archiv nicht hat, wird beim ersten Lauf geladen und gespeichert. Eine Börse, die nicht so weit zurückreicht, wird über den Zahlen gemeldet, nicht abgewiesen.",
+    "replayingNote": "Der erste Lauf auf einem neuen Paar lädt auch dessen Historie.",
+    "viewingStored": "Gespeicherter Lauf · {name}",
+    "renameBot": "Bot umbenennen"
   }
 }

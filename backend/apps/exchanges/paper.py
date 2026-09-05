@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -180,6 +181,12 @@ class PaperAdapter(ExchangeAdapter):
             raise BelowMinimumNotional(
                 f"qty {qty} @ {price} is below the minimum for {symbol}"
             )
+        if reduce_only:
+            # Takes size off what is held; it never opens anything. Simulating
+            # it as an ordinary order would have made the scale-out tests pass
+            # against a fixture that replaces a long with a small short — the
+            # exact accident `reduce_only` exists on the seam to prevent.
+            return self._reduce(qty, price)
         self._position = Position(
             symbol=symbol,
             side=side,
@@ -191,6 +198,19 @@ class PaperAdapter(ExchangeAdapter):
         )
         self._state["sltp"] = (stop_loss, take_profit)
         return OrderResult(order_id=str(next(_ids)), filled_qty=qty, avg_price=price)
+
+    def _reduce(self, qty: Decimal, price: Decimal) -> OrderResult:
+        held = self._position
+        if held is None:
+            raise AdapterError("no open position to reduce", code="no_position")
+        taken = min(qty, held.size)
+        remaining = held.size - taken
+        if remaining <= 0:
+            self._position = None
+            self._state["sltp"] = (None, None)
+        else:
+            self._position = replace(held, size=remaining)
+        return OrderResult(order_id=str(next(_ids)), filled_qty=taken, avg_price=price)
 
     def _liquidation(self, side: Side, entry: Decimal) -> Decimal:
         # Simplified: ignores maintenance margin and fees. Enough to exercise

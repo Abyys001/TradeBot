@@ -55,6 +55,10 @@ class Action:
     tp_pct: Decimal | None = None
     reason: str = ""
     trade_id: int | None = None
+    #: For a REDUCE: how much of the entry should still be open afterwards, in
+    #: ``(0, 1)``. A *target*, not an amount to remove, so re-sending it after a
+    #: restart asks the exchanges for a size they are already at.
+    fraction: Decimal | None = None
     #: True for the close half of a reversal, so the dispatcher knows it must
     #: confirm flat before the open that follows it.
     is_reversal_leg: bool = False
@@ -67,6 +71,7 @@ class Action:
             "tp_pct": str(self.tp_pct) if self.tp_pct is not None else None,
             "reason": self.reason,
             "trade_id": self.trade_id,
+            "fraction": str(self.fraction) if self.fraction is not None else None,
         }
 
 
@@ -82,6 +87,8 @@ class Held:
     #: reads. Per-leg fills differ by account, so this is the one price the whole
     #: fan-out was decided from, not an average of the legs.
     avg_price: Decimal | None = None
+    #: How much of the entry is still open after the scale-outs so far.
+    fraction: Decimal = Decimal(1)
 
     @property
     def flat(self) -> bool:
@@ -89,6 +96,7 @@ class Held:
 
 
 FLAT = Held(trade_id=None, side=None, sl_pct=None, tp_pct=None)
+ONE = Decimal(1)
 
 
 def plan(
@@ -132,6 +140,21 @@ def plan(
         ]
 
     if held.side is desired:
+        # Q33: a scale-out is the one change that leaves the side alone, so it
+        # is checked before the SL/TP comparison — otherwise a TP1 that also
+        # moved the stop would be planned as an amend and the exit would never
+        # go out. Strictly less than: a fraction equal to or above what is held
+        # is a level already taken, and re-sending it would exit twice.
+        if intent.position_fraction < held.fraction:
+            return [
+                Action(
+                    type=ActionType.REDUCE,
+                    side=desired,
+                    fraction=intent.position_fraction,
+                    reason=intent.reason or "scale out",
+                    trade_id=held.trade_id,
+                )
+            ]
         if held.sl_pct == wanted_sl and held.tp_pct == wanted_tp:
             return []
         return [
@@ -195,6 +218,7 @@ def read_held(run: BotRun) -> Held:
         sl_pct=trade.sl_pct,
         tp_pct=trade.tp_pct,
         avg_price=trade.admin_entry_price,
+        fraction=trade.open_fraction if trade.open_fraction is not None else ONE,
     )
 
 
@@ -356,6 +380,19 @@ async def _route(*, bot: Bot, run: BotRun, action: Action, services) -> dict:
             "ok": any(leg.ok for leg in result.legs),
             "trade_id": trade.id,
             "legs": _legs(result),
+        }
+
+    if action.type == ActionType.REDUCE:
+        trade = await _trade(action.trade_id)
+        if trade is None:
+            return {"ok": True, "flat": True, "legs": []}
+        result = await services.route_reduce(trade=trade, fraction=action.fraction)
+        legs = _legs(result)
+        return {
+            "ok": any(leg["ok"] for leg in legs) if legs else True,
+            "trade_id": trade.id,
+            "fraction": str(action.fraction),
+            "legs": legs,
         }
 
     if action.type == ActionType.CLOSE:

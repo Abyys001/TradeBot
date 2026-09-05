@@ -98,8 +98,17 @@ def _closed_trade_pnl(account: ConnectedAccount, since: datetime, until: datetim
     Legs are counted by ``closed_at`` because that is when the exchange settles
     the result into equity — a leg opened before the window and closed inside it
     moved the number inside it.
+
+    A scale-out settles the same way and long before the leg closes, so its
+    slices are counted too (Q33), by their own timestamp. Leaving them out is
+    the difference between a TP1 and somebody's deposit: the balance rose, the
+    leg is still open with no ``pnl`` on it, and the remainder would be offered
+    to the operator as an unexplained payment in. A slice the platform did not
+    send has no price and therefore no ``pnl`` — it stays unexplained on
+    purpose, because a position that shrank with no order from here is exactly
+    that.
     """
-    from apps.trading.models import TradeLeg
+    from apps.trading.models import TradeLeg, TradeReduction
 
     total = ZERO
     rows = TradeLeg.objects.filter(
@@ -110,6 +119,14 @@ def _closed_trade_pnl(account: ConnectedAccount, since: datetime, until: datetim
         closed_at__lte=until,
     ).values_list("pnl", flat=True)
     for pnl in rows:
+        total += D(pnl)
+    slices = TradeReduction.objects.filter(
+        leg__account=account,
+        pnl__isnull=False,
+        at__gt=since,
+        at__lte=until,
+    ).values_list("pnl", flat=True)
+    for pnl in slices:
         total += D(pnl)
     return total
 

@@ -138,3 +138,40 @@ def test_every_fixture_is_reproducible(path):
         from_time=bars[0].time, to_time=bars[-1].time, bars=bars,
     )
     assert backtest.run(**kwargs).intent_digest == backtest.run(**kwargs).intent_digest
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+
+def test_a_script_that_never_scales_out_digests_exactly_as_it_did_before():
+    """The fraction is written only when it is not a whole position, so adding
+    the field did not invalidate the paper-run digests the promotion gate has
+    already recorded. This is the digest, computed by hand from the fields the
+    fingerprint carried before Q33."""
+    import hashlib
+    import json
+
+    rows = [
+        {"t": 1, "s": "BTCUSDT", "d": "long", "sl": None, "tp": None},
+        {"t": 2, "s": "BTCUSDT", "d": None, "sl": None, "tp": None},
+    ]
+    expected = hashlib.sha256(
+        json.dumps(rows, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    rerun = [intent(Side.LONG, bar_time=1), intent(None, bar_time=2)]
+    assert divergence.digest_intents(rerun) == expected
+
+
+def test_two_runs_that_disagree_only_about_a_scale_out_are_a_divergence():
+    """Without the fraction in the digest the side is identical on both sides
+    of a TP1, and the two runs would have compared equal."""
+    whole = intent(Side.LONG, bar_time=1)
+    scaled = StrategyIntent(
+        bar_time=1,
+        symbol="BTCUSDT",
+        desired_side=Side.LONG,
+        position_fraction=D("0.6"),
+    )
+    assert not divergence.compare(
+        divergence.digest_intents([whole]), divergence.digest_intents([scaled])
+    )

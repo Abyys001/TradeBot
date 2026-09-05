@@ -59,6 +59,8 @@ from apps.pine.symbol import SymbolInfo, TimeframeInfo
 from apps.pine.tokens import Span
 
 ZERO = Decimal("0")
+ONE = Decimal("1")
+HUNDRED = Decimal("100")
 
 #: ``_member_base`` / ``_call`` sentinel: the thing before the dot is a
 #: namespace (``ta``, ``math``, ``strategy`` …), not a value we hold.
@@ -134,6 +136,7 @@ class RunContext:
         "sl_pct",
         "tp_pct",
         "position_size",
+        "position_fraction",
         "position_avg_price",
         "position_entry_name",
         "position_entry_side",
@@ -191,6 +194,13 @@ class RunContext:
         self.sl_pct: Decimal | None = None
         self.tp_pct: Decimal | None = None
         self.position_size = 0
+        #: How much of the entry is still open, in ``(0, 1]``. A whole position
+        #: is ``1``; ``strategy.close(id, qty_percent = 40)`` takes it to
+        #: ``0.6``. Like ``position_size`` this is the driver's to assert — the
+        #: exchange decides what is held — but unlike it, the script's own
+        #: partial closes move it *within* a bar, because that is the only
+        #: record of a scale-out the bar produces.
+        self.position_fraction: Decimal = ONE
         self.position_avg_price: Decimal | None = None
         #: The ``id`` of the entry that opened what is held, and the side it
         #: was entered on. ``strategy.close`` takes an id, and closing by an id
@@ -297,6 +307,7 @@ class Runtime:
         opentrades: int = 0,
         entry_name: str | None = None,
         performance: dict | None = None,
+        fraction: Decimal | None = None,
     ) -> None:
         """Tell the runtime what is actually true before the next bar.
 
@@ -311,10 +322,20 @@ class Runtime:
         scripts over a table. They are supplied here, not tallied here: the
         backtest knows its simulated account and the supervisor knows the run's
         own closed trades, and neither answer is the runtime's to invent.
+
+        ``fraction`` is how much of the entry survived the scale-outs so far.
+        A driver that never partially closes anything leaves it ``None`` and
+        gets ``1``; a driver that does must pass what the exchange actually
+        left, for the same reason it passes ``size_sign`` — the alternative is
+        the runtime keeping a private idea of the position across bars.
         """
         if size_sign not in (-1, 0, 1):
             size_sign = (size_sign > 0) - (size_sign < 0)
         self.ctx.position_size = size_sign
+        # Flat means there is no entry left to hold a fraction of. Reporting
+        # anything but a whole one here would carry the last trade's TP3 into
+        # the next entry.
+        self.ctx.position_fraction = ONE if size_sign == 0 else (fraction or ONE)
         self.ctx.position_avg_price = avg_price
         self.ctx.equity = equity
         self.ctx.netprofit = netprofit
@@ -388,6 +409,10 @@ class Runtime:
         if ctx.desired_side is None:
             ctx.sl_pct = None
             ctx.tp_pct = None
+            # Nothing held, so there is no entry left for a scale-out to be a
+            # fraction *of*. Carrying the last trade's remainder into the next
+            # entry would make a fresh position open already 40% taken.
+            ctx.position_fraction = ONE
 
         try:
             for statement in self.program.body:
@@ -428,6 +453,7 @@ class Runtime:
             reason=ctx.reason,
             source_span=ctx.order_span,
             entry_signal=ctx.entry_signal,
+            position_fraction=ctx.position_fraction,
             plots=dict(ctx.plots),
             alerts=tuple(ctx.alerts),
         )
@@ -1380,6 +1406,9 @@ class Runtime:
             # convention, so one intent per bar produces at most one entry.
             ctx.desired_side = side
             ctx.entry_signal = True
+            # A new entry is a whole position again, even on a bar that scaled
+            # the previous one out before reversing.
+            ctx.position_fraction = ONE
             ctx.position_entry_name = label
             ctx.position_entry_side = side
             ctx.reason = f"entry: {label}" if label else "entry"
@@ -1394,7 +1423,33 @@ class Runtime:
                 # the standard `close("Short"); entry("Long")` reversal pair into
                 # a close of the long the script had just decided to keep.
                 return NA
+
+            if dotted == "strategy.close":
+                share = self._close_share(node)
+                if share is not None and share < ONE:
+                    # A scale-out. TradingView applies qty_percent to what that
+                    # id still holds, not to the original entry, so the
+                    # fractions compound: 40% then 30% leaves 42%, not 30%.
+                    # The position stays open and the side does not change —
+                    # the surviving fraction is the whole of what this bar
+                    # reports, which is why `same_position_as` compares it.
+                    ctx.position_fraction *= ONE - share
+                    percent = share * HUNDRED
+                    # `normalize()` alone turns 50 into 5E+1, which is a
+                    # correct Decimal and an unreadable label.
+                    percent = (
+                        percent.quantize(ONE)
+                        if percent == percent.to_integral_value()
+                        else percent.normalize()
+                    )
+                    ctx.reason = (
+                        f"scale out: {label} {percent}%" if label else f"scale out {percent}%"
+                    )
+                    ctx.order_span = node.span
+                    return NA
+
             ctx.desired_side = None
+            ctx.position_fraction = ONE
             # The SL/TP a `strategy.exit` set belonged to the trade being closed.
             ctx.sl_pct = None
             ctx.tp_pct = None
@@ -1414,6 +1469,32 @@ class Runtime:
             return NA
 
         raise PineNameError(f"{dotted} is not supported", code="unknown_call", span=node.span)
+
+    def _close_share(self, node: ast.Call) -> Decimal | None:
+        """``qty_percent`` as a share of what is held, or ``None`` for a whole exit.
+
+        ``None`` and ``100`` are the same instruction and both take the normal
+        close path; the distinction only exists so a script that writes the
+        argument out explicitly is not routed through the scale-out branch for
+        no reason.
+
+        Out of range is an error rather than a clamp. TradingView clamps, but a
+        clamp here would quietly turn ``qty_percent = 150`` — which is a bug in
+        the arithmetic that produced it — into a full exit, and a script that
+        does not do what it says is the case Q24 exists to refuse.
+        """
+        arg = node.keyword("qty_percent")
+        if arg is None:
+            return None
+        percent = _as_decimal(self._eval(arg), "qty_percent", node.span)
+        if percent <= ZERO or percent > HUNDRED:
+            raise PineRuntimeError(
+                f"qty_percent is {percent}, which is not a percentage of a position "
+                f"— it has to be above 0 and at most 100",
+                code="bad_close_percent",
+                span=node.span,
+            )
+        return percent / HUNDRED
 
     def _holds_entry(self, label: str) -> bool:
         """Whether what is held was opened by an entry with this id.

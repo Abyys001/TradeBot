@@ -584,3 +584,46 @@ def test_the_drawing_pool_caps_on_the_declaration_are_accepted():
         '//@version=5\nstrategy("t", max_lines_count=500, max_labels_count=500)\nplot(close)\n'
     )
     assert result.ok
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+
+def test_a_percent_close_is_accepted():
+    """Q33: a share of the position is identical across accounts and only the
+    dollar size differs, which is spec §5's rule applied to the exit."""
+    source = (
+        "//@version=5\nstrategy('t')\n"
+        'if close > open\n    strategy.entry("L", strategy.long)\n'
+        'if close < open\n    strategy.close("L", qty_percent=40)\n'
+    )
+    assert validate(source).errors == []
+
+
+def test_a_close_naming_contracts_is_still_refused():
+    source = (
+        "//@version=5\nstrategy('t')\n"
+        'if close > open\n    strategy.entry("L", strategy.long)\n'
+        'if close < open\n    strategy.close("L", qty=2)\n'
+    )
+    assert "partial_close" in codes(validate(source))
+
+
+def test_a_percent_above_one_hundred_is_refused_rather_than_clamped():
+    source = (
+        "//@version=5\nstrategy('t')\n"
+        'if close > open\n    strategy.entry("L", strategy.long)\n'
+        'if close < open\n    strategy.close("L", qty_percent=150)\n'
+    )
+    assert "bad_close_percent" in codes(validate(source))
+
+
+def test_a_computed_percent_is_left_to_the_runtime():
+    """A validator that guessed at the value of an expression would refuse
+    working scripts; the runtime raises on the same range instead."""
+    source = (
+        "//@version=5\nstrategy('t')\npct = input.float(40.0, 'TP1 size')\n"
+        'if close > open\n    strategy.entry("L", strategy.long)\n'
+        'if close < open\n    strategy.close("L", qty_percent=pct)\n'
+    )
+    assert validate(source).errors == []

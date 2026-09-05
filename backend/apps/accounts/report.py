@@ -65,7 +65,14 @@ def _leg_row(leg: TradeLeg) -> dict[str, Any]:
     qty = D(leg.qty) if leg.qty is not None else None
     entry = D(leg.entry_price) if leg.entry_price is not None else None
     notional = qty * entry if qty is not None and entry is not None else None
-    pnl = D(leg.pnl) if leg.pnl is not None else None
+    # What the scale-outs banked before the final exit (Q33). `leg.pnl` is the
+    # last slice only — it is computed from `qty`, which by then is the
+    # remainder — so a closed leg's result is the two added together. While the
+    # leg is still open the banked money is real but the trade is not finished,
+    # so it is reported on its own rather than folded into a figure that would
+    # then count an open position as a win.
+    banked = D(leg.realized_pnl) if leg.realized_pnl is not None else ZERO
+    pnl = D(leg.pnl) + banked if leg.pnl is not None else None
     margin = D(leg.margin) if leg.margin is not None else None
     return {
         "id": leg.id,
@@ -93,7 +100,9 @@ def _leg_row(leg: TradeLeg) -> dict[str, Any]:
         "take_profit": _str(leg.take_profit),
         "sltp_attached": leg.sltp_attached,
         "sltp_verified": leg.sltp_verified,
-        "pnl": _str(leg.pnl),
+        "pnl": str(pnl) if pnl is not None else None,
+        "banked_pnl": str(banked) if banked else None,
+        "entry_qty": _str(leg.entry_qty),
         # Return on the margin this leg actually locked up — the only honest
         # denominator for a leveraged position, and the figure the account's
         # own exchange screen shows.
@@ -113,7 +122,14 @@ def trading_summary(rows: list[dict]) -> dict[str, Any]:
     scored = [row for row in rows if row["pnl"] is not None]
     wins = [row for row in scored if D(row["pnl"]) > ZERO]
     losses = [row for row in scored if D(row["pnl"]) < ZERO]
-    realised = sum((D(row["pnl"]) for row in scored), ZERO)
+    # A still-open leg that has scaled out has banked real money; it belongs in
+    # the realised total and nowhere near the win/loss counts, which are per
+    # *trade* and this trade has not ended.
+    open_banked = sum(
+        (D(row["banked_pnl"]) for row in rows if row["pnl"] is None and row["banked_pnl"]),
+        ZERO,
+    )
+    realised = sum((D(row["pnl"]) for row in scored), ZERO) + open_banked
     gross_profit = sum((D(row["pnl"]) for row in wins), ZERO)
     gross_loss = sum((D(row["pnl"]) for row in losses), ZERO)
     volume = sum(

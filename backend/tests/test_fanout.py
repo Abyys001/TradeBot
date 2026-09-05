@@ -9,12 +9,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import replace
+from decimal import Decimal
 
 import pytest
 from django.conf import settings
 from django.test import override_settings
 
-from apps.core.money import D
+from apps.core.money import D, floor_to_step
 from apps.engine.executor import (
     TradeIntent,
     amend_sltp,
@@ -22,6 +23,7 @@ from apps.engine.executor import (
     confirm_open,
     failure_notifications,
     open_trade,
+    reduce_trade,
 )
 from apps.engine.fanout import StopAllActive, fan_out
 from apps.exchanges.base import (
@@ -32,7 +34,7 @@ from apps.exchanges.base import (
     Side,
     SLTPState,
 )
-from apps.exchanges.paper import PaperAdapter
+from apps.exchanges.paper import DEFAULT_RULES, PaperAdapter
 from apps.trading.services import SAT_OUT_CODES
 
 pytestmark = pytest.mark.asyncio
@@ -865,3 +867,162 @@ async def test_an_unconfirmed_entry_is_settled_by_a_later_re_read():
     leg = result.succeeded[0]
     assert leg.error_code == "late_fill"
     assert leg.value.entry_price == (await adapter.get_position("BTCUSDT")).entry_price
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+
+def _kept(entry: Decimal, fraction: Decimal) -> Decimal:
+    """What the exchange's own step leaves behind. The engine floors the
+    *remainder*, so this is not `entry * fraction`."""
+    return floor_to_step(entry * fraction, DEFAULT_RULES.qty_step)
+
+
+async def _opened(count: int = 3, **kwargs) -> tuple[list, dict]:
+    adapters = [PaperAdapter(balance=D("1000"), **kwargs) for _ in range(count)]
+    accounts = list(enumerate(adapters))
+    result = await open_trade(accounts, intent())
+    sizes = {leg.account_id: leg.value.qty for leg in result.legs if leg.ok}
+    return accounts, sizes
+
+
+async def test_a_scale_out_takes_a_share_off_and_leaves_the_rest_running():
+    accounts, sizes = await _opened()
+    result = await reduce_trade(
+        accounts,
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        target_fraction=D("0.6"),
+        entry_qty=sizes,
+    )
+    assert result.all_ok
+    for account_id, adapter in accounts:
+        position = await adapter.get_position("BTCUSDT")
+        assert position is not None, "the position must survive a partial exit"
+        assert position.size == _kept(sizes[account_id], D("0.6"))
+
+
+async def test_a_second_level_is_a_share_of_the_entry_not_of_the_remainder():
+    """The target is where the position should end up, so the rounding does not
+    compound and 40/30/30 arrives at the third level with a size the exchange
+    will still accept."""
+    accounts, sizes = await _opened(1)
+    for fraction in (D("0.6"), D("0.42")):
+        await reduce_trade(
+            accounts,
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            side=Side.LONG,
+            target_fraction=fraction,
+            entry_qty=sizes,
+        )
+    position = await accounts[0][1].get_position("BTCUSDT")
+    assert position.size == _kept(sizes[0], D("0.42"))
+
+
+async def test_re_sending_the_same_level_does_not_exit_twice():
+    """The whole reason the intent carries a target: a restart mid-fan-out must
+    not take the level a second time."""
+    accounts, sizes = await _opened(1)
+    for _ in range(2):
+        await reduce_trade(
+            accounts,
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            side=Side.LONG,
+            target_fraction=D("0.6"),
+            entry_qty=sizes,
+        )
+    position = await accounts[0][1].get_position("BTCUSDT")
+    assert position.size == _kept(sizes[0], D("0.6"))
+
+
+async def test_a_venue_that_cannot_reduce_keeps_the_whole_position():
+    """Exiting it fully instead would be the silent approximation the subset
+    refuses in the first place — a different strategy on that one account."""
+    accounts, sizes = await _opened(1)
+    adapter = accounts[0][1]
+    adapter.capabilities = replace(adapter.capabilities, supports_reduce_only=False)
+    result = await reduce_trade(
+        accounts,
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        target_fraction=D("0.6"),
+        entry_qty=sizes,
+    )
+    assert result.failed[0].error_code == "no_reduce_only"
+    position = await adapter.get_position("BTCUSDT")
+    assert position.size == sizes[0]
+
+
+async def test_a_share_below_the_exchange_minimum_keeps_the_whole_position():
+    """Spec §5 rounds down and never up — including on the way out. Rounding up
+    to reach the minimum would exit more than the script asked for."""
+    chunky = replace(DEFAULT_RULES, min_qty=D("0.05"), min_notional=D("5"))
+    accounts, sizes = await _opened(1, rules=chunky)
+    result = await reduce_trade(
+        accounts,
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        target_fraction=D("0.9"),
+        entry_qty=sizes,
+    )
+    assert result.failed[0].error_code == "reduce_below_min"
+    position = await accounts[0][1].get_position("BTCUSDT")
+    assert position.size == sizes[0]
+
+
+async def test_an_exit_that_would_leave_an_unclosable_remainder_is_refused():
+    """A remainder under the exchange's minimum is a position nothing could
+    later close — worse than not scaling out at all."""
+    chunky = replace(DEFAULT_RULES, min_qty=D("0.05"), min_notional=D("5"))
+    accounts, sizes = await _opened(1, rules=chunky)
+    result = await reduce_trade(
+        accounts,
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        target_fraction=D("0.1"),
+        entry_qty=sizes,
+    )
+    assert result.failed[0].error_code == "remainder_below_min"
+    position = await accounts[0][1].get_position("BTCUSDT")
+    assert position.size == sizes[0]
+
+
+async def test_one_account_refusing_a_level_does_not_stop_the_others():
+    accounts, sizes = await _opened(3)
+    accounts[1][1].capabilities = replace(
+        accounts[1][1].capabilities, supports_reduce_only=False
+    )
+    result = await reduce_trade(
+        accounts,
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        target_fraction=D("0.5"),
+        entry_qty=sizes,
+    )
+    assert len(result.succeeded) == 2 and len(result.failed) == 1
+    assert (await accounts[0][1].get_position("BTCUSDT")).size == _kept(sizes[0], D("0.5"))
+    assert (await accounts[1][1].get_position("BTCUSDT")).size == sizes[1]
+
+
+async def test_a_reduce_is_never_a_reversal():
+    """A market order the other way with `reduce_only` dropped is a reversal on
+    a netting venue and a second position on a hedging one. The paper adapter
+    honours the flag so this test is about the engine, not the fixture."""
+    accounts, sizes = await _opened(1)
+    await reduce_trade(
+        accounts,
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        target_fraction=D("0.5"),
+        entry_qty=sizes,
+    )
+    position = await accounts[0][1].get_position("BTCUSDT")
+    assert position.side is Side.LONG

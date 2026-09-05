@@ -65,6 +65,12 @@ class Trade(models.Model):
         blank=True,
         related_name="trades",
     )
+    #: How much of the entry is still open, in ``(0, 1]``. A scale-out
+    #: (``strategy.close(id, qty_percent = 40)``, Q33) lowers it; the trade
+    #: stays OPEN until something takes it to zero, which is a close and is
+    #: recorded as one. Identical across every account by construction — the
+    #: script asks for a *share*, and only the dollar size differs (spec §5).
+    open_fraction = models.DecimalField(max_digits=10, decimal_places=8, default=1)
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     fanout_ms = models.FloatField(null=True, blank=True)
@@ -89,7 +95,14 @@ class TradeLeg(models.Model):
     error_code = models.CharField(max_length=40, blank=True)
     dispatch_ms = models.FloatField(null=True, blank=True)
 
+    #: What is held **now**. ``possync`` converges it on the exchange's own
+    #: number, and a scale-out lowers it, so it is not the size that was
+    #: entered — that is ``entry_qty``.
     qty = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
+    #: What the entry filled, kept so a scale-out's target size is a fraction of
+    #: the original rather than of the last remainder. Compounding the rounding
+    #: at every level is how a 40/30/30 split ends up unable to close.
+    entry_qty = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
     entry_price = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
     exit_price = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
     margin = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
@@ -103,6 +116,11 @@ class TradeLeg(models.Model):
     # prices — placed is not proof, a silently dropped trigger is a missing leg.
     sltp_verified = models.BooleanField(default=False)
     pnl = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
+    #: Banked by the scale-outs before the final close. ``pnl`` above is the
+    #: last slice only — it is computed from ``qty``, which by then is the
+    #: remainder — so the account's realised total for this leg is the two
+    #: added together, and both ``report`` and ``detection`` add them.
+    realized_pnl = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
 
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
@@ -115,6 +133,41 @@ class TradeLeg(models.Model):
 
     def __str__(self) -> str:
         return f"{self.account.label}: {self.trade.symbol}"
+
+
+class TradeReduction(models.Model):
+    """One scale-out slice, on one account.
+
+    A partial exit is money that moved, so it needs a row of its own: the trade
+    is still OPEN and ``TradeLeg.pnl`` is not written until the final close, and
+    without this the cash would surface in ``accounts.detection`` as an
+    unexplained balance change and be offered to the operator as somebody's
+    deposit.
+
+    ``price`` and ``pnl`` are nullable for the same reason ``possync`` leaves an
+    exit unpriced: a reduction the platform did not send — a partial fill the
+    venue's own app produced, seen only as a shrunk position — is recorded as
+    having happened at an unknown price rather than estimated from a mark.
+    """
+
+    leg = models.ForeignKey(TradeLeg, on_delete=models.CASCADE, related_name="reductions")
+    #: The size actually taken off, in base units.
+    qty = models.DecimalField(max_digits=24, decimal_places=8)
+    #: What the position was reduced *to*, as a share of the entry — the
+    #: platform-wide instruction, identical on every account.
+    to_fraction = models.DecimalField(max_digits=10, decimal_places=8)
+    price = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
+    pnl = models.DecimalField(max_digits=24, decimal_places=8, null=True, blank=True)
+    #: Blank when the platform sent it; a code when it was discovered instead
+    #: (``shrank_on_exchange``), matching ``closed_on_exchange`` on a leg.
+    source_code = models.CharField(max_length=40, blank=True)
+    at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["at"]
+
+    def __str__(self) -> str:
+        return f"{self.leg.account.label}: -{self.qty} {self.leg.trade.symbol}"
 
 
 class ExchangeSymbol(models.Model):

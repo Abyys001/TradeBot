@@ -699,3 +699,93 @@ def test_a_dashboard_figure_that_is_not_a_number_defaults_to_a_string():
     assert "ccy:" in rt.run_bar(bar("100")).intent.plots
     rt.sync_position(size_sign=0, performance={"account_currency": "USDT"})
     assert "ccy:USDT" in rt.run_bar(bar("101", time=3600)).intent.plots
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+
+def test_a_partial_close_leaves_the_position_open_and_reports_what_survived():
+    rt = runtime('strategy.close("L", qty_percent=40)\n')
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L")
+    intent = run(rt, ["10"])[-1].intent
+    assert intent.desired_side is Side.LONG
+    assert intent.position_fraction == D("0.6")
+
+
+def test_the_levels_compound_the_way_tradingview_compounds_them():
+    """`qty_percent` is a share of what is *still* held, not of the entry — so
+    40/30/30 leaves 29.4% running, not zero. That is what the script does on
+    TradingView, and a runner nobody expected is worse than an odd number."""
+    rt = runtime(
+        'if bar_index == 1\n'
+        '    strategy.close("L", qty_percent=40)\n'
+        'if bar_index == 2\n'
+        '    strategy.close("L", qty_percent=30)\n'
+        'if bar_index == 3\n'
+        '    strategy.close("L", qty_percent=30)\n'
+    )
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L")
+    fractions = []
+    for index, close in enumerate(["10", "10", "10", "10"]):
+        result = rt.run_bar(bar(close, time=index * 900))
+        fractions.append(result.intent.position_fraction)
+        rt.sync_position(
+            size_sign=1, avg_price=D("100"), entry_name="L",
+            fraction=result.intent.position_fraction,
+        )
+    assert fractions == [D("1"), D("0.6"), D("0.42"), D("0.294")]
+
+
+def test_a_whole_close_after_a_scale_out_still_reads_flat():
+    rt = runtime(
+        'if bar_index == 1\n'
+        '    strategy.close("L", qty_percent=40)\n'
+        'if bar_index == 2\n'
+        '    strategy.close("L")\n'
+    )
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L")
+    rt.run_bar(bar("10", time=0))
+    rt.run_bar(bar("10", time=900))
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L", fraction=D("0.6"))
+    intent = rt.run_bar(bar("10", time=1800)).intent
+    assert intent.desired_side is None
+    assert intent.position_fraction == D("1")
+
+
+def test_a_new_entry_is_a_whole_position_again():
+    rt = runtime(
+        'if bar_index == 0\n'
+        '    strategy.close("L", qty_percent=40)\n'
+        'if bar_index == 1\n'
+        '    strategy.entry("S", strategy.short)\n'
+    )
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L")
+    rt.run_bar(bar("10", time=0))
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L", fraction=D("0.6"))
+    intent = rt.run_bar(bar("10", time=900)).intent
+    assert intent.desired_side is Side.SHORT
+    assert intent.position_fraction == D("1")
+
+
+def test_closing_a_percent_of_an_id_nothing_holds_does_nothing():
+    rt = runtime('strategy.close("S", qty_percent=40)\n')
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L")
+    intent = run(rt, ["10"])[-1].intent
+    assert intent.desired_side is Side.LONG
+    assert intent.position_fraction == D("1")
+
+
+def test_a_computed_percent_out_of_range_stops_the_bar_rather_than_clamping():
+    rt = runtime("pct = close * 20\nstrategy.close(\"L\", qty_percent=pct)\n")
+    rt.sync_position(size_sign=1, avg_price=D("100"), entry_name="L")
+    with pytest.raises(PineRuntimeError) as exc:
+        run(rt, ["10"])
+    assert exc.value.code == "bad_close_percent"
+
+
+def test_a_flat_position_resets_the_fraction():
+    """Otherwise a fresh entry opens already 40% taken."""
+    rt = runtime("plot(close)\n")
+    rt.ctx.position_fraction = D("0.6")
+    rt.sync_position(size_sign=0)
+    assert rt.run_bar(bar("10")).intent.position_fraction == D("1")

@@ -327,6 +327,11 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             equity=equity,
             opentrades=0 if held.flat else 1,
             performance=performance,
+            # What survived the scale-outs so far (Q33), for the same reason the
+            # side is passed: a runtime that is not told re-derives it from its
+            # own memory, and the next TP1 would be taken off a position that
+            # has already been cut.
+            fraction=held.fraction,
         )
 
         try:

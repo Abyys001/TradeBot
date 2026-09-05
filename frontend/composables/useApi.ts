@@ -243,6 +243,9 @@ export function useApi() {
     strategies: () => request<Strategy[]>('/bots/strategies/'),
     createStrategy: (body: Record<string, unknown>) =>
       request<Strategy>('/bots/strategies/', { method: 'POST', body }),
+    /** Rename, or re-describe. The *source* is never patched — that is `saveVersion`. */
+    updateStrategy: (id: number, body: Record<string, unknown>) =>
+      request<Strategy>(`/bots/strategies/${id}/`, { method: 'PATCH', body }),
     deleteStrategy: (id: number) => request<void>(`/bots/strategies/${id}/`, { method: 'DELETE' }),
     /** Immutable: saving never rewrites a version, so a running bot cannot change under it. */
     saveVersion: (strategyId: number, source: string) =>
@@ -276,7 +279,15 @@ export function useApi() {
       }),
     runBacktest: (body: Record<string, unknown>) =>
       request<BacktestResult>('/bots/backtest/', { method: 'POST', body }),
-    backtests: () => request<BacktestRun[]>('/bots/backtests/'),
+    /** Stored runs, newest first. `strategy` or `strategy_version` narrows it. */
+    backtests: (filter: { strategy?: number; strategy_version?: number } = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(filter).flatMap(([k, v]) => (v ? [[k, String(v)]] : [])),
+      ).toString()
+      return request<BacktestRun[]>(`/bots/backtests/${query ? `?${query}` : ''}`)
+    },
+    /** One stored run, whole — the curve and the trade log the list omits. */
+    backtestRun: (id: number) => request<StoredBacktest>(`/bots/backtests/${id}/`),
 
     // --- security (docs/security-plan.md) ---
     /**
@@ -1229,7 +1240,7 @@ export interface BotActionLeg {
 export interface BotAction {
   id: number
   bar_time: number
-  action_type: 'open' | 'amend' | 'close' | 'shadow'
+  action_type: 'open' | 'amend' | 'close' | 'reduce' | 'shadow'
   idempotency_key: string
   payload: Record<string, unknown>
   intent: Record<string, unknown>
@@ -1265,6 +1276,13 @@ export interface BacktestAssumptions {
   balance_fraction: string
   leverage: number
   initial_equity: string
+  /**
+   * The sentences, stored beside the numbers. Present on a run read back out of
+   * the archive and absent on a live reply, which carries them as
+   * `assumption_lines` instead — a report's caption has to be the wording it was
+   * read under, not whatever the code says today.
+   */
+  lines?: string[]
 }
 
 export interface BacktestTrade {
@@ -1304,16 +1322,31 @@ export interface BacktestRun {
   id: number
   strategy_version: number
   strategy_name: string
+  version: number
+  bars: number
+  trades: number
   symbol: string
   interval: string
   market: string
   from_time: number
   to_time: number
-  input_values: Record<string, unknown>
   metrics: Record<string, string | number | null>
   intent_digest: string
   created_at: string
   created_by: string
+}
+
+/**
+ * A stored run read back. Not `BacktestResult`: the server stores the report's
+ * fields flat next to the row's own, and `trades` means two different things on
+ * the two shapes — a count in the row, the log in the report.
+ */
+export interface StoredBacktest extends Omit<BacktestRun, 'trades'> {
+  input_values: Record<string, unknown>
+  trades: number
+  trade_log: BacktestTrade[]
+  equity_curve: [number, string][]
+  assumptions: BacktestAssumptions
 }
 
 export interface BotPolicy {

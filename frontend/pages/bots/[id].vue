@@ -27,10 +27,24 @@ const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const tab = ref<'activity' | 'bars' | 'promotion' | 'source'>('activity')
+const renaming = ref(false)
+const renameTo = ref('')
 
 useHead({ title: () => bot.value?.name ?? t('bots.title') })
 
 const run = computed(() => store.runs[id.value] ?? runs.value[0] ?? null)
+
+/**
+ * How much of the entry a scale-out left running, as a percentage. Read off the
+ * action's own intent rather than the bot's current position: the log is a
+ * history, and by the time it is read the position has usually moved on.
+ */
+function remainingPct(action: BotAction): string {
+  const fraction = action.intent?.fraction
+  if (typeof fraction !== 'string') return ''
+  const pct = Number(fraction) * 100
+  return Number.isFinite(pct) ? `${Number(pct.toFixed(2))}` : ''
+}
 
 const TONE: Record<BotState, 'neutral' | 'ok' | 'signal' | 'brand'> = {
   draft: 'neutral',
@@ -102,6 +116,34 @@ async function act(action: 'paper' | 'live' | 'stop') {
   }
 }
 
+function openRename() {
+  renameTo.value = bot.value?.name ?? ''
+  renaming.value = true
+}
+
+/** The name only. A bot's pair, version and levels are what it *is*; those are
+ * set once at creation because changing them under a run would silently make it
+ * a different bot with the same history. */
+async function rename() {
+  const name = renameTo.value.trim()
+  if (!bot.value || !name || name === bot.value.name) {
+    renaming.value = false
+    return
+  }
+  busy.value = true
+  error.value = ''
+  try {
+    const updated = await api.updateBot(bot.value.id, { name })
+    bot.value = updated
+    store.upsert(updated)
+    renaming.value = false
+  } catch (e: any) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+
 watch(tab, (value) => {
   if (value === 'bars' && !bars.value.length) loadBars()
 })
@@ -113,15 +155,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="space-y-4">
-    <div v-if="loading" class="space-y-2">
+  <div class="max-w-[100rem] mx-auto p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5">
+    <div v-if="loading" class="space-y-3">
       <div class="skeleton h-20" />
       <div class="skeleton h-64" />
     </div>
 
     <template v-else-if="bot">
-      <header class="flex flex-wrap items-start justify-between gap-3">
-        <div class="min-w-0 space-y-1">
+      <header class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div class="min-w-0 space-y-1.5">
           <NuxtLink
             :to="localePath('/bots')"
             class="text-tick text-ink-faint hover:text-ink transition-colors inline-flex items-center gap-1"
@@ -131,12 +173,20 @@ onMounted(async () => {
           </NuxtLink>
           <div class="flex items-center gap-2 flex-wrap">
             <h1 class="text-xl font-display">{{ bot.name }}</h1>
+            <button
+              class="btn-quiet btn-icon text-ink-faint hover:text-ink shrink-0"
+              :aria-label="t('bots.renameBot')"
+              :title="t('bots.renameBot')"
+              @click="openRename"
+            >
+              <UiIcon name="edit" :size="13" />
+            </button>
             <UiBadge :tone="TONE[bot.state]" dot>{{ t(`bots.state.${bot.state}`) }}</UiBadge>
             <UiBadge v-if="bot.dry_run && bot.state !== 'draft'" tone="neutral">
               {{ t('bots.dryRun') }}
             </UiBadge>
           </div>
-          <p class="text-xs text-ink-muted num">
+          <p class="text-xs text-ink-muted num leading-relaxed">
             {{ bot.strategy_name }} · v{{ bot.version }} · {{ bot.symbol }} {{ bot.interval }} ·
             {{ bot.leverage }}×
             <template v-if="bot.sl_pct"> · SL {{ bot.sl_pct }}%</template>
@@ -144,7 +194,7 @@ onMounted(async () => {
           </p>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 shrink-0">
           <button
             v-if="bot.state === 'draft' || bot.state === 'stopped'"
             class="btn-info btn-sm"
@@ -175,7 +225,7 @@ onMounted(async () => {
         </div>
       </header>
 
-      <p v-if="error" class="alert px-3 py-2 text-xs">{{ error }}</p>
+      <p v-if="error" class="alert px-3 py-2 text-xs leading-relaxed">{{ error }}</p>
 
       <div
         v-if="bot.state === 'stopped' && run?.stop_reason"
@@ -250,6 +300,9 @@ onMounted(async () => {
               <span v-if="action.error" class="text-short">{{ action.error }}</span>
               <span v-if="action.action_type === 'shadow'" class="text-ink-faint">
                 {{ t('bots.shadowNote') }}
+              </span>
+              <span v-else-if="remainingPct(action)" class="num text-ink-faint">
+                {{ t('bots.stillOpen', { pct: remainingPct(action) }) }}
               </span>
             </div>
             <div v-if="action.legs.length" class="flex flex-wrap gap-1.5">
@@ -357,6 +410,21 @@ onMounted(async () => {
         />
         <UiEmpty v-else icon="logs" :title="t('bots.noSource')" />
       </UiCard>
+
+      <UiModal v-model="renaming" :title="t('bots.renameBot')" size="sm">
+        <label class="block space-y-1.5">
+          <span class="label">{{ t('bots.botName') }}</span>
+          <input v-model="renameTo" class="field" autofocus @keyup.enter="rename" />
+        </label>
+        <template #footer>
+          <button class="btn-ghost btn-sm" @click="renaming = false">
+            {{ t('common.cancel') }}
+          </button>
+          <button class="btn-brand btn-sm" :disabled="busy || !renameTo.trim()" @click="rename">
+            {{ t('common.save') }}
+          </button>
+        </template>
+      </UiModal>
     </template>
   </div>
 </template>

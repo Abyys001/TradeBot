@@ -27,7 +27,7 @@ per account by two independent switches (`manual_trading_enabled`,
 at a time** — and an **optional security layer**: one On/Off row per control on
 `/settings`, every one off by default, none of them on the order-routing path
 (`docs/security-plan.md`).
-**~1790 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
+**~1820 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
 setup`), **`ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
@@ -46,7 +46,11 @@ with the skipped account raising a persistent notification.
 
 - Real exchange adapters are written from the vendored docs and unit-tested
   against mocked transports, but **none has been run against a live exchange or
-  testnet**. Do that on testnet before any real capital.
+  testnet**. Do that on testnet before any real capital. Reading them once for
+  Q33's scale-out found a live example of why: Toobit's `place_order` accepted
+  `reduce_only` and ignored it, deriving the hedge-mode `positionSide` from the
+  order side, so a reduce-only sell against a long would have opened a short.
+  Fixed, and still only proved against a mock.
 - LBank futures is impossible to implement (Q10); the adapter raises
   `NotSupported` rather than guessing.
 - Hyperliquid **agent wallets cannot withdraw** — answered by the admin, Q11,
@@ -123,7 +127,7 @@ docs/
   decisions.md                       every closed question, Q1–Q28, with the setting that implements it
   security-plan.md                   the optional-by-default security layer: one switch per control,
                                      none of them on the order-routing path
-questions.md                         open questions only — Q29, Q31–Q34; new ones start at Q35
+questions.md                         open questions only — Q29, Q31, Q32, Q34; new ones start at Q35
 reference/                           read-only vendored docs & SDKs — never imported
   pinescriptv6/                      the Pine language reference (v6). The v1 subset is v5, but
                                      operators, the execution model and every ta.* formula are
@@ -161,8 +165,8 @@ reference/                           read-only vendored docs & SDKs — never im
 | `apps/accounts/report.py` | **One account, whole.** The per-account page's single payload: connection, ledger row, every leg with what it returned, the realised curve, cash flows and detections. Derives, never decides — the money is `ledger.py`'s arithmetic and the trades are the account's own legs. |
 | `apps/accounts/statement.py` | **The same account, as a document that leaves the platform.** Windowed by the two dates the operator picks, laid out with ReportLab and handed over as a PDF. It talks in money only — **no percentage appears anywhere in it**, because a rate on a page invites the reader to apply it to a number that is not there — and it says throughout that the bot placed every order. Derives nothing: `report.statement_report` does the arithmetic. |
 | `apps/accounts/statement_text.py` | **Both languages, side by side.** Every phrase in the statement in English and Persian, so a wording change cannot land in one and miss the other. Also owns what makes Persian *render*: the embedded Vazirmatn faces (Helvetica has no Arabic glyphs) and `shape()`, which reshapes and reorders a run — and deliberately leaves a run with no Arabic letter alone, since running bidi over `+$1,234.00` moves the sign to the wrong end. |
-| `apps/pine/` | **The Pine Script v5/v6 engine.** Lexer, parser, the Q24 subset as data, validator, incremental `ta.*`, `objects.py` (the value model for user-defined types and enums), `properties.py` (TradingView's Properties tab as data — resolved platform → script → panel, and naming every setting the backtest honours that live will not), `symbol.py` (the instrument and interval, fed in rather than looked up), and a bar-at-a-time runtime that emits a `StrategyIntent`. Imports **stdlib only** — no `django.*`, no `apps.*` — which is what makes it the *same object* in a backtest and in the live loop. Checked against `reference/pinescriptv6/`, pinned by `tests/test_pine_purity.py`. |
-| `apps/bots/` | **A bot is a signal source, not a second execution path.** `translate.py` turns an intent into the `route_*` calls that already exist and nothing below it is forked; `backtest.py` replays; `riskgate.py` is Q25's seven auto-stops; `supervisor.py` is one asyncio task per bot in the ASGI process; `gate.py` is the measured `paper → live` gate. **Both drivers tell the runtime what is held before the bar, never after** (`sync_position`): an intent is "what should be true *after* this bar", so it starts from the position the exchange says is open — a runtime that is never told starts every bar flat, and the first quiet bar after an entry becomes an instruction to close it. |
+| `apps/pine/` | **The Pine Script v5/v6 engine.** Lexer, parser, the Q24 subset as data, validator, incremental `ta.*`, `objects.py` (the value model for user-defined types and enums), `properties.py` (TradingView's Properties tab as data — resolved platform → script → panel, and naming every setting the backtest honours that live will not), `symbol.py` (the instrument and interval, fed in rather than looked up), and a bar-at-a-time runtime that emits a `StrategyIntent`. That intent carries no size and one *share*: `position_fraction`, what a `strategy.close(id, qty_percent =)` scale-out left running (Q33) — a proportion of a position the platform already sized, which is the same kind of thing as `sl_pct` and not a quantity. Imports **stdlib only** — no `django.*`, no `apps.*` — which is what makes it the *same object* in a backtest and in the live loop. Checked against `reference/pinescriptv6/`, pinned by `tests/test_pine_purity.py`. |
+| `apps/bots/` | **A bot is a signal source, not a second execution path.** `translate.py` turns an intent into the `route_*` calls that already exist and nothing below it is forked; `backtest.py` replays; `riskgate.py` is Q25's seven auto-stops; `supervisor.py` is one asyncio task per bot in the ASGI process; `gate.py` is the measured `paper → live` gate. **Both drivers tell the runtime what is held before the bar, never after** (`sync_position`): an intent is "what should be true *after* this bar", so it starts from the position the exchange says is open — a runtime that is never told starts every bar flat, and the first quiet bar after an entry becomes an instruction to close it. A **scale-out** (Q33) is the fourth route and the one action that leaves the side alone: `route_reduce` sends a reduce-only market order for the difference, the target is where the position should *end up* so re-planning a bar cannot take a level twice, and an account that cannot express a partial exit keeps the whole position rather than being flattened. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 
 ### Frontend map

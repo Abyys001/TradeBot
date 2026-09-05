@@ -24,6 +24,7 @@ def intent(
     tp: str | None = None,
     reason: str = "",
     bar_time: int = 1700000000,
+    fraction: str = "1",
 ) -> StrategyIntent:
     return StrategyIntent(
         bar_time=bar_time,
@@ -35,15 +36,24 @@ def intent(
         source_span=None,
         plots={},
         alerts=(),
+        position_fraction=D(fraction),
     )
 
 
-def held(side: Side | None, *, sl: str | None = None, tp: str | None = None, trade_id: int = 7):
+def held(
+    side: Side | None,
+    *,
+    sl: str | None = None,
+    tp: str | None = None,
+    trade_id: int = 7,
+    fraction: str = "1",
+):
     return Held(
         trade_id=trade_id if side else None,
         side=side,
         sl_pct=D(sl) if sl else None,
         tp_pct=D(tp) if tp else None,
+        fraction=D(fraction),
     )
 
 
@@ -193,3 +203,51 @@ def test_the_two_halves_of_a_reversal_do_not_collide():
     first = idempotency_key(3, 99, ActionType.CLOSE, 0)
     second = idempotency_key(3, 99, ActionType.OPEN, 1)
     assert first != second
+
+
+# --- the scale-out (Q33) ----------------------------------------------------
+
+
+def test_a_smaller_fraction_on_the_same_side_is_a_reduce():
+    actions = run(intent(Side.LONG, fraction="0.6"), held(Side.LONG))
+    assert [a.type for a in actions] == [ActionType.REDUCE]
+    assert actions[0].fraction == D("0.6")
+    assert actions[0].trade_id == 7
+
+
+def test_a_reduce_is_a_target_so_replanning_the_same_bar_does_nothing():
+    """The whole reason the intent carries a target and not an amount: a
+    restart mid-fan-out must not take the level twice."""
+    already = held(Side.LONG, sl="1", tp="2", fraction="0.6")
+    assert run(intent(Side.LONG, fraction="0.6"), already) == []
+
+
+def test_the_levels_compound_the_way_tradingview_compounds_them():
+    first = run(intent(Side.LONG, fraction="0.6"), held(Side.LONG))
+    second = run(intent(Side.LONG, fraction="0.42"), held(Side.LONG, fraction="0.6"))
+    assert first[0].fraction == D("0.6")
+    assert second[0].fraction == D("0.42")
+
+
+def test_a_scale_out_wins_over_an_sltp_change_on_the_same_bar():
+    """Checked first on purpose: a TP1 that also trailed the stop would
+    otherwise be planned as an amend and the exit would never go out."""
+    actions = run(
+        intent(Side.LONG, sl="3", tp="4", fraction="0.6"),
+        held(Side.LONG, sl="1", tp="2"),
+    )
+    assert [a.type for a in actions] == [ActionType.REDUCE]
+
+
+def test_a_reversal_after_a_scale_out_is_still_a_close_then_an_open():
+    actions = run(intent(Side.SHORT), held(Side.LONG, fraction="0.42"))
+    assert [a.type for a in actions] == [ActionType.CLOSE, ActionType.OPEN]
+
+
+def test_going_flat_after_a_scale_out_closes_the_remainder():
+    actions = run(intent(None), held(Side.LONG, fraction="0.42"))
+    assert [a.type for a in actions] == [ActionType.CLOSE]
+
+
+def test_a_reduce_and_a_close_on_one_bar_do_not_share_a_key():
+    assert idempotency_key(1, 99, ActionType.REDUCE) != idempotency_key(1, 99, ActionType.CLOSE)

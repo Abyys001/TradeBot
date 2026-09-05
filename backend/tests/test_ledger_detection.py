@@ -37,7 +37,7 @@ from apps.accounts.models import (
     LedgerEvent,
 )
 from apps.core.money import D
-from apps.trading.models import Trade, TradeLeg, TradeStatus
+from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 from tests.conftest import ledger_settings
 
 KEY = Fernet.generate_key().decode()
@@ -116,6 +116,46 @@ def test_a_gain_the_closed_trades_explain_is_not_a_cash_flow():
 
     assert observe(account, "1120") is None
     assert DetectedMovement.objects.count() == 0
+
+
+def test_a_scale_out_is_a_trade_result_not_a_deposit():
+    """A TP1 settles into equity long before the leg closes. Counting only
+    closed legs made the balance rise with an open position behind it and no
+    ``pnl`` anywhere, which the detector offered as somebody's payment in."""
+    account = make_account()
+    start = timezone.now() - timedelta(hours=2)
+    observe(account, "1000", at=start)
+
+    trade = Trade.objects.create(
+        symbol="BTCUSDT", side="long", leverage=10, status=TradeStatus.OPEN
+    )
+    leg = TradeLeg.objects.create(trade=trade, account=account, ok=True, qty=D("0.05"))
+    row = TradeReduction.objects.create(
+        leg=leg, qty=D("0.05"), to_fraction=D("0.5"), price=D("102400"), pnl=D("120")
+    )
+    TradeReduction.objects.filter(pk=row.pk).update(at=start + timedelta(hours=1))
+
+    assert observe(account, "1120", flat=False) is None
+    assert DetectedMovement.objects.count() == 0
+
+
+def test_a_shrink_the_platform_did_not_send_stays_unexplained():
+    """A position that got smaller with no order from here is exactly that: the
+    slice carries no price, so nothing here pretends to know what it earned."""
+    account = make_account()
+    start = timezone.now() - timedelta(hours=2)
+    observe(account, "1000", at=start)
+
+    trade = Trade.objects.create(
+        symbol="BTCUSDT", side="long", leverage=10, status=TradeStatus.OPEN
+    )
+    leg = TradeLeg.objects.create(trade=trade, account=account, ok=True, qty=D("0.05"))
+    TradeReduction.objects.create(
+        leg=leg, qty=D("0.05"), to_fraction=D("0.5"), source_code="shrank_on_exchange"
+    )
+
+    proposal = observe(account, "1120", flat=False)
+    assert proposal is None or proposal.trade_pnl == D("0")
 
 
 def test_money_arriving_with_no_trade_behind_it_proposes_a_deposit():

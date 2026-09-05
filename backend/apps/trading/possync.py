@@ -60,9 +60,10 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
+from apps.core.money import D
 from apps.engine.fanout import FanOutResult, fan_out
 from apps.exchanges.base import ClosedFill, ExchangeAdapter, Position
-from apps.trading.models import Trade, TradeLeg, TradeStatus
+from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 
 logger = logging.getLogger(__name__)
 
@@ -242,12 +243,62 @@ def _apply(leg: TradeLeg, position: Position) -> list[str]:
     """Copy the exchange's numbers onto a leg. Returns the fields it touched."""
     fields: list[str] = []
     if _drifted(leg.qty, position.size):
+        if leg.qty is not None and position.size < leg.qty:
+            # The position got *smaller* without vanishing. That is a partial
+            # exit — a scale-out this platform sent and has not recorded yet, or
+            # one performed in the venue's own app — and copying the new size
+            # over the old one is not enough: the difference is money that
+            # moved, and money that moved with no row behind it surfaces in
+            # `accounts.detection` as an unexplained balance change and is
+            # offered to the operator as somebody's deposit.
+            _record_shrink(leg, position)
         leg.qty = position.size
         fields.append("qty")
     if _drifted(leg.entry_price, position.entry_price) and position.entry_price > 0:
         leg.entry_price = position.entry_price
         fields.append("entry_price")
     return fields
+
+
+def _record_shrink(leg: TradeLeg, position: Position) -> None:
+    """Write down a reduction the platform did not send, at an unknown price.
+
+    Unknown rather than estimated, for the same reason a leg the venue closed by
+    itself carries no exit price: a mark price is not a fill, and a PnL derived
+    from one is a number nobody traded at. Unlike a full close it stays unknown
+    — ``get_closed_pnl`` reports a *closed position*, not a slice of an open
+    one, so there is nothing at this seam to match a partial fill against. The
+    consequence is deliberate and visible: the cash shows up in
+    ``accounts.detection`` as unexplained, which is what a position that shrank
+    with no order from here actually is.
+
+    A reduction this platform *did* send is already on record with its real
+    price, and its ``qty`` will match — so it is not written twice.
+    """
+    taken = D(leg.qty) - D(position.size)
+    if taken <= 0:
+        return
+    already = leg.reductions.filter(qty=taken).exists()
+    if already:
+        return
+    base = leg.entry_qty or leg.qty
+    TradeReduction.objects.create(
+        leg=leg,
+        qty=taken,
+        to_fraction=(D(position.size) / D(base)) if base else Decimal("0"),
+        price=None,
+        pnl=None,
+        source_code="shrank_on_exchange",
+    )
+    logger.warning(
+        "account=%s leg=%s: %s shrank from %s to %s with no reduction on record — "
+        "written down at an unknown price",
+        leg.account_id,
+        leg.id,
+        position.symbol,
+        leg.qty,
+        position.size,
+    )
 
 
 @transaction.atomic

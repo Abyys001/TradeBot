@@ -65,14 +65,32 @@ specific script.
 `strategy.risk.*` · `strategy.order` `strategy.cancel` `strategy.cancel_all` ·
 `import` `export` · `strategy.exit`'s `loss` `profit` `stop` `limit`
 `trail_points` `trail_offset` `trail_price` · `line.get_price` and the other
-drawing read-backs · **`strategy.close`'s `qty` and `qty_percent`**.
+drawing read-backs · **`strategy.close`'s `qty`** · a literal `qty_percent`
+outside `0 < p <= 100`.
 
-That last one is the only refusal an ordinary strategy is likely to hit. A
-scale-out — take 30% off, keep the rest running — cannot be expressed here:
-`ExchangeAdapter.close_position` takes no size, so the nearest available action
-is to flatten an account the script meant to keep most of. Use
-`strategy.close_all()`, or take the whole exit at one level. **Q33** carries the
-feature.
+`strategy.close`'s `qty_percent` **is** supported — a scale-out, take 30% off
+and keep the rest running, is a real feature here (**Q33**, answered). A
+percentage is identical on every account and only the dollar size differs,
+which is spec §5's existing rule applied to the exit. `qty` has no such
+reading: each account is sized against its own balance, so one contract count
+cannot mean the same thing on all of them.
+
+Two things about it are worth knowing before you write one:
+
+- **The percentage applies to what is still open, not to the entry** — that is
+  TradingView's own behaviour. A 40/30/30 split closes 40%, then 30% of the
+  remaining 60%, then 30% of 42%, and **leaves 29.4% running**. That runner
+  exits on the stop or on a reversal, not on TP3.
+- **An account that cannot take its share keeps the whole position**, with a
+  notification. That happens on a venue with no reduce-only order, or when the
+  account's share of the exit — or the remainder it would leave — lands under
+  the exchange's minimum. Rounding up to reach the minimum would exit more than
+  the script asked for, which spec §5 forbids on the way in and this forbids on
+  the way out.
+
+An out-of-range percentage is refused rather than clamped. TradingView clamps;
+a clamp here would turn what is plainly a bug in the arithmetic that produced
+the number into a full exit without saying so.
 
 Plus the semantic checks: no `//@version=` at all (or one that is not 5 or 6), an `indicator()` instead of a
 `strategy()`, `strategy()` not first, an order inside a loop **or a method**, an
@@ -87,9 +105,11 @@ complexity limits, and an unknown name (which suggests the nearest one it knows)
 They raise a warning at upload, shown next to the editor. None is ever silent.
 
 1. **`strategy.entry`'s `qty`.** Parsed and ignored — the platform sizes every
-   leg at 99% of that account's own balance (Q20, spec §5). `StrategyIntent` has
-   no quantity field at all. (`strategy.close`'s size arguments are a *refusal*,
-   not a warning: see above.)
+   leg at 99% of that account's own balance (Q20, spec §5). `StrategyIntent`
+   carries no quantity: its one size-ish field is `position_fraction`, a
+   *proportion of a position the platform already sized*, which is the same
+   kind of thing as `sl_pct`. (`strategy.close`'s `qty` is a *refusal*, not a
+   warning: see above.)
 2. **`varip`.** Treated as `var`. Its whole purpose is surviving an intrabar
    recalculation and this platform evaluates on bar close only (Q23).
 3. **A `ta.*` call the bar might not reach** — one inside a loop, or inside a

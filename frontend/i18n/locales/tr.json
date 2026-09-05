@@ -21,7 +21,8 @@
     "chart": "Grafik",
     "expand": "Menüyü genişlet",
     "language": "Dil",
-    "bots": "Botlar"
+    "bots": "Botlar",
+    "strategies": "Stratejiler"
   },
   "common": {
     "loading": "Yükleniyor…",
@@ -40,7 +41,9 @@
     "off": "Kapalı",
     "refused": "Reddedildi",
     "create": "Oluştur",
-    "delete": "Sil"
+    "delete": "Sil",
+    "save": "Kaydet",
+    "change": "Değiştir"
   },
   "theme": {
     "toLight": "Aydınlığa geç",
@@ -259,6 +262,7 @@
     "noActions": "Henüz emir gönderilmedi",
     "noActionsBody": "Bu botun gönderdiği her emir, her hesabın verdiği yanıtla birlikte burada görünür.",
     "shadowNote": "kaydedildi, gönderilmedi",
+    "stillOpen": "%{pct} hâlâ açık",
     "noBars": "Henüz mum kaydedilmedi",
     "barTime": "Mum",
     "close": "Kapanış",
@@ -307,6 +311,7 @@
       "open": "Aç",
       "amend": "Değiştir",
       "close": "Kapat",
+      "reduce": "Kademeli çıkış",
       "shadow": "Gölge"
     },
     "stop": {
@@ -339,6 +344,21 @@
     "selectStrategyBody": "Listeden birini seçin veya yeni bir betik oluşturun.",
     "unsaved": "Kaydedilmedi",
     "window": "Aralık",
-    "execution": "Yürütme"
+    "execution": "Yürütme",
+    "countN": "{n} kayıtlı",
+    "renameStrategy": "Stratejiyi yeniden adlandır",
+    "renameNote": "Altındaki sürümler numaralarını ve kaynaklarını korur, çalışan bir bot da aynı sürümü göstermeye devam eder. Ad bir etikettir; botun yürüttüğü şeyin parçası değildir.",
+    "savedBy": "Kaydeden",
+    "diagnosticsHint": "Düzenleyicide o satıra gitmek için tıklayın.",
+    "pickStrategyLead": "Bir bot, tek bir paritede tek bir betiğin tek bir sürümüdür. Önce betiği seçin — o olmadan yapılandıracak bir şey yok.",
+    "noStrategiesForBot": "Önce bir strateji yazın — botun onsuz çalıştıracağı bir şey yok.",
+    "history": "Son backtestler",
+    "historyLead": "Her çalıştırma saklanır. Yeniden okumak için tıklayın.",
+    "noHistory": "Henüz backtest yok",
+    "noHistoryBody": "Yukarıdan bir tane çalıştırın; tüm sayılarıyla, okunduğu haliyle burada saklanır.",
+    "historyNote": "Bu aralığın ihtiyaç duyduğu ama arşivde olmayan geçmiş, ilk çalıştırmada indirilir ve saklanır. Bu kadar geriye gidemeyen bir borsa sayıların üstünde bildirilir, reddedilmez.",
+    "replayingNote": "Yeni bir paritedeki ilk çalıştırma geçmişini de indirir.",
+    "viewingStored": "Kayıtlı çalıştırma · {name}",
+    "renameBot": "Botu yeniden adlandır"
   }
 }
