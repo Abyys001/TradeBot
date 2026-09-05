@@ -47,9 +47,14 @@ services:
     ports: ["127.0.0.1:8001:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=5).status==200 else 1)\""]
-      interval: 15s
+      # 5s, not 15s: `frontend` waits on this condition, so the interval is
+      # dead time on the public site during every deploy — up to 15s of nginx
+      # having nothing to proxy to. start_period stays 90s because a first-boot
+      # migrate legitimately takes that long; it only suppresses failures, a
+      # passing check still marks the service healthy immediately.
+      interval: 5s
       timeout: 10s
-      retries: 5
+      retries: 15
       start_period: 90s
     depends_on:
       db: {condition: service_healthy}

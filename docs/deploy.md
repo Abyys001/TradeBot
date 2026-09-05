@@ -381,7 +381,7 @@ Deployed is not the same as in use. In order:
 | State | `docker compose -f docker-compose.prod.yml ps` |
 | Logs | `docker compose -f docker-compose.prod.yml logs -f backend frontend caddy` |
 | Health | `curl -s https://maxbot.cybercina.co.uk/api/health/` |
-| Update | `git pull && docker compose -f docker-compose.prod.yml up -d --build` |
+| Update | `git pull && deploy/deploy.sh` — **not** a bare `up -d --build`; see below |
 | Restart | `docker compose -f docker-compose.prod.yml restart` |
 | Back up Postgres | `docker compose -f docker-compose.prod.yml exec -T db pg_dump -U walletmanager walletmanager > backup-$(date +%F).sql` |
 | Restore | `docker compose -f docker-compose.prod.yml exec -T db psql -U walletmanager walletmanager < backup.sql` |
@@ -394,7 +394,29 @@ holds credentials encrypted with `CREDENTIAL_ENCRYPTION_KEYS`; a dump without
 that key restores rows nobody can read.
 
 **An update rebuilds images.** Dependencies move (the panel gained `ws` for the
-WebSocket relay, for one), so `--build` is not optional on `git pull`.
+WebSocket relay, for one), so a rebuild is not optional on `git pull`.
+
+**Use `deploy/deploy.sh` rather than `docker compose up -d --build`.** They do
+the same work in a different order, and the order is the whole point:
+
+* it **builds before it takes anything down**, so a build that fails costs no
+  downtime at all — the running site is still the old one;
+* it then swaps, and **waits for `https://maxbot.cybercina.co.uk/` and
+  `/api/health/` to both answer 200** before it reports success. `up -d`
+  returns when containers are *created*, which is up to a minute before the
+  site answers, so a deploy that never came back used to look exactly like one
+  that did. If the site does not return inside `DEPLOY_TIMEOUT` (300s) the
+  script exits non-zero and prints both logs instead of claiming success.
+
+`deploy/deploy.sh --check` verifies the domain without changing anything.
+
+**The swap is no longer a bare 502.** For the 30-120 seconds when nothing is
+listening on `:3000`, host nginx now serves `deploy/maintenance.html` — a 503
+with `Retry-After`, and a page that reloads itself every 5 seconds so the panel
+comes back on its own. `/api/**` gets a JSON 503 over the same window rather
+than HTML, because the stores parse every one of those responses. Install or
+update that front with `sudo deploy/install-nginx.sh`; the config it installs is
+tracked at `deploy/nginx-host.conf`, which until now existed only on the server.
 
 ## 8. When something is wrong
 
@@ -402,7 +424,7 @@ WebSocket relay, for one), so `--build` is not optional on `git pull`.
 |---|---|
 | Panel loads, never goes `LIVE` | The domain in `DJANGO_ALLOWED_HOSTS`. The socket's origin check reads that list, so a missing domain is a page that works and a channel that refuses. |
 | Backend stays `unhealthy`, `frontend`/`caddy` never start | `DJANGO_SECURE_SSL_REDIRECT` is unset (so `true`, given `DEBUG=false`): the healthcheck's plain HTTP probe gets a 301. Set it `false` — it is pinned in the compose and `env.production.example`. |
-| `502` from Caddy | `docker compose ps` — the backend is probably still migrating on first boot. `start_period` is 90s. |
+| `502`, or the "panel is updating" page that never goes away | `docker compose ps` — the backend is probably still migrating on first boot. A minute of this during a deploy is expected and now renders as the maintenance page; minutes of it are not. `deploy/deploy.sh` waits this out and fails loudly instead of leaving it to be discovered in a browser. |
 | `400 DisallowedHost` in the backend log | Same list. The panel forwards the browser's Host as `X-Forwarded-Host`. |
 | CSRF failures on the ticket | `CORS_ALLOWED_ORIGINS` must carry the exact `https://` origin — it seeds `CSRF_TRUSTED_ORIGINS`. |
 | No prices anywhere, `market_feed: false` | Outbound. The §0 curl, then `MARKET_DATA_PROXY`. |
