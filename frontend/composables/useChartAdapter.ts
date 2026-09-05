@@ -28,10 +28,13 @@
  * asks for it, and never on a data refresh.
  */
 import {
+  CandlestickSeries,
   createChart,
+  createSeriesMarkers,
   type AutoscaleInfo,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type IPriceLine,
   type CandlestickData,
   type SeriesMarker,
@@ -159,6 +162,12 @@ function palette() {
 export class LightweightChartAdapter implements ChartAdapter {
   private chart: IChartApi | null = null
   private series: ISeriesApi<'Candlestick'> | null = null
+  /**
+   * Markers are a series *primitive* rather than a series method: attached
+   * once here, and the only thing `repaintMarkers` writes to. It dies with
+   * the series, so `destroy` drops the reference rather than detaching.
+   */
+  private markerLayer: ISeriesMarkersPluginApi<Time> | null = null
   private lines: Partial<Record<'sl' | 'tp' | 'entry' | 'liq', IPriceLine>> = {}
   private dragCb: ((kind: DragKind, price: number) => void) | null = null
   private dragging: DragKind | null = null
@@ -237,7 +246,7 @@ export class LightweightChartAdapter implements ChartAdapter {
       // eating it, or the terminal becomes unscrollable on a phone.
       handleScroll: { vertTouchDrag: false },
     })
-    this.series = this.chart.addCandlestickSeries({
+    this.series = this.chart.addSeries(CandlestickSeries, {
       upColor: this.colors.long,
       downColor: this.colors.short,
       wickUpColor: this.colors.long,
@@ -251,6 +260,7 @@ export class LightweightChartAdapter implements ChartAdapter {
       priceLineVisible: false,
       autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => this.autoscale(original),
     })
+    this.markerLayer = createSeriesMarkers(this.series)
     this.chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
       this.visible = range ? { from: Number(range.from), to: Number(range.to) } : null
       // Which labels fit is a function of zoom: bars that were a screen apart
@@ -391,11 +401,11 @@ export class LightweightChartAdapter implements ChartAdapter {
    * the candle, because those are the two things being asked about.
    */
   private repaintMarkers() {
-    if (!this.series) return
+    if (!this.series || !this.markerLayer) return
     if (!this.bars.length || !this.markers.length) {
       if (this.markerSignature !== '') {
         this.markerSignature = ''
-        this.series.setMarkers([])
+        this.markerLayer.setMarkers([])
       }
       return
     }
@@ -469,7 +479,7 @@ export class LightweightChartAdapter implements ChartAdapter {
     const signature = out.map((m) => `${String(m.time)}:${m.text ?? ''}`).join('|')
     if (signature === this.markerSignature) return
     this.markerSignature = signature
-    this.series.setMarkers(out)
+    this.markerLayer.setMarkers(out)
   }
 
   /** Half the pixel width a set of names will occupy once rendered. */
@@ -645,6 +655,7 @@ export class LightweightChartAdapter implements ChartAdapter {
     this.chart?.remove()
     this.chart = null
     this.series = null
+    this.markerLayer = null
     this.lines = {}
     this.bars = []
     this.markers = []

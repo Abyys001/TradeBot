@@ -23,6 +23,18 @@ class AccountsConfig(AppConfig):
         def _retire(sender, instance, **kwargs):  # noqa: ANN001, ARG001
             evict(instance.id)
 
+        # ``weak=False`` is load-bearing, not a precaution. Django holds its
+        # receivers weakly by default, and ``_retire`` is a local function with
+        # no other reference, so the only thing keeping it alive was a reference
+        # cycle that had not been collected yet — the receiver was registered
+        # and *dead*, silently, the moment a garbage collection ran during
+        # startup. Nothing failed loudly: the adapter simply stayed in the pool
+        # holding credentials the admin had deleted. ``dispatch_uid`` already
+        # makes re-registration a no-op, so a strong reference cannot duplicate
+        # it. Pinned by ``tests/test_adapter_pool.py``.
         post_delete.connect(
-            _retire, sender=ConnectedAccount, dispatch_uid="exchanges.pool.retire"
+            _retire,
+            sender=ConnectedAccount,
+            dispatch_uid="exchanges.pool.retire",
+            weak=False,
         )
