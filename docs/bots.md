@@ -242,6 +242,49 @@ number people act on.
 | A bar that touches both the stop and the target | assumed **stopped out** |
 | Warm-up | `max(indicator lookback) × BOT_WARMUP_MULTIPLIER`, and a window with too little of it says so |
 
+### The Properties tab
+
+TradingView puts ten settings behind a strategy — initial capital, base
+currency, order size, pyramiding, commission, slippage, margin, limit-fill
+verification, recalculation and the fill model. They are the backtest's model of
+a broker, and two reports are only comparable if they were run under the same
+one. The **Properties tab on a bot's page** (`/bots/<id>` → Properties) is that
+form, so a replay here can be lined up against the one the author ran on
+TradingView instead of being read against a different set of assumptions.
+
+Values resolve in one direction, and `apps/pine/properties.py::resolve` is the
+only place that order exists:
+
+```
+platform default  ──▶  what strategy() declared  ──▶  what this tab overrides
+```
+
+Every row says which of the three won it, because "the author chose 25,000" and
+"nobody chose anything, so it is 10,000" are the same number in a bare input and
+mean opposite things. Clearing a field hands it back one step, rather than
+pinning it to a default — so a later version of the script that *does* declare
+it starts winning without the tab having to be re-saved.
+
+**What the tab cannot do is make live match the backtest, and it says so on the
+rows where that matters.** Spec §5 is an invariant: a live order is 99% of that
+account's own balance as margin with the bot's leverage on top, identically
+across every connected account. So `default_qty_type`/`default_qty_value` and
+the margin pair size the *simulated* account and stop there; `pyramiding` is not
+simulated at all (questions.md Q33); `process_orders_on_close` is a fill live
+cannot perform; and `calc_on_every_tick` and `fill_orders_on_standard_ohlc` do
+nothing here at all — no tick archive, no Heikin Ashi candles. Each of those
+carries its own sentence, served from the same module the validator reads, and
+`live_departures()` repeats the set below the form. None of them is hidden:
+Q20's rule is that parsed-and-dropped is only allowed out loud, and a field that
+silently vanished would read as a platform that had never heard of it.
+
+Overrides live on the **bot**, not the version — a version is immutable and
+shared, so two bots may replay the same script against different simulated
+capital without one rewriting the other's report. A backtest launched from a
+bot's page is captioned with that bot's properties, and the resolved set travels
+inside the stored report so an old run stays readable against the numbers it
+actually ran under.
+
 It also reports an **intent digest** — a SHA-256 over the decision sequence
 (side, levels, bar time, symbol; not plots, not reason strings). That digest is
 the whole claim that a backtest predicts anything: the live loop computes it the

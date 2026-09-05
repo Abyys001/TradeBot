@@ -149,6 +149,20 @@ class Bot(models.Model):
     #: Per-bot overrides of the Q25 defaults in ``settings.BOT``. Phase 10
     #: requires these be set deliberately rather than left empty.
     risk_config = models.JSONField(default=dict, blank=True)
+    #: TradingView's Properties tab, as *this bot* overrides it — the third and
+    #: last step of ``properties.resolve`` (platform → script → panel).
+    #:
+    #: On the bot rather than on the version because a version is immutable and
+    #: shared: two bots may run the same script against different simulated
+    #: capital, and pinning the numbers to the version would make one of them
+    #: rewrite the other's backtest. Only the keys actually overridden are
+    #: stored, so a script that later declares one of these still wins over the
+    #: platform default without the panel having to be re-saved.
+    #:
+    #: Backtest-facing only. Nothing in the live path reads it — spec §5 sizes
+    #: from each account's real balance, and ``live_departures()`` is what says
+    #: so on screen.
+    property_overrides = models.JSONField(default=dict, blank=True)
 
     state = models.CharField(max_length=10, choices=BotState.choices, default=BotState.DRAFT)
     #: Phase 7's shadow mode: evaluate, log what would have happened, route

@@ -99,6 +99,7 @@ class BotSerializer(serializers.ModelSerializer):
             "tp_pct",
             "input_values",
             "risk_config",
+            "property_overrides",
             "state",
             "dry_run",
             "drills_fired",
@@ -112,6 +113,22 @@ class BotSerializer(serializers.ModelSerializer):
     def get_latest_run(self, obj):
         run = obj.runs.order_by("-started_at").first()
         return BotRunSerializer(run).data if run else None
+
+    def validate_property_overrides(self, value):
+        """Refuse by name rather than storing something that reads back different.
+
+        ``properties.resolve`` drops a bad key in silence on purpose — it runs
+        behind a validator that has already named it. A form post is the other
+        case: somebody is looking at the field, so an unusable value has to come
+        back as an error against that field instead of vanishing into a default
+        the next backtest would then be captioned with.
+        """
+        from apps.pine import properties as props
+
+        clean, errors = props.validate_overrides(value)
+        if errors:
+            raise serializers.ValidationError([row["message"] for row in errors])
+        return props.serialise_overrides(clean)
 
 
 class BotRunSerializer(serializers.ModelSerializer):

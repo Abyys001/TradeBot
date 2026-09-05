@@ -267,6 +267,8 @@ export function useApi() {
     botActions: (id: number) => request<BotAction[]>(`/bots/bots/${id}/actions/`),
     /** The Phase 7 gate with this bot's own measurements filled in. */
     botPromotion: (id: number) => request<PromotionGate>(`/bots/bots/${id}/promotion/`),
+    /** TradingView's Properties tab for this bot, already resolved server-side. */
+    botProperties: (id: number) => request<BotProperties>(`/bots/bots/${id}/properties/`),
     startBot: (id: number, state: 'paper' | 'live') =>
       request<{ bot_id: number; state: string; run_id: number; deactivated: number[] }>(
         `/bots/bots/${id}/start/`,
@@ -1130,6 +1132,45 @@ export interface PinePropertyNotes {
   inert: string[]
 }
 
+/**
+ * One row of the Properties form, described by the server.
+ *
+ * The labels are translated in the panel, but everything that decides *whether
+ * a field is honoured* — the kind, the floor, and the two sentences — is a fact
+ * about the property and ships from `apps/pine/properties.py`. Restating it in
+ * TypeScript would give the platform two answers to "does this reach live", and
+ * the wrong one would be the one on screen.
+ */
+export interface PropertyFieldSpec {
+  key: keyof PineProperties & string
+  category: 'capital' | 'sizing' | 'costs' | 'execution'
+  kind: 'decimal' | 'int' | 'bool' | 'choice' | 'currency'
+  choices: string[]
+  unit: string
+  minimum: string | null
+  /** Non-empty when the field only ever describes the simulated account. */
+  backtest_only: string
+  /** Non-empty when the field does nothing here at all. */
+  inert: string
+  /** Read only while another field holds one of these values. */
+  enabled_when: { key: string; values: string[] } | null
+}
+
+export interface PropertySchema {
+  categories: Array<{ key: string; label: string }>
+  fields: PropertyFieldSpec[]
+}
+
+/** `GET /bots/bots/{id}/properties/` — the resolved tab plus the form to edit it. */
+export interface BotProperties {
+  bot: number
+  resolved: PineProperties
+  overrides: Record<string, unknown>
+  schema: PropertySchema
+  live_departures: string[]
+  inert: string[]
+}
+
 export interface PineValidation {
   ok: boolean
   errors: PineDiagnostic[]
@@ -1181,6 +1222,13 @@ export interface BotSummary {
   tp_pct: string | null
   input_values: Record<string, unknown>
   risk_config: Record<string, unknown>
+  /**
+   * TradingView's Properties tab, as *this bot* overrides it. Only the keys
+   * actually overridden — everything absent falls through to the script's
+   * declaration and then to the platform default, and that merge happens on
+   * the server (`properties.resolve`), never here.
+   */
+  property_overrides: Record<string, unknown>
   state: BotState
   /** True in every state but `live`. Set by the state, never by hand. */
   dry_run: boolean

@@ -20,7 +20,9 @@ profit split), **bot mode** — a Pine Script **v5/v6** engine (the v1 subset
 strategy is actually made of: line wrapping, drawing objects accepted and drawn
 nowhere, colours as ordinary values, `syminfo.*`/`timeframe.*`/`chart.*`, the
 `strategy.*` performance figures, and TradingView's Properties tab honoured by
-the backtest — `docs/decisions.md` Q24 amendments, `apps/pine/properties.py`),
+the backtest — `docs/decisions.md` Q24 amendments, `apps/pine/properties.py`,
+editable per bot from the panel's Properties tab, which names every setting that
+stops at the backtest),
 backtest, supervisor and panel (`docs/bots.md`), gated
 per account by two independent switches (`manual_trading_enabled`,
 `bot_trading_enabled` — `docs/bots.md` §7) and restricted to **one running bot
@@ -184,6 +186,7 @@ reference/                           read-only vendored docs & SDKs — never im
 | `components/accounts/StatementDialog.vue` | The dialog in front of that page's download: which period, and which language the *recipient* reads — asked rather than assumed, because the file is what a partner is sent and it opens on the panel's language only as the likelier answer. |
 | `components/app/StopAll.vue` | The spec §7 halt, in the top bar of every page. **It stops every running bot too** (Q22) — a halt that flattens while a bot is still evaluating is a halt that re-enters ninety seconds later. |
 | `pages/bots/index.vue`, `pages/bots/[id].vue` | The bots, stopped ones first: Q25's premise is that nobody is watching at 03:00, so a bot that stopped itself does not sort under the running ones where it reads as idle. The detail page's spine is the promotion gate — nine measurements, not a confirmation dialog. |
+| `components/bots/StrategyProperties.vue` | **TradingView's Properties tab, per bot.** The third step of `properties.resolve` — platform → script → panel — given a form. Every row names which of the three won it, because "the author chose 25,000" and "nobody chose anything" are the same number in a bare input. It recomputes nothing: the merge, the floors and the two warning sentences all arrive from `apps/pine/properties.py`, so the panel cannot hold a second opinion about whether a setting reaches live. And it says up front that it does not — this tab configures the **backtest**, live sizing is §5, and the rows that stop at the replay carry the reason on their own line. |
 | `components/bots/PineEditor.vue` | The editor: a textarea, a gutter and a highlight layer. Not CodeMirror, for the reason `utils/icons.ts` is not an icon package — what it needs is line numbers, a Tab that inserts four spaces (Pine is whitespace-significant), auto-indent, and the validator's errors on their own lines. |
 | `components/dashboard/Sessions.vue` | "Signed in": every browser holding the shared login, with device, address and last-seen, each one endable from its row. On one password this is the only place a second participant is visible — and reading that without being able to act on it was the gap. |
 | `components/security/SecurityCard.vue`, `stores/security.ts` | The security layer as one card on `/settings`: a switch per control, each one's tunables underneath it and only while it is on. A refusal is an answer rather than a failure — the second-factor row says "enrol an app first" instead of springing back — and a `step_up_required` raises the password prompt and replays the click. |

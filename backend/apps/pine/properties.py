@@ -88,12 +88,62 @@ COMMISSION_CONSTANTS: dict[str, CommissionType] = {
 #: ``currency.NONE`` is TradingView's "Default" — no conversion, the symbol's
 #: own quote currency.
 CURRENCIES: tuple[str, ...] = (
-    "NONE", "AED", "ARS", "AUD", "BDT", "BHD", "BRL", "BTC", "CAD", "CHF",
-    "CLP", "CNY", "COP", "CZK", "DKK", "EGP", "ETH", "EUR", "GBP", "HKD",
-    "HUF", "IDR", "ILS", "INR", "ISK", "JPY", "KES", "KRW", "KWD", "LKR",
-    "MAD", "MXN", "MYR", "NGN", "NOK", "NZD", "PEN", "PHP", "PKR", "PLN",
-    "QAR", "RON", "RSD", "RUB", "SAR", "SEK", "SGD", "THB", "TND", "TRY",
-    "TWD", "USD", "USDT", "VES", "VND", "ZAR",
+    "NONE",
+    "AED",
+    "ARS",
+    "AUD",
+    "BDT",
+    "BHD",
+    "BRL",
+    "BTC",
+    "CAD",
+    "CHF",
+    "CLP",
+    "CNY",
+    "COP",
+    "CZK",
+    "DKK",
+    "EGP",
+    "ETH",
+    "EUR",
+    "GBP",
+    "HKD",
+    "HUF",
+    "IDR",
+    "ILS",
+    "INR",
+    "ISK",
+    "JPY",
+    "KES",
+    "KRW",
+    "KWD",
+    "LKR",
+    "MAD",
+    "MXN",
+    "MYR",
+    "NGN",
+    "NOK",
+    "NZD",
+    "PEN",
+    "PHP",
+    "PKR",
+    "PLN",
+    "QAR",
+    "RON",
+    "RSD",
+    "RUB",
+    "SAR",
+    "SEK",
+    "SGD",
+    "THB",
+    "TND",
+    "TRY",
+    "TWD",
+    "USD",
+    "USDT",
+    "VES",
+    "VND",
+    "ZAR",
 )
 
 #: Every ``strategy()`` argument this module reads, mapped to how it is read.
@@ -137,12 +187,10 @@ BACKTEST_ONLY: dict[str, str] = {
         "backtest that scaled in would describe a platform that cannot (questions.md Q33)"
     ),
     "margin_long": (
-        "margin is a backtest property — the live venue's own margin rules apply, not "
-        "this number"
+        "margin is a backtest property — the live venue's own margin rules apply, not this number"
     ),
     "margin_short": (
-        "margin is a backtest property — the live venue's own margin rules apply, not "
-        "this number"
+        "margin is a backtest property — the live venue's own margin rules apply, not this number"
     ),
     "initial_capital": (
         "initial capital sizes the backtest's one notional account — live reads each "
@@ -165,8 +213,7 @@ INERT: dict[str, str] = {
         "recalculating on every tick has nothing to recalculate from"
     ),
     "fill_orders_on_standard_ohlc": (
-        "this platform draws standard candles only, so there are no Heikin Ashi prices "
-        "to correct"
+        "this platform draws standard candles only, so there are no Heikin Ashi prices to correct"
     ),
     "backtest_fill_limits_assumption": (
         "limit entries are outside the subset (strategy.entry limit= is refused), so "
@@ -472,3 +519,258 @@ def _as_bool(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return bool(value)
+
+
+# --- the Properties tab as a form -------------------------------------------
+#
+# The panel needs more than the values: it needs to know what kind of control
+# each one is, which of TradingView's four groups it belongs in, and — the part
+# that matters here — whether editing it changes the backtest only. All of that
+# is a fact about the property, not about the page, so it lives here beside the
+# rule it describes rather than being restated in TypeScript where it would
+# drift the first time one of these sentences is rewritten.
+#
+# `docs/bots.md` calls this the panel's copy of the Properties tab. It is the
+# same list TradingView shows, in the same order, minus nothing: a property this
+# platform cannot honour is still *listed*, carrying the sentence that says so,
+# because a field that silently vanishes reads as a platform that never heard of
+# it (Q20 — parsed-and-dropped is only allowed out loud).
+
+
+#: TradingView's own grouping, in TradingView's order.
+CATEGORIES: tuple[tuple[str, str], ...] = (
+    ("capital", "Capital & currency"),
+    ("sizing", "Position sizing & scaling"),
+    ("costs", "Risk, costs & margin"),
+    ("execution", "Execution & recalculation"),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PropertyField:
+    """One row of the form. Everything the panel needs to draw and police it."""
+
+    key: str
+    category: str
+    #: "decimal" | "int" | "bool" | "choice" | "currency"
+    kind: str
+    choices: tuple[str, ...] = ()
+    #: Rendered after the input — "%", "ticks", "contracts".
+    unit: str = ""
+    minimum: Decimal | None = None
+    #: Set when the field only ever describes the simulated account. The panel
+    #: shows this beside the input, always — not only once it departs — because
+    #: the question a reader has *while typing* is "will this reach live".
+    backtest_only: str = ""
+    #: Set when the field does nothing here at all, even in the backtest.
+    inert: str = ""
+    #: Read only while another field holds a particular value.
+    enabled_when: tuple[str, tuple[str, ...]] | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "key": self.key,
+            "category": self.category,
+            "kind": self.kind,
+            "choices": list(self.choices),
+            "unit": self.unit,
+            "minimum": None if self.minimum is None else str(self.minimum),
+            "backtest_only": self.backtest_only,
+            "inert": self.inert,
+            "enabled_when": (
+                None
+                if self.enabled_when is None
+                else {"key": self.enabled_when[0], "values": list(self.enabled_when[1])}
+            ),
+        }
+
+
+SCHEMA: tuple[PropertyField, ...] = (
+    PropertyField(
+        key="initial_capital",
+        category="capital",
+        kind="decimal",
+        minimum=Decimal("0.01"),
+        backtest_only=BACKTEST_ONLY["initial_capital"],
+    ),
+    PropertyField(
+        key="currency",
+        category="capital",
+        kind="currency",
+        choices=CURRENCIES,
+        backtest_only=BACKTEST_ONLY["currency"],
+    ),
+    PropertyField(
+        key="default_qty_type",
+        category="sizing",
+        kind="choice",
+        choices=tuple(member.value for member in QtyType),
+        backtest_only=BACKTEST_ONLY["default_qty_type"],
+    ),
+    PropertyField(
+        key="default_qty_value",
+        category="sizing",
+        kind="decimal",
+        minimum=Decimal("0"),
+        backtest_only=BACKTEST_ONLY["default_qty_value"],
+        # Meaningless under the platform's own sizing: there is no quantity to
+        # state when margin is 99% of whatever the account actually holds.
+        enabled_when=("default_qty_type", ("fixed", "cash", "percent_of_equity")),
+    ),
+    PropertyField(
+        key="pyramiding",
+        category="sizing",
+        kind="int",
+        unit="entries",
+        minimum=Decimal("0"),
+        backtest_only=BACKTEST_ONLY["pyramiding"],
+    ),
+    PropertyField(
+        key="commission_type",
+        category="costs",
+        kind="choice",
+        choices=tuple(member.value for member in CommissionType),
+    ),
+    PropertyField(
+        key="commission_value",
+        category="costs",
+        kind="decimal",
+        minimum=Decimal("0"),
+    ),
+    PropertyField(
+        key="slippage",
+        category="costs",
+        kind="int",
+        unit="ticks",
+        minimum=Decimal("0"),
+    ),
+    PropertyField(
+        key="margin_long",
+        category="costs",
+        kind="decimal",
+        unit="%",
+        minimum=Decimal("0"),
+        backtest_only=BACKTEST_ONLY["margin_long"],
+    ),
+    PropertyField(
+        key="margin_short",
+        category="costs",
+        kind="decimal",
+        unit="%",
+        minimum=Decimal("0"),
+        backtest_only=BACKTEST_ONLY["margin_short"],
+    ),
+    PropertyField(
+        key="process_orders_on_close",
+        category="execution",
+        kind="bool",
+        backtest_only=BACKTEST_ONLY["process_orders_on_close"],
+    ),
+    PropertyField(key="use_bar_magnifier", category="execution", kind="bool"),
+    PropertyField(
+        key="calc_on_order_fills",
+        category="execution",
+        kind="bool",
+        inert=INERT["calc_on_order_fills"],
+    ),
+    PropertyField(
+        key="calc_on_every_tick",
+        category="execution",
+        kind="bool",
+        inert=INERT["calc_on_every_tick"],
+    ),
+    PropertyField(
+        key="fill_orders_on_standard_ohlc",
+        category="execution",
+        kind="bool",
+        inert=INERT["fill_orders_on_standard_ohlc"],
+    ),
+    PropertyField(
+        key="backtest_fill_limits_assumption",
+        category="execution",
+        kind="int",
+        unit="ticks",
+        minimum=Decimal("0"),
+        inert=INERT["backtest_fill_limits_assumption"],
+    ),
+)
+
+FIELDS: dict[str, PropertyField] = {row.key: row for row in SCHEMA}
+
+
+def schema_as_data() -> dict:
+    """The whole form, for the panel to draw. Static — no per-bot state in here."""
+    return {
+        "categories": [{"key": key, "label": label} for key, label in CATEGORIES],
+        "fields": [row.as_dict() for row in SCHEMA],
+    }
+
+
+def validate_overrides(raw: object) -> tuple[dict, list[dict]]:
+    """Clean a panel-supplied override set, reporting what it had to refuse.
+
+    ``resolve`` drops a bad key in silence on purpose — it runs behind a
+    validator that has already named it, and a backtest that refused to start
+    over a stray key would hide a report behind a typo. A *form post* is the
+    other case entirely: the person is looking at the field, so the rule here is
+    the opposite one, and nothing is stored that could not be read back.
+
+    Returns ``(clean, errors)``. ``clean`` is safe to hand to ``resolve``.
+    """
+    errors: list[dict] = []
+    if raw in (None, ""):
+        return {}, errors
+    if not isinstance(raw, dict):
+        return {}, [{"key": "", "message": "properties must be an object"}]
+
+    clean: dict = {}
+    for key, value in raw.items():
+        field_spec = FIELDS.get(key)
+        if field_spec is None:
+            errors.append({"key": key, "message": f"{key} is not a strategy property"})
+            continue
+        # An override cleared in the panel comes back as null, and means "stop
+        # overriding this" — the script's value, or the platform's, takes over
+        # again. Storing it as an explicit null would pin the field to None.
+        if value is None or value == "":
+            continue
+
+        # Range first, against what was *typed*. `_clean` floors the integer
+        # properties at zero, so checking after it would turn "-3 entries" into
+        # a silent 0 — which is the one outcome this function exists to prevent.
+        if field_spec.kind in ("decimal", "int"):
+            try:
+                typed = Decimal(str(value))
+            except (InvalidOperation, ValueError, TypeError):
+                errors.append({"key": key, "message": f"{value!r} is not a number"})
+                continue
+            if field_spec.minimum is not None and typed < field_spec.minimum:
+                errors.append(
+                    {"key": key, "message": f"{key} cannot be below {field_spec.minimum}"}
+                )
+                continue
+
+        coerced = _clean({key: value})
+        if key not in coerced:
+            errors.append({"key": key, "message": f"{value!r} is not a usable value for {key}"})
+            continue
+        clean[key] = coerced[key]
+
+    return clean, errors
+
+
+def serialise_overrides(clean: dict) -> dict:
+    """Overrides as JSON, for the column they are stored in.
+
+    ``Decimal`` and ``StrEnum`` both survive a round trip through ``_clean``;
+    neither survives ``JSONField``. Strings do, and ``_clean`` reads them back.
+    """
+    out: dict = {}
+    for key, value in clean.items():
+        if isinstance(value, Decimal):
+            out[key] = str(value)
+        elif isinstance(value, StrEnum):
+            out[key] = value.value
+        else:
+            out[key] = value
+    return out

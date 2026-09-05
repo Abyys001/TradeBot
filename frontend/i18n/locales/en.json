@@ -47,7 +47,8 @@
     "create": "Create",
     "delete": "Delete",
     "save": "Save",
-    "change": "Change"
+    "change": "Change",
+    "saving": "Saving…"
   },
   "theme": {
     "toLight": "Switch to light",
@@ -1182,7 +1183,8 @@
       "activity": "Activity",
       "bars": "Bars",
       "promotion": "Promotion",
-      "source": "Source"
+      "source": "Source",
+      "properties": "Properties"
     },
     "action": {
       "open": "Open",
@@ -1236,7 +1238,58 @@
     "historyNote": "History this window needs but the archive does not hold is downloaded and stored on the first run. A venue that cannot go back this far is reported above the numbers, never refused.",
     "replayingNote": "First run on a new pair also downloads its history.",
     "viewingStored": "Stored run · {name}",
-    "renameBot": "Rename bot"
+    "renameBot": "Rename bot",
+    "props": {
+      "title": "Strategy properties",
+      "lead": "TradingView's Properties tab for this bot. These numbers configure the backtest, so a replay here can be compared with the one you ran on TradingView.",
+      "liveNote": "This tab configures the backtest. It does not change how live orders are sized: every live order uses 99% of that account's own balance as margin, with this bot's leverage on top, identically across all connected accounts (spec §5). Rows marked “backtest only” say which settings stop at the replay.",
+      "notes": "What this set would simulate",
+      "saved": "Saved",
+      "clear": "Reset",
+      "clearHint": "Hand this field back to the script, or to the platform default",
+      "source": {
+        "panel": "overridden here",
+        "script": "from the script",
+        "default": "platform default"
+      },
+      "group": {
+        "capital": "Capital & currency",
+        "sizing": "Position sizing & scaling",
+        "costs": "Risk, costs & margin",
+        "execution": "Execution & recalculation"
+      },
+      "field": {
+        "initial_capital": "Initial capital",
+        "currency": "Base currency",
+        "default_qty_type": "Order size",
+        "default_qty_value": "Order size value",
+        "pyramiding": "Pyramiding",
+        "commission_type": "Commission type",
+        "commission_value": "Commission",
+        "slippage": "Slippage",
+        "margin_long": "Margin for long positions",
+        "margin_short": "Margin for short positions",
+        "process_orders_on_close": "Fill orders on bar close",
+        "use_bar_magnifier": "Use bar magnifier",
+        "calc_on_order_fills": "Recalculate after order is filled",
+        "calc_on_every_tick": "Recalculate on every tick",
+        "fill_orders_on_standard_ohlc": "Fill orders using standard OHLC",
+        "backtest_fill_limits_assumption": "Verify price for limit orders"
+      },
+      "choice": {
+        "default_qty_type": {
+          "platform": "Platform sizing — 99% of balance",
+          "fixed": "Contracts",
+          "cash": "Cash amount",
+          "percent_of_equity": "% of equity"
+        },
+        "commission_type": {
+          "percent": "Percent of value",
+          "cash_per_contract": "Cash per contract",
+          "cash_per_order": "Cash per order"
+        }
+      }
+    }
   },
   "security": {
     "title": "Security",

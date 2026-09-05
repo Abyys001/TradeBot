@@ -657,3 +657,56 @@ def test_a_feed_that_will_not_answer_over_a_partial_archive_replays_what_is_stor
     )
     assert window.bars
     assert any("gateway timeout" in note for note in window.notes)
+
+
+# --- the Properties tab reaches the replay ----------------------------------
+#
+# `property_overrides` was a parameter on `run` that nothing ever passed: the
+# third step of platform → script → panel existed in the engine with no way in.
+# These pin the way in, because a Properties form the backtest ignores is worse
+# than no form — it reports a number the operator believes they chose.
+
+
+PROPS = """//@version=5
+strategy("declared", initial_capital = 25000, commission_value = 0.5)
+if strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+"""
+
+
+def _flat_bars(count: int = 6) -> list[Bar]:
+    return [bar("100", "101", "99", "100", time=i * 900) for i in range(count)]
+
+
+def test_the_panel_sizes_the_simulated_account():
+    report = go(CROSS, _flat_bars(), property_overrides={"initial_capital": D("5000")})
+    assert report.assumptions.initial_equity == D("5000")
+
+
+def test_the_panel_beats_the_scripts_own_declaration():
+    """Platform → script → panel, and the panel is last for a reason.
+
+    The script is what the author backtested on TradingView; the panel is the
+    operator saying "not with that much capital, though".
+    """
+    declared = go(PROPS, _flat_bars())
+    assert declared.assumptions.initial_equity == D("25000")
+
+    overridden = go(PROPS, _flat_bars(), property_overrides={"initial_capital": D("5000")})
+    assert overridden.assumptions.initial_equity == D("5000")
+
+
+def test_an_override_is_recorded_in_the_report_it_produced():
+    """A stored report has to be readable against the properties it ran under."""
+    report = go(PROPS, _flat_bars(), property_overrides={"initial_capital": D("5000")})
+    payload = report.as_dict()
+    assert payload["assumptions"]["properties"]["initial_capital"] == "5000"
+    assert payload["assumptions"]["properties"]["overridden"] == ["initial_capital"]
+    # The script still owns what the panel left alone.
+    assert "commission_value" in payload["assumptions"]["properties"]["declared"]
+
+
+def test_a_commission_override_changes_what_the_trade_costs():
+    cheap = go(PROPS, _flat_bars(), property_overrides={"commission_value": D("0")})
+    dear = go(PROPS, _flat_bars(), property_overrides={"commission_value": D("1")})
+    assert dear.assumptions.fee_bps > cheap.assumptions.fee_bps

@@ -26,7 +26,7 @@ const gate = ref<PromotionGate | null>(null)
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const tab = ref<'activity' | 'bars' | 'promotion' | 'source'>('activity')
+const tab = ref<'activity' | 'bars' | 'properties' | 'promotion' | 'source'>('activity')
 const renaming = ref(false)
 const renameTo = ref('')
 
@@ -262,6 +262,7 @@ onMounted(async () => {
         :options="[
           { value: 'activity', label: t('bots.tab.activity') },
           { value: 'bars', label: t('bots.tab.bars') },
+          { value: 'properties', label: t('bots.tab.properties') },
           { value: 'promotion', label: t('bots.tab.promotion') },
           { value: 'source', label: t('bots.tab.source') },
         ]"
@@ -358,6 +359,11 @@ onMounted(async () => {
       </UiCard>
 
       <!-- The gate. Nine measurements, not a dialog. -->
+      <!-- Properties: the backtest's model of a broker, per bot. Its own
+           component because it owns a draft, a save and a validation round
+           trip, none of which the read-only tabs around it have. -->
+      <BotsStrategyProperties v-else-if="tab === 'properties'" :bot-id="id" />
+
       <UiCard
         v-else-if="tab === 'promotion'"
         :title="t('bots.promotion')"

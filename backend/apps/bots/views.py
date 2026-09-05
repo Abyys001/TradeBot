@@ -79,13 +79,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         try:
             strategy.delete()
         except ProtectedError as exc:
-            bots = sorted(
-                {
-                    obj.name
-                    for obj in exc.protected_objects
-                    if isinstance(obj, Bot)
-                }
-            )
+            bots = sorted({obj.name for obj in exc.protected_objects if isinstance(obj, Bot)})
             return Response(
                 {
                     "code": "strategy_in_use",
@@ -173,6 +167,47 @@ class BotViewSet(viewsets.ModelViewSet):
     def promotion(self, request: Request, pk=None) -> Response:
         """The Phase 7 gate with this bot's own measurements filled in."""
         return Response(gate.evaluate(self.get_object()))
+
+    @action(detail=True, methods=["get"])
+    def properties(self, request: Request, pk=None) -> Response:
+        """TradingView's Properties tab for this bot, already resolved.
+
+        The panel gets the *outcome* — one value per property, with the source
+        that won it — rather than three dictionaries and the merge rule. The
+        merge rule is ``properties.resolve`` and it exists once; a browser
+        reimplementing it is a second place for platform → script → panel to be
+        got wrong, and the report header would be the thing that disagreed.
+
+        ``schema`` travels with it so the form is drawn from the same list the
+        validator polices. ``live_departures`` and ``inert`` are the sentences
+        that keep this honest: this tab configures the **backtest**, and every
+        setting on it that live will not honour says so on its own row.
+        """
+        from apps.pine import properties as props
+
+        bot = self.get_object()
+        declared_raw = bot.strategy_version.properties or {}
+        # `StrategyVersion.properties` is a resolved set stored as JSON, so it
+        # carries every key. Only the ones the script actually set are the
+        # script's opinion — the rest are the platform's and must not be
+        # replayed as declarations, or every field would read "from the script".
+        declared_keys = set(declared_raw.get("declared") or ())
+        declared, _ = props.validate_overrides(
+            {key: declared_raw.get(key) for key in declared_keys}
+        )
+        overrides, _ = props.validate_overrides(bot.property_overrides or {})
+
+        resolved = props.resolve(declared=declared, overrides=overrides)
+        return Response(
+            {
+                "bot": bot.id,
+                "resolved": resolved.as_dict(),
+                "overrides": props.serialise_overrides(overrides),
+                "schema": props.schema_as_data(),
+                "live_departures": resolved.live_departures(),
+                "inert": resolved.inert_here(),
+            }
+        )
 
 
 #: How many stored runs the history endpoint will hand back at once.
@@ -382,6 +417,22 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
 
     from apps.exchanges.base import MarketType
 
+    # The Properties tab, third step of the merge. Sent explicitly by the
+    # backtest form, or taken from the bot when the panel is replaying *that
+    # bot* — a report run from a bot's page has to be captioned with the
+    # properties that bot would run under, not the script's bare declaration.
+    from apps.pine import properties as props
+
+    overrides, property_errors = props.validate_overrides(payload.get("property_overrides"))
+    if property_errors:
+        return JsonResponse(
+            {"detail": "bad strategy properties", "properties": property_errors}, status=400
+        )
+    if not overrides and payload.get("bot"):
+        bot = await sync_to_async(_get_bot)(payload["bot"])
+        if bot is not None:
+            overrides, _ = props.validate_overrides(bot.property_overrides or {})
+
     try:
         report = await sync_to_async(backtest.run)(
             source=version.source,
@@ -394,6 +445,7 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
             sl_pct=_decimal(payload.get("sl_pct")),
             tp_pct=_decimal(payload.get("tp_pct")),
             inputs=payload.get("inputs") or {},
+            property_overrides=overrides,
         )
     except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": f"bad request: {exc}"}, status=400)
