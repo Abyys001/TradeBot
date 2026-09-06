@@ -269,6 +269,12 @@ export function useApi() {
     botPromotion: (id: number) => request<PromotionGate>(`/bots/bots/${id}/promotion/`),
     /** TradingView's Properties tab for this bot, already resolved server-side. */
     botProperties: (id: number) => request<BotProperties>(`/bots/bots/${id}/properties/`),
+    /**
+     * The same tab for a strategy *version*, with no bot in the picture — what
+     * the backtest form edits before a run and posts with it.
+     */
+    versionProperties: (id: number) =>
+      request<VersionProperties>(`/bots/versions/${id}/properties/`),
     startBot: (id: number, state: 'paper' | 'live') =>
       request<{ bot_id: number; state: string; run_id: number; deactivated: number[] }>(
         `/bots/bots/${id}/start/`,
@@ -279,8 +285,35 @@ export function useApi() {
         method: 'POST',
         body: { reason },
       }),
+    /**
+     * Start a replay. Answers with a **job**, not a report — the first run on a
+     * pair the archive has never seen spends most of its wall clock downloading
+     * history, and a spinner over that is indistinguishable from a hang. Poll
+     * `backtestJob` for the bar.
+     */
+    startBacktest: (body: Record<string, unknown>) =>
+      request<BacktestJobState & { job_id: number }>('/bots/backtest/', {
+        method: 'POST',
+        body,
+      }),
+    /** One job's progress. Polled about once a second while a run is in flight. */
+    backtestJob: (id: number) => request<BacktestJobState>(`/bots/backtest/jobs/${id}/`),
+    /** How much of a window the archive already holds, before anything is run. */
+    backtestCoverage: (query: {
+      symbol: string
+      interval: string
+      market: string
+      from_time: number
+      to_time: number
+    }) =>
+      request<BacktestCoverage>(
+        `/bots/backtest/coverage/?${new URLSearchParams(
+          Object.entries(query).map(([k, v]) => [k, String(v)]),
+        ).toString()}`,
+      ),
+    /** The synchronous shape, kept for anything that would rather wait. */
     runBacktest: (body: Record<string, unknown>) =>
-      request<BacktestResult>('/bots/backtest/', { method: 'POST', body }),
+      request<BacktestResult>('/bots/backtest/', { method: 'POST', body: { ...body, wait: true } }),
     /** Stored runs, newest first. `strategy` or `strategy_version` narrows it. */
     backtests: (filter: { strategy?: number; strategy_version?: number } = {}) => {
       const query = new URLSearchParams(
@@ -290,6 +323,55 @@ export function useApi() {
     },
     /** One stored run, whole — the curve and the trade log the list omits. */
     backtestRun: (id: number) => request<StoredBacktest>(`/bots/backtests/${id}/`),
+    /**
+     * Delete one stored report. A backtest is a working note, not an audit
+     * record — the archived candles behind it are never touched, so a tidy-up
+     * costs nothing the next run has to download again.
+     */
+    deleteBacktest: (id: number) =>
+      request<void>(`/bots/backtests/${id}/`, { method: 'DELETE' }),
+    /** Delete a whole history — everything, or one version's. */
+    clearBacktests: (filter: { strategy?: number; strategy_version?: number } = {}) => {
+      const query = new URLSearchParams(
+        Object.entries(filter).flatMap(([k, v]) => (v ? [[k, String(v)]] : [])),
+      ).toString()
+      return request<{ deleted: number }>(`/bots/backtests/clear/${query ? `?${query}` : ''}`, {
+        method: 'DELETE',
+      })
+    },
+
+    // --- one bot, in detail ---
+    /** What the bot was thinking, bar by bar. Codes and params, rendered by i18n. */
+    botJournal: (id: number, limit = 300) =>
+      request<{ run: BotRun | null; events: JournalEvent[] }>(
+        `/bots/bots/${id}/journal/?limit=${limit}`,
+      ),
+    /** What makes this strategy trade, read back out of its own source. */
+    botLogic: (id: number) => request<BotLogic>(`/bots/bots/${id}/logic/`),
+    /**
+     * Candles, the script's plotted series and where it acted. An `interval`
+     * other than the bot's own is **replayed for display** — it never touches
+     * the running bot.
+     */
+    botChart: (id: number, interval?: string, limit = 400) =>
+      request<BotChart>(
+        `/bots/bots/${id}/chart/?limit=${limit}${interval ? `&interval=${interval}` : ''}`,
+      ),
+    /** Which connected accounts this bot would actually reach. */
+    botAccounts: (id: number) =>
+      request<{ accounts: BotAccountRow[] }>(`/bots/bots/${id}/accounts/`),
+    /**
+     * Fire a drill for real. `halt` engages the §7 halt, force-closes every open
+     * trade without asking the strategy, and resumes the bot into the same run.
+     */
+    runDrill: (id: number, kind: string) =>
+      request<DrillResult>(`/bots/bots/${id}/drill/`, { method: 'POST', body: { kind } }),
+    /** Tick the one gate row nothing can measure from inside. */
+    acknowledgeAdapters: (id: number, acknowledged: boolean) =>
+      request<{ risk_config: Record<string, unknown>; gate: PromotionGate }>(
+        `/bots/bots/${id}/acknowledge-adapters/`,
+        { method: 'POST', body: { acknowledged } },
+      ),
 
     // --- security (docs/security-plan.md) ---
     /**
@@ -1171,6 +1253,16 @@ export interface BotProperties {
   inert: string[]
 }
 
+/** The Properties tab for a version, with the third step of the merge left open. */
+export interface VersionProperties {
+  strategy_version: number
+  resolved: PineProperties
+  overrides: Record<string, unknown>
+  schema: PropertySchema
+  live_departures: string[]
+  inert: string[]
+}
+
 export interface PineValidation {
   ok: boolean
   errors: PineDiagnostic[]
@@ -1308,6 +1400,134 @@ export interface PromotionRow {
   threshold: string
   measured: string
   met: boolean
+  /**
+   * The numbers behind the sentence, so the panel renders `bots.gate.<key>` in
+   * the reader's language instead of printing the server's English. The soak
+   * row's `seconds`/`required_seconds`/`since` are what the countdown ticks on.
+   */
+  params: Record<string, unknown>
+  /** `halt_drill` | `trigger_drill` | `acknowledge_adapters` | '' — what can clear it. */
+  actionable: string
+}
+
+/** One line of the bot's journal. Text lives in i18n under `bots.journal.<code>`. */
+export interface JournalEvent {
+  at: number
+  kind: 'run' | 'bar' | 'action'
+  code: string
+  level: 'info' | 'signal' | 'ok' | 'warn' | 'danger'
+  params: Record<string, any>
+  bar_time: number | null
+}
+
+export interface StrategyIndicator {
+  name: string
+  func: string
+  args: string
+  line: number
+  plotted: boolean
+  label: string
+}
+
+export interface StrategyTrigger {
+  kind: 'entry' | 'order' | 'close' | 'exit'
+  side: 'long' | 'short' | null
+  order_id: string
+  line: number
+  call_text: string
+  conditions: string[]
+  /** The same conditions with single-assignment aliases replaced by their definition. */
+  expanded: string[]
+  inside_function: boolean
+}
+
+export interface BotLogic {
+  bot: number
+  indicators: StrategyIndicator[]
+  triggers: StrategyTrigger[]
+  inputs: string[]
+  error: string
+}
+
+export interface ChartSeries {
+  name: string
+  points: { time: number; value: number }[]
+}
+
+export interface ChartMarker {
+  time: number
+  side: string | null
+  kind: string
+  reason: string
+  ok?: boolean
+}
+
+export interface BotChart {
+  interval: string
+  /** True when the series were replayed for display rather than recorded live. */
+  replayed: boolean
+  symbol: string
+  candles: { time: number; open: string; high: string; low: string; close: string; volume: string }[]
+  series: ChartSeries[]
+  markers: ChartMarker[]
+  /** `no_history` when the archive holds no bars at this timeframe yet. */
+  note: string
+}
+
+export interface BotAccountRow {
+  id: number
+  label: string
+  exchange: string
+  status: string
+  bot_trading_enabled: boolean
+  manual_trading_enabled: boolean
+  /** Active *and* opted in to bot orders — the set a fan-out would actually reach. */
+  eligible: boolean
+}
+
+export interface DrillResult {
+  kind: string
+  trades_closed: number
+  legs_ok: number
+  legs_failed: number
+  resumed: boolean
+  halt_drills: number
+  drills_fired: string[]
+  detail: string
+  gate: PromotionGate | null
+}
+
+/** A backtest in flight. The progress bar's whole source of truth. */
+export interface BacktestJobState {
+  id: number
+  status:
+    | 'queued'
+    | 'validating'
+    | 'downloading'
+    | 'replaying'
+    | 'finishing'
+    | 'done'
+    | 'failed'
+    | 'cancelled'
+  /** `[0, 1]` across the whole job — the phases are already weighted server-side. */
+  progress: number
+  detail: Record<string, any>
+  error: string
+  backtest_id: number | null
+  finished: boolean
+  created_at: string
+  finished_at: string | null
+}
+
+export interface BacktestCoverage {
+  symbol: string
+  interval: string
+  expected: number
+  stored: number
+  oldest: number | null
+  newest: number | null
+  /** True when the archive already covers the window and nothing will be downloaded. */
+  cached: boolean
 }
 
 export interface PromotionGate {
@@ -1364,6 +1584,8 @@ export interface BacktestResult {
   /** SHA-256 over the decision sequence. The live loop computes it the same way. */
   intent_digest: string
   warnings: string[]
+  /** Where the bars came from. `downloaded: 0` with `from_archive` set is a cache hit. */
+  data_source?: { downloaded: number; from_archive: number; total?: number }
 }
 
 export interface BacktestRun {

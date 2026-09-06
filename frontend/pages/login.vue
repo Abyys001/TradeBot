@@ -15,6 +15,13 @@
  */
 definePageMeta({ layout: 'public' })
 
+/**
+ * Who to ask for access. One constant rather than a string baked into the
+ * copy, because it is a real handle a real person answers on and it will
+ * change hands before the sentence around it does.
+ */
+const SUPPORT_TELEGRAM = '@Abyys01'
+
 const { t } = useI18n()
 const auth = useAuthStore()
 const route = useRoute()
@@ -129,10 +136,21 @@ async function submitCode() {
         </button>
       </form>
 
-      <p class="text-xs text-ink-faint mt-4 leading-relaxed">{{ t('login.note') }}</p>
-      <code class="block text-[0.65rem] num text-ink-faint mt-2 bg-sunken border border-line rounded p-2 overflow-x-auto">
-        docker compose exec backend python manage.py createsuperuser
-      </code>
+      <!-- The old copy here printed a `createsuperuser` command. Whoever reads
+           this page without an account cannot run a shell on the server, so the
+           instruction was addressed to nobody — the right answer is who to ask. -->
+      <div class="mt-5 rounded-lg border border-line bg-raised/40 px-3.5 py-3">
+        <p class="text-xs text-ink-muted leading-relaxed">{{ t('login.note') }}</p>
+        <a
+          :href="`https://t.me/${SUPPORT_TELEGRAM.replace('@', '')}`"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mt-2 inline-flex items-center gap-1.5 text-xs text-brand hover:underline num"
+        >
+          <UiIcon name="external" :size="13" />
+          {{ SUPPORT_TELEGRAM }}
+        </a>
+      </div>
     </div>
   </div>
 </template>

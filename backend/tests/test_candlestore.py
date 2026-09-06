@@ -28,7 +28,13 @@ NOW = int(time.time())
 
 
 def _candle(open_time: int, **overrides) -> Candle:
-    defaults = {"open": D("100"), "high": D("101"), "low": D("99"), "close": D("100"), "volume": D("1")}
+    defaults = {
+        "open": D("100"),
+        "high": D("101"),
+        "low": D("99"),
+        "close": D("100"),
+        "volume": D("1"),
+    }
     defaults.update(overrides)
     return Candle(time=open_time, **defaults)
 
@@ -75,8 +81,11 @@ class TestPersist:
     def test_closed_bars_are_written(self):
         bars = [_candle(NOW - i * 120) for i in range(5)]
         written = persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=bars,
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
         )
         assert written == 5
         assert StoredCandle.objects.filter(symbol="BTCUSDT").count() == 5
@@ -84,23 +93,31 @@ class TestPersist:
     def test_idempotent_re_persist_ignores_settled_duplicates(self):
         bars = [_candle(NOW - i * 120) for i in range(3)]
         persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=bars,
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
         )
         persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=bars,
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
         )
         assert StoredCandle.objects.filter(symbol="BTCUSDT").count() == 3
 
     def test_unsettled_bars_are_upserted(self):
-        step = INTERVALS["1m"]
         # This bar is still forming — within the last interval.
         forming_time = NOW - 10
         bars = [_candle(forming_time, close=D("50"))]
         persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=bars,
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
         )
         row = StoredCandle.objects.get(symbol="BTCUSDT", open_time=forming_time)
         assert row.close == D("50")
@@ -108,8 +125,11 @@ class TestPersist:
         # Re-persist with updated close — should overwrite.
         bars2 = [_candle(forming_time, close=D("55"))]
         persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=bars2,
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars2,
         )
         row.refresh_from_db()
         assert row.close == D("55")
@@ -119,12 +139,18 @@ class TestPersist:
         old = _candle(NOW - 600)
         new = _candle(NOW - 120)
         persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=[old],
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[old],
         )
         written = persist(
-            exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES,
-            interval="1m", candles=[old, new],
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[old, new],
             since=NOW - 300,
         )
         assert written == 1
@@ -132,20 +158,56 @@ class TestPersist:
 
     def test_empty_exchange_or_symbol_writes_nothing(self):
         bars = [_candle(NOW - 120)]
-        assert persist(exchange="", symbol="X", market=MarketType.FUTURES, interval="1m", candles=bars) == 0
-        assert persist(exchange="binance", symbol="", market=MarketType.FUTURES, interval="1m", candles=bars) == 0
+        assert (
+            persist(exchange="", symbol="X", market=MarketType.FUTURES, interval="1m", candles=bars)
+            == 0
+        )
+        assert (
+            persist(
+                exchange="binance",
+                symbol="",
+                market=MarketType.FUTURES,
+                interval="1m",
+                candles=bars,
+            )
+            == 0
+        )
         assert StoredCandle.objects.count() == 0
 
     def test_different_exchanges_are_kept_separate(self):
         bar = _candle(NOW - 120)
-        persist(exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=[bar])
-        persist(exchange="bybit", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=[bar])
+        persist(
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[bar],
+        )
+        persist(
+            exchange="bybit",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[bar],
+        )
         assert StoredCandle.objects.filter(symbol="BTCUSDT").count() == 2
 
     def test_different_intervals_are_kept_separate(self):
         bar = _candle(NOW - 120)
-        persist(exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=[bar])
-        persist(exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES, interval="5m", candles=[bar])
+        persist(
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[bar],
+        )
+        persist(
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="5m",
+            candles=[bar],
+        )
         assert StoredCandle.objects.filter(symbol="BTCUSDT").count() == 2
 
 
@@ -160,18 +222,53 @@ class TestNewestAndOldestStored:
 
     def test_newest_after_persist(self):
         bars = [_candle(NOW - i * 120) for i in range(5)]
-        persist(exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=bars)
-        assert newest_stored(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES) == bars[0].time
+        persist(
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
+        )
+        assert (
+            newest_stored(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES)
+            == bars[0].time
+        )
 
     def test_oldest_after_persist(self):
         bars = [_candle(NOW - i * 120) for i in range(5)]
-        persist(exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=bars)
-        assert oldest_stored(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES) == bars[-1].time
+        persist(
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
+        )
+        assert (
+            oldest_stored(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES)
+            == bars[-1].time
+        )
 
     def test_exchange_filter(self):
-        persist(exchange="binance", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=[_candle(NOW - 120)])
-        persist(exchange="bybit", symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=[_candle(NOW - 240)])
-        assert newest_stored(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, exchange="bybit") == NOW - 240
+        persist(
+            exchange="binance",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[_candle(NOW - 120)],
+        )
+        persist(
+            exchange="bybit",
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=[_candle(NOW - 240)],
+        )
+        assert (
+            newest_stored(
+                symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, exchange="bybit"
+            )
+            == NOW - 240
+        )
 
 
 # --- read_window -------------------------------------------------------------
@@ -183,12 +280,20 @@ class TestReadWindow:
         """Insert n closed bars one minute apart, newest first."""
         times = [NOW - i * 60 for i in range(n)]
         bars = [_candle(t) for t in times]
-        persist(exchange=exchange, symbol="BTCUSDT", market=MarketType.FUTURES, interval="1m", candles=bars)
+        persist(
+            exchange=exchange,
+            symbol="BTCUSDT",
+            market=MarketType.FUTURES,
+            interval="1m",
+            candles=bars,
+        )
         return times
 
     def test_returns_bars_oldest_first(self):
-        times = self._seed()
-        result, source = read_window(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=5)
+        self._seed()
+        result, source = read_window(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=5
+        )
         assert len(result) == 5
         assert [c.time for c in result] == sorted([c.time for c in result])
         assert source == "binance"
@@ -196,7 +301,9 @@ class TestReadWindow:
     def test_end_cursor_filters_to_before_that_moment(self):
         times = self._seed()
         end = times[3]  # the 4th-newest bar
-        result, _ = read_window(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=100, end=end)
+        result, _ = read_window(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=100, end=end
+        )
         assert all(c.time <= end for c in result)
         assert any(c.time == end for c in result)
 
@@ -207,7 +314,9 @@ class TestReadWindow:
     def test_exchange_filter(self):
         self._seed(exchange="binance")
         self._seed(n=3, exchange="bybit")
-        result, source = read_window(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=100, exchange="bybit")
+        result, source = read_window(
+            symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES, limit=100, exchange="bybit"
+        )
         assert len(result) == 3
         assert source == "bybit"
 

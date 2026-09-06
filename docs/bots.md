@@ -285,6 +285,28 @@ bot's page is captioned with that bot's properties, and the resolved set travels
 inside the stored report so an old run stays readable against the numbers it
 actually ran under.
 
+### Running one from the panel
+
+`POST /api/bots/backtest/` returns a **job**, not a report. A first run on a pair
+the archive has never seen spends most of its wall clock paging a public
+endpoint for history, and a request that returns after ninety seconds behind a
+spinner is indistinguishable from a hang. `apps/bots/jobs.py` runs the replay on
+a thread and owns the phases and their weights — validating, downloading,
+replaying, finishing — so the panel polls `…/backtest/jobs/<id>/` for a bar that
+actually moves. `{"wait": true}` keeps the old synchronous shape for scripts and
+tests.
+
+**Downloaded candles are kept.** Every bar a replay pulls goes into the same
+archive `apps/exchanges/candlestore.py` owns, so the second run over a window
+downloads nothing; `…/backtest/coverage/` answers how much of a window is
+already stored *before* anything runs, so the form can say "4,300 bars stored,
+about 1,200 to download" rather than making the operator discover it from how
+long the run takes. The stored report names which it was.
+
+Reports are deletable — one row, or a whole history at once
+(`DELETE …/backtests/clear/`, honouring the same filters the list takes). The
+candles behind them stay, so clearing the history costs no re-download.
+
 It also reports an **intent digest** — a SHA-256 over the decision sequence
 (side, levels, bar time, symbol; not plots, not reason strings). That digest is
 the whole claim that a backtest predicts anything: the live loop computes it the
@@ -315,7 +337,43 @@ confirmation dialog; it is a gate that knows the numbers.
 One row cannot be measured from inside and is carried as an explicit human
 acknowledgement: **no exchange adapter has been run against a live exchange or a
 testnet yet** (`docs/adapters.md`). A bot is a bad first thing to discover that
-with.
+with. It stays a row, and it is a checkbox on the bot's promotion tab rather
+than a field only a shell can set — a gate that can only be cleared by editing
+the database is a gate people route around. Ticking it records *who* ticked it
+and *when* into `risk_config`, and clearing it deletes the answer rather than
+storing a "no".
+
+### Drills
+
+Two of the nine rows are exercises, not measurements: the kill switch has been
+pulled on this bot, and every Q25 auto-stop has been fired deliberately.
+`apps/bots/drills.py` fires them, from the Drills card on the bot's page.
+
+**The kill-switch drill is the real machinery, not a simulation.** It engages
+the §7 halt — which stops every running bot by itself (Q22) — and then
+force-closes every open trade through `route_close_all`, the same call the
+panel's Stop-all makes, **with no reference whatsoever to what the strategy
+thinks should be open**. That is the whole point of the exercise: the way out of
+a position must not run through the strategy, because the case it exists for is
+the strategy being wrong. Then it puts things back: the halt is released (even
+if the close raised — a drill that left the platform halted is a drill nobody
+runs twice), and the bot is resumed **into the same run**.
+
+Resuming the same run rather than starting a new one is what keeps the soak
+honest. The fourteen days are continuous *operation*, and a bot is expected to
+survive interruptions — so the drill clears `stopped_at`, counts itself as an
+unplanned recovery, and bumps `halt_drills`. A drill that reset the clock would
+mean no bot could ever satisfy both rows at once.
+
+A Q25 drill is narrower and says so: it stops the bot **with that reason code**
+and resumes it, which exercises the stop path, the reason plumbing and the
+restart for that trigger. It does not fabricate the condition — there is no
+honest way to invent three consecutive losses — so what it proves is the
+response, and the panel words it that way.
+
+The soak row itself counts in **seconds**, not days: the panel renders a
+countdown that keeps decreasing rather than a figure that sits on "0.5 days" for
+twelve hours.
 
 ---
 
@@ -429,6 +487,43 @@ bar. A disagreement is retried once and then stops the bot.
 | Live disagrees with the backtest | the intent digest on the run against the one on the report; `BotRun.divergences` |
 | A signal never fires | check the upload warnings for `ta_not_hoisted`, and `Runtime.advance_failures` on the run |
 | The panel says "no price feed" | the bot's feed is the same public one the chart uses — `MARKET_DATA_PIN`, and `docs/decisions.md` Q13 |
+
+### Watching one bot
+
+A bot's page carries four read-only tabs that are all *projections* — nothing
+below stores anything, and nothing is allowed to invent a number the bot did not
+record.
+
+| Tab | Endpoint | What it is |
+|---|---|---|
+| Log | `GET …/journal/` | `apps/bots/narrate.py` over the run's stored bars and actions |
+| Chart | `GET …/chart/?interval=` | the recorded bars with the script's own plotted series and its signals as markers |
+| Logic | `GET …/logic/` | `apps/pine/explain.py` over the version's own source |
+| Routing | `GET …/accounts/` | which connected accounts have `bot_trading_enabled` |
+
+**The log records the quiet bars too.** "No bars recorded yet" on a running bot
+used to mean the page only listed the bars where something happened, which reads
+as a bot that is not working. Every evaluated bar gets a line, the ones where the
+answer was "nothing" fold behind one toggle, and the wording rotates over a few
+variants so a quiet hour does not look like a stuck loop. The ranking inside one
+bar is fixed and is the order of the checks in `_bar_event`: a reversal outranks
+an entry, an entry outranks a scale-out, and "nothing happened" is what is left.
+
+**The server sends codes and params, never finished sentences.** `journal()`
+returns `{at, kind, code, level, params}` and the panel renders it through i18n,
+which is the only way narration can exist in all six locales. The same rule
+holds for the promotion gate's rows, which carry `params` and an `actionable`
+key alongside their English fallback.
+
+`explain.py` imports nothing outside `apps.pine` — it is the same
+stdlib-only tree the runtime is, pinned by `tests/test_pine_purity.py`. It reads
+the AST and slices the operator's own source back out by span, so the condition
+under a trigger is what was written rather than a paraphrase of it, and a
+one-level alias (`longCond = …`) is expanded once.
+
+The Chart tab's timeframe selector **re-replays for display only**. Picking an
+interval the bot does not run on replays the strategy over the archive purely to
+draw it, says so on the badge, and touches nothing about the running bot.
 
 ### What is kept (Q26)
 

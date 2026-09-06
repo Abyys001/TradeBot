@@ -23,16 +23,17 @@ from django.db.models import ProtectedError
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from apps.accounts.visibility import _filtered  # read surface only — see apps/bots/__init__.py
-from apps.bots import gate, lifecycle
+from apps.bots import drills, gate, jobs, lifecycle, narrate
 from apps.bots.config import limits
 from apps.bots.models import (
+    BacktestJob,
     BacktestRun,
     Bot,
     BotAction,
@@ -164,9 +165,116 @@ class BotViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["get"])
+    def journal(self, request: Request, pk=None) -> Response:
+        """What the bot was thinking, bar by bar — see ``narrate.py``.
+
+        The action log answers "what did it do"; on most bars the answer is
+        "nothing", and *why* nothing is the question an operator actually has.
+        Events are codes and parameters, never sentences: the panel renders them
+        through i18n, which is the only way this reads in six languages.
+        """
+        bot = self.get_object()
+        run = bot.runs.order_by("-started_at").first()
+        if run is None:
+            return Response({"events": [], "run": None})
+        limit = min(int(request.query_params.get("limit", 300)), 1000)
+        return Response(
+            {"run": BotRunSerializer(run).data, "events": narrate.journal(run, limit=limit)}
+        )
+
+    @action(detail=True, methods=["get"])
+    def logic(self, request: Request, pk=None) -> Response:
+        """What makes this strategy trade, read back out of its own source.
+
+        Not a paraphrase. The conditions come from the script's ``if`` tests as
+        written, so a reader can check them against the source tab beside it —
+        a plain-English summary of a strategy is the most convincing thing on
+        the page to be wrong.
+        """
+        from apps.pine import explain
+
+        bot = self.get_object()
+        return Response(
+            {
+                "bot": bot.id,
+                **explain.explain(bot.strategy_version.source).as_dict(),
+            }
+        )
+
+    @action(detail=True, methods=["get"])
+    def chart(self, request: Request, pk=None) -> Response:
+        """Candles, the script's own plotted series, and where it acted.
+
+        Two sources, and the difference is the point. At the bot's **own**
+        interval the series are the values the runtime actually recorded, bar by
+        bar (``BotBar.plots``) — what the bot really saw. At any other interval
+        there is no such record, so the strategy is **replayed** over that
+        timeframe purely to draw it, and the payload says ``replayed: true``.
+
+        A replay changes nothing: it never touches the bot, its run, its
+        position or its interval. Switching the timeframe on a chart must not be
+        a trading control.
+        """
+        bot = self.get_object()
+        interval = request.query_params.get("interval") or bot.interval
+        limit = min(int(request.query_params.get("limit", 400)), 1500)
+        try:
+            payload = _chart_payload(bot, interval=interval, limit=limit)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(payload)
+
+    @action(detail=True, methods=["get"])
+    def accounts(self, request: Request, pk=None) -> Response:
+        """Which connected accounts this bot would actually reach.
+
+        A bot routes only to accounts with ``bot_trading_enabled`` on (the
+        accounts page's second switch). That switch defaults **off**, so the
+        commonest reason a working bot does nothing is that no account has
+        opted in — and a bot page that did not say so left the operator
+        debugging the strategy.
+        """
+        from apps.accounts.models import AccountStatus, ConnectedAccount
+
+        hidden = _filtered(request.user)
+        rows = ConnectedAccount.objects.exclude(id__in=hidden).order_by("label")
+        return Response(
+            {
+                "accounts": [
+                    {
+                        "id": row.id,
+                        "label": row.label,
+                        "exchange": row.exchange,
+                        "status": row.status,
+                        "bot_trading_enabled": row.bot_trading_enabled,
+                        "manual_trading_enabled": row.manual_trading_enabled,
+                        "eligible": row.status == AccountStatus.ACTIVE
+                        and row.bot_trading_enabled,
+                    }
+                    for row in rows
+                ]
+            }
+        )
+
+    @action(detail=True, methods=["get"])
     def promotion(self, request: Request, pk=None) -> Response:
         """The Phase 7 gate with this bot's own measurements filled in."""
         return Response(gate.evaluate(self.get_object()))
+
+    @action(detail=True, methods=["post"], url_path="acknowledge-adapters")
+    def acknowledge_adapters(self, request: Request, pk=None) -> Response:
+        """Tick (or untick) the one gate row that cannot be measured from inside.
+
+        ``docs/adapters.md``'s blocker is a fact about the exchanges, not about
+        this bot, so no counter can clear it — a person has to say they have run
+        the adapters against a testnet. Keeping the row and making it tickable
+        *here* is the difference between a gate and a dead end: the answer, who
+        gave it and when are all recorded, and it can be taken back.
+        """
+        bot = self.get_object()
+        on = bool(request.data.get("acknowledged", True))
+        drills.acknowledge_adapters(bot, actor=request.user.get_username(), on=on)
+        return Response({"risk_config": bot.risk_config, "gate": gate.evaluate(bot)})
 
     @action(detail=True, methods=["get"])
     def properties(self, request: Request, pk=None) -> Response:
@@ -214,18 +322,51 @@ class BotViewSet(viewsets.ModelViewSet):
 HISTORY_LIMIT = 200
 
 
-class BacktestViewSet(viewsets.ReadOnlyModelViewSet):
+class BacktestViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
     """Every backtest ever run, newest first.
 
     Stored rather than recomputed: a replay costs seconds and a download, and
     the number an operator acted on last week has to still be the number they
     saw. ``?strategy_version=`` narrows it to one version's own history.
+
+    **Deletable**, unlike the action log. A backtest is a working note, not an
+    audit record: nobody's capital moved because of a row here, and a history
+    strip nobody can prune is one nobody reads after the twentieth experiment.
+    ``BotAction`` is the thing that is kept forever (Q26), and it has no delete.
+
+    The archived *candles* are never touched by a delete. They are the expensive
+    half and they belong to the platform, not to any one report — throwing them
+    away because a report was tidied would make the next run download them
+    again, which is the opposite of why they are stored.
     """
 
     queryset = BacktestRun.objects.select_related("strategy_version__strategy").order_by(
         "-created_at"
     )
     permission_classes = [IsAdminUser]
+
+    @action(detail=False, methods=["delete"])
+    def clear(self, request: Request) -> Response:
+        """Delete a whole history at once — everything, or one version's.
+
+        Same filters the list takes, so what is deleted is exactly what the
+        panel was showing. Answers with the count, because "deleted" with no
+        number is indistinguishable from "matched nothing".
+        """
+        rows = BacktestRun.objects.all()
+        version = request.query_params.get("strategy_version")
+        if version:
+            rows = rows.filter(strategy_version_id=version)
+        strategy = request.query_params.get("strategy")
+        if strategy:
+            rows = rows.filter(strategy_version__strategy_id=strategy)
+        deleted, _ = rows.delete()
+        return Response({"deleted": deleted})
 
     def get_serializer_class(self):
         # The list is a table of headline numbers; only the detail view renders
@@ -399,11 +540,17 @@ async def stop_bot(request: HttpRequest, pk: int) -> JsonResponse:
 @csrf_protect
 @admin_required
 async def run_backtest(request: HttpRequest) -> JsonResponse:
-    """Replay a version over stored history and store the report.
+    """Start a replay. Returns a **job**, not a report.
 
-    Async because a long replay would otherwise hold a worker thread, and
-    because the same endpoint may need to reach the public feed when the archive
-    does not cover the window.
+    A first run on a pair the archive has never seen spends most of its wall
+    clock paging a public endpoint for history — up to
+    ``backtest.DOWNLOAD_BUDGET_SECONDS`` of it. A request that returns after
+    ninety seconds behind a spinner is indistinguishable from a hang, so the
+    work moves to a thread and the panel polls ``backtest_job`` for a bar that
+    actually moves. ``apps/bots/jobs.py`` owns the phases and their weights.
+
+    ``{"wait": true}`` keeps the old synchronous shape for scripts and tests:
+    the full report comes back in the response, exactly as before.
     """
     from apps.bots import backtest
 
@@ -432,6 +579,12 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
         bot = await sync_to_async(_get_bot)(payload["bot"])
         if bot is not None:
             overrides, _ = props.validate_overrides(bot.property_overrides or {})
+    payload = {**payload, "property_overrides": props.serialise_overrides(overrides)}
+
+    user = await request.auser()
+    if not payload.get("wait"):
+        job = await sync_to_async(jobs.start)(version, payload, actor=user.get_username())
+        return JsonResponse({"job_id": job.id, **jobs.state(job)}, status=202)
 
     try:
         report = await sync_to_async(backtest.run)(
@@ -452,9 +605,153 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
     except backtest.BacktestError as exc:
         return JsonResponse({"detail": str(exc), "code": "backtest_failed"}, status=409)
 
-    user = await request.auser()
-    stored = await sync_to_async(_store_backtest)(version, report, payload, user.get_username())
+    stored = await sync_to_async(jobs.store)(version, report, payload, user.get_username())
     return JsonResponse({"backtest_id": stored.id, **report.as_dict()})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def version_properties(request: Request, pk: int) -> Response:
+    """The Properties tab for a strategy *version*, with no bot in the picture.
+
+    The bot page reads ``/bots/<id>/properties/``, where the third step of the
+    merge is that bot's saved overrides. The backtest form has no bot — it is
+    about to run a version — so it needs the same schema and the same
+    platform → script resolution with the overrides left to the caller, which
+    holds them in the form and posts them with the run.
+
+    Same ``properties.resolve``, same two note lists. A second merge rule for
+    the second caller is how the report header and the form that produced it
+    start disagreeing.
+    """
+    from apps.pine import properties as props
+
+    version = StrategyVersion.objects.filter(pk=pk).first()
+    if version is None:
+        return Response({"detail": "no such strategy version"}, status=404)
+
+    declared_raw = version.properties or {}
+    # Only the keys the script actually set are the script's opinion; the rest
+    # are the platform's, and replaying them as declarations would make every
+    # field read "from the script".
+    declared_keys = set(declared_raw.get("declared") or ())
+    declared, _ = props.validate_overrides({key: declared_raw.get(key) for key in declared_keys})
+    resolved = props.resolve(declared=declared, overrides={})
+    return Response(
+        {
+            "strategy_version": version.id,
+            "resolved": resolved.as_dict(),
+            "overrides": {},
+            "schema": props.schema_as_data(),
+            "live_departures": resolved.live_departures(),
+            "inert": resolved.inert_here(),
+        }
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def backtest_job(request: Request, pk: int) -> Response:
+    """One job's progress. Polled by the panel roughly once a second."""
+    job = BacktestJob.objects.filter(pk=pk).first()
+    if job is None:
+        return Response({"detail": "no such backtest job"}, status=404)
+    return Response(jobs.state(job))
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def backtest_coverage(request: Request) -> Response:
+    """How much of a window the archive already holds, before anything is run.
+
+    So the form can say "4,300 bars stored, about 1,200 to download" instead of
+    making the operator discover it from how long the run takes. Cheap: one
+    indexed count, no network.
+    """
+    from apps.bots.feed import interval_seconds
+    from apps.exchanges import candlestore, marketdata
+    from apps.exchanges.base import MarketType
+
+    symbol = str(request.query_params.get("symbol", "")).upper()
+    interval = str(request.query_params.get("interval", "1h"))
+    if not symbol:
+        return Response({"detail": "symbol is required"}, status=400)
+    try:
+        market = MarketType(request.query_params.get("market", "futures"))
+        step = interval_seconds(interval)
+        from_time = int(request.query_params["from_time"])
+        to_time = int(request.query_params["to_time"])
+    except (KeyError, TypeError, ValueError) as exc:
+        return Response({"detail": f"bad request: {exc}"}, status=400)
+
+    expected = max(1, (to_time - from_time) // step)
+    stored = candlestore.read_window(
+        symbol=symbol,
+        interval=interval,
+        market=market,
+        limit=expected + 10,
+        end=to_time,
+        exchange=marketdata.pinned_provider(),
+    )
+    rows = list(stored[0]) if stored else []
+    held = [candle for candle in rows if from_time <= candle.time <= to_time]
+    return Response(
+        {
+            "symbol": symbol,
+            "interval": interval,
+            "expected": expected,
+            "stored": len(held),
+            "oldest": min((c.time for c in held), default=None),
+            "newest": max((c.time for c in held), default=None),
+            # A window this dense is served from the archive with no network
+            # call at all — the same threshold `backtest._covers` applies.
+            "cached": len(held) >= float(backtest_coverage_ratio()) * expected,
+        }
+    )
+
+
+def backtest_coverage_ratio():
+    from apps.bots.backtest import COVERAGE_RATIO
+
+    return COVERAGE_RATIO
+
+
+# --- drills: the safety machinery, fired on purpose --------------------------
+
+
+@require_POST
+@csrf_protect
+@admin_required
+async def run_drill(request: HttpRequest, pk: int) -> JsonResponse:
+    """Fire a drill against this bot for real. See ``apps/bots/drills.py``.
+
+    ``{"kind": "halt"}`` engages the §7 halt, force-closes every open trade
+    through ``route_close_all`` — with no reference to what the strategy thinks
+    should be open, which is the entire point — and resumes the bot into the
+    same run. Any Q25 reason code stops the bot with that code and resumes it.
+
+    Not behind step-up. A drill is a *safety* action, and the exclusion in
+    ``apps/security/stepup.py`` is deliberate about exactly this shape: a
+    password prompt in front of "flatten everything" costs money during the one
+    minute it matters.
+    """
+    bot = await sync_to_async(_get_bot)(pk)
+    if bot is None:
+        return JsonResponse({"detail": "no such bot"}, status=404)
+
+    user = await request.auser()
+    kind = str(_body(request).get("kind") or drills.HALT_DRILL)
+    try:
+        if kind == drills.HALT_DRILL:
+            result = await drills.run_halt_drill(bot, actor=user.get_username())
+        else:
+            result = await drills.run_trigger_drill(bot, kind, actor=user.get_username())
+    except drills.DrillRefused as exc:
+        return JsonResponse({"detail": str(exc), "code": "drill_refused"}, status=409)
+
+    fresh = await sync_to_async(_get_bot)(pk)
+    readiness = await sync_to_async(gate.evaluate)(fresh) if fresh else None
+    return JsonResponse({**result.as_dict(), "gate": readiness})
 
 
 def _decimal(value):
@@ -480,26 +777,222 @@ def _get_version(pk) -> StrategyVersion | None:
     return StrategyVersion.objects.filter(id=pk).first() if pk else None
 
 
-def _store_backtest(version, report, payload, actor: str) -> BacktestRun:
-    data = report.as_dict()
-    return BacktestRun.objects.create(
-        strategy_version=version,
-        symbol=report.symbol,
-        interval=report.interval,
-        market=payload.get("market", "futures"),
-        from_time=report.from_time,
-        to_time=report.to_time,
-        input_values=payload.get("inputs") or {},
-        bars=report.bars,
-        trades=len(report.trades),
-        metrics=data["metrics"],
-        # The sentences travel with the numbers. Reopening a stored run has to
-        # show the same header the run was read under, and `lines()` is derived
-        # from wording that will be edited — a row rebuilt from today's code
-        # would caption last month's report with this month's assumptions.
-        assumptions={**data["assumptions"], "lines": report.assumptions.lines()},
-        equity_curve=data["equity_curve"],
-        trade_log=data["trades"],
-        intent_digest=report.intent_digest,
-        created_by=actor,
+def _chart_payload(bot: Bot, *, interval: str, limit: int) -> dict:
+    """Candles, the script's plotted series, and the bars it acted on.
+
+    Two paths, and the difference is stated in the payload rather than blurred:
+
+      **The bot's own interval** reads ``BotBar`` — the values the runtime
+      really recorded on the bars it really saw. Nothing is recomputed, so the
+      chart cannot disagree with the journal beside it.
+
+      **Any other interval** has no such record, so the strategy is replayed
+      over that timeframe *for display only*. ``replayed`` is true, and nothing
+      about the bot, its run, its position or its interval is touched.
+    """
+    from apps.bots.feed import interval_seconds, to_bar, warmup_bars_needed
+    from apps.exchanges import candlestore, marketdata
+    from apps.exchanges.base import MarketType
+
+    interval_seconds(interval)  # raises ValueError on an interval nothing supports
+    market = MarketType(bot.market)
+    run = bot.runs.order_by("-started_at").first()
+    own = interval == bot.interval
+
+    if own and run is not None:
+        rows = list(run.bars.order_by("-bar_time")[:limit])
+        rows.reverse()
+        if rows:
+            return {
+                "interval": interval,
+                "replayed": False,
+                "symbol": bot.symbol,
+                "candles": [
+                    {
+                        "time": row.bar_time,
+                        "open": str(row.open),
+                        "high": str(row.high),
+                        "low": str(row.low),
+                        "close": str(row.close),
+                        "volume": str(row.volume),
+                    }
+                    for row in rows
+                ],
+                "series": _series_from(
+                    [(row.bar_time, row.plots or {}) for row in rows]
+                ),
+                "markers": _markers_from_bars(rows) + _markers_from_actions(run, limit),
+                "note": "",
+            }
+
+    # Nothing recorded at this interval — replay it, and say so.
+    warmup = warmup_bars_needed(_longest_lookback_of(bot))
+    stored = candlestore.read_window(
+        symbol=bot.symbol,
+        interval=interval,
+        market=market,
+        limit=limit + warmup,
+        exchange=marketdata.pinned_provider(),
     )
+    candles = list(stored[0]) if stored else []
+    if not candles:
+        return {
+            "interval": interval,
+            "replayed": True,
+            "symbol": bot.symbol,
+            "candles": [],
+            "series": [],
+            "markers": [],
+            # Not an error. The archive fills as the platform runs, and a
+            # timeframe nobody has looked at yet simply has no bars stored.
+            "note": "no_history",
+        }
+
+    traced = _replay_for_display(bot, [to_bar(candle) for candle in candles], interval, warmup)
+    drawn = candles[warmup:] or candles
+    return {
+        "interval": interval,
+        "replayed": True,
+        "symbol": bot.symbol,
+        "candles": [
+            {
+                "time": candle.time,
+                "open": str(candle.open),
+                "high": str(candle.high),
+                "low": str(candle.low),
+                "close": str(candle.close),
+                "volume": str(candle.volume),
+            }
+            for candle in drawn
+        ],
+        "series": _series_from([(time, plots) for time, plots, _ in traced]),
+        "markers": _markers_from_trace(traced),
+        "note": "",
+    }
+
+
+def _longest_lookback_of(bot: Bot) -> int:
+    from apps.bots.backtest import _longest_lookback
+
+    return _longest_lookback(validate(bot.strategy_version.source, limits=limits()))
+
+
+def _replay_for_display(bot: Bot, bars, interval: str, warmup: int) -> list[tuple]:
+    """Run the script over these bars purely to record what it plots.
+
+    The *same* ``Runtime`` the live loop and the backtest use — there is only
+    one — so the lines drawn here are the lines the bot would compute. What it
+    is not is a decision: nothing is routed, nothing is stored, and the first
+    ``warmup`` bars are dropped because their indicators have not converged.
+    """
+    from apps.pine.errors import PineError
+    from apps.pine.runtime import Runtime
+    from apps.pine.symbol import SymbolInfo, TimeframeInfo
+
+    result = validate(bot.strategy_version.source, limits=limits())
+    if not result.ok:
+        return []
+    runtime = Runtime(
+        result.program,
+        symbol=bot.symbol,
+        inputs=bot.input_values or {},
+        limits=limits(),
+        symbol_info=SymbolInfo.for_symbol(bot.symbol, market=bot.market),
+        timeframe=TimeframeInfo.for_interval(interval),
+    )
+    traced: list[tuple] = []
+    for index, bar in enumerate(bars):
+        try:
+            outcome = runtime.run_bar(bar, ishistory=index < warmup)
+        except PineError:
+            # A script that fails on a timeframe it was never run on is a fact
+            # about that timeframe, not an error worth a 500. Draw what it
+            # managed and stop.
+            break
+        if index >= warmup:
+            traced.append((bar.time, outcome.intent.as_dict()["plots"], outcome.intent.as_dict()))
+    return traced
+
+
+def _series_from(rows: list[tuple[int, dict]]) -> list[dict]:
+    """Per-bar plot dictionaries → one array per named series, chart-ready.
+
+    Sparse by construction: a bar where a series was ``na`` contributes no
+    point, so a line breaks where the script had no value rather than being
+    drawn through zero.
+    """
+    names: list[str] = []
+    for _, plots in rows:
+        for name in plots or {}:
+            if name not in names:
+                names.append(name)
+    series = []
+    for name in names:
+        points = []
+        for time, plots in rows:
+            value = (plots or {}).get(name)
+            if value is None or value == "":
+                continue
+            try:
+                points.append({"time": time, "value": float(value)})
+            except (TypeError, ValueError):
+                continue
+        if points:
+            series.append({"name": name, "points": points})
+    return series
+
+
+def _markers_from_bars(rows) -> list[dict]:
+    """Where the desired side changed. One marker per change, never per bar."""
+    markers = []
+    previous = None
+    for row in rows:
+        side = (row.intent or {}).get("side")
+        if side != previous:
+            markers.append(
+                {
+                    "time": row.bar_time,
+                    "side": side,
+                    "kind": "signal",
+                    "reason": (row.intent or {}).get("reason") or "",
+                }
+            )
+        previous = side
+    return markers
+
+
+def _markers_from_trace(traced: list[tuple]) -> list[dict]:
+    markers = []
+    previous = None
+    for time, _, intent in traced:
+        side = intent.get("side")
+        if side != previous:
+            markers.append(
+                {
+                    "time": time,
+                    "side": side,
+                    "kind": "signal",
+                    "reason": intent.get("reason") or "",
+                }
+            )
+        previous = side
+    return markers
+
+
+def _markers_from_actions(run, limit: int) -> list[dict]:
+    """What was actually *routed*, as distinct from what was merely wanted.
+
+    Both are drawn, and they are different marks: a signal the risk gate refused
+    is a signal with no action beside it, which is exactly the picture an
+    operator needs when a bot "did nothing".
+    """
+    return [
+        {
+            "time": action.bar_time,
+            "side": (action.intent or {}).get("side"),
+            "kind": action.action_type,
+            "ok": action.ok,
+            "reason": action.reason or "",
+        }
+        for action in run.actions.all()[:limit]
+    ]

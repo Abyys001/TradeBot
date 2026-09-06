@@ -353,3 +353,68 @@ class BacktestRun(models.Model):
 
     def __str__(self) -> str:
         return f"backtest {self.symbol} {self.interval} ({self.trades} trades)"
+
+
+class JobStatus(models.TextChoices):
+    """Where a backtest is, from the panel's point of view."""
+
+    QUEUED = "queued"
+    VALIDATING = "validating"
+    DOWNLOADING = "downloading"
+    REPLAYING = "replaying"
+    FINISHING = "finishing"
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class BacktestJob(models.Model):
+    """One backtest in flight, and the progress bar's whole source of truth.
+
+    A backtest used to be one POST that returned when it was done. That is fine
+    at three seconds and indistinguishable from a hang at ninety, which is what
+    a first run on a pair the archive has never seen actually costs — the
+    download is the slow part, and it is the part that can be counted. So the
+    request opens a row, a thread works it, and the panel polls this.
+
+    The row is small and short-lived by design: it holds the *request* and the
+    *progress*, never the result. The result is a ``BacktestRun``, which is
+    where every stored report has always lived, and ``result`` points at it —
+    so nothing downstream has to learn about jobs to read a backtest.
+    """
+
+    strategy_version = models.ForeignKey(
+        StrategyVersion, on_delete=models.CASCADE, related_name="backtest_jobs"
+    )
+    #: The payload as posted, replayed verbatim by the worker. Kept so a failed
+    #: job can be retried without the panel having to remember what it asked.
+    request = models.JSONField(default=dict, blank=True)
+
+    status = models.CharField(max_length=12, choices=JobStatus.choices, default=JobStatus.QUEUED)
+    #: ``[0, 1]`` across the whole job, not within a phase — the bar the panel
+    #: draws is one bar, and weighting the phases here keeps that arithmetic in
+    #: one place instead of in every client.
+    progress = models.FloatField(default=0.0)
+    #: Whatever the current phase can honestly count: pages, bars, trades.
+    detail = models.JSONField(default=dict, blank=True)
+
+    result = models.ForeignKey(
+        BacktestRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="jobs"
+    )
+    error = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"backtest job {self.id} ({self.status})"
+
+    @property
+    def finished(self) -> bool:
+        return self.status in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED)

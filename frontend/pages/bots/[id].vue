@@ -8,7 +8,7 @@
  * number behind it, met or not. A row that cannot be measured from inside
  * (no adapter has been run against a live exchange) is shown as exactly that.
  */
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const api = useApi()
 const store = useBotsStore()
@@ -23,10 +23,14 @@ const runs = ref<BotRun[]>([])
 const actions = ref<BotAction[]>([])
 const bars = ref<BotBar[]>([])
 const gate = ref<PromotionGate | null>(null)
+/** Which accounts a fan-out from this bot would actually reach. */
+const reach = ref<BotAccountRow[]>([])
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const tab = ref<'activity' | 'bars' | 'properties' | 'promotion' | 'source'>('activity')
+const tab = ref<
+  'journal' | 'chart' | 'logic' | 'activity' | 'bars' | 'properties' | 'promotion' | 'source'
+>('journal')
 const renaming = ref(false)
 const renameTo = ref('')
 
@@ -67,16 +71,18 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [botRow, runRows, actionRows, gateRows] = await Promise.all([
+    const [botRow, runRows, actionRows, gateRows, reachRows] = await Promise.all([
       api.bot(id.value),
       api.botRuns(id.value),
       api.botActions(id.value),
       api.botPromotion(id.value),
+      api.botAccounts(id.value),
     ])
     bot.value = botRow
     runs.value = runRows
     actions.value = actionRows
     gate.value = gateRows
+    reach.value = reachRows.accounts
     store.upsert(botRow)
     // The version's own source, not the strategy's newest: a bot points at an
     // immutable version precisely so it cannot change under a running run.
@@ -143,6 +149,60 @@ async function rename() {
     busy.value = false
   }
 }
+
+/**
+ * The soak row, ticking. The server sends seconds and the instant the run
+ * started; counting from there is what turns "0.5 days" — a number that looks
+ * frozen for hours — into minutes that visibly move.
+ */
+const soakRow = computed(() => gate.value?.rows.find((row) => row.key === 'soak') ?? null)
+const soakSince = computed(() => (soakRow.value?.params?.since as string | null) ?? null)
+const soakBase = computed(() => Number(soakRow.value?.params?.seconds ?? 0))
+const soakRunning = computed(() => Boolean(soakRow.value?.params?.running))
+const { seconds: soakSeconds } = useCountdown(soakSince, soakBase, soakRunning)
+const soakRequired = computed(() => Number(soakRow.value?.params?.required_seconds ?? 0))
+const soakRemaining = computed(() => Math.max(0, soakRequired.value - soakSeconds.value))
+
+/**
+ * What a row *measures*, in the reader's language.
+ *
+ * The server's English sentence is the fallback, never the first choice: a gate
+ * nobody on this platform can read is a gate they click past. The soak row is
+ * the one that is recomputed here rather than rendered, because it is counting.
+ */
+function measured(row: PromotionRow): string {
+  if (row.key === 'soak') return formatDuration(soakSeconds.value)
+  const key = `bots.gate.measured.${row.key}`
+  return te(key) ? t(key, row.params as Record<string, unknown>) : row.measured
+}
+
+function requirement(row: PromotionRow): string {
+  const key = `bots.gate.requirement.${row.key}`
+  return te(key) ? t(key) : row.requirement
+}
+
+function threshold(row: PromotionRow): string {
+  if (row.key === 'soak') return formatDuration(Number(row.params?.required_seconds ?? 0))
+  const key = `bots.gate.threshold.${row.key}`
+  return te(key) ? t(key, row.params as Record<string, unknown>) : row.threshold
+}
+
+async function acknowledgeAdapters(on: boolean) {
+  busy.value = true
+  error.value = ''
+  try {
+    const payload = await api.acknowledgeAdapters(id.value, on)
+    gate.value = payload.gate
+    await load()
+  } catch (e: any) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+
+/** Accounts that are active *and* opted in to bot orders — the real fan-out set. */
+const eligible = computed(() => reach.value.filter((row) => row.eligible))
 
 watch(tab, (value) => {
   if (value === 'bars' && !bars.value.length) loadBars()
@@ -257,19 +317,63 @@ onMounted(async () => {
         <UiStat :label="t('bots.feed')" :value="run.feed_transport || run.feed_source || '—'" />
       </div>
 
-      <UiSegmented
-        v-model="tab"
-        :options="[
-          { value: 'activity', label: t('bots.tab.activity') },
-          { value: 'bars', label: t('bots.tab.bars') },
-          { value: 'properties', label: t('bots.tab.properties') },
-          { value: 'promotion', label: t('bots.tab.promotion') },
-          { value: 'source', label: t('bots.tab.source') },
-        ]"
-      />
+      <!-- Eight tabs is a lot, so they scroll rather than wrap into three rows
+           that push the content off a phone screen. Order is by how often they
+           are opened: the log first, because "what is it doing" is the question
+           that brings anyone here. -->
+      <div class="overflow-x-auto -mx-1 px-1">
+        <UiSegmented
+          v-model="tab"
+          class="min-w-max"
+          :block="false"
+          :options="[
+            { value: 'journal', label: t('bots.tab.journal') },
+            { value: 'chart', label: t('bots.tab.chart') },
+            { value: 'logic', label: t('bots.tab.logic') },
+            { value: 'activity', label: t('bots.tab.activity') },
+            { value: 'bars', label: t('bots.tab.bars') },
+            { value: 'properties', label: t('bots.tab.properties') },
+            { value: 'promotion', label: t('bots.tab.promotion') },
+            { value: 'source', label: t('bots.tab.source') },
+          ]"
+        />
+      </div>
+
+      <!-- The commonest reason a working bot does nothing: no account has
+           opted in to bot orders. That switch defaults off, and a page that
+           did not say so left the operator debugging the strategy. -->
+      <div
+        v-if="bot.state !== 'draft' && !eligible.length"
+        class="alert px-3 py-2.5 text-xs leading-relaxed flex flex-wrap items-center gap-x-3 gap-y-1.5"
+      >
+        <UiIcon name="alert" :size="14" class="shrink-0" />
+        <span>{{ t('bots.noBotAccounts') }}</span>
+        <NuxtLink :to="localePath('/accounts')" class="text-brand hover:underline">
+          {{ t('bots.openAccounts') }}
+        </NuxtLink>
+      </div>
+      <p
+        v-else-if="bot.state !== 'draft'"
+        class="text-tick text-ink-faint leading-relaxed px-1"
+      >
+        {{ t('bots.reachesN', { n: eligible.length, total: reach.length }) }}
+        <span class="num">{{ eligible.map((row) => row.label).join(', ') }}</span>
+      </p>
+
+      <!-- The log. What it was thinking, bar by bar — including the bars where
+           the answer was "nothing", which is most of them. -->
+      <BotsBotJournal v-if="tab === 'journal'" :bot-id="id" :interval="bot.interval" />
+
+      <!-- The chart, with the script's own indicators and its triggers drawn on
+           it. Changing the timeframe here replays for display and never touches
+           the running bot. -->
+      <BotsBotChart v-else-if="tab === 'chart'" :bot-id="id" :interval="bot.interval" />
+
+      <!-- What makes it trade, in the script's own words. -->
+      <BotsBotLogic v-else-if="tab === 'logic'" :bot-id="id" />
 
       <!-- Activity: what the bot decided, and what every account gave back. -->
-      <UiCard v-if="tab === 'activity'" flush>
+      <UiCard v-else-if="tab === 'activity'" flush>
         <div
           v-if="latestIntent"
           class="px-3 py-2.5 border-b border-line text-xs flex items-center gap-2 flex-wrap"
@@ -383,17 +487,47 @@ onMounted(async () => {
             </thead>
             <tbody class="divide-y divide-line">
               <tr v-for="row in gate.rows" :key="row.key">
-                <td class="px-3 py-2">
+                <td class="px-3 py-2 align-top">
                   <UiIcon
                     :name="row.met ? 'check' : 'alert'"
                     :size="14"
                     :class="row.met ? 'text-ok' : 'text-signal'"
                   />
                 </td>
-                <td class="px-3 py-2 leading-relaxed">{{ row.requirement }}</td>
-                <td class="px-3 py-2 num text-ink-muted">{{ row.threshold }}</td>
-                <td class="px-3 py-2 num" :class="row.met ? 'text-ok' : 'text-signal'">
-                  {{ row.measured }}
+                <td class="px-3 py-2 leading-relaxed align-top">
+                  {{ requirement(row) }}
+                  <!-- The one row nothing can measure from inside, made
+                       tickable here. A gate that can only be cleared from a
+                       shell is a gate people route around. -->
+                  <label
+                    v-if="row.actionable === 'acknowledge_adapters'"
+                    class="mt-1.5 flex items-start gap-2 text-xs text-ink-muted cursor-pointer select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      class="accent-brand mt-0.5"
+                      :checked="row.met"
+                      :disabled="busy"
+                      @change="acknowledgeAdapters(($event.target as HTMLInputElement).checked)"
+                    />
+                    <span>{{ t('bots.gate.adaptersConfirm') }}</span>
+                  </label>
+                  <p
+                    v-if="row.actionable === 'acknowledge_adapters' && row.params?.by"
+                    class="text-tick text-ink-faint mt-1 num"
+                  >
+                    {{ t('bots.gate.adaptersBy', { by: row.params.by, at: dateTime(String(row.params.at)) }) }}
+                  </p>
+                </td>
+                <td class="px-3 py-2 num text-ink-muted align-top">{{ threshold(row) }}</td>
+                <td class="px-3 py-2 num align-top" :class="row.met ? 'text-ok' : 'text-signal'">
+                  {{ measured(row) }}
+                  <span
+                    v-if="row.key === 'soak' && !row.met && soakRunning"
+                    class="block text-tick text-ink-faint mt-0.5"
+                  >
+                    {{ t('bots.gate.soakRemaining', { left: formatDuration(soakRemaining) }) }}
+                  </span>
                 </td>
               </tr>
             </tbody>
@@ -403,6 +537,7 @@ onMounted(async () => {
           </p>
         </div>
       </UiCard>
+
 
       <!-- The exact source this bot is running. Read-only on purpose: a version
            is immutable, so editing here would silently be editing a new one. -->
@@ -416,6 +551,19 @@ onMounted(async () => {
         />
         <UiEmpty v-else icon="logs" :title="t('bots.noSource')" />
       </UiCard>
+
+      <!-- Outside the tab chain on purpose: it is a second card *under* the
+           gate, not a ninth tab. The two rows it fires are the only ones on the
+           gate that are exercises rather than measurements, and the halt one
+           sends real close orders. -->
+      <BotsDrillPanel
+        v-if="tab === 'promotion'"
+        :bot-id="id"
+        :running="bot.state === 'paper' || bot.state === 'live'"
+        :fired="bot.drills_fired ?? []"
+        :halt-drills="run?.halt_drills ?? 0"
+        @done="load"
+      />
 
       <UiModal v-model="renaming" :title="t('bots.renameBot')" size="sm">
         <label class="block space-y-1.5">

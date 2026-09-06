@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -84,6 +85,22 @@ class BacktestError(Exception):
     """The run could not be produced. Never a partial report presented as whole."""
 
 
+#: What a caller is told while a run is in flight. ``phase`` is one of
+#: ``"validating" | "downloading" | "replaying" | "finishing"``, ``done`` is a
+#: fraction in ``[0, 1]`` *within that phase*, and ``detail`` carries whatever
+#: the phase can honestly count — pages fetched, bars written, bars replayed.
+#:
+#: A callback and not a return value because the interesting number is the one
+#: that exists **before** the answer does: a download that will take forty
+#: seconds behind a bare spinner is indistinguishable from a hang, and that is
+#: the whole reason this exists.
+Progress = Callable[[str, float, dict], None]
+
+
+def _noop_progress(phase: str, done: float, detail: dict) -> None:
+    """The default. A backtest with nobody watching pays nothing for progress."""
+
+
 #: How long a backtest may spend downloading history it does not hold before it
 #: settles for the span it managed to cover. A backtest is a foreground request:
 #: a five-minute download behind a spinner is a hang. What arrives inside the
@@ -106,10 +123,20 @@ class HistoryWindow:
     downloaded: int = 0
     #: Said in the report when the venue could not go back as far as asked.
     notes: list[str] = field(default_factory=list)
+    #: Bars the archive already held before this call. ``downloaded == 0`` and
+    #: this non-zero is the cache hit the second run of a pair gets, and the
+    #: panel says so rather than leaving the operator to infer it from speed.
+    from_archive: int = 0
 
 
 def _download_window(
-    *, exchange: str, symbol: str, interval: str, market: MarketType, since: int
+    *,
+    exchange: str,
+    symbol: str,
+    interval: str,
+    market: MarketType,
+    since: int,
+    progress: Progress = _noop_progress,
 ) -> int:
     """Page back to ``since`` from now, writing every page to the archive.
 
@@ -124,9 +151,18 @@ def _download_window(
 
     source = source_for(exchange, timeout=BACKFILL_TIMEOUT)
     page = max(1, source.page_limit)
-    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    started = time.monotonic()
+    deadline = started + DOWNLOAD_BUDGET_SECONDS
     end: int | None = None
     written = 0
+    pages = 0
+    # Progress is measured against *time already walked back*, not pages: pages
+    # are a venue's own quirk (500 here, 1000 there) and a bar counter would run
+    # backwards on a pair with gaps. The span from `since` to now is fixed and
+    # known before the first request, which is what a progress bar needs.
+    span = max(1, int(time.time()) - since)
+
+    progress("downloading", 0.0, {"exchange": exchange, "pages": 0, "bars": 0})
 
     while time.monotonic() < deadline:
         candles = source.candles(
@@ -135,7 +171,23 @@ def _download_window(
         if not candles:
             break
         written += catalogue.write_candles(exchange, symbol, market, interval, candles)
+        pages += 1
         oldest = min(candle.time for candle in candles)
+        progress(
+            "downloading",
+            min(1.0, max(0.0, (int(time.time()) - oldest) / span)),
+            {
+                "exchange": exchange,
+                "pages": pages,
+                "bars": written,
+                "oldest": oldest,
+                # The budget is the other half of the honesty: a walk that runs
+                # out of time stops and the report says where the data began,
+                # so the bar has to show that clock too.
+                "elapsed": round(time.monotonic() - started, 1),
+                "budget": DOWNLOAD_BUDGET_SECONDS,
+            },
+        )
         if end is not None and oldest >= end:
             break  # the venue is not paging any further back
         if oldest <= since:
@@ -143,6 +195,7 @@ def _download_window(
         end = oldest - 1
         time.sleep(catalogue.REQUEST_PAUSE)
 
+    progress("downloading", 1.0, {"exchange": exchange, "pages": pages, "bars": written})
     return written
 
 
@@ -154,6 +207,7 @@ def load_bars(
     from_time: int,
     to_time: int,
     warmup: int,
+    progress: Progress = _noop_progress,
 ) -> HistoryWindow:
     """Bars for the window plus ``warmup`` bars before it, oldest first.
 
@@ -188,9 +242,14 @@ def load_bars(
         return [c for c in rows if wanted_from <= c.time <= to_time]
 
     candles = archived()
+    from_archive = len(candles)
     downloaded = 0
 
-    if not _covers(candles, wanted_from=wanted_from, to_time=to_time, step=step):
+    if _covers(candles, wanted_from=wanted_from, to_time=to_time, step=step):
+        # Nothing to fetch. Said explicitly so the panel can show "served from
+        # the archive" instead of a progress bar that flashes past.
+        progress("downloading", 1.0, {"cached": True, "bars": from_archive})
+    else:
         if not exchange:
             raise BacktestError(
                 f"no stored history for {symbol} {interval} and no public market-data "
@@ -203,6 +262,7 @@ def load_bars(
                 interval=interval,
                 market=market,
                 since=wanted_from,
+                progress=progress,
             )
         except Exception as exc:  # noqa: BLE001 - reported, never a silent empty series
             logger.warning("backtest history download failed for %s %s: %s", symbol, interval, exc)
@@ -236,6 +296,7 @@ def load_bars(
         bars=[to_bar(candle) for candle in candles],
         downloaded=downloaded,
         notes=notes,
+        from_archive=from_archive,
     )
 
 
@@ -284,14 +345,18 @@ def run(
     bars: list[Bar] | None = None,
     property_overrides: dict | None = None,
     mintick: Decimal | None = None,
+    progress: Progress = _noop_progress,
 ) -> Report:
     """Validate, replay, and report. ``bars`` is for tests and the divergence check."""
+    progress("validating", 0.0, {})
     result = validate(source, limits=limits())
     if not result.ok:
         raise BacktestError("; ".join(str(e) for e in result.errors))
+    progress("validating", 1.0, {})
 
     warmup = warmup_bars_needed(_longest_lookback(result))
     history_notes: list[str] = []
+    data_source: dict = {"downloaded": 0, "from_archive": len(bars or ())}
     if bars is not None:
         series = bars
     else:
@@ -302,8 +367,14 @@ def run(
             from_time=from_time,
             to_time=to_time,
             warmup=warmup,
+            progress=progress,
         )
         series, history_notes = window.bars, window.notes
+        data_source = {
+            "downloaded": window.downloaded,
+            "from_archive": window.from_archive,
+            "total": len(window.bars),
+        }
     if not series:
         raise BacktestError(
             f"no bars for {symbol} {interval} between {from_time} and {to_time}"
@@ -373,6 +444,11 @@ def run(
 
     warnings: list[str] = list(history_notes)
     evaluated = 0
+    total = len(series)
+    # One update per percent, not one per bar: a 200,000-bar replay would
+    # otherwise spend more time reporting on itself than replaying.
+    every = max(1, total // 100)
+    progress("replaying", 0.0, {"bars": 0, "total": total})
     for index, bar in enumerate(series):
         history = bar.time < from_time
         try:
@@ -381,8 +457,16 @@ def run(
             raise BacktestError(f"the script failed on bar {index} ({bar.time}): {exc}") from exc
         if not history:
             evaluated += 1
+        if index % every == 0:
+            progress(
+                "replaying",
+                (index + 1) / total,
+                {"bars": index + 1, "total": total, "trades": len(engine.trades)},
+            )
 
+    progress("replaying", 1.0, {"bars": total, "total": total, "trades": len(engine.trades)})
     engine.finish(series[-1])
+    progress("finishing", 0.0, {"trades": len(engine.trades)})
 
     if runtime.advance_failures:
         warnings.append(
@@ -424,6 +508,8 @@ def run(
         interval=interval,
         initial_equity=resolved.initial_capital,
     )
+    report.data_source = data_source
+    progress("finishing", 1.0, {"trades": len(engine.trades)})
     return report
 
 

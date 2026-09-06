@@ -174,6 +174,10 @@ class Report:
     metrics: dict = field(default_factory=dict)
     intent_digest: str = ""
     warnings: list[str] = field(default_factory=list)
+    #: Where the bars came from — ``{"downloaded": n, "from_archive": n}``. The
+    #: second run of a pair downloads nothing, and the panel says so rather
+    #: than leaving the operator to infer a cache hit from how fast it was.
+    data_source: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
@@ -191,6 +195,7 @@ class Report:
             "trades": [t.as_dict() for t in self.trades],
             "intent_digest": self.intent_digest,
             "warnings": list(self.warnings),
+            "data_source": dict(self.data_source),
         }
 
     def summary_lines(self) -> list[str]:
