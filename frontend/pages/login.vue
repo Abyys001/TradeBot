@@ -20,7 +20,9 @@ definePageMeta({ layout: 'public' })
  * copy, because it is a real handle a real person answers on and it will
  * change hands before the sentence around it does.
  */
-const SUPPORT_TELEGRAM = '@Abyys01'
+const SUPPORT_HANDLE = '@Abyys01'
+const SUPPORT_WHATSAPP = '+989916122680'
+const SUPPORT_WHATSAPP_URL = `https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, '')}`
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -142,13 +144,14 @@ async function submitCode() {
       <div class="mt-5 rounded-lg border border-line bg-raised/40 px-3.5 py-3">
         <p class="text-xs text-ink-muted leading-relaxed">{{ t('login.note') }}</p>
         <a
-          :href="`https://t.me/${SUPPORT_TELEGRAM.replace('@', '')}`"
+          :href="SUPPORT_WHATSAPP_URL"
           target="_blank"
           rel="noopener noreferrer"
+          dir="ltr"
           class="mt-2 inline-flex items-center gap-1.5 text-xs text-brand hover:underline num"
         >
           <UiIcon name="external" :size="13" />
-          {{ SUPPORT_TELEGRAM }}
+          {{ SUPPORT_HANDLE }} · {{ SUPPORT_WHATSAPP }}
         </a>
       </div>
     </div>
