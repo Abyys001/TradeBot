@@ -21,6 +21,12 @@ dist/
 .env.*
 !.env.example
 !.env.production.example
+# VPS connection details (host, user, password/key path). Covered by
+# `.env.*` above, named again because this one holds a login to a server
+# that runs live trading — an accidental `git add -f` is the only way it
+# leaves this machine, and it should be loud when it does.
+.env.vps
+!.env.vps.example
 *.pem
 *.key
 secrets/
