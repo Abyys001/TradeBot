@@ -37,6 +37,26 @@ def _clean_cache():
 
 
 @pytest.fixture(autouse=True)
+def _clean_bot_supervisor():
+    """Running bots are tracked module-globally, and a leaked one outlives its loop.
+
+    ``supervisor._TASKS`` holds one asyncio task per running bot. A test that
+    starts a bot without stopping it leaves the entry behind pointing at a task
+    on *that* test's event loop, which is closed by the time the next test
+    runs. The next call to ``stop_all`` — the kill switch's flatten path, which
+    stops every bot before it closes positions (Q22) — then awaits a future
+    attached to a dead loop and dies with ``RuntimeError``, failing a test that
+    never went near bot mode. Dropping the registry keeps one test's bot out of
+    another test's halt.
+    """
+    from apps.bots import supervisor
+
+    supervisor._TASKS.clear()
+    yield
+    supervisor._TASKS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _detach_log_writer():
     """Keep the ``/logs`` handler off the root logger while tests run.
 

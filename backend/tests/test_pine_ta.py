@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import pathlib
-from decimal import Decimal, getcontext
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -29,7 +29,22 @@ from apps.pine.runtime import RunContext
 from apps.pine.series import NA, is_na
 from tests import pine_corpus
 
-getcontext().prec = 34
+
+@pytest.fixture(autouse=True)
+def _wide_precision():
+    """The golden values carry more digits than the default 28-digit context.
+
+    Set on the global context this leaked out of the module: ``getcontext()``
+    is process-wide, and pytest imports every test module before it runs any of
+    them, so one assignment here widened the context for the entire session.
+    ``test_ledger.py`` asserts an exact 28-digit quotient and failed because of
+    a line in a file it never imports. ``localcontext`` scopes the widening to
+    the test that wants it.
+    """
+    with localcontext() as ctx:
+        ctx.prec = 34
+        yield
+
 
 GOLDEN = pine_corpus.FIXTURES / "golden"
 TOLERANCE = Decimal("0.00000001")
