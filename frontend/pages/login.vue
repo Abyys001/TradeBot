@@ -19,6 +19,12 @@ definePageMeta({ layout: 'public' })
  * Who to ask for access. One constant rather than a string baked into the
  * copy, because it is a real handle a real person answers on and it will
  * change hands before the sentence around it does.
+ *
+ * It must also stay out of the i18n catalogue: vue-i18n reads `@` as the start
+ * of a linked-message reference, so "@Abyys01" inside a translated sentence
+ * throws INVALID_LINKED_FORMAT and takes the whole route down with a 500 whose
+ * only detail is `{"message":"10"}`. `frontend/scripts/check-i18n.mjs` now
+ * refuses a catalogue that will not compile, in every locale.
  */
 const SUPPORT_HANDLE = '@Abyys01'
 const SUPPORT_WHATSAPP = '+989916122680'

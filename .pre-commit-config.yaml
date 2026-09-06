@@ -23,6 +23,18 @@ repos:
         files: ^backend/
         args: [--fix]
 
+  # A locale string vue-i18n cannot parse is not a bad translation, it is a 500
+  # on whichever route renders it — and it renders as `{"message":"10"}`, which
+  # names neither the key nor the file. Cheap to check, expensive to find.
+  - repo: local
+    hooks:
+      - id: check-i18n
+        name: i18n catalogue is complete and compiles
+        entry: node frontend/scripts/check-i18n.mjs
+        language: system
+        files: ^frontend/i18n/locales/
+        pass_filenames: false
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:

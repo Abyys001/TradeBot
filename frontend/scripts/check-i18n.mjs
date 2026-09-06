@@ -12,6 +12,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { baseCompile } from '@intlify/message-compiler'
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), '..', 'i18n', 'locales')
 const SOURCE = 'en'
@@ -38,6 +39,33 @@ const codes = readdirSync(dir)
   .sort()
 
 const problems = []
+
+// vue-i18n compiles a message the first time the page that uses it renders, so
+// a string it cannot parse is not a wrong translation — it is a 500 on exactly
+// one route, with `{"message":"10"}` as the only clue. `@` is the trap: it opens
+// a linked-message reference, so a handle like "@someone" written straight into
+// the copy throws INVALID_LINKED_FORMAT. Write it `{'@'}someone`, or keep it out
+// of the catalogue and render it from the component.
+const compiles = (text) => {
+  for (const branch of String(text).split('|')) {
+    try {
+      baseCompile(branch.trim(), { onError: (error) => { throw error } })
+    } catch (error) {
+      return `${errorNames[error.code] ?? error.message}`
+    }
+  }
+  return null
+}
+
+const errorNames = { 10: 'invalid linked format — escape @ as {\'@\'}' }
+
+for (const code of [SOURCE, ...codes]) {
+  const catalogue = load(code)
+  for (const [key, text] of Object.entries(catalogue)) {
+    const failure = compiles(text)
+    if (failure) problems.push(`${code}: ${key} will not compile — ${failure}`)
+  }
+}
 
 for (const code of codes) {
   const target = load(code)
