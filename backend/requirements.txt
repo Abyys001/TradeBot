@@ -32,7 +32,7 @@ reportlab==4.2.5
 # the contextual (initial/medial/final) form of each letter, and the bidi
 # algorithm reorders the run right-to-left. Neither is in reportlab, and doing
 # it by hand is a Unicode annex, not a helper.
-arabic-reshaper==3.0.0
+arabic-reshaper==3.0.1
 python-bidi==0.6.6
 # The optional second factor (docs/security-plan.md, phase 4). RFC 6238 is
 # HMAC plus a truncation, so it is tempting to inline — but "do not hand-roll
