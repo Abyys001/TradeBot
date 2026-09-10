@@ -1012,7 +1012,10 @@
       "unreachable": "Motor el sıkışmayı tamamlamadı. /ws yolunu panelin kendi kaynağı sunar; TLS'i sonlandıran her ne ise Upgrade başlığını ilettiğinden emin olun.",
       "forbidden": "Motor bu oturumu reddetti. Canlı kanal yalnızca yetkili personele açıktır — yetkili bir hesapla giriş yapın.",
       "engine": "Panel motora ulaştı ama motor yanıt vermedi. Backend konteynerini kontrol edin."
-    }
+    },
+    "offlineTitle": "Bağlantı yok",
+    "offlineDetail": "Panel sunucuya ulaşamıyor — internet bağlantınızı kontrol edin.",
+    "offlineFor": "{for} süredir kopuk"
   },
   "watchlist": {
     "title": "İzleme listesi",
@@ -1092,7 +1095,6 @@
     "strategies": "Stratejiler",
     "strategiesLead": "Pine Script v5 ve v6, siz yazarken denetlenir. Desteklenen alt kümenin dışındaki her şey adı, satırı ve sütunuyla reddedilir — hiçbir şey ayrıştırılıp sessizce yok sayılmaz.",
     "backtest": "Geri test",
-    "backtestLead": "Bir sürümü saklanan geçmiş üzerinde yeniden oynatın. Doldurma modeli metriklerin üstünde yazılır, çünkü kendini kayıran bir geri test insanların ona göre hareket ettiği bir sayı üretir.",
     "newStrategy": "Yeni strateji",
     "newBot": "Yeni bot",
     "none": "Henüz bot yok",
@@ -1111,7 +1113,39 @@
     "errorsN": "{n} hata",
     "warningsN": "{n} uyarı",
     "diagnostics": "Sorunlar",
-    "inputs": "Girdiler",
+    "inputs": {
+      "title": "Strateji girdileri",
+      "lead": "Betiğin kendi tanımladığı ayarlar — yüklenen kaynaktan okundu.",
+      "liveNote": "Bunlar canlı bota olduğu gibi ulaşır: burada değiştirilen bir periyot ya da stop modu, raporun başlığını değil işlemin kendisini değiştirir.",
+      "runningNote": "Bu bot çalışıyor. Kaydedilen ayarlar çalışma ortasında değil, bir sonraki başlatmada geçerli olur.",
+      "dialogLead": "Bu tekrar için betiğin kendi ayarları. Çalıştırmayla birlikte gönderilir, hiçbir yere kaydedilmez.",
+      "presets": "Hazır ayarlar",
+      "presetsHint": "Bu strateji için kaydedilmiş değer kümeleri. Yüklemek formu doldurur, kaydetmez.",
+      "presetLoad": "Yükle",
+      "presetSave": "Hazır ayarı kaydet",
+      "presetName": "Hazır ayar adı",
+      "presetSize": "{n} değişik",
+      "ungrouped": "Girdiler",
+      "allCategories": "Tümü",
+      "resetAll": "Tümünü sıfırla ({n})",
+      "resetHint": "Bu ayarı betiğin kendi varsayılanına döndür",
+      "unused": "Tanımlanmış ama bu betikte hiç okunmuyor.",
+      "none": "Bu strateji hiç girdi tanımlamıyor.",
+      "gateBool": "“{name}” kapalıyken etkisiz.",
+      "gateValue": "Yalnızca “{name}” {values} olduğunda etkili.",
+      "changedN": "{n} değişik",
+      "noChanges": "Betik varsayılanları",
+      "source": {
+        "panel": "Değişti"
+      },
+      "category": {
+        "risk": "Risk",
+        "execution": "Yürütme",
+        "backtest": "Geriye dönük test",
+        "logic": "Mantık",
+        "visual": "Görsel"
+      }
+    },
     "inputName": "Ad",
     "inputType": "Tür",
     "inputDefault": "Varsayılan",
@@ -1145,12 +1179,6 @@
     "noActionsBody": "Bu botun gönderdiği her emir, her hesabın verdiği yanıtla birlikte burada görünür.",
     "shadowNote": "kaydedildi, gönderilmedi",
     "stillOpen": "%{pct} hâlâ açık",
-    "noBars": "Henüz mum kaydedilmedi",
-    "barTime": "Mum",
-    "close": "Kapanış",
-    "intent": "Niyet",
-    "plots": "Çizimler",
-    "evaluated": "Değerlendirme süresi",
     "promotion": "Terfi kapısı",
     "promotionHint": "Ölçülmüş, iddia edilmiş değil. Bir satır bile karşılanmadıkça canlı reddedilir.",
     "requirement": "Koşul",
@@ -1185,13 +1213,13 @@
     },
     "tab": {
       "activity": "Etkinlik",
-      "bars": "Mumlar",
       "promotion": "Terfi",
       "source": "Kaynak",
       "properties": "Özellikler",
       "journal": "Günlük",
       "chart": "Grafik",
-      "logic": "Mantık"
+      "logic": "Mantık",
+      "inputs": "Girdiler"
     },
     "action": {
       "open": "Aç",
@@ -1245,7 +1273,6 @@
     "historyNote": "Bu aralığın ihtiyaç duyduğu ama arşivde olmayan geçmiş, ilk çalıştırmada indirilir ve saklanır. Bu kadar geriye gidemeyen bir borsa sayıların üstünde bildirilir, reddedilmez.",
     "replayingNote": "Yeni bir paritedeki ilk çalıştırma geçmişini de indirir.",
     "viewingStored": "Kayıtlı çalıştırma · {name}",
-    "renameBot": "Botu yeniden adlandır",
     "props": {
       "title": "Strateji özellikleri",
       "lead": "Bu bot için TradingView'in Özellikler sekmesi. Bu sayılar backtest'i yapılandırır; böylece buradaki bir tekrar, TradingView'de çalıştırdığınızla karşılaştırılabilir.",
@@ -1347,36 +1374,6 @@
     "clearHistoryBody": "Saklanan {n} backtest'in tamamı silinsin mi? Arkalarındaki indirilmiş mumlar korunur, dolayısıyla yeniden çalıştırmak indirme gerektirmez.",
     "deleteRun": "Bu koşuyu sil",
     "deleteRunBody": "Saklanan bu backtest silinsin mi? Tekrarladığı mumlar arşivde kalır.",
-    "drills": "Tatbikatlar",
-    "drillsHint": "Kapının iki satırı ölçüm değil, tatbikattır. Bunlar onları tetikler.",
-    "drillsLead": "Tatbikat bir simülasyon değil, gerçek mekanizmadır. Aşağıdaki her şey, göndereceğini söylediği şeyi gönderir.",
-    "drillsNeedRunning": "Önce botu kâğıt moduna alın — tatbikat, *çalışan* bir botun durduğunu kanıtlar.",
-    "runDrill": "Tatbikatı çalıştır",
-    "rerunDrill": "Yeniden çalıştır",
-    "drillPassedN": "{n} geçti",
-    "q25Drills": "Otomatik durdurma tatbikatları",
-    "q25DrillsBody": "Her biri botu o gerekçe koduyla durdurur ve sürdürür; böylece o tetikleyici için durma yolunu ve yeniden başlatmayı kanıtlar. Koşulu uydurmaz.",
-    "drillDone": "\"{kind}\" tatbikatı tamamlandı.",
-    "drillClosed": "{trades} işlem zorla kapatıldı: {ok} bacak düzleştirildi, {failed} reddedildi.",
-    "drillResumed": "Bot aynı koşuda sürdürüldü, böylece dayanıklılık saati işlemeye devam etti.",
-    "drillNotResumed": "Bot otomatik olarak sürdürülmedi — üst başlıktan yeniden başlatın.",
-    "drillConfirmTitle": "Acil durdurma tatbikatı çalıştırılsın mı?",
-    "drillConfirmBody": "Bu, platform genelindeki durdurmayı devreye alır ve stratejiye sormadan her hesaptaki her açık pozisyonu zorla kapatır. Ardından durdurmayı kaldırır ve botu sürdürür. Gerçek emirler gönderilir.",
-    "drillConfirmAction": "Durdur ve düzleştir",
-    "drill": {
-      "halt": "Acil durdurma tatbikatı",
-      "haltBody": "§7 durdurmasını devreye alır, açık her işlemi \"Tümünü durdur\"un kullandığı yolla — stratejinin neyi açık sandığına bakmadan — zorla kapatır, sonra durdurmayı kaldırır ve botu aynı koşuda sürdürür."
-    },
-    "drillKind": {
-      "halt": "Acil durdurma",
-      "consecutive_losses": "Ardışık zararlar",
-      "drawdown": "Geri çekilme",
-      "feed_gap": "Veri akışında boşluk",
-      "script_error": "Betik hatası",
-      "state_disagreement": "Durum uyuşmazlığı",
-      "trade_rate": "İşlem sıklığı",
-      "no_bars": "Mum yok"
-    },
     "trigger": {
       "entry": "Giriş",
       "order": "Emir",
@@ -1406,8 +1403,6 @@
         "restarts": "Süreç yeniden başlatmaları sorunsuz atlatıldı",
         "feed_gaps": "Veri akışı boşlukları onarıldı ya da temiz şekilde durduruldu",
         "drift": "Mutabakat sapması olayları",
-        "halt_drills": "Acil durdurma tatbikatları geçildi",
-        "q25_drills": "Her otomatik durdurma bir tatbikatta bilinçli olarak tetiklendi",
         "risk_config": "Risk limitleri bu strateji için bilinçle ayarlandı",
         "adapters": "Borsa adaptörleri canlı bir borsaya ya da testnet'e karşı kanıtlandı"
       },
@@ -1416,8 +1411,6 @@
         "restarts": "en az {required}, biri plansız",
         "feed_gaps": "tamamı",
         "drift": "0 açıklanmamış",
-        "halt_drills": "en az {required}",
-        "q25_drills": "{total} tanesinin tamamı",
         "risk_config": "varsayılanlarda bırakılmamış",
         "adapters": "bir kişi tarafından onaylanmış"
       },
@@ -1426,17 +1419,20 @@
         "restarts": "{n} ({unplanned} plansız)",
         "feed_gaps": "{gaps} içinden {repaired}",
         "drift": "{n}",
-        "halt_drills": "{n}",
-        "q25_drills": "{total} içinden {done}",
         "adapters": "—"
-      }
+      },
+      "enforceLabel": "Terfi kapısı zorunlu olsun",
+      "enforceHint": "Açıkken, karşılanmayan bir satır kâğıt → canlı geçişini reddeder. Kapalıyken bu bot test edilmeden canlıya geçebilir — satırlar yine ölçülür ve gösterilir.",
+      "offWarning": "Kapı kapalı. Bu bot aşağıdaki ölçümlerin hiçbiri olmadan canlıya geçebilir.",
+      "offUnmet": "Şu anda en az bir satır karşılanmıyor.",
+      "required": "Gerekli",
+      "requiredFor": "Gerekli: {row}"
     },
     "journal": {
       "started": "Koşu {symbol} {interval} üzerinde başladı.",
       "warmup": "Herhangi bir karar vermeden önce {bars} mumluk geçmişle ısındı — yakınsamamış bir ortalama hiçbir zaman işlem yapmaya gelmez.",
       "recovered": "{n} yeniden başlatmanın ({unplanned} tanesi plansız) ardından aynı koşuya geri döndü.",
       "feedGaps": "Veri akışındaki {gaps} boşluktan {repaired} tanesi borsadan onarıldı.",
-      "drills": "Bu koşuda {n} acil durdurma tatbikatı tetiklendi.",
       "stopped": "Durduruldu — {reason}. {detail}",
       "watching_0": "Mum {close} seviyesinde kapandı. {plots} — hiçbir şey kesişmedi. Düz ve izlemede.",
       "watching_1": "{close}. {plots}. Bu mumda hiçbir giriş koşulu sağlanmadı, dolayısıyla pozisyon düz kalıyor.",
@@ -1472,7 +1468,14 @@
       "actionOtherFailed": "Eylem başarısız oldu. {error}",
       "legsFailed": "{n} hesap bunu almadı",
       "unsettled": "Bu eylem gönderildi ve sonucu hiçbir zaman geri yazılmadı — platform bir şey gönderdi ve ne olduğunu hiç öğrenmedi."
-    }
+    },
+    "chartLoading": "Grafik çiziliyor…",
+    "editBot": "Botu düzenle",
+    "editLockedRunning": "Enstrümanı, zaman dilimini veya seviyeleri değiştirmek için botu durdurun — çalışan bir stratejinin altında bunları taşımak, durumunun artık işlem yapmadığı bir piyasayı anlatmasına yol açar. Ad her zaman değiştirilebilir.",
+    "editVersionFixed": "{name} v{n} çalıştırıyor. Sürüm bu botun kimliğidir ve değiştirilemez — stratejiye yeni bir sürüm kaydedip ondan bir bot kurun.",
+    "noActionsEvaluated": "Henüz hiçbir emir gönderilmedi. Şu ana kadar {n} mum değerlendirildi — mumlara bakıp işlem açmayan bir bot çalışıyordur, takılmış değildir.",
+    "editInputs": "Strateji girdileri",
+    "inputEffect": "Etki"
   },
   "security": {
     "title": "Güvenlik",

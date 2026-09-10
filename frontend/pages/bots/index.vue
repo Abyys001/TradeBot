@@ -11,6 +11,7 @@
  * blank there is nothing to configure, so the form does not offer the rest of
  * itself until the question is answered.
  */
+import { INTERVALS } from '~/stores/market'
 const { t } = useI18n()
 const api = useApi()
 const store = useBotsStore()
@@ -320,7 +321,7 @@ onMounted(() => store.load())
             <label class="block space-y-1.5">
               <span class="label">{{ t('bots.interval') }}</span>
               <select v-model="form.interval" class="field">
-                <option v-for="value in ['1m', '5m', '15m', '30m', '1h', '4h', '1d']" :key="value">
+                <option v-for="value in INTERVALS" :key="value">
                   {{ value }}
                 </option>
               </select>

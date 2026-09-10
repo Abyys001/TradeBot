@@ -59,17 +59,9 @@ export function useNavigation() {
       label: t('nav.bots'),
       primary: false,
     },
-    // Its own destination, not a link inside Bots. A script and the bot running
-    // it are different objects with different lifetimes — one is edited, the
-    // other is started and stopped — and putting the editor behind the runtime
-    // list is what made "new bot" open a code editor.
-    {
-      name: 'strategies',
-      path: localePath('/strategies'),
-      icon: 'logs',
-      label: t('nav.strategies'),
-      primary: false,
-    },
+    // /strategies is deliberately **not** in the sidebar. The editor is reached
+    // from the bots list and the backtest form, which is where a script is
+    // actually wanted; a top-level entry made it look like a second runtime.
     {
       name: 'risk',
       path: localePath('/risk'),

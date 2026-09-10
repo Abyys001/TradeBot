@@ -31,14 +31,13 @@ import {
   type Time,
 } from 'lightweight-charts'
 import { tokenColor } from '~/composables/useTheme'
+import { INTERVALS } from '~/stores/market'
 
 const props = defineProps<{ botId: number; interval: string }>()
 
 const { t } = useI18n()
 const api = useApi()
 const { dateTime } = useFormat()
-
-const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d']
 
 const shown = ref(props.interval)
 const data = ref<BotChart | null>(null)
@@ -161,14 +160,24 @@ function draw() {
   chart.timeScale().fitContent()
 }
 
+/** True once there is something to draw. Drives the overlay, never the container. */
+const empty = computed(() => !data.value || data.value.note === 'no_history' || !data.value.candles.length)
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
     data.value = await api.botChart(props.botId, shown.value)
+    // The container is rendered unconditionally (see the template), so it is
+    // in the DOM with a real height by the time this runs. It used to sit
+    // behind `v-else` on `loading`, which meant `mount()` ran against a null
+    // ref every single time and the chart was never created — a black panel
+    // whatever the timeframe.
     await nextTick()
-    mount()
-    draw()
+    if (!empty.value) {
+      mount()
+      draw()
+    }
   } catch (e: any) {
     error.value = errorMessage(e)
   } finally {
@@ -216,15 +225,29 @@ onBeforeUnmount(() => {
       </p>
 
       <p v-if="error" class="px-3 py-3 text-xs text-short">{{ error }}</p>
-      <div v-else-if="loading" class="p-3"><div class="skeleton h-[22rem]" /></div>
-      <UiEmpty
-        v-else-if="data?.note === 'no_history' || !data?.candles.length"
-        icon="chart"
-        :title="t('bots.chartNoHistory')"
-        :body="t('bots.chartNoHistoryBody')"
-      />
-      <div v-else class="p-1">
+      <!-- The canvas host is always mounted. Lightweight Charts measures the
+           element it is given, so it cannot be created behind a `v-if` that is
+           still false — the loading and empty states are drawn *over* it. -->
+      <div v-else class="relative p-1">
         <div ref="el" class="h-[22rem] sm:h-[26rem] w-full" />
+        <div
+          v-if="loading"
+          class="absolute inset-1 rounded-lg bg-sunken/80 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3"
+        >
+          <span
+            class="w-7 h-7 rounded-full border-2 border-line border-t-brand animate-spin"
+            role="status"
+            :aria-label="t('bots.chartLoading')"
+          />
+          <span class="text-xs text-ink-muted">{{ t('bots.chartLoading') }}</span>
+        </div>
+        <UiEmpty
+          v-else-if="empty"
+          class="absolute inset-1 bg-sunken rounded-lg"
+          icon="chart"
+          :title="t('bots.chartNoHistory')"
+          :body="t('bots.chartNoHistoryBody')"
+        />
       </div>
 
       <div

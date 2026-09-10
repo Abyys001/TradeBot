@@ -9,6 +9,7 @@
  * rather than in a tooltip somewhere.
  */
 import { PINNED_SYMBOLS } from '~/stores/market'
+import { INTERVALS } from '~/stores/market'
 const { t } = useI18n()
 const market = useMarketStore()
 const order = useOrderStore()
@@ -18,7 +19,7 @@ const { money, pct, since } = useFormat()
 const picking = ref(false)
 const query = ref('')
 
-const intervals: Interval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
+const intervals: readonly Interval[] = INTERVALS
 
 const matches = computed(() => {
   const needle = query.value.trim().toUpperCase()

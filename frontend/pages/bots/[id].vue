@@ -4,10 +4,17 @@
  * between it and real money.
  *
  * The promotion gate is the page's spine. `paper → live` is not a confirmation
- * dialog — it is nine measurements, and the page shows every one with the
+ * dialog — it is a set of measurements, and the page shows every one with the
  * number behind it, met or not. A row that cannot be measured from inside
  * (no adapter has been run against a live exchange) is shown as exactly that.
+ *
+ * Two switches sit on top of it, and both belong to the admin: the gate can be
+ * turned off entirely, and any single row can be waived. Either way the rows
+ * keep being measured and keep being shown — "allowed" and "proven" are
+ * different sentences and the page says both.
  */
+import { INTERVALS } from '~/stores/market'
+
 const { t, te } = useI18n()
 const route = useRoute()
 const api = useApi()
@@ -21,7 +28,6 @@ const id = computed(() => Number(route.params.id))
 const bot = ref<BotSummary | null>(null)
 const runs = ref<BotRun[]>([])
 const actions = ref<BotAction[]>([])
-const bars = ref<BotBar[]>([])
 const gate = ref<PromotionGate | null>(null)
 /** Which accounts a fan-out from this bot would actually reach. */
 const reach = ref<BotAccountRow[]>([])
@@ -29,10 +35,9 @@ const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const tab = ref<
-  'journal' | 'chart' | 'logic' | 'activity' | 'bars' | 'properties' | 'promotion' | 'source'
+  'journal' | 'chart' | 'logic' | 'activity' | 'inputs' | 'properties' | 'promotion' | 'source'
 >('journal')
-const renaming = ref(false)
-const renameTo = ref('')
+const editing = ref(false)
 
 useHead({ title: () => bot.value?.name ?? t('bots.title') })
 
@@ -64,8 +69,26 @@ const TONE: Record<BotState, 'neutral' | 'ok' | 'signal' | 'brand'> = {
 const latestBar = computed(() => live.botBars[id.value] ?? null)
 const latestIntent = computed(() => live.botIntents[id.value] ?? null)
 
-/** The exact source this bot runs — the version it points at, never the latest. */
+/**
+ * The exact source this bot runs — the version it points at, never the latest.
+ * Fetched by id, and only when the Source tab is opened: it used to come out of
+ * the whole strategy list, which meant every bot page downloaded every version
+ * of every script on the platform to show one.
+ */
 const sourceOf = ref('')
+const sourceLoading = ref(false)
+
+async function loadSource() {
+  if (!bot.value || sourceOf.value || sourceLoading.value) return
+  sourceLoading.value = true
+  try {
+    sourceOf.value = (await api.strategyVersion(bot.value.strategy_version)).source
+  } catch (e: any) {
+    error.value = errorMessage(e)
+  } finally {
+    sourceLoading.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -84,22 +107,11 @@ async function load() {
     gate.value = gateRows
     reach.value = reachRows.accounts
     store.upsert(botRow)
-    // The version's own source, not the strategy's newest: a bot points at an
-    // immutable version precisely so it cannot change under a running run.
-    const strategy = store.strategies.find((row) =>
-      row.versions.some((version) => version.id === botRow.strategy_version),
-    )
-    sourceOf.value =
-      strategy?.versions.find((version) => version.id === botRow.strategy_version)?.source ?? ''
   } catch (e: any) {
     error.value = errorMessage(e)
   } finally {
     loading.value = false
   }
-}
-
-async function loadBars() {
-  bars.value = await api.botBars(id.value, 300)
 }
 
 async function act(action: 'paper' | 'live' | 'stop') {
@@ -122,27 +134,67 @@ async function act(action: 'paper' | 'live' | 'stop') {
   }
 }
 
-function openRename() {
-  renameTo.value = bot.value?.name ?? ''
-  renaming.value = true
+/**
+ * What this bot *is*, editable. Everything but the strategy version: a version
+ * is immutable and is the bot's identity — pointing it at a different script
+ * would be a different bot wearing this one's history — while the pair, the
+ * timeframe and the levels are settings, and a desk that has to delete a bot to
+ * move it from 1h to 4h ends up with a list of near-duplicates.
+ *
+ * Refused while it is running, and the modal says why. Changing the instrument
+ * under a live strategy would leave its state machine describing a market it is
+ * no longer trading.
+ */
+const settings = reactive({
+  name: '',
+  symbol: '',
+  interval: '1h',
+  market: 'futures',
+  leverage: 1,
+  sl_pct: '',
+  tp_pct: '',
+})
+
+const editable = computed(() => bot.value?.state === 'draft' || bot.value?.state === 'stopped')
+
+function openSettings() {
+  const row = bot.value
+  if (!row) return
+  settings.name = row.name
+  settings.symbol = row.symbol
+  settings.interval = row.interval
+  settings.market = row.market
+  settings.leverage = row.leverage
+  settings.sl_pct = row.sl_pct ?? ''
+  settings.tp_pct = row.tp_pct ?? ''
+  editing.value = true
 }
 
-/** The name only. A bot's pair, version and levels are what it *is*; those are
- * set once at creation because changing them under a run would silently make it
- * a different bot with the same history. */
-async function rename() {
-  const name = renameTo.value.trim()
-  if (!bot.value || !name || name === bot.value.name) {
-    renaming.value = false
-    return
-  }
+async function saveSettings() {
+  const row = bot.value
+  const name = settings.name.trim()
+  const symbol = settings.symbol.trim().toUpperCase()
+  if (!row || !name || !symbol) return
   busy.value = true
   error.value = ''
   try {
-    const updated = await api.updateBot(bot.value.id, { name })
+    const body: Record<string, unknown> = { name }
+    // The rest only while it is safe to move them; a running bot may still be
+    // renamed, which is the one edit that changes nothing about what it does.
+    if (editable.value) {
+      Object.assign(body, {
+        symbol,
+        interval: settings.interval,
+        market: settings.market,
+        leverage: settings.leverage,
+        sl_pct: settings.sl_pct === '' ? null : settings.sl_pct,
+        tp_pct: settings.tp_pct === '' ? null : settings.tp_pct,
+      })
+    }
+    const updated = await api.updateBot(row.id, body)
     bot.value = updated
     store.upsert(updated)
-    renaming.value = false
+    editing.value = false
   } catch (e: any) {
     error.value = errorMessage(e)
   } finally {
@@ -204,14 +256,28 @@ async function acknowledgeAdapters(on: boolean) {
 /** Accounts that are active *and* opted in to bot orders — the real fan-out set. */
 const eligible = computed(() => reach.value.filter((row) => row.eligible))
 
+/**
+ * The gate's two switches. Both post and take the gate straight back, so the
+ * table redraws from the server's arithmetic rather than the browser's guess at
+ * what waiving a row would do to `ready`.
+ */
+async function setGate(body: { enforced?: boolean; waive?: string; on?: boolean }) {
+  busy.value = true
+  error.value = ''
+  try {
+    gate.value = (await api.setBotGate(id.value, body)).gate
+  } catch (e: any) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+
 watch(tab, (value) => {
-  if (value === 'bars' && !bars.value.length) loadBars()
+  if (value === 'source') loadSource()
 })
 
-onMounted(async () => {
-  if (!store.strategies.length) await store.load()
-  await load()
-})
+onMounted(load)
 </script>
 
 <template>
@@ -235,9 +301,9 @@ onMounted(async () => {
             <h1 class="text-xl font-display">{{ bot.name }}</h1>
             <button
               class="btn-quiet btn-icon text-ink-faint hover:text-ink shrink-0"
-              :aria-label="t('bots.renameBot')"
-              :title="t('bots.renameBot')"
-              @click="openRename"
+              :aria-label="t('bots.editBot')"
+              :title="t('bots.editBot')"
+              @click="openSettings"
             >
               <UiIcon name="edit" :size="13" />
             </button>
@@ -246,12 +312,18 @@ onMounted(async () => {
               {{ t('bots.dryRun') }}
             </UiBadge>
           </div>
-          <p class="text-xs text-ink-muted num leading-relaxed">
+          <!-- The same line the modal edits, so it is the thing you press to
+               edit it. Everything but the version, which is the bot's identity. -->
+          <button
+            class="text-xs text-ink-muted num leading-relaxed text-start hover:text-ink transition-colors"
+            :title="t('bots.editBot')"
+            @click="openSettings"
+          >
             {{ bot.strategy_name }} · v{{ bot.version }} · {{ bot.symbol }} {{ bot.interval }} ·
             {{ bot.leverage }}×
             <template v-if="bot.sl_pct"> · SL {{ bot.sl_pct }}%</template>
             <template v-if="bot.tp_pct"> · TP {{ bot.tp_pct }}%</template>
-          </p>
+          </button>
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
@@ -317,10 +389,11 @@ onMounted(async () => {
         <UiStat :label="t('bots.feed')" :value="run.feed_transport || run.feed_source || '—'" />
       </div>
 
-      <!-- Eight tabs is a lot, so they scroll rather than wrap into three rows
+      <!-- Seven tabs is a lot, so they scroll rather than wrap into three rows
            that push the content off a phone screen. Order is by how often they
            are opened: the log first, because "what is it doing" is the question
-           that brings anyone here. -->
+           that brings anyone here. The labels are never clipped — a tab reading
+           "Prope…" is a tab nobody can choose between. -->
       <div class="overflow-x-auto -mx-1 px-1">
         <UiSegmented
           v-model="tab"
@@ -331,7 +404,7 @@ onMounted(async () => {
             { value: 'chart', label: t('bots.tab.chart') },
             { value: 'logic', label: t('bots.tab.logic') },
             { value: 'activity', label: t('bots.tab.activity') },
-            { value: 'bars', label: t('bots.tab.bars') },
+            { value: 'inputs', label: t('bots.tab.inputs') },
             { value: 'properties', label: t('bots.tab.properties') },
             { value: 'promotion', label: t('bots.tab.promotion') },
             { value: 'source', label: t('bots.tab.source') },
@@ -387,18 +460,38 @@ onMounted(async () => {
           <span class="text-ink-faint">{{ latestIntent.reason }}</span>
         </div>
 
+        <!-- Nothing yet. The bars counter is here rather than in a tab of its
+             own: "no actions" and "no bars either" are the same question asked
+             twice, and a bot that has evaluated four hundred bars without
+             trading is working, not broken. -->
         <UiEmpty
           v-if="!actions.length"
           icon="history"
           :title="t('bots.noActions')"
-          :body="t('bots.noActionsBody')"
+          :body="
+            run
+              ? t('bots.noActionsEvaluated', { n: run.bars_evaluated })
+              : t('bots.noActionsBody')
+          "
         />
         <ul v-else class="divide-y divide-line">
           <li v-for="action in actions" :key="action.id" class="px-3 py-2.5 space-y-1.5">
             <div class="flex items-center gap-2 flex-wrap text-xs">
-              <UiBadge :tone="action.ok ? 'ok' : 'short'">
+              <!-- Shadow is neutral, never green: nothing was routed, and an
+                   "ok" tick beside a paper decision reads as a fill. -->
+              <UiBadge
+                :tone="action.action_type === 'shadow' ? 'neutral' : action.ok ? 'ok' : 'short'"
+              >
                 {{ t(`bots.action.${action.action_type}`) }}
               </UiBadge>
+              <!-- What, where and at what. A dry run has no fills behind it, so
+                   without these the paper log could say only that something
+                   happened at a time — which is most of what a paper run is. -->
+              <UiBadge v-if="action.side" :tone="action.side === 'long' ? 'long' : 'short'">
+                {{ t(`side.${action.side}`) }}
+              </UiBadge>
+              <span class="num text-ink-muted">{{ action.symbol }} {{ action.interval }}</span>
+              <span v-if="action.price" class="num">@ {{ money(action.price) }}</span>
               <span class="num text-ink-muted">
                 {{ dateTime(new Date(action.bar_time * 1000).toISOString()) }}
               </span>
@@ -410,6 +503,9 @@ onMounted(async () => {
                 {{ t('bots.stillOpen', { pct: remainingPct(action) }) }}
               </span>
             </div>
+            <p v-if="action.reason" class="text-tick text-ink-faint leading-relaxed">
+              {{ action.reason }}
+            </p>
             <div v-if="action.legs.length" class="flex flex-wrap gap-1.5">
               <UiBadge
                 v-for="leg in action.legs"
@@ -424,45 +520,15 @@ onMounted(async () => {
         </ul>
       </UiCard>
 
-      <!-- Bars: what the script saw and what it plotted. -->
-      <UiCard v-else-if="tab === 'bars'" flush>
-        <UiEmpty v-if="!bars.length" icon="chart" :title="t('bots.noBars')" />
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-xs">
-            <thead>
-              <tr class="label">
-                <th class="text-start px-3 py-2">{{ t('bots.barTime') }}</th>
-                <th class="text-end px-3 py-2">{{ t('bots.close') }}</th>
-                <th class="text-start px-3 py-2">{{ t('bots.intent') }}</th>
-                <th class="text-start px-3 py-2">{{ t('bots.plots') }}</th>
-                <th class="text-end px-3 py-2">{{ t('bots.evaluated') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-line">
-              <tr v-for="bar in bars" :key="bar.id" :class="{ 'bg-raised': bar.changed }">
-                <td class="px-3 py-1.5 num text-ink-muted">
-                  {{ dateTime(new Date(bar.bar_time * 1000).toISOString()) }}
-                </td>
-                <td class="px-3 py-1.5 num text-end">{{ money(bar.close) }}</td>
-                <td class="px-3 py-1.5">
-                  <UiBadge v-if="bar.intent?.side" :tone="bar.intent.side === 'long' ? 'long' : 'short'">
-                    {{ t(`side.${bar.intent.side}`) }}
-                  </UiBadge>
-                  <span v-else class="text-ink-faint">{{ t('bots.flat') }}</span>
-                </td>
-                <td class="px-3 py-1.5 num text-ink-muted truncate max-w-xs">
-                  {{ Object.entries(bar.plots ?? {}).map(([k, v]) => `${k}=${v}`).join('  ') || '—' }}
-                </td>
-                <td class="px-3 py-1.5 num text-end text-ink-faint">
-                  {{ bar.evaluation_ms === null ? '—' : ms(bar.evaluation_ms) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </UiCard>
+      <!-- Inputs: the script's own settings, and the one editable tab whose
+           values reach live untouched. Its own component for the same reasons
+           the Properties tab is: it loads, saves and can be refused. -->
+      <BotsStrategyInputs
+        v-else-if="tab === 'inputs'"
+        :bot-id="id"
+        :running="bot.state === 'paper' || bot.state === 'live'"
+      />
 
-      <!-- The gate. Nine measurements, not a dialog. -->
       <!-- Properties: the backtest's model of a broker, per bot. Its own
            component because it owns a draft, a save and a validation round
            trip, none of which the read-only tabs around it have. -->
@@ -475,69 +541,107 @@ onMounted(async () => {
         flush
         :tone="gate?.ready ? 'ok' : 'default'"
       >
-        <div v-if="gate" class="overflow-x-auto">
-          <table class="w-full text-xs">
-            <thead>
-              <tr class="label">
-                <th class="text-start px-3 py-2 w-8" />
-                <th class="text-start px-3 py-2">{{ t('bots.requirement') }}</th>
-                <th class="text-start px-3 py-2">{{ t('bots.threshold') }}</th>
-                <th class="text-start px-3 py-2">{{ t('bots.measured') }}</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-line">
-              <tr v-for="row in gate.rows" :key="row.key">
-                <td class="px-3 py-2 align-top">
-                  <UiIcon
-                    :name="row.met ? 'check' : 'alert'"
-                    :size="14"
-                    :class="row.met ? 'text-ok' : 'text-signal'"
-                  />
-                </td>
-                <td class="px-3 py-2 leading-relaxed align-top">
-                  {{ requirement(row) }}
-                  <!-- The one row nothing can measure from inside, made
-                       tickable here. A gate that can only be cleared from a
-                       shell is a gate people route around. -->
-                  <label
-                    v-if="row.actionable === 'acknowledge_adapters'"
-                    class="mt-1.5 flex items-start gap-2 text-xs text-ink-muted cursor-pointer select-none"
-                  >
-                    <input
-                      type="checkbox"
-                      class="accent-brand mt-0.5"
-                      :checked="row.met"
-                      :disabled="busy"
-                      @change="acknowledgeAdapters(($event.target as HTMLInputElement).checked)"
+        <div v-if="gate">
+          <!-- The master switch. On is the platform's answer; off is the
+               admin's, and it is stored on the bot so a promotion that skipped
+               the numbers is answerable afterwards. -->
+          <div class="px-3 py-3 border-b border-line space-y-2">
+            <UiSwitch
+              :model-value="gate.enforced"
+              :label="t('bots.gate.enforceLabel')"
+              :hint="t('bots.gate.enforceHint')"
+              :disabled="busy"
+              @update:model-value="setGate({ enforced: $event })"
+            />
+            <p v-if="!gate.enforced" class="alert px-3 py-2 text-xs leading-relaxed">
+              {{ t('bots.gate.offWarning') }}
+              <span v-if="!gate.measured_ready"> {{ t('bots.gate.offUnmet') }}</span>
+            </p>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="label">
+                  <th class="text-start px-3 py-2 w-8" />
+                  <th class="text-start px-3 py-2">{{ t('bots.requirement') }}</th>
+                  <th class="text-start px-3 py-2">{{ t('bots.threshold') }}</th>
+                  <th class="text-start px-3 py-2">{{ t('bots.measured') }}</th>
+                  <th class="text-end px-3 py-2">{{ t('bots.gate.required') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-line">
+                <tr v-for="row in gate.rows" :key="row.key" :class="row.waived ? 'opacity-60' : ''">
+                  <td class="px-3 py-2 align-top">
+                    <UiIcon
+                      :name="row.met ? 'check' : 'alert'"
+                      :size="14"
+                      :class="row.met ? 'text-ok' : row.waived ? 'text-ink-faint' : 'text-signal'"
                     />
-                    <span>{{ t('bots.gate.adaptersConfirm') }}</span>
-                  </label>
-                  <p
-                    v-if="row.actionable === 'acknowledge_adapters' && row.params?.by"
-                    class="text-tick text-ink-faint mt-1 num"
+                  </td>
+                  <td class="px-3 py-2 leading-relaxed align-top">
+                    {{ requirement(row) }}
+                    <!-- The one row nothing can measure from inside, made
+                         tickable here. A gate that can only be cleared from a
+                         shell is a gate people route around. -->
+                    <label
+                      v-if="row.actionable === 'acknowledge_adapters'"
+                      class="mt-1.5 flex items-start gap-2 text-xs text-ink-muted cursor-pointer select-none"
+                    >
+                      <input
+                        type="checkbox"
+                        class="accent-brand mt-0.5"
+                        :checked="row.met"
+                        :disabled="busy"
+                        @change="acknowledgeAdapters(($event.target as HTMLInputElement).checked)"
+                      />
+                      <span>{{ t('bots.gate.adaptersConfirm') }}</span>
+                    </label>
+                    <p
+                      v-if="row.actionable === 'acknowledge_adapters' && row.params?.by"
+                      class="text-tick text-ink-faint mt-1 num"
+                    >
+                      {{ t('bots.gate.adaptersBy', { by: row.params.by, at: dateTime(String(row.params.at)) }) }}
+                    </p>
+                  </td>
+                  <td class="px-3 py-2 num text-ink-muted align-top">{{ threshold(row) }}</td>
+                  <td
+                    class="px-3 py-2 num align-top"
+                    :class="row.met ? 'text-ok' : row.waived ? 'text-ink-faint' : 'text-signal'"
                   >
-                    {{ t('bots.gate.adaptersBy', { by: row.params.by, at: dateTime(String(row.params.at)) }) }}
-                  </p>
-                </td>
-                <td class="px-3 py-2 num text-ink-muted align-top">{{ threshold(row) }}</td>
-                <td class="px-3 py-2 num align-top" :class="row.met ? 'text-ok' : 'text-signal'">
-                  {{ measured(row) }}
-                  <span
-                    v-if="row.key === 'soak' && !row.met && soakRunning"
-                    class="block text-tick text-ink-faint mt-0.5"
-                  >
-                    {{ t('bots.gate.soakRemaining', { left: formatDuration(soakRemaining) }) }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    {{ measured(row) }}
+                    <span
+                      v-if="row.key === 'soak' && !row.met && soakRunning"
+                      class="block text-tick text-ink-faint mt-0.5"
+                    >
+                      {{ t('bots.gate.soakRemaining', { left: formatDuration(soakRemaining) }) }}
+                    </span>
+                  </td>
+                  <!-- Per row, the same decision the master switch makes for
+                       all of them. Every row is waivable: with the whole gate
+                       switchable off, a shorter list of "the ones you may skip"
+                       would be a rule the operator can already step around. -->
+                  <td class="px-3 py-2 align-top text-end">
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        class="accent-brand"
+                        :checked="!row.waived"
+                        :disabled="busy || !gate.enforced"
+                        @change="setGate({ waive: row.key, on: !($event.target as HTMLInputElement).checked })"
+                      />
+                      <span class="sr-only">{{ t('bots.gate.requiredFor', { row: requirement(row) }) }}</span>
+                    </label>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <p class="px-3 py-2.5 text-tick text-ink-faint leading-relaxed border-t border-line">
             {{ t('bots.gateFootnote') }}
           </p>
         </div>
       </UiCard>
-
 
       <!-- The exact source this bot is running. Read-only on purpose: a version
            is immutable, so editing here would silently be editing a new one. -->
@@ -552,33 +656,94 @@ onMounted(async () => {
         <UiEmpty v-else icon="logs" :title="t('bots.noSource')" />
       </UiCard>
 
-      <!-- Outside the tab chain on purpose: it is a second card *under* the
-           gate, not a ninth tab. The two rows it fires are the only ones on the
-           gate that are exercises rather than measurements, and the halt one
-           sends real close orders. -->
-      <BotsDrillPanel
-        v-if="tab === 'promotion'"
-        :bot-id="id"
-        :running="bot.state === 'paper' || bot.state === 'live'"
-        :fired="bot.drills_fired ?? []"
-        :halt-drills="run?.halt_drills ?? 0"
-        @done="load"
-      />
+      <!-- Everything this bot is, except the version it pins. A version is
+           immutable and is the bot's identity; the pair, the timeframe and the
+           levels are settings, and a desk that has to delete a bot to move it
+           from 1h to 4h ends up with a list of near-duplicates. -->
+      <UiModal v-model="editing" :title="t('bots.editBot')">
+        <div class="space-y-4">
+          <label class="block space-y-1.5">
+            <span class="label">{{ t('bots.botName') }}</span>
+            <input v-model="settings.name" class="field" autofocus />
+          </label>
 
-      <UiModal v-model="renaming" :title="t('bots.renameBot')" size="sm">
-        <label class="block space-y-1.5">
-          <span class="label">{{ t('bots.botName') }}</span>
-          <input v-model="renameTo" class="field" autofocus @keyup.enter="rename" />
-        </label>
+          <p v-if="!editable" class="alert px-3 py-2 text-xs leading-relaxed">
+            {{ t('bots.editLockedRunning') }}
+          </p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('terminal.symbol') }}</span>
+              <UiSymbolPicker v-model="settings.symbol" :disabled="!editable" />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('bots.interval') }}</span>
+              <select v-model="settings.interval" class="field" :disabled="!editable">
+                <option v-for="value in INTERVALS" :key="value">{{ value }}</option>
+              </select>
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('bots.market') }}</span>
+              <select v-model="settings.market" class="field" :disabled="!editable">
+                <option value="futures">{{ t('market.futures') }}</option>
+                <option value="spot">{{ t('market.spot') }}</option>
+              </select>
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('ticket.leverage') }}</span>
+              <input
+                v-model.number="settings.leverage"
+                type="number"
+                min="1"
+                max="125"
+                class="field num"
+                :disabled="!editable"
+              />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('ticket.stopLoss') }} %</span>
+              <input
+                v-model="settings.sl_pct"
+                type="number"
+                step="0.01"
+                min="0"
+                class="field num"
+                placeholder="—"
+                :disabled="!editable"
+              />
+            </label>
+            <label class="block space-y-1.5">
+              <span class="label">{{ t('ticket.takeProfit') }} %</span>
+              <input
+                v-model="settings.tp_pct"
+                type="number"
+                step="0.01"
+                min="0"
+                class="field num"
+                placeholder="—"
+                :disabled="!editable"
+              />
+            </label>
+          </div>
+
+          <p class="text-tick text-ink-faint leading-relaxed">
+            {{ t('bots.editVersionFixed', { name: bot.strategy_name, n: bot.version }) }}
+          </p>
+        </div>
         <template #footer>
-          <button class="btn-ghost btn-sm" @click="renaming = false">
+          <button class="btn-ghost btn-sm" @click="editing = false">
             {{ t('common.cancel') }}
           </button>
-          <button class="btn-brand btn-sm" :disabled="busy || !renameTo.trim()" @click="rename">
+          <button
+            class="btn-brand btn-sm"
+            :disabled="busy || !settings.name.trim() || !settings.symbol.trim()"
+            @click="saveSettings"
+          >
             {{ t('common.save') }}
           </button>
         </template>
       </UiModal>
+
     </template>
   </div>
 </template>

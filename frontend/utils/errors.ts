@@ -25,3 +25,22 @@ export function errorMessage(e: any): string {
 export function statusOf(e: any): number | null {
   return e?.statusCode ?? e?.status ?? e?.response?.status ?? null
 }
+
+/**
+ * Did this request fail *before* it reached the server?
+ *
+ * A dropped Wi-Fi, a dead tunnel and a stopped backend all surface as an
+ * exception with **no status** and a message the browser chose — "Failed to
+ * fetch" in Chrome, "Load failed" in Safari, "<no response>" from ofetch. None
+ * of them is something the reader can act on, and a panel that polls four
+ * endpoints prints four of them a second.
+ *
+ * A status of any kind means the server answered, so it is not this.
+ */
+const NETWORK_TEXT =
+  /failed to fetch|load failed|network ?error|fetch failed|<no response>|networkerror|ERR_(NETWORK|INTERNET|CONNECTION|NAME_NOT_RESOLVED)|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i
+
+export function isNetworkError(e: any): boolean {
+  if (statusOf(e) !== null) return false
+  return NETWORK_TEXT.test(`${e?.name ?? ''} ${e?.message ?? ''} ${e?.cause?.message ?? ''}`)
+}

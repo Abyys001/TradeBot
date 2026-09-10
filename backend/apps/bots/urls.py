@@ -4,15 +4,17 @@ from rest_framework.routers import DefaultRouter
 from apps.bots.views import (
     BacktestViewSet,
     BotViewSet,
+    InputPresetViewSet,
     StrategyViewSet,
     backtest_coverage,
     backtest_job,
     policy,
     run_backtest,
-    run_drill,
     start_bot,
     stop_bot,
+    strategy_version,
     validate_source,
+    version_inputs,
     version_properties,
 )
 
@@ -20,6 +22,7 @@ router = DefaultRouter()
 router.register("strategies", StrategyViewSet, basename="strategy")
 router.register("bots", BotViewSet, basename="bot")
 router.register("backtests", BacktestViewSet, basename="backtest")
+router.register("presets", InputPresetViewSet, basename="input-preset")
 
 urlpatterns = [
     path("policy/", policy, name="bots-policy"),
@@ -34,10 +37,13 @@ urlpatterns = [
     # The same Properties tab, for a version with no bot behind it — what the
     # backtest form edits before a run.
     path("versions/<int:pk>/properties/", version_properties, name="bots-version-properties"),
+    # The author's half of the same dialog, for the same caller: the backtest
+    # form draws a version's inputs before there is a bot to hang them on.
+    path("versions/<int:pk>/inputs/", version_inputs, name="bots-version-inputs"),
+    # One version by id, source included — what the bot detail page reads
+    # instead of downloading every strategy on the platform.
+    path("versions/<int:pk>/", strategy_version, name="bots-version"),
     path("bots/<int:pk>/start/", start_bot, name="bots-start"),
     path("bots/<int:pk>/stop/", stop_bot, name="bots-stop"),
-    # A drill routes real close orders, so it is a plain async view like the
-    # other routing endpoints rather than a DRF action on a worker thread.
-    path("bots/<int:pk>/drill/", run_drill, name="bots-drill"),
     *router.urls,
 ]

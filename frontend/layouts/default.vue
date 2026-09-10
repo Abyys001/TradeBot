@@ -25,6 +25,7 @@ const accounts = useAccountsStore()
 const notifications = useNotificationStore()
 const trading = useTradingStore()
 const ui = useUiStore()
+const connection = useConnectionStore()
 const route = useRoute()
 
 // The chart page wants the rail out of the way; leaving it collapses back to
@@ -37,6 +38,9 @@ watch(
 )
 
 onMounted(async () => {
+  // Before anything else asks for data: the browser's own offline event is the
+  // one signal that needs no request to fire.
+  connection.bind()
   live.connect()
   await accounts.ensure()
   // Spec §6: balances must be current at all times, not current-when-clicked.
@@ -56,6 +60,7 @@ onBeforeUnmount(() => {
     <AppSidebar />
 
     <div class="flex-1 flex flex-col min-w-0">
+      <AppOfflineBanner />
       <AppTopbar />
 
       <!-- The tab bar is fixed, and it grows by the home-indicator inset on a

@@ -32,7 +32,14 @@ from django.utils import timezone
 
 from apps.exchanges import candlestore
 from apps.exchanges.base import MarketType
-from apps.exchanges.feed_base import BACKFILL_TIMEOUT, INTERVALS, MarketDataError, SymbolInfo
+from apps.exchanges.feed_base import (
+    BACKFILL_TIMEOUT,
+    INTERVALS,
+    MarketDataError,
+    SymbolInfo,
+    base_ratio,
+    fetch_candles,
+)
 from apps.exchanges.marketdata import connected_exchanges, source_for
 from apps.trading.models import (
     ExchangeSymbol,
@@ -240,14 +247,18 @@ def backfill_series(
     now = int(time.time())
     floor = now - days * 86400
     page = max(1, source.page_limit)
+    # A derived interval is folded from base bars, so a full page of the venue's
+    # own bars comes back as `page / ratio` of these — counting pages off the
+    # raw page size would stop the walk short of the window that was asked for.
+    per_page = max(1, page // base_ratio(interval))
     # +2 covers the partial first page and one empty probe at the end.
-    max_pages = (days * 86400) // (step * page) + 2
+    max_pages = (days * 86400) // (step * per_page) + 2
 
     end: int | None = None
     written = 0
     for _ in range(int(max_pages)):
-        candles = source.candles(
-            symbol=symbol, interval=interval, market=market, limit=page, end=end
+        candles = fetch_candles(
+            source, symbol=symbol, interval=interval, market=market, limit=page, end=end
         )
         candles = [c for c in candles if c.time >= floor]
         if not candles:
@@ -447,6 +458,19 @@ def utc(seconds: int) -> datetime:
 #: chart polls every CANDLE_POLL_MS; without the cooldown one flaky venue would
 #: re-queue the download every poll.
 CHART_RETRY_AFTER = 600
+#: A pair whose download **finished** is not asked for again for this long.
+#:
+#: Not tidiness — this is what stops "Downloading history…" from being permanent.
+#: ``_series_covered`` asks whether the archive reaches back CHART_BACKFILL_DAYS,
+#: and for a pair the venue simply does not have that much history for (a recent
+#: listing, or Hyperliquid, which keeps 5000 bars per interval and no more) the
+#: answer is no however many times it is downloaded. Without this the next chart
+#: poll queued the same job again, forever, and the panel showed a download that
+#: never ended over a chart that was already complete.
+#:
+#: An hour later it is asked again, which is how the archive keeps deepening for
+#: a pair whose history really is still arriving.
+CHART_DONE_AFTER = 3600
 #: A row left RUNNING longer than this was a worker that died mid-download; it
 #: is reclaimed as failed so the pair can be asked again.
 CHART_RUN_TIMEOUT = 900
@@ -490,11 +514,9 @@ def _active_request(market: str, symbol: str) -> HistoryRequest | None:
     )
 
 
-def _last_failure(market: str, symbol: str) -> HistoryRequest | None:
+def _last_finished(market: str, symbol: str, status: str) -> HistoryRequest | None:
     return (
-        HistoryRequest.objects.filter(
-            market=market, symbol=symbol, status=HistoryRequestStatus.FAILED
-        )
+        HistoryRequest.objects.filter(market=market, symbol=symbol, status=status)
         .exclude(finished_at__isnull=True)
         .order_by("-finished_at")
         .first()
@@ -563,25 +585,39 @@ def ensure_history(market: str, symbol: str, interval: str) -> dict:
 
     job = _active_request(market, symbol)
     if job:
-        if interval != job.priority_interval:
+        if interval != job.priority_interval and interval in job.intervals.split(","):
             # The chart moved timeframes mid-download; make that one first.
             job.priority_interval = interval
             job.save(update_fields=["priority_interval", "updated_at"])
         return _status_dict(job, _queued(), interval)
 
-    last_fail = _last_failure(market, symbol)
-    if last_fail and timezone.now() - last_fail.finished_at < timedelta(
-        seconds=CHART_RETRY_AFTER
+    now = timezone.now()
+    last_done = _last_finished(market, symbol, HistoryRequestStatus.DONE)
+    if (
+        last_done
+        and now - last_done.finished_at < timedelta(seconds=CHART_DONE_AFTER)
+        and interval in last_done.intervals.split(",")
     ):
+        # It downloaded everything this venue has. That the archive still does
+        # not span CHART_BACKFILL_DAYS is a fact about the pair, not a job to
+        # run again — see CHART_DONE_AFTER.
+        return _status_dict(last_done, _queued(), interval, state="ready")
+
+    last_fail = _last_finished(market, symbol, HistoryRequestStatus.FAILED)
+    if last_fail and now - last_fail.finished_at < timedelta(seconds=CHART_RETRY_AFTER):
         return _status_dict(last_fail, _queued(), interval)
 
+    # Whatever the chart is showing is downloaded too, even when it is not one
+    # of the configured backfill intervals — otherwise opening a 30m chart
+    # queues a job that stores every interval but that one.
+    wanted = list(dict.fromkeys([*config["intervals"], interval]))
     job = HistoryRequest.objects.create(
         market=market,
         symbol=symbol,
         days=config["days"],
-        intervals=",".join(config["intervals"]),
+        intervals=",".join(wanted),
         priority_interval=interval,
-        series_total=len(config["intervals"]),
+        series_total=len(wanted),
     )
     _ensure_worker()
     return _status_dict(job, _queued(), interval)
@@ -659,9 +695,9 @@ def run_history_request(job_id: int) -> None:
     for exchange in catalogue_sources():
         source = source_for(exchange)
         try:
-            probe = source.candles(
-                symbol=job.symbol, interval=job.priority_interval, market=MarketType(job.market),
-                limit=1,
+            probe = fetch_candles(
+                source, symbol=job.symbol, interval=job.priority_interval,
+                market=MarketType(job.market), limit=1,
             )
         except Exception as exc:  # noqa: BLE001 - one venue is not the end of the search
             logger.info("no %s history from %s: %s", job.symbol, exchange, exc)

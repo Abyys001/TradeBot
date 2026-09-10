@@ -1012,7 +1012,10 @@
       "unreachable": "The engine did not complete the handshake. The panel's own origin serves /ws; check that whatever terminates TLS forwards the Upgrade header.",
       "forbidden": "The engine refused this session. The live channel is staff-only — sign in as a staff account.",
       "engine": "The panel reached the engine but the engine did not answer. Check the backend container."
-    }
+    },
+    "offlineTitle": "No connection",
+    "offlineDetail": "The panel cannot reach the server — check your internet connection.",
+    "offlineFor": "down for {for}"
   },
   "watchlist": {
     "title": "Watchlist",
@@ -1092,7 +1095,6 @@
     "strategies": "Strategies",
     "strategiesLead": "Pine Script v5 and v6, checked as you type. Anything outside the supported subset is refused by name, line and column — nothing is parsed and quietly ignored.",
     "backtest": "Backtest",
-    "backtestLead": "Replay a version over stored history. The fill model is printed above the metrics, because a backtest that flatters itself produces a number people act on.",
     "newStrategy": "New strategy",
     "newBot": "New bot",
     "none": "No bots yet",
@@ -1111,7 +1113,39 @@
     "errorsN": "{n} errors",
     "warningsN": "{n} warnings",
     "diagnostics": "Problems",
-    "inputs": "Inputs",
+    "inputs": {
+      "title": "Strategy inputs",
+      "lead": "The settings the script itself declares, read off the uploaded source.",
+      "liveNote": "These reach the live bot unchanged — a length or a stop mode changed here changes what it trades, not how the report is captioned.",
+      "runningNote": "This bot is running. Saved settings are picked up the next time it is started, not mid-run.",
+      "dialogLead": "The script's own settings for this replay. Sent with the run; nothing is saved.",
+      "presets": "Presets",
+      "presetsHint": "Saved sets of values for this strategy. Loading one fills the form without saving it.",
+      "presetLoad": "Load",
+      "presetSave": "Save preset",
+      "presetName": "Preset name",
+      "presetSize": "{n} changed",
+      "ungrouped": "Inputs",
+      "allCategories": "All",
+      "resetAll": "Reset all ({n})",
+      "resetHint": "Hand this setting back to the script's own default",
+      "unused": "Declared but never read by this script.",
+      "none": "This strategy declares no inputs.",
+      "gateBool": "Inactive while “{name}” is off.",
+      "gateValue": "Inactive unless “{name}” is {values}.",
+      "changedN": "{n} changed",
+      "noChanges": "Script defaults",
+      "source": {
+        "panel": "Changed"
+      },
+      "category": {
+        "risk": "Risk",
+        "execution": "Execution",
+        "backtest": "Backtest",
+        "logic": "Logic",
+        "visual": "Visual"
+      }
+    },
     "inputName": "Name",
     "inputType": "Type",
     "inputDefault": "Default",
@@ -1145,12 +1179,6 @@
     "noActionsBody": "Every order this bot sends appears here with the result each account gave back.",
     "shadowNote": "recorded, not sent",
     "stillOpen": "{pct}% still open",
-    "noBars": "No bars recorded yet",
-    "barTime": "Bar",
-    "close": "Close",
-    "intent": "Intent",
-    "plots": "Plots",
-    "evaluated": "Evaluated in",
     "promotion": "Promotion gate",
     "promotionHint": "Measured, not asserted. Live is refused while any row is unmet.",
     "requirement": "Requirement",
@@ -1185,13 +1213,13 @@
     },
     "tab": {
       "activity": "Activity",
-      "bars": "Bars",
       "promotion": "Promotion",
       "source": "Source",
       "properties": "Properties",
       "journal": "Log",
       "chart": "Chart",
-      "logic": "Logic"
+      "logic": "Logic",
+      "inputs": "Inputs"
     },
     "action": {
       "open": "Open",
@@ -1245,7 +1273,6 @@
     "historyNote": "History this window needs but the archive does not hold is downloaded and stored on the first run. A venue that cannot go back this far is reported above the numbers, never refused.",
     "replayingNote": "First run on a new pair also downloads its history.",
     "viewingStored": "Stored run · {name}",
-    "renameBot": "Rename bot",
     "props": {
       "title": "Strategy properties",
       "lead": "TradingView's Properties tab for this bot. These numbers configure the backtest, so a replay here can be compared with the one you ran on TradingView.",
@@ -1347,36 +1374,6 @@
     "clearHistoryBody": "Delete all {n} stored backtests? The downloaded candles behind them are kept, so re-running costs no download.",
     "deleteRun": "Delete this run",
     "deleteRunBody": "Delete this stored backtest? The candles it replayed stay in the archive.",
-    "drills": "Drills",
-    "drillsHint": "Two of the gate's rows are exercises rather than measurements. These fire them.",
-    "drillsLead": "A drill is the real machinery, not a simulation. Everything below sends what it says it sends.",
-    "drillsNeedRunning": "Start the bot into paper first — a drill proves that a *running* bot stops.",
-    "runDrill": "Run drill",
-    "rerunDrill": "Run again",
-    "drillPassedN": "{n} passed",
-    "q25Drills": "Auto-stop drills",
-    "q25DrillsBody": "Each one stops the bot with that reason code and resumes it, proving the stop path and the restart for that trigger. It does not fabricate the condition.",
-    "drillDone": "{kind} drill finished.",
-    "drillClosed": "Force-closed {trades} trade(s): {ok} legs flattened, {failed} refused.",
-    "drillResumed": "The bot was resumed into the same run, so the soak clock kept going.",
-    "drillNotResumed": "The bot was not resumed automatically — start it again from the header.",
-    "drillConfirmTitle": "Run the kill-switch drill?",
-    "drillConfirmBody": "This engages the platform-wide halt and force-closes every open position on every account, without asking the strategy. It then releases the halt and resumes the bot. Real orders are sent.",
-    "drillConfirmAction": "Halt and flatten",
-    "drill": {
-      "halt": "Kill-switch drill",
-      "haltBody": "Engages the §7 halt, force-closes every open trade through the same path Stop-all uses — with no reference to what the strategy thinks should be open — then releases the halt and resumes the bot into the same run."
-    },
-    "drillKind": {
-      "halt": "Kill-switch",
-      "consecutive_losses": "Consecutive losses",
-      "drawdown": "Drawdown",
-      "feed_gap": "Feed gap",
-      "script_error": "Script error",
-      "state_disagreement": "State disagreement",
-      "trade_rate": "Trade rate",
-      "no_bars": "No bars"
-    },
     "trigger": {
       "entry": "Entry",
       "order": "Order",
@@ -1406,8 +1403,6 @@
         "restarts": "Process restarts survived cleanly",
         "feed_gaps": "Feed gaps repaired or cleanly stopped",
         "drift": "Reconciliation drift events",
-        "halt_drills": "Kill-switch drills passed",
-        "q25_drills": "Every auto-stop fired deliberately in a drill",
         "risk_config": "Risk limits set deliberately for this strategy",
         "adapters": "Exchange adapters proved against a live exchange or testnet"
       },
@@ -1416,8 +1411,6 @@
         "restarts": "at least {required}, one of them unplanned",
         "feed_gaps": "all of them",
         "drift": "0 unexplained",
-        "halt_drills": "at least {required}",
-        "q25_drills": "all {total}",
         "risk_config": "not left at defaults",
         "adapters": "confirmed by a person"
       },
@@ -1426,17 +1419,20 @@
         "restarts": "{n} ({unplanned} unplanned)",
         "feed_gaps": "{repaired} of {gaps}",
         "drift": "{n}",
-        "halt_drills": "{n}",
-        "q25_drills": "{done} of {total}",
         "adapters": "—"
-      }
+      },
+      "enforceLabel": "Require the promotion gate",
+      "enforceHint": "On, a row that is not met refuses paper → live. Off, this bot may go live untested — the rows are still measured and still shown.",
+      "offWarning": "The gate is off. This bot can go live without any of the measurements below.",
+      "offUnmet": "At least one row is currently unmet.",
+      "required": "Required",
+      "requiredFor": "Require: {row}"
     },
     "journal": {
       "started": "Run started on {symbol} {interval}.",
       "warmup": "Warmed up on {bars} bars of history before deciding anything — an average that has not converged never gets to trade.",
       "recovered": "Came back into this same run after {n} restart(s), {unplanned} of them unplanned.",
       "feedGaps": "{repaired} of {gaps} gap(s) in the feed were repaired from the exchange.",
-      "drills": "{n} kill-switch drill(s) fired on this run.",
       "stopped": "Stopped — {reason}. {detail}",
       "watching_0": "Bar closed at {close}. {plots} — nothing crossed. Flat, and watching.",
       "watching_1": "{close}. {plots}. No entry condition was met on this bar, so the position stays flat.",
@@ -1472,7 +1468,14 @@
       "actionOtherFailed": "Action failed. {error}",
       "legsFailed": "{n} account(s) did not take it",
       "unsettled": "This action was dispatched and its outcome was never written back — the platform sent something and never learned what happened."
-    }
+    },
+    "chartLoading": "Drawing the chart…",
+    "editBot": "Edit bot",
+    "editLockedRunning": "Stop the bot to change its instrument, timeframe or levels — moving them under a running strategy would leave its state describing a market it is no longer trading. The name can be changed at any time.",
+    "editVersionFixed": "Runs {name} v{n}. The version is what this bot is and cannot be changed — save a new version on the strategy and build a bot from it.",
+    "noActionsEvaluated": "Nothing routed yet. {n} bar(s) evaluated so far — a bot that has looked at bars without trading is working, not stuck.",
+    "editInputs": "Strategy inputs",
+    "inputEffect": "Effect"
   },
   "security": {
     "title": "Security",

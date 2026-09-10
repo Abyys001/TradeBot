@@ -143,16 +143,6 @@ def _run_events(run: BotRun) -> list[Event]:
                 params={"gaps": run.feed_gaps, "repaired": run.feed_gaps_repaired},
             )
         )
-    if run.halt_drills:
-        events.append(
-            Event(
-                at=started,
-                kind="run",
-                code="drills",
-                level=INFO,
-                params={"n": run.halt_drills},
-            )
-        )
     if run.stopped_at is not None:
         events.append(
             Event(

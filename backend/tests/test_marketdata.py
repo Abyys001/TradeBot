@@ -740,6 +740,72 @@ def test_a_failed_download_is_not_re_requested_on_every_poll(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_a_finished_download_is_not_queued_again_however_short_the_history(monkeypatch):
+    """The stuck "Downloading history…" banner, pinned.
+
+    ``_series_covered`` asks whether the archive reaches back
+    CHART_BACKFILL_DAYS. For a pair the venue simply does not have that much
+    history for — a recent listing, or Hyperliquid, which keeps 5000 bars per
+    interval and no more — the answer is no however many times it is
+    downloaded. So every chart poll queued the same job again, forever, and the
+    panel showed a download that never ended over a chart that was already
+    complete and quoting correctly.
+    """
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+
+    # A venue with three bars and nothing older, against a 365-day backfill: the
+    # coverage test can never pass, and that is a fact about the pair.
+    def short_history(self, url, params):
+        marketdata.record_rtt(self.name, 5.0)
+        if "klines" in url:
+            newest = (int(time.time()) // 60) * 60 * 1000
+            return [[newest - i * 60000, "1", "1", "1", "1", "1"] for i in (2, 1, 0)]
+        return {"lastPrice": "1", "priceChangePercent": "0"}
+
+    monkeypatch.setattr(marketdata.HttpSource, "_get", short_history)
+    settings = override_settings(
+        MARKET_DATA={
+            "ENABLED": True,
+            "PROVIDERS": ["binance"],
+            "BACKFILL_INTERVALS": ["1m"],
+            "CHART_BACKFILL_DAYS": 365,
+        }
+    )
+    with settings:
+        catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+        job = HistoryRequest.objects.get(symbol="SHIBUSDT")
+        catalogue.run_history_request(job.pk)
+        job.refresh_from_db()
+        assert job.status == HistoryRequestStatus.DONE
+
+        # The next poll, and the one after it.
+        first = catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+        second = catalogue.ensure_history("futures", "SHIBUSDT", "1m")
+
+    assert first["state"] == "ready", "a finished download must stop reading as downloading"
+    assert second["state"] == "ready"
+    assert HistoryRequest.objects.filter(symbol="SHIBUSDT").count() == 1
+
+
+@pytest.mark.django_db
+def test_the_timeframe_the_chart_is_on_is_downloaded_even_when_it_is_derived(monkeypatch):
+    """Opening a 30m chart used to queue a job that stored every interval but
+    that one, so its coverage test could never pass either."""
+    from apps.exchanges import catalogue
+
+    monkeypatch.setattr(catalogue, "_ensure_worker", lambda: None)
+    with history_feed(monkeypatch):
+        catalogue.ensure_history("futures", "SHIBUSDT", "30m")
+
+    job = HistoryRequest.objects.get(symbol="SHIBUSDT")
+    assert "30m" in job.intervals.split(",")
+    assert job.priority_interval == "30m"
+    assert job.series_total == len(job.intervals.split(","))
+
+
+@pytest.mark.django_db
 def test_the_chart_timeframe_takes_priority(monkeypatch):
     from apps.exchanges import catalogue
 

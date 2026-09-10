@@ -33,12 +33,17 @@ const TONE: Record<string, string> = {
     :class="block ? 'w-full' : ''"
     role="group"
   >
+    <!-- `block` shares the row out equally and lets a long label truncate.
+         Without it the control is as wide as its labels, which is the whole
+         point of the scrolling variant: clipping the words there left
+         "Properties" and "Promotion" as "Prope…" with no way to read them. -->
     <button
       v-for="option in options"
       :key="option.value"
       type="button"
-      class="flex-1 min-w-0 truncate rounded-[0.4rem] border transition-all duration-150 font-medium"
+      class="rounded-[0.4rem] border transition-all duration-150 font-medium"
       :class="[
+        block ? 'flex-1 min-w-0 truncate' : 'shrink-0 whitespace-nowrap',
         size === 'sm' ? 'text-xs py-1 px-2' : 'text-sm py-1.5 px-3',
         model === option.value
           ? TONE[option.tone ?? 'default']

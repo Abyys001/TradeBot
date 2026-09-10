@@ -20,15 +20,25 @@ from apps.bots.models import BotBar, BotRun
 
 logger = logging.getLogger(__name__)
 
-#: Intervals dense enough to need trimming at all.
-DENSE_INTERVALS = frozenset({"1m", "5m"})
+#: A bar this short or shorter is dense enough to need trimming.
+#:
+#: Read off the interval's own length rather than kept as a list of names, so a
+#: timeframe added to ``feed_base.INTERVALS`` is classified the moment it
+#: exists. A list would have let 3m through as "not 1m or 5m" and quietly kept
+#: every bar of the densest chart the panel offers.
+DENSE_UP_TO_SECONDS = 300
 
 #: How much unconditional history a dense interval keeps, in seconds.
 DEBUG_WINDOW_SECONDS = 7 * 24 * 3600
 
 
 def keeps_every_bar(interval: str) -> bool:
-    return interval not in DENSE_INTERVALS
+    from apps.exchanges.feed_base import INTERVALS
+
+    seconds = INTERVALS.get(interval)
+    # An interval nothing recognises keeps everything: trimming on a guess about
+    # how dense it is would delete a bot's history for a typo.
+    return seconds is None or seconds > DENSE_UP_TO_SECONDS
 
 
 def trim(run: BotRun, *, now: int | None = None) -> int:

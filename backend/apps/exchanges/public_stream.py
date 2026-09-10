@@ -38,7 +38,7 @@ import websockets
 
 from apps.core.money import D
 from apps.exchanges.base import MarketType
-from apps.exchanges.feed_base import Candle, record_rtt, split_pair
+from apps.exchanges.feed_base import Candle, is_native, record_rtt, split_pair
 
 logger = logging.getLogger(__name__)
 
@@ -284,8 +284,16 @@ STREAMS: dict[str, type[PublicStream]] = {
 }
 
 
-def streamable(providers: list[str]) -> list[str]:
-    """The subset of ``providers`` that can stream, order preserved."""
+def streamable(providers: list[str], interval: str = "") -> list[str]:
+    """The subset of ``providers`` that can stream, order preserved.
+
+    A derived interval (30m, 8h, …) has no subscription on any venue — it is
+    folded out of base bars on this side — so nothing can stream it and the
+    caller polls. Answering that here keeps it a fact rather than eight
+    handshakes that each fail on a ``KeyError``.
+    """
+    if interval and not is_native(interval):
+        return []
     return [name for name in providers if name in STREAMS]
 
 
@@ -316,9 +324,9 @@ async def stream_bars(
     a single timed-out handshake — which happens on any real network — must not
     leave it polling for the rest of the session.
     """
-    order = streamable(providers)
+    order = streamable(providers, interval)
     if not order:
-        yield StreamDown("no configured provider can stream")
+        yield StreamDown(f"no configured provider can stream {interval} bars")
         return
 
     attempt = 0

@@ -73,7 +73,29 @@ export interface PinnedTicker {
   live: boolean
 }
 
-export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
+/**
+ * Every timeframe the platform offers. Mirrors `feed_base.INTERVALS` — the
+ * eight the venues do not serve natively are folded out of base bars on the
+ * server, so from here they are ordinary intervals.
+ */
+export const INTERVALS = [
+  '1m',
+  '3m',
+  '5m',
+  '15m',
+  '30m',
+  '1h',
+  '2h',
+  '4h',
+  '6h',
+  '8h',
+  '12h',
+  '1d',
+  '3d',
+  '1w',
+] as const
+
+export type Interval = (typeof INTERVALS)[number]
 
 export interface Candle {
   time: number
@@ -88,14 +110,24 @@ function toCandle(c: { t: number; o: string; h: string; l: string; c: string }):
   return { time: c.t, open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c) }
 }
 
-/** Interval length in seconds — used to place a live tick in the right bar. */
+/** Interval length in seconds — used to place a live tick in the right bar.
+ *  Mirrors `feed_base.INTERVALS`; `Record<Interval, number>` is what makes a
+ *  timeframe added on one side and forgotten on the other a type error. */
 const INTERVAL_SECONDS: Record<Interval, number> = {
   '1m': 60,
+  '3m': 180,
   '5m': 300,
   '15m': 900,
+  '30m': 1800,
   '1h': 3600,
+  '2h': 7200,
   '4h': 14400,
+  '6h': 21600,
+  '8h': 28800,
+  '12h': 43200,
   '1d': 86400,
+  '3d': 259200,
+  '1w': 604800,
 }
 
 let candleTimer: ReturnType<typeof setInterval> | null = null

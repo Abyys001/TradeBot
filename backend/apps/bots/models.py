@@ -100,7 +100,17 @@ class StrategyVersion(models.Model):
     parsed_ok = models.BooleanField(default=False)
     validation_errors = models.JSONField(default=list, blank=True)
     validation_warnings = models.JSONField(default=list, blank=True)
-    inputs_schema = models.JSONField(default=list, blank=True)
+    #: The settings panel this version declares — ``apps.pine.inputs``'
+    #: `InputSchema.as_dict`: every ``input.*`` with its widget, category and
+    #: dependencies, the ``group=`` headings in the order the script wrote them,
+    #: and the defaults. Stored rather than re-derived for the same reason
+    #: ``properties`` is: a version is immutable, and a bot saved against it must
+    #: keep being validated against the panel it was saved from, not against
+    #: whatever the analyser concludes after its next change.
+    #:
+    #: Rows written before the analyser existed hold the bare list of inputs;
+    #: ``InputSchema.from_data`` reads both, so no backfill is needed.
+    inputs_schema = models.JSONField(default=dict, blank=True)
     #: TradingView's Properties tab as ``strategy()`` declared it, resolved over
     #: the platform's defaults, plus the two lists that say which of them the
     #: bot will not honour. Stored with the version rather than recomputed,
@@ -170,9 +180,19 @@ class Bot(models.Model):
     #: any of this works before it touches capital.
     dry_run = models.BooleanField(default=True)
 
-    #: Which Q25 triggers have been fired deliberately in a drill. The Phase 7
-    #: gate requires all seven, and it reads this rather than trusting a memory.
+    #: Which Q25 triggers were fired deliberately in a drill. Kept because it
+    #: is history — the drills themselves and the two gate rows they cleared
+    #: were removed at the admin's instruction (see ``gate.py``).
     drills_fired = models.JSONField(default=list, blank=True)
+
+    #: Does the promotion gate bind? On by default, and turning it off is the
+    #: admin's recorded decision to put this bot live without the measurements.
+    #: The rows are still computed and still shown either way — what changes is
+    #: whether an unmet one refuses.
+    gate_enforced = models.BooleanField(default=True)
+    #: Gate row keys this bot does not have to meet (``gate.Row.key``). Same
+    #: decision as ``gate_enforced``, one row at a time.
+    gate_waived = models.JSONField(default=list, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.CharField(max_length=150, blank=True)
@@ -313,6 +333,41 @@ class BotAction(models.Model):
         allowed to do anything else.
         """
         return self.dispatched_at is not None and self.settled_at is None
+
+
+class InputPreset(models.Model):
+    """A saved set of input values, by name, for one strategy.
+
+    On the **strategy** and not on the version, because an input is identified
+    by the variable it is assigned to and that name survives an edit: a preset
+    called "Fast, tight stop" is about the settings, not about the revision they
+    were first typed against. Loading one runs it through
+    ``inputs.validate_values`` for the version in hand, so a name the script
+    dropped comes back as a message beside the field rather than being applied
+    to nothing.
+
+    Values only — never a symbol, an interval or a leverage. Those live on the
+    bot, and a preset that carried them would make "load" a way to move a bot to
+    a different market by accident.
+    """
+
+    strategy = models.ForeignKey(Strategy, on_delete=models.CASCADE, related_name="presets")
+    name = models.CharField(max_length=80)
+    values = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        ordering = ["strategy", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["strategy", "name"], name="bots_preset_unique_per_strategy"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.strategy.name} — {self.name}"
 
 
 class BacktestRun(models.Model):

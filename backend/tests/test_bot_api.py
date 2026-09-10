@@ -13,7 +13,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 
-from apps.bots.models import BotState, Strategy, StrategyVersion
+from apps.bots.models import BotRun, BotState, Strategy, StrategyVersion
 from tests import pine_corpus
 from tests.bot_factory import make_bot, make_run
 
@@ -382,6 +382,98 @@ def test_an_unmet_gate_does_not_deactivate_the_other_bot():
     assert running.state == BotState.PAPER
 
 
+def patch(client: Client, url: str, payload: dict):
+    return client.patch(url, data=json.dumps(payload), content_type="application/json")
+
+
+def test_a_stopped_bot_can_move_to_another_pair_and_timeframe():
+    """The edit modal's whole reason to exist: 1h → 4h without a new bot."""
+    client = staff()
+    bot = make_bot(state=BotState.STOPPED, symbol="BTCUSDT", interval="1h")
+    response = patch(
+        client,
+        f"/api/bots/bots/{bot.id}/",
+        {"symbol": "ETHUSDT", "interval": "30m", "leverage": 3, "sl_pct": "1.5"},
+    )
+    assert response.status_code == 200, response.content
+    bot.refresh_from_db()
+    assert (bot.symbol, bot.interval, bot.leverage) == ("ETHUSDT", "30m", 3)
+
+
+def test_a_running_bot_refuses_a_new_instrument_on_the_server_not_just_the_form():
+    client = staff()
+    bot = make_bot(state=BotState.PAPER, symbol="BTCUSDT", interval="1h")
+    response = patch(client, f"/api/bots/bots/{bot.id}/", {"interval": "4h"})
+    assert response.status_code == 400
+    assert "interval" in response.json()
+    bot.refresh_from_db()
+    assert bot.interval == "1h"
+
+
+def test_a_running_bot_can_still_be_renamed():
+    """The one edit that changes nothing about what it trades."""
+    client = staff()
+    bot = make_bot(state=BotState.PAPER)
+    assert patch(client, f"/api/bots/bots/{bot.id}/", {"name": "renamed"}).status_code == 200
+    bot.refresh_from_db()
+    assert bot.name == "renamed"
+
+
+def test_an_interval_nothing_can_serve_is_refused_by_name():
+    bot = make_bot(state=BotState.STOPPED)
+    response = patch(staff(), f"/api/bots/bots/{bot.id}/", {"interval": "7s"})
+    assert response.status_code == 400
+    assert "interval" in response.json()
+
+
+def test_a_bots_version_cannot_be_swapped_under_it():
+    client = staff()
+    bot = make_bot(state=BotState.STOPPED)
+    other = StrategyVersion.objects.create(
+        strategy=bot.strategy_version.strategy, version=99, source=GOOD, parsed_ok=True
+    )
+    response = patch(client, f"/api/bots/bots/{bot.id}/", {"strategy_version": other.id})
+    assert response.status_code == 400
+    assert "strategy_version" in response.json()
+
+
+def test_the_compact_strategy_list_leaves_every_version_source_behind():
+    """What made /bots open on a skeleton and need a refresh.
+
+    The full shape carries every version's Pine source, its validation report
+    and its resolved properties. The bots list and the backtest form want a name
+    and an id — so a page that draws a dropdown stopped downloading megabytes to
+    do it.
+    """
+    client = staff()
+    strategy = Strategy.objects.create(name="heavy")
+    for version in (1, 2, 3):
+        StrategyVersion.objects.create(
+            strategy=strategy, version=version, source=GOOD, parsed_ok=True
+        )
+
+    compact = client.get("/api/bots/strategies/?compact=1").json()
+    assert "versions" not in compact[0]
+    assert compact[0]["latest_version"]["version"] == 3
+    assert "source" not in compact[0]["latest_version"]
+
+    # The editor still gets the lot — it is the one page that needs it.
+    full = client.get("/api/bots/strategies/").json()
+    assert len(full[0]["versions"]) == 3
+    assert full[0]["latest_version"]["source"] == GOOD
+
+
+def test_one_version_can_be_fetched_by_id_with_its_source():
+    client = staff()
+    strategy = Strategy.objects.create(name="by-id")
+    version = StrategyVersion.objects.create(
+        strategy=strategy, version=1, source=GOOD, parsed_ok=True
+    )
+    body = client.get(f"/api/bots/versions/{version.id}/").json()
+    assert body["source"] == GOOD
+    assert client.get("/api/bots/versions/999999/").status_code == 404
+
+
 # --- the gate ---------------------------------------------------------------
 
 
@@ -410,6 +502,79 @@ def test_the_gate_lists_a_soak_row():
 def test_the_gate_never_raises_for_a_bot_that_has_never_run():
     bot = make_bot(state=BotState.DRAFT)
     assert staff().get(f"/api/bots/bots/{bot.id}/promotion/").status_code == 200
+
+
+def test_the_gate_no_longer_carries_the_two_drill_rows():
+    """Both were exercises rather than measurements, and the kill-switch one
+    sent real close orders through a live book to clear a checkbox."""
+    bot = make_bot(state=BotState.PAPER)
+    keys = {row["key"] for row in staff().get(f"/api/bots/bots/{bot.id}/promotion/").json()["rows"]}
+    assert "halt_drills" not in keys
+    assert "q25_drills" not in keys
+
+
+def test_turning_the_gate_off_lets_a_bot_go_live_unmeasured():
+    """The admin's decision, recorded on the bot — not a dialog nobody logged."""
+    client = staff()
+    bot = make_bot(state=BotState.PAPER)
+    body = post(client, f"/api/bots/bots/{bot.id}/gate/", {"enforced": False}).json()
+    assert body["gate"]["enforced"] is False
+    assert body["gate"]["ready"] is True
+    # Still measured. "Allowed" and "proven" are different sentences.
+    assert body["gate"]["measured_ready"] is False
+    bot.refresh_from_db()
+    assert bot.gate_enforced is False
+    assert post(client, f"/api/bots/bots/{bot.id}/start/", {"state": "live"}).status_code == 200
+
+
+def test_waiving_one_row_excludes_it_from_ready_and_leaves_it_measured():
+    client = staff()
+    bot = make_bot(state=BotState.PAPER)
+    keys = [row["key"] for row in client.get(f"/api/bots/bots/{bot.id}/promotion/").json()["rows"]]
+    for key in keys:
+        post(client, f"/api/bots/bots/{bot.id}/gate/", {"waive": key, "on": True})
+    gate_now = client.get(f"/api/bots/bots/{bot.id}/promotion/").json()
+    assert gate_now["ready"] is True
+    assert gate_now["measured_ready"] is False
+    assert all(row["waived"] for row in gate_now["rows"])
+    # Un-waiving puts it back, so a waiver is never a one-way door.
+    post(client, f"/api/bots/bots/{bot.id}/gate/", {"waive": keys[0], "on": False})
+    assert client.get(f"/api/bots/bots/{bot.id}/promotion/").json()["ready"] is False
+
+
+def test_waiving_a_row_that_does_not_exist_is_refused_by_name():
+    bot = make_bot(state=BotState.PAPER)
+    response = post(staff(), f"/api/bots/bots/{bot.id}/gate/", {"waive": "not_a_row"})
+    assert response.status_code == 400
+
+
+def test_the_restarts_row_is_measured_and_waivable():
+    """Its two halves: three recoveries on the same run, one of them unplanned.
+
+    A dry run cannot earn the second — `note_unplanned_restart` counts a run
+    that came back with an action still dispatched-and-unsettled, and a shadow
+    action is written already settled. Which is exactly why the row is
+    waivable rather than a wall.
+    """
+    client = staff()
+    bot = make_bot(state=BotState.PAPER)
+    run = BotRun.objects.create(bot=bot, recoveries=3)
+
+    def restarts() -> dict:
+        rows = client.get(f"/api/bots/bots/{bot.id}/promotion/").json()["rows"]
+        return next(row for row in rows if row["key"] == "restarts")
+
+    assert restarts()["met"] is False, "three recoveries with none unplanned is not enough"
+    run.unplanned_recoveries = 1
+    run.save(update_fields=["unplanned_recoveries"])
+    assert restarts()["met"] is True
+
+    run.recoveries = 0
+    run.unplanned_recoveries = 0
+    run.save(update_fields=["recoveries", "unplanned_recoveries"])
+    post(client, f"/api/bots/bots/{bot.id}/gate/", {"waive": "restarts", "on": True})
+    row = restarts()
+    assert row["waived"] is True and row["met"] is False
 
 
 # --- the Properties tab, end to end -----------------------------------------
@@ -454,8 +619,123 @@ def test_a_saved_version_carries_the_properties_and_their_notes():
     # It sizes the backtest and not live, and the panel is told so by name.
     assert version["property_notes"]["live_departures"]
     # The layout half of an input, without which thirty controls are one list.
-    assert version["inputs_schema"][0]["group"] == "01. Engine"
-    assert version["inputs_schema"][0]["step"] == 1
+    schema = version["inputs_schema"]
+    assert schema["fields"][0]["group"] == "01. Engine"
+    assert schema["fields"][0]["step"] == 1
+    # And the derived half: the group the script declared is a heading of its
+    # own, in the order the script wrote it, holding the inputs that named it.
+    assert schema["groups"][0]["key"] == "01. Engine"
+    assert schema["fields"][0]["name"] in schema["groups"][0]["names"]
+    assert schema["defaults"][schema["fields"][0]["name"]] == schema["fields"][0]["default"]
+
+
+# --- the Inputs tab, end to end ---------------------------------------------
+
+INPUT_SCRIPT = """//@version=6
+strategy("inputs")
+grp = "02. Signal"
+on = input.bool(true, "Enable target", group=grp)
+len = input.int(20, "Length", minval=1, maxval=200, group=grp)
+size = input.int(50, "Exit size", minval=1, maxval=100, group=grp)
+tint = input.color(#00E5A8, "Tint", group="03. Colours")
+strategy.entry("L", strategy.long, when = ta.crossover(close, ta.sma(close, len)))
+if on
+    strategy.close("L", qty_percent = size)
+plot(ta.sma(close, len), color = tint)
+"""
+
+
+def _version_with_inputs(client):
+    strategy = post(client, "/api/bots/strategies/", {"name": "Inputs"}).json()
+    version = post(
+        client,
+        f"/api/bots/strategies/{strategy['id']}/versions/",
+        {"source": INPUT_SCRIPT},
+    ).json()
+    return strategy, version
+
+
+@pytest.mark.django_db
+def test_a_version_serves_the_settings_panel_it_declares():
+    """What the backtest form draws before there is a bot to hang it on."""
+    client = staff()
+    _, version = _version_with_inputs(client)
+
+    body = client.get(f"/api/bots/versions/{version['id']}/inputs/").json()
+    fields = {row["name"]: row for row in body["schema"]["fields"]}
+    assert [row["key"] for row in body["schema"]["groups"]] == ["02. Signal", "03. Colours"]
+    # The derivation, not the transcription: a widget, a category and a gate.
+    assert fields["size"]["widget"] == "number"
+    assert fields["size"]["category"] == "risk"
+    assert fields["tint"]["category"] == "visual"
+    assert [gate["controller"] for gate in fields["size"]["depends_on"]] == ["on"]
+    # Nothing overridden yet, so every effective value is the script's own.
+    assert body["resolved"]["len"] == 20
+    assert body["overrides"] == {}
+
+
+@pytest.mark.django_db
+def test_a_bots_inputs_resolve_the_script_under_its_overrides():
+    client = staff()
+    _, version = _version_with_inputs(client)
+    bot = post(
+        client,
+        "/api/bots/bots/",
+        {"name": "b", "strategy_version": version["id"], "symbol": "BTCUSDT", "interval": "1h"},
+    ).json()
+
+    response = client.patch(
+        f"/api/bots/bots/{bot['id']}/",
+        data=json.dumps({"input_values": {"len": 55, "size": 50}}),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    # Only the difference is stored: `size` was already 50, so it is not an
+    # override and a later version moving that default still reaches this bot.
+    assert response.json()["input_values"] == {"len": 55}
+
+    body = client.get(f"/api/bots/bots/{bot['id']}/inputs/").json()
+    assert body["resolved"]["len"] == 55
+    assert body["resolved"]["size"] == 50
+    assert body["overrides"] == {"len": 55}
+
+
+@pytest.mark.django_db
+def test_a_value_outside_the_scripts_own_bounds_is_refused_by_name():
+    """The refusal has to name the input. On a panel of thirty settings,
+    "somewhere below" is not a location."""
+    client = staff()
+    _, version = _version_with_inputs(client)
+    bot = post(
+        client,
+        "/api/bots/bots/",
+        {"name": "b", "strategy_version": version["id"], "symbol": "BTCUSDT", "interval": "1h"},
+    ).json()
+
+    response = client.patch(
+        f"/api/bots/bots/{bot['id']}/",
+        data=json.dumps({"input_values": {"len": 5000}}),
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "len" in response.json()["input_values"][0]
+
+
+@pytest.mark.django_db
+def test_a_preset_is_saved_against_the_strategy_and_read_back_with_the_panel():
+    client = staff()
+    strategy, version = _version_with_inputs(client)
+
+    created = post(
+        client,
+        "/api/bots/presets/",
+        {"strategy": strategy["id"], "name": "Fast", "values": {"len": 9}},
+    )
+    assert created.status_code == 201
+
+    body = client.get(f"/api/bots/versions/{version['id']}/inputs/").json()
+    assert [row["name"] for row in body["presets"]] == ["Fast"]
+    assert body["presets"][0]["values"] == {"len": 9}
 
 
 # --- backtest history -------------------------------------------------------

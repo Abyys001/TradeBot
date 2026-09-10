@@ -668,11 +668,18 @@ evidence that any of this works.
 | Process restarts survived cleanly | ≥ 3, at least one unplanned |
 | Feed gaps handled (repaired or clean stop) | 100% |
 | Reconciliation drift events | 0 unexplained |
-| Kill-switch drills passed | ≥ 2 |
-| Every Q25 auto-stop | fired at least once, deliberately, in a drill |
 
 Fourteen days is not arbitrary: it is long enough to cross a weekend, a funding
 cycle, an exchange maintenance window, and at least one bad-liquidity hour.
+
+Two further rows — a kill-switch drill count and "every Q25 auto-stop fired
+deliberately in a drill" — were **removed at the admin's instruction**, with the
+drills that fired them. They were exercises rather than measurements, and one of
+them sent real close orders through a live book to clear a checkbox. Phase 5's
+auto-stops still fire for real and the §7 halt is unchanged.
+
+The gate is also the admin's to turn off, per row or entirely — see
+`docs/bots.md` §5. The measurements do not stop when it does.
 
 ---
 

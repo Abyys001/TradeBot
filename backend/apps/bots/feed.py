@@ -244,7 +244,7 @@ class BarFeed:
         # Same accessor `streamhub` uses, and off the event loop for the same
         # reason: it reads the connected-exchange list from the database.
         providers = await sync_to_async(marketdata._configured_providers)()
-        if streamable(providers):
+        if streamable(providers, self.interval):
             async for item in self._stream(providers, stream_bars, StreamDown):
                 yield item
         else:

@@ -2,9 +2,7 @@
 
 `explain` reads the strategy's own source and reports what it computes and what
 makes it trade; `narrate` projects the stored bars and actions into journal
-events; `drills` fires the safety machinery on purpose so the gate's two
-exercise rows can be filled in by pressing a button rather than editing the
-database.
+events; `drills` records the one gate row nothing can measure from inside.
 
 Every one of them is a *projection*: nothing here is stored, and nothing here
 is allowed to invent a number the bot did not record.
@@ -21,7 +19,7 @@ from django.test import Client
 from django.utils import timezone
 
 from apps.bots import drills, narrate
-from apps.bots.models import ActionType, BotBar, BotRun, BotState, StopReason
+from apps.bots.models import ActionType, BotBar, BotRun, StopReason
 from apps.pine import explain
 from tests.bot_factory import make_bot, make_run
 
@@ -208,24 +206,7 @@ def test_a_journal_event_carries_codes_and_params_never_a_finished_sentence():
         assert "message" not in event, "the panel renders the sentence, so all six locales can"
 
 
-# --- drills -----------------------------------------------------------------
-
-
-def test_a_drill_is_refused_on_a_bot_that_is_not_running():
-    from asgiref.sync import async_to_sync
-
-    bot = make_bot(state=BotState.DRAFT)
-    with pytest.raises(drills.DrillRefused):
-        async_to_sync(drills.run_halt_drill)(bot)
-
-
-def test_a_trigger_that_is_not_one_of_the_auto_stops_is_refused():
-    from asgiref.sync import async_to_sync
-
-    bot = make_bot(state=BotState.PAPER)
-    make_run(bot)
-    with pytest.raises(drills.DrillRefused):
-        async_to_sync(drills.run_trigger_drill)(bot, "not_a_trigger")
+# --- the adapters acknowledgement -------------------------------------------
 
 
 def test_acknowledging_the_adapters_row_records_who_and_when():

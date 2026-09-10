@@ -34,7 +34,10 @@ export const useBotsStore = defineStore('bots', () => {
     loading.value = true
     error.value = ''
     try {
-      const [strategyRows, botRows] = await Promise.all([api.strategies(), api.bots()])
+      // Compact: the list needs a name and a version id per strategy, not every
+      // version's Pine source. Downloading the lot is what made /bots open on a
+      // skeleton and need a refresh.
+      const [strategyRows, botRows] = await Promise.all([api.strategies(true), api.bots()])
       strategies.value = strategyRows
       bots.value = botRows
       for (const bot of botRows) if (bot.latest_run) runs.value[bot.id] = bot.latest_run

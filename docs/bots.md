@@ -329,10 +329,10 @@ paper, where the same conditions can be watched without capital behind them.
 
 `GET /api/bots/bots/<id>/promotion/` returns the Phase 7 gate with this bot's own
 measurements filled in — soak days, divergences, restarts survived, feed gaps,
-price drift, halt drills, the Q25 drills, whether the risk limits were set
-deliberately, and the adapter acknowledgement. `POST …/start/ {"state":"live"}`
-returns **409 with the gate attached** while any row is unmet. It is not a
-confirmation dialog; it is a gate that knows the numbers.
+reconciliation drift, whether the risk limits were set deliberately, and the
+adapter acknowledgement. `POST …/start/ {"state":"live"}` returns **409 with the
+gate attached** while any binding row is unmet. It is not a confirmation dialog;
+it is a gate that knows the numbers.
 
 One row cannot be measured from inside and is carried as an explicit human
 acknowledgement: **no exchange adapter has been run against a live exchange or a
@@ -343,37 +343,44 @@ the database is a gate people route around. Ticking it records *who* ticked it
 and *when* into `risk_config`, and clearing it deletes the answer rather than
 storing a "no".
 
-### Drills
+The soak row counts in **seconds**, not days: the panel renders a countdown that
+keeps decreasing rather than a figure that sits on "0.5 days" for twelve hours.
 
-Two of the nine rows are exercises, not measurements: the kill switch has been
-pulled on this bot, and every Q25 auto-stop has been fired deliberately.
-`apps/bots/drills.py` fires them, from the Drills card on the bot's page.
+### Turning it off
 
-**The kill-switch drill is the real machinery, not a simulation.** It engages
-the §7 halt — which stops every running bot by itself (Q22) — and then
-force-closes every open trade through `route_close_all`, the same call the
-panel's Stop-all makes, **with no reference whatsoever to what the strategy
-thinks should be open**. That is the whole point of the exercise: the way out of
-a position must not run through the strategy, because the case it exists for is
-the strategy being wrong. Then it puts things back: the halt is released (even
-if the close raised — a drill that left the platform halted is a drill nobody
-runs twice), and the bot is resumed **into the same run**.
+The gate binds by default and the admin can say otherwise. Two switches, both
+stored on the bot:
 
-Resuming the same run rather than starting a new one is what keeps the soak
-honest. The fourteen days are continuous *operation*, and a bot is expected to
-survive interruptions — so the drill clears `stopped_at`, counts itself as an
-unplanned recovery, and bumps `halt_drills`. A drill that reset the clock would
-mean no bot could ever satisfy both rows at once.
+`POST …/gate/ {"enforced": false}` stops the gate refusing anything. `POST
+…/gate/ {"waive": "soak", "on": true}` does the same for one row. Every row is
+waivable — with a master switch that turns the whole gate off, a shorter list of
+"the ones you may skip" would be a rule the operator can already step around.
 
-A Q25 drill is narrower and says so: it stops the bot **with that reason code**
-and resumes it, which exercises the stop path, the reason plumbing and the
-restart for that trigger. It does not fabricate the condition — there is no
-honest way to invent three consecutive losses — so what it proves is the
-response, and the panel words it that way.
+**The rows keep being measured either way**, and the panel shows both answers:
+`ready` is whether this bot may go live, `measured_ready` is whether it has
+earned it. "Allowed" and "proven" are different sentences, and a gate that
+stopped counting the moment it stopped binding would leave the operator with no
+reading at all. The decision is on the bot rather than in a dialog, so a
+promotion that skipped the numbers is answerable afterwards.
 
-The soak row itself counts in **seconds**, not days: the panel renders a
-countdown that keeps decreasing rather than a figure that sits on "0.5 days" for
-twelve hours.
+The **restarts** row is the one worth knowing about before waiving it. It wants
+three recoveries on the same run *and* at least one unplanned — and "unplanned"
+is inferred from a run that came back with an action still recorded dispatched
+with no result. A dry run never dispatches anything (its shadow actions are
+written already settled), so a paper bot cannot earn that half at all. Waive it,
+or promote knowingly.
+
+### Drills, and why there are none
+
+Two further rows used to live here: a kill-switch drill count and "every Q25
+auto-stop fired deliberately in a drill". Both, and the drills that fired them,
+were **removed at the admin's instruction**.
+
+They were exercises rather than measurements, and the kill-switch one sent real
+close orders through a live book to clear a checkbox. Nothing about the safety
+machinery changed: `riskgate.py` still fires all seven auto-stops for real, and
+the §7 halt is still one press away in the top bar of every page — it is the
+rehearsal that is gone, not the brake.
 
 ---
 

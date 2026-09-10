@@ -37,16 +37,75 @@ HTTP_TIMEOUT = 8.0
 #: bars over a long link is worth waiting for rather than retrying.
 BACKFILL_TIMEOUT = 15.0
 
-#: Chart intervals the panel offers, mapped per provider. Keys are the wire
-#: values the frontend sends.
+#: Every interval the platform offers, in seconds. Keys are the wire values the
+#: frontend sends, and this dict is the single answer to "is that a timeframe".
 INTERVALS: dict[str, int] = {
     "1m": 60,
+    "3m": 180,
     "5m": 300,
     "15m": 900,
+    "30m": 1800,
     "1h": 3600,
+    "2h": 7200,
     "4h": 14400,
+    "6h": 21600,
+    "8h": 28800,
+    "12h": 43200,
     "1d": 86400,
+    "3d": 259200,
+    "1w": 604800,
 }
+
+#: The intervals a venue is actually asked for. Every public source has been
+#: written and tested against exactly these six wire values, and an exchange API
+#: fact is not something to invent from memory — so the other eight are
+#: **derived** rather than guessed at (see ``DERIVED_FROM``).
+NATIVE_INTERVALS: tuple[str, ...] = ("1m", "5m", "15m", "1h", "4h", "1d")
+
+#: ``derived interval -> the native one it is built from``. Each pair divides
+#: exactly and by a small factor (3, 2, 2, 6, 2, 3, 3, 7), so one page of base
+#: bars still covers a useful window: a 6h bar is six 1h bars, never three
+#: hundred 1m ones.
+DERIVED_FROM: dict[str, str] = {
+    "3m": "1m",
+    "30m": "15m",
+    "2h": "1h",
+    "6h": "1h",
+    "8h": "4h",
+    "12h": "4h",
+    "3d": "1d",
+    "1w": "1d",
+}
+
+#: Where a bucket boundary sits, as an offset from the UNIX epoch.
+#:
+#: Epoch second 0 is a **Thursday**, so a week bucket floored at ``t // 604800``
+#: would start on Thursdays. Exchanges align weekly and multi-day bars to
+#: Monday, and a chart whose weeks start on the wrong day is a different series
+#: from the one the venue draws.
+BUCKET_OFFSET: dict[str, int] = {"3d": 345600, "1w": 345600}
+
+
+def is_native(interval: str) -> bool:
+    return interval in NATIVE_INTERVALS
+
+
+def base_interval(interval: str) -> str:
+    """The interval a venue is asked for in order to serve ``interval``."""
+    return DERIVED_FROM.get(interval, interval)
+
+
+def base_ratio(interval: str) -> int:
+    """How many base bars make one ``interval`` bar. 1 when it is native."""
+    return INTERVALS[interval] // INTERVALS[base_interval(interval)]
+
+
+def bucket_start(open_time: int, interval: str) -> int:
+    """The open time of the ``interval`` bar that contains ``open_time``."""
+    step = INTERVALS[interval]
+    offset = BUCKET_OFFSET.get(interval, 0) % step
+    return ((open_time - offset) // step) * step + offset
+
 
 #: The most bars a *venue* is asked for in one call. A page of someone else's
 #: HTTP API, on someone else's rate limit.
@@ -107,6 +166,51 @@ class Candle:
             "c": str(self.close),
             "v": str(self.volume),
         }
+
+
+def aggregate(candles: list[Candle], interval: str) -> list[Candle]:
+    """Roll base bars up into ``interval`` bars — oldest first in, oldest first out.
+
+    Open is the first sub-bar's open, close the last one's, high/low the
+    extremes and volume the sum: the definition every venue uses, so a derived
+    bar matches the one the exchange would have served.
+
+    A **leading partial bucket is dropped**. The first bar of a page almost
+    never lands on a bucket boundary, and a half-built bar written to the
+    archive as though it were closed is wrong forever. The *trailing* bucket is
+    kept and left to ``candlestore.is_closed``, which is already what
+    distinguishes a forming bar from a settled one.
+    """
+    if not candles:
+        return []
+    out: list[Candle] = []
+    bucket: list[Candle] = []
+    start = bucket_start(candles[0].time, interval)
+    for candle in candles:
+        at = bucket_start(candle.time, interval)
+        if at != start:
+            if bucket:
+                out.append(_fold(bucket, start))
+            bucket = []
+            start = at
+        bucket.append(candle)
+    if bucket:
+        out.append(_fold(bucket, start))
+    # The first bucket is only whole when the page began exactly on its edge.
+    if out and candles[0].time != out[0].time:
+        out.pop(0)
+    return out
+
+
+def _fold(bucket: list[Candle], start: int) -> Candle:
+    return Candle(
+        time=start,
+        open=bucket[0].open,
+        high=max(c.high for c in bucket),
+        low=min(c.low for c in bucket),
+        close=bucket[-1].close,
+        volume=sum((c.volume for c in bucket), Decimal("0")),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,7 +358,7 @@ class HttpSource:
         limit: int,
         end: int | None = None,
     ) -> list[Candle]:
-        """Bars, oldest first. ``end`` (UNIX seconds) walks the history back."""
+        """Bars, oldest first, at a **native** interval. ``end`` walks back."""
         raise NotImplementedError
 
     def ticker(self, *, symbol: str, market) -> Ticker:
@@ -263,6 +367,42 @@ class HttpSource:
     def symbols(self, *, market) -> list[SymbolInfo]:
         """Every pair this exchange lists. Raises when it publishes no catalogue."""
         raise MarketDataError(f"{self.name}: no public symbol catalogue")
+
+
+def fetch_candles(
+    source: HttpSource,
+    *,
+    symbol: str,
+    interval: str,
+    market,
+    limit: int,
+    end: int | None = None,
+) -> list[Candle]:
+    """Bars at any offered interval — **the one entry point callers use**.
+
+    Deliberately a function over a source rather than a method on it: deriving
+    30m from 15m is a fact about arithmetic, not about Binance, and eight
+    sources each carrying their own copy of it is eight places for the fold to
+    drift. A native interval is a straight pass to ``source.candles``.
+
+    ``limit`` is in bars **of the interval asked for**, so the base request is
+    scaled up by the ratio — plus one bucket, because ``aggregate`` drops the
+    leading partial one. A venue's own page limit still caps it: a short page
+    is a shorter window, never a wrong bar.
+    """
+    if is_native(interval):
+        return source.candles(
+            symbol=symbol, interval=interval, market=market, limit=limit, end=end
+        )
+    rows = source.candles(
+        symbol=symbol,
+        interval=base_interval(interval),
+        market=market,
+        limit=min(source.page_limit, (limit + 1) * base_ratio(interval)),
+        end=end,
+    )
+    folded = aggregate(rows, interval)
+    return folded[-limit:] if limit else folded
 
 
 # --- canonical naming -------------------------------------------------------

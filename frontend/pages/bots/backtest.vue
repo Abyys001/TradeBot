@@ -29,12 +29,21 @@
  * Deleting a report never touches the archived candles behind it, which belong
  * to the platform and would otherwise have to be downloaded again.
  */
+import { INTERVALS } from '~/stores/market'
 const { t } = useI18n()
 const api = useApi()
 const store = useBotsStore()
 const route = useRoute()
 const localePath = useLocalePath()
+const router = useRouter()
 const { money, dateTime } = useFormat()
+
+/** Back to wherever this was opened from, /bots when it was opened cold. */
+function back() {
+  if (window.history.length > 1) router.back()
+  else navigateTo(localePath('/bots'))
+}
+
 
 useHead({ title: t('bots.backtest') })
 
@@ -57,6 +66,10 @@ let coverageTimer: ReturnType<typeof setTimeout> | null = null
 
 const showProperties = ref(false)
 const propertyOverrides = ref<Record<string, unknown>>({})
+
+const showInputs = ref(false)
+/** The script's own settings for this run. Only what departs from its defaults. */
+const inputValues = ref<Record<string, unknown>>({})
 
 const pendingDelete = ref<BacktestRun | null>(null)
 const clearing = ref(false)
@@ -269,6 +282,7 @@ async function run() {
       from_time: fromSeconds.value,
       to_time: toSeconds.value,
       property_overrides: propertyOverrides.value,
+      inputs: inputValues.value,
     })
     job.value = started
     await watchJob(started.job_id)
@@ -393,11 +407,14 @@ watch(
   { immediate: false },
 )
 
-/** Properties belong to a version. Switching version drops overrides for the old one. */
+/** Both halves of the dialog belong to a version. Switching version drops the
+ *  settings chosen for the old one — an input name is not guaranteed to survive
+ *  an edit, and carrying values across would post a stale one with the run. */
 watch(
   () => form.strategy_version,
   () => {
     propertyOverrides.value = {}
+    inputValues.value = {}
   },
 )
 
@@ -420,10 +437,11 @@ onMounted(async () => {
   <div class="max-w-[100rem] mx-auto p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5">
     <header class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div class="min-w-0">
-        <h1 class="text-xl font-display">{{ t('bots.backtest') }}</h1>
-        <p class="text-xs text-ink-muted mt-1.5 max-w-2xl leading-relaxed">
-          {{ t('bots.backtestLead') }}
-        </p>
+        <button class="btn-quiet btn-sm -ms-2 text-ink-faint hover:text-ink" @click="back">
+          <UiIcon name="arrowRight" :size="13" class="rotate-180" />
+          {{ t('common.back') }}
+        </button>
+        <h1 class="text-xl font-display mt-1">{{ t('bots.backtest') }}</h1>
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <NuxtLink :to="localePath('/strategies')" class="btn-ghost btn-sm">
@@ -468,7 +486,7 @@ onMounted(async () => {
                 <label class="block space-y-1.5">
                   <span class="label">{{ t('bots.interval') }}</span>
                   <select v-model="form.interval" class="field">
-                    <option v-for="value in ['5m', '15m', '30m', '1h', '4h', '1d']" :key="value">
+                    <option v-for="value in INTERVALS" :key="value">
                       {{ value }}
                     </option>
                   </select>
@@ -546,6 +564,21 @@ onMounted(async () => {
                 <UiIcon name="settings" :size="14" />
                 {{ t('bots.editProperties') }}
               </button>
+              <button
+                class="btn-ghost btn-sm"
+                :disabled="!form.strategy_version"
+                @click="showInputs = true"
+              >
+                <UiIcon name="filter" :size="14" />
+                {{ t('bots.editInputs') }}
+              </button>
+              <span class="text-tick text-ink-faint">
+                {{
+                  Object.keys(inputValues).length
+                    ? t('bots.inputs.changedN', { n: Object.keys(inputValues).length })
+                    : t('bots.inputs.noChanges')
+                }}
+              </span>
               <span class="text-tick text-ink-faint">
                 {{
                   Object.keys(propertyOverrides).length
@@ -775,6 +808,13 @@ onMounted(async () => {
       :version-id="form.strategy_version"
       :overrides="propertyOverrides"
       @apply="(next) => (propertyOverrides = next)"
+    />
+
+    <BotsInputsDialog
+      v-model="showInputs"
+      :version-id="form.strategy_version"
+      :values="inputValues"
+      @apply="(next) => (inputValues = next)"
     />
 
     <UiModal

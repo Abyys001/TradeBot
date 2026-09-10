@@ -109,8 +109,10 @@ class TestPersist:
         assert StoredCandle.objects.filter(symbol="BTCUSDT").count() == 3
 
     def test_unsettled_bars_are_upserted(self):
-        # This bar is still forming — within the last interval.
-        forming_time = NOW - 10
+        # This bar is still forming — within the last interval. Read off the
+        # clock *now*, not the module-level NOW: in a full run this test starts
+        # minutes after import, and a bar stamped then has long since closed.
+        forming_time = int(time.time()) - 10
         bars = [_candle(forming_time, close=D("50"))]
         persist(
             exchange="binance",

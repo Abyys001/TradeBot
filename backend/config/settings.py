@@ -345,7 +345,6 @@ BOT = {
     # least one bad-liquidity hour.
     "SOAK_DAYS": int(os.getenv("BOT_SOAK_DAYS", "14")),
     "SOAK_MIN_RESTARTS": int(os.getenv("BOT_SOAK_MIN_RESTARTS", "3")),
-    "SOAK_MIN_HALT_DRILLS": int(os.getenv("BOT_SOAK_MIN_HALT_DRILLS", "2")),
     # The supervisor runs inside the ASGI process by default, alongside the
     # fan-out: route_* is async and a broker hop would spend the spec §4 budget.
     # Set false to run it only as the `bots` compose service instead.

@@ -49,6 +49,7 @@ from apps.exchanges.feed_base import (
     SymbolInfo,
     SymbolNotListed,
     Ticker,
+    fetch_candles,
     last_rtt,
     record_rtt,
     resolve_proxy,
@@ -94,6 +95,7 @@ __all__ = [
     "SymbolInfo",
     "SymbolNotListed",
     "Ticker",
+    "fetch_candles",
     "get_candles",
     "get_ticker",
     "last_rtt",
@@ -348,8 +350,8 @@ def get_candles(
 
     try:
         candles, provider = _try_providers(
-            lambda source: source.candles(
-                symbol=symbol, interval=interval, market=market, limit=venue_limit, end=end
+            lambda source: fetch_candles(
+                source, symbol=symbol, interval=interval, market=market, limit=venue_limit, end=end
             ),
             what="candles",
         )

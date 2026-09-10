@@ -4,6 +4,19 @@ Every row here is a number the system itself recorded. The panel renders this
 and **refuses while any row is unmet** — a gate that knows the numbers, not a
 confirmation dialog that asks whether you are sure.
 
+Two switches sit on top of it, and both are the operator's, not the gate's:
+
+  ``Bot.gate_enforced`` — off, and ``paper → live`` stops asking. The rows are
+  still measured and still shown, because the numbers are useful whether or not
+  they are binding; what changes is that none of them refuses. This is the
+  admin's call to make and it is recorded on the bot rather than inferred from
+  a dialog nobody can audit afterwards.
+
+  ``Bot.gate_waived`` — the same decision per row. A row that is waived is
+  measured, shown, and excluded from ``ready``. Every row is waivable: with a
+  master switch that turns the whole gate off, a shorter list of "the ones you
+  may skip" would be a rule the operator can already step around.
+
 Fourteen days is not round-number thinking: it crosses a weekend, a funding
 cycle, an exchange maintenance window, and at least one bad-liquidity hour.
 
@@ -29,24 +42,13 @@ it live, so the wait is a number that visibly moves.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 
 from django.conf import settings
 from django.utils import timezone
 
-from apps.bots.models import Bot, BotRun, StopReason
-
-#: Q25's seven, all of which must have been fired deliberately in a drill.
-DRILL_TRIGGERS = (
-    StopReason.CONSECUTIVE_LOSSES,
-    StopReason.DRAWDOWN,
-    StopReason.FEED_GAP,
-    StopReason.SCRIPT_ERROR,
-    StopReason.STATE_DISAGREEMENT,
-    StopReason.TRADE_RATE,
-    StopReason.NO_BARS,
-)
+from apps.bots.models import Bot, BotRun
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,10 +61,13 @@ class Row:
     #: What the panel interpolates into ``bots.gate.<key>``. Numbers, never
     #: prose — a translated sentence must be able to put them anywhere.
     params: dict = field(default_factory=dict)
-    #: True when a person can clear this row from the panel (the adapters
-    #: acknowledgement) or fire what clears it (a drill). The rows that are
-    #: pure measurement carry False and the panel offers no control.
+    #: True when a person can clear this row from the panel — today only the
+    #: adapters acknowledgement. Rows that are pure measurement carry "" and the
+    #: panel offers no control beyond the waiver switch every row has.
     actionable: str = ""
+    #: The operator has said this row does not bind. Still measured, still
+    #: shown, excluded from ``ready``.
+    waived: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -73,6 +78,7 @@ class Row:
             "met": self.met,
             "params": self.params,
             "actionable": self.actionable,
+            "waived": self.waived,
         }
 
 
@@ -160,40 +166,12 @@ def evaluate(bot: Bot) -> dict:
         )
     )
 
-    drills = run.halt_drills if run else 0
-    rows.append(
-        Row(
-            key="halt_drills",
-            requirement="kill-switch drills passed",
-            threshold=f"≥ {values['SOAK_MIN_HALT_DRILLS']}",
-            measured=str(drills),
-            met=drills >= values["SOAK_MIN_HALT_DRILLS"],
-            params={"n": drills, "required": values["SOAK_MIN_HALT_DRILLS"]},
-            # Firing this one is a button on the bot's page: it engages the
-            # halt, force-closes every open trade without asking the strategy,
-            # and resumes the bot into the same run. See ``drills.py``.
-            actionable="halt_drill",
-        )
-    )
-
-    fired = set(bot.drills_fired or [])
-    missing = [t for t in DRILL_TRIGGERS if t not in fired]
-    rows.append(
-        Row(
-            key="q25_drills",
-            requirement="every Q25 auto-stop fired deliberately in a drill",
-            threshold=f"all {len(DRILL_TRIGGERS)}",
-            measured=f"{len(fired & set(DRILL_TRIGGERS))}/{len(DRILL_TRIGGERS)}"
-            + (f" (missing: {', '.join(missing)})" if missing else ""),
-            met=not missing,
-            params={
-                "done": len(fired & set(DRILL_TRIGGERS)),
-                "total": len(DRILL_TRIGGERS),
-                "missing": [str(trigger) for trigger in missing],
-            },
-            actionable="trigger_drill",
-        )
-    )
+    # There were two more rows here — a kill-switch drill count and "every Q25
+    # auto-stop fired deliberately in a drill". Both were removed at the
+    # admin's instruction, along with the drills that fired them: they were
+    # exercises rather than measurements, and both sent real orders through a
+    # live book to clear a checkbox. The auto-stops themselves are untouched —
+    # `riskgate.py` still fires all seven for real.
 
     configured = bool(bot.risk_config)
     rows.append(
@@ -228,8 +206,19 @@ def evaluate(bot: Bot) -> dict:
         )
     )
 
+    waived = set(bot.gate_waived or [])
+    rows = [replace(row, waived=row.key in waived) for row in rows]
+    binding = [row for row in rows if not row.waived]
+
     return {
-        "ready": all(row.met for row in rows),
+        # Whether the gate is being asked at all. Off is a recorded decision on
+        # the bot, so a promotion that skipped the numbers says so afterwards.
+        "enforced": bot.gate_enforced,
+        "ready": (not bot.gate_enforced) or all(row.met for row in binding),
+        # What ``ready`` would say with the switches back on — the panel shows
+        # both, because "allowed" and "proven" are different sentences.
+        "measured_ready": all(row.met for row in rows),
+        "waived": sorted(waived),
         "rows": [row.as_dict() for row in rows],
     }
 

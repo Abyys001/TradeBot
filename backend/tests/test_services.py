@@ -7,6 +7,7 @@ service layer, the real models, and the real notification path.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from unittest import mock
 
 import pytest
@@ -130,6 +131,101 @@ async def test_route_open_for_a_bot_only_fans_out_to_opted_in_accounts():
 
     legs = await sync_to_async(lambda: list(trade.legs.select_related("account")))()
     assert [leg.account.label for leg in legs] == ["bot-on"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_bot_entry_commits_ninety_nine_percent_of_every_account_it_reaches():
+    """Spec §5 is not a manual-only rule.
+
+    A bot is a signal source, not a second execution path, so its entry goes
+    through the same ``route_open`` and the same ``size_order``. Checked
+    end-to-end rather than trusted: this is the number that decides how much of
+    a partner's capital a strategy commits.
+    """
+    for label, balance in (("small", "10"), ("medium", "50"), ("large", "100")):
+        await make_account(label, balance=balance)
+        account = await ConnectedAccount.objects.aget(label=label)
+        account.bot_trading_enabled = True
+        await sync_to_async(account.save)(update_fields=["bot_trading_enabled"])
+
+    trade, _ = await route_open(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        market=MarketType.FUTURES,
+        order_type=OrderType.MARKET,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        source="bot",
+    )
+
+    legs = await sync_to_async(lambda: list(trade.legs.select_related("account")))()
+    margins = {leg.account.label: leg.margin for leg in legs if leg.ok}
+    # 99% of each balance, rounded down to the exchange step — never up, and
+    # never a share of some pooled total.
+    assert margins["medium"] == D("49.50")
+    assert margins["large"] == D("99.00")
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_paused_account_never_takes_a_bot_entry_however_the_switch_is_set():
+    """Two independent conditions, and both have to hold.
+
+    ``bot_trading_enabled`` on a paused account is an intention, not a
+    permission — the commonest way a fan-out would reach somewhere it should
+    not is one of the two being checked and the other assumed.
+    """
+    await make_account("paused", status=AccountStatus.PAUSED)
+    paused = await ConnectedAccount.objects.aget(label="paused")
+    paused.bot_trading_enabled = True
+    await sync_to_async(paused.save)(update_fields=["bot_trading_enabled"])
+    await make_account("active-opted-in")
+    active = await ConnectedAccount.objects.aget(label="active-opted-in")
+    active.bot_trading_enabled = True
+    await sync_to_async(active.save)(update_fields=["bot_trading_enabled"])
+
+    accounts = await eligible_accounts(source="bot")
+    assert [a.label for a in accounts] == ["active-opted-in"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_a_bot_trade_is_in_the_ledger_arithmetic_like_any_other():
+    """The money side does not know a bot placed it, and must not.
+
+    ``detection`` subtracts the legs the platform closed itself from what equity
+    did; a trade that was invisible to it would be booked as an unexplained
+    transfer, which is a wrong PnL in both directions.
+    """
+    from apps.accounts.detection import _closed_trade_pnl
+
+    await make_account("ledger", balance="1000")
+    account = await ConnectedAccount.objects.aget(label="ledger")
+    account.bot_trading_enabled = True
+    await sync_to_async(account.save)(update_fields=["bot_trading_enabled"])
+
+    trade, _ = await route_open(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        market=MarketType.FUTURES,
+        order_type=OrderType.MARKET,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        source="bot",
+    )
+    await route_close(trade=trade)
+
+    @sync_to_async
+    def booked() -> D:
+        leg = TradeLeg.objects.filter(trade=trade).first()
+        leg.pnl = D("12.34")
+        leg.closed_at = timezone.now()
+        leg.save(update_fields=["pnl", "closed_at"])
+        return _closed_trade_pnl(
+            account, timezone.now() - timedelta(hours=1), timezone.now()
+        )
+
+    assert await booked() == D("12.34")
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

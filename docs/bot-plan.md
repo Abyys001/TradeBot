@@ -426,11 +426,19 @@ unmet, so each row needs a number the system itself records.
 | Process restarts survived cleanly | ≥ 3, one unplanned | recovery log entries |
 | Feed gaps handled | 100% | feed gap counters |
 | Reconciliation drift events | 0 unexplained | `BotAction` results |
-| Kill-switch drills passed | ≥ 2 | halt log entries |
-| Every Q25 auto-stop fired in a drill | all 7 | `BotRun.stop_reason` |
 
 Fourteen days is not round-number thinking: it crosses a weekend, a funding
 cycle, an exchange maintenance window, and at least one bad-liquidity hour.
+
+Two further rows — a kill-switch drill count and "every Q25 auto-stop fired in a
+drill" — were **removed at the admin's instruction**, along with the drills that
+fired them: exercises rather than measurements, and the kill-switch one sent
+real close orders through a live book to clear a checkbox. The auto-stops
+themselves are untouched, and the §7 halt is still one press away.
+
+Every row is also **waivable**, and the whole gate is switchable off
+(`Bot.gate_enforced`, `Bot.gate_waived`). The rows keep being measured either
+way — see `docs/bots.md` §5.
 
 ---
 

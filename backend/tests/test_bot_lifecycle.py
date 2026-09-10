@@ -106,13 +106,15 @@ def test_a_refused_transition_changes_nothing():
 # --- Q26 retention ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("interval", ["15m", "1h", "4h", "1d"])
+@pytest.mark.parametrize("interval", ["15m", "30m", "1h", "2h", "4h", "12h", "1d", "1w"])
 def test_fifteen_minutes_and_above_keeps_every_bar(interval):
     assert retention.keeps_every_bar(interval) is True
 
 
-@pytest.mark.parametrize("interval", ["1m", "5m"])
+@pytest.mark.parametrize("interval", ["1m", "3m", "5m"])
 def test_the_dense_intervals_are_trimmed(interval):
+    """Read off the bar's length, not a list of names — 3m was added later and
+    a name list would have quietly exempted the densest chart on offer."""
     assert retention.keeps_every_bar(interval) is False
 
 

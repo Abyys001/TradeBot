@@ -85,6 +85,14 @@ const warningCount = computed(() => diagnostics.value.length - errorCount.value)
  * strategy has thirty of them across five `group=` sections; listing all thirty
  * in declaration order is technically the same settings and unusable.
  */
+const CATEGORY_TONE: Record<string, 'brand' | 'ok' | 'signal' | 'neutral'> = {
+  risk: 'signal',
+  execution: 'brand',
+  backtest: 'neutral',
+  logic: 'ok',
+  visual: 'neutral',
+}
+
 const inputGroups = computed(() => {
   const groups = new Map<string, PineInput[]>()
   for (const input of validation.value?.inputs ?? []) {
@@ -484,7 +492,7 @@ onMounted(load)
           </ul>
         </UiCard>
 
-        <UiCard v-if="validation?.inputs.length" :title="t('bots.inputs')" flush>
+        <UiCard v-if="validation?.inputs.length" :title="t('bots.inputs.title')" flush>
           <div v-for="section in inputGroups" :key="section.group">
             <p
               v-if="section.group"
@@ -500,6 +508,9 @@ onMounted(load)
                     <th class="text-start px-4 py-2 font-normal">{{ t('bots.inputType') }}</th>
                     <th class="text-end px-4 py-2 font-normal">{{ t('bots.inputDefault') }}</th>
                     <th class="text-end px-4 py-2 font-normal">{{ t('bots.inputRange') }}</th>
+                    <th class="text-start px-4 py-2 font-normal">
+                      {{ t('bots.inputEffect') }}
+                    </th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-line">
@@ -521,6 +532,26 @@ onMounted(load)
                       {{ input.minval ?? '—' }} … {{ input.maxval ?? '—' }}
                       <span v-if="input.step" class="block text-tick mt-0.5">
                         {{ t('bots.inputStep', { n: String(input.step) }) }}
+                      </span>
+                    </td>
+                    <!-- Derived, not declared: which half of the bot this
+                         setting reaches, and the condition every non-visual use
+                         of it sits under. Both are read off the script's own
+                         logic — see `apps/pine/inputs.py`. -->
+                    <td class="px-4 py-2 align-top">
+                      <UiBadge :tone="CATEGORY_TONE[input.category] ?? 'neutral'">
+                        {{ t(`bots.inputs.category.${input.category}`) }}
+                      </UiBadge>
+                      <span v-if="!input.used" class="block text-tick text-ink-faint mt-0.5">
+                        {{ t('bots.inputs.unused') }}
+                      </span>
+                      <span
+                        v-for="gate in input.depends_on"
+                        :key="gate.controller"
+                        class="block text-tick text-ink-faint mt-0.5"
+                      >
+                        {{ gate.controller }}
+                        {{ gate.values.map((one) => String(one)).join(' / ') }}
                       </span>
                     </td>
                   </tr>

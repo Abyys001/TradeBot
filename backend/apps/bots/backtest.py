@@ -146,7 +146,7 @@ def _download_window(
     it stops on the budget rather than on a page count.
     """
     from apps.exchanges import catalogue
-    from apps.exchanges.feed_base import BACKFILL_TIMEOUT
+    from apps.exchanges.feed_base import BACKFILL_TIMEOUT, fetch_candles
     from apps.exchanges.marketdata import source_for
 
     source = source_for(exchange, timeout=BACKFILL_TIMEOUT)
@@ -165,8 +165,8 @@ def _download_window(
     progress("downloading", 0.0, {"exchange": exchange, "pages": 0, "bars": 0})
 
     while time.monotonic() < deadline:
-        candles = source.candles(
-            symbol=symbol, interval=interval, market=market, limit=page, end=end
+        candles = fetch_candles(
+            source, symbol=symbol, interval=interval, market=market, limit=page, end=end
         )
         if not candles:
             break

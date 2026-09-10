@@ -8,10 +8,36 @@ function readCookie(name: string): string {
   return match ? decodeURIComponent(match[2]) : ''
 }
 
+/**
+ * Record whether the link is up, without needing a setup context.
+ *
+ * `useApi()` is called from store actions as well as components, so this
+ * resolves Pinia lazily and stays silent if it is called before the app is
+ * ready — a connectivity note is never worth throwing over.
+ */
+function noteReachable(ok: boolean) {
+  if (import.meta.server) return
+  try {
+    const connection = useConnectionStore()
+    ok ? connection.noteSuccess() : connection.noteFailure()
+  } catch {
+    // Before Pinia is installed. Nothing to record yet.
+  }
+}
+
+/** The one sentence, in the reader's language, that replaces every fetch error. */
+function offlineMessage(): string {
+  try {
+    return useNuxtApp().$i18n.t('connection.offlineDetail') as string
+  } catch {
+    return 'No connection to the server — check your internet connection.'
+  }
+}
+
 export function useApi() {
   const base = useRuntimeConfig().public.apiBase
 
-  const request = <T>(path: string, options: Record<string, any> = {}) => {
+  const request = async <T>(path: string, options: Record<string, any> = {}) => {
     const method = (options.method ?? 'GET').toUpperCase()
     const headers: Record<string, string> = { ...(options.headers ?? {}) }
 
@@ -22,7 +48,32 @@ export function useApi() {
       if (token) headers['X-CSRFToken'] = token
     }
 
-    return $fetch<T>(`${base}${path}`, { credentials: 'include', ...options, headers })
+    try {
+      const answer = await $fetch<T>(`${base}${path}`, {
+        credentials: 'include',
+        ...options,
+        headers,
+      })
+      noteReachable(true)
+      return answer
+    } catch (e: any) {
+      // A *status* of any kind means the server answered — a 400, a 409, even a
+      // 500 is a working connection. Only a failure with no status at all is
+      // the link itself, and that is the one the panel renames.
+      if (!isNetworkError(e)) {
+        noteReachable(true)
+        throw e
+      }
+      noteReachable(false)
+      // Rethrown with a sentence instead of "Failed to fetch". Every call site
+      // already runs the result through `errorMessage`, so this reaches all of
+      // them at once rather than being patched into thirty catch blocks.
+      throw Object.assign(new Error(offlineMessage()), {
+        statusCode: null,
+        data: { detail: offlineMessage(), code: 'offline' },
+        cause: e,
+      })
+    }
   }
 
   return {
@@ -240,7 +291,15 @@ export function useApi() {
      */
     validatePine: (source: string) =>
       request<PineValidation>('/bots/validate/', { method: 'POST', body: { source } }),
-    strategies: () => request<Strategy[]>('/bots/strategies/'),
+    /**
+     * `compact` omits every version's source and validation report. The bots
+     * list and the backtest form need a name and an id; the editor needs the
+     * lot, and asks without it.
+     */
+    strategies: (compact = false) =>
+      request<Strategy[]>(`/bots/strategies/${compact ? '?compact=1' : ''}`),
+    /** One version by id, source included — what the bot detail page reads. */
+    strategyVersion: (id: number) => request<StrategyVersion>(`/bots/versions/${id}/`),
     createStrategy: (body: Record<string, unknown>) =>
       request<Strategy>('/bots/strategies/', { method: 'POST', body }),
     /** Rename, or re-describe. The *source* is never patched — that is `saveVersion`. */
@@ -261,8 +320,6 @@ export function useApi() {
       request<BotSummary>(`/bots/bots/${id}/`, { method: 'PATCH', body }),
     deleteBot: (id: number) => request<void>(`/bots/bots/${id}/`, { method: 'DELETE' }),
     botRuns: (id: number) => request<BotRun[]>(`/bots/bots/${id}/runs/`),
-    botBars: (id: number, limit = 500) =>
-      request<BotBar[]>(`/bots/bots/${id}/bars/?limit=${limit}`),
     /** The action log with its fan-out legs — the one bot surface naming accounts. */
     botActions: (id: number) => request<BotAction[]>(`/bots/bots/${id}/actions/`),
     /** The Phase 7 gate with this bot's own measurements filled in. */
@@ -275,6 +332,18 @@ export function useApi() {
      */
     versionProperties: (id: number) =>
       request<VersionProperties>(`/bots/versions/${id}/properties/`),
+    /** The author's half of the same dialog: this bot's inputs, already resolved. */
+    botInputs: (id: number) => request<InputsPayload>(`/bots/bots/${id}/inputs/`),
+    /** And for a version with no bot behind it — what the backtest form draws. */
+    versionInputs: (id: number) => request<InputsPayload>(`/bots/versions/${id}/inputs/`),
+    /** Saved input sets for one strategy. A preset carries values and nothing else. */
+    presets: (strategyId: number) =>
+      request<InputPreset[]>(`/bots/presets/?strategy=${strategyId}`),
+    createPreset: (body: { strategy: number; name: string; values: Record<string, unknown> }) =>
+      request<InputPreset>('/bots/presets/', { method: 'POST', body }),
+    updatePreset: (id: number, body: { values: Record<string, unknown> }) =>
+      request<InputPreset>(`/bots/presets/${id}/`, { method: 'PATCH', body }),
+    deletePreset: (id: number) => request<void>(`/bots/presets/${id}/`, { method: 'DELETE' }),
     startBot: (id: number, state: 'paper' | 'live') =>
       request<{ bot_id: number; state: string; run_id: number; deactivated: number[] }>(
         `/bots/bots/${id}/start/`,
@@ -361,11 +430,11 @@ export function useApi() {
     botAccounts: (id: number) =>
       request<{ accounts: BotAccountRow[] }>(`/bots/bots/${id}/accounts/`),
     /**
-     * Fire a drill for real. `halt` engages the §7 halt, force-closes every open
-     * trade without asking the strategy, and resumes the bot into the same run.
+     * Turn the promotion gate off for this bot, or waive one of its rows. Both
+     * are recorded on the bot — the rows keep being measured either way.
      */
-    runDrill: (id: number, kind: string) =>
-      request<DrillResult>(`/bots/bots/${id}/drill/`, { method: 'POST', body: { kind } }),
+    setBotGate: (id: number, body: { enforced?: boolean; waive?: string; on?: boolean }) =>
+      request<{ gate: PromotionGate }>(`/bots/bots/${id}/gate/`, { method: 'POST', body }),
     /** Tick the one gate row nothing can measure from inside. */
     acknowledgeAdapters: (id: number, acknowledged: boolean) =>
       request<{ risk_config: Record<string, unknown>; gate: PromotionGate }>(
@@ -1175,6 +1244,73 @@ export interface PineInput {
   group: string
   inline: string
   tooltip: string
+  /** Declaration order. TradingView's panel is in source order and so is this one. */
+  order: number
+  /** The control that edits it — the server decides, the form only draws. */
+  widget:
+    | 'toggle'
+    | 'number'
+    | 'text'
+    | 'textarea'
+    | 'select'
+    | 'source'
+    | 'color'
+    | 'datetime'
+    | 'session'
+    | 'timeframe'
+  category: 'risk' | 'execution' | 'backtest' | 'logic' | 'visual'
+  /** The sink that decided the category — evidence for a claim, on the row. */
+  reason: string
+  /** Advisory. A gated input is dimmed and still submitted; see `apps/pine/inputs.py`. */
+  depends_on: { controller: string; values: unknown[] }[]
+  used: boolean
+  /** What a dropdown offers: the script's `options=`, or the source list. */
+  choices: unknown[]
+}
+
+export interface PineInputGroup {
+  key: string
+  title: string
+  order: number
+  names: string[]
+  /** The `inline=` runs, each drawn as one line. */
+  rows: string[][]
+}
+
+export interface PineInputSchema {
+  fields: PineInput[]
+  groups: PineInputGroup[]
+  categories: { key: string; label: string }[]
+  defaults: Record<string, unknown>
+}
+
+/** A saved set of input values, per strategy — outlives the version it was saved from. */
+export interface InputPreset {
+  id: number
+  strategy: number
+  strategy_name: string
+  name: string
+  values: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  created_by: string
+}
+
+/**
+ * The settings panel, resolved. `resolved` is every input's effective value —
+ * the script's default under the override — because the merge rule lives on the
+ * server and a browser recomputing it is a second place for "the script chose
+ * 65" to become "the operator chose 65".
+ */
+export interface InputsPayload {
+  bot?: number
+  strategy_version: number
+  /** The strategy behind that version — what a preset is saved against. */
+  strategy: number
+  schema: PineInputSchema
+  resolved: Record<string, unknown>
+  overrides: Record<string, unknown>
+  presets: InputPreset[]
 }
 
 /**
@@ -1384,6 +1520,8 @@ export interface BotAction {
   idempotency_key: string
   payload: Record<string, unknown>
   intent: Record<string, unknown>
+  /** The strategy's own words for why — its `reason` string, as it wrote it. */
+  reason: string
   created_at: string
   dispatched_at: string | null
   settled_at: string | null
@@ -1391,6 +1529,13 @@ export interface BotAction {
   ok: boolean
   error: string
   legs: BotActionLeg[]
+  /** From the intent: `long` | `short` | null (flat / a close). */
+  side: 'long' | 'short' | null
+  /** The close of the bar this was decided on. Null once retention trims it. */
+  price: string | null
+  /** The bot's instrument, so a dry-run row says *what* as well as *when*. */
+  symbol: string
+  interval: string
 }
 
 /** One row of the Phase 7 gate, with the number behind it. */
@@ -1406,8 +1551,10 @@ export interface PromotionRow {
    * row's `seconds`/`required_seconds`/`since` are what the countdown ticks on.
    */
   params: Record<string, unknown>
-  /** `halt_drill` | `trigger_drill` | `acknowledge_adapters` | '' — what can clear it. */
+  /** `acknowledge_adapters` | '' — what a person can do about it beyond waiving it. */
   actionable: string
+  /** The operator has said this row does not bind. Measured and shown anyway. */
+  waived: boolean
 }
 
 /** One line of the bot's journal. Text lives in i18n under `bots.journal.<code>`. */
@@ -1485,18 +1632,6 @@ export interface BotAccountRow {
   eligible: boolean
 }
 
-export interface DrillResult {
-  kind: string
-  trades_closed: number
-  legs_ok: number
-  legs_failed: number
-  resumed: boolean
-  halt_drills: number
-  drills_fired: string[]
-  detail: string
-  gate: PromotionGate | null
-}
-
 /** A backtest in flight. The progress bar's whole source of truth. */
 export interface BacktestJobState {
   id: number
@@ -1531,7 +1666,13 @@ export interface BacktestCoverage {
 }
 
 export interface PromotionGate {
+  /** Whether the gate binds at all. Off is the admin's recorded decision. */
+  enforced: boolean
+  /** May this bot go live? False only while the gate is enforced and unmet. */
   ready: boolean
+  /** What `ready` would say with every switch back on — "allowed" vs "proven". */
+  measured_ready: boolean
+  waived: string[]
   rows: PromotionRow[]
 }
 

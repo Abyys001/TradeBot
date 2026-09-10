@@ -23,6 +23,7 @@ import difflib
 from dataclasses import dataclass, field
 
 from apps.pine import ast_nodes as ast
+from apps.pine import inputs as pine_inputs
 from apps.pine import properties
 from apps.pine.errors import PineError, PineNameError, PineSyntaxError, PineUnsupported, PineWarning
 from apps.pine.lexer import declared_version, tokenize
@@ -76,40 +77,12 @@ SIZE_ARGS = frozenset({"qty", "qty_percent"})
 FUNDAMENTAL_TYPES = frozenset({"int", "float", "bool", "string", "color"})
 
 
-@dataclass(frozen=True, slots=True)
-class InputSpec:
-    """One ``input.*`` call, as the Phase 8 parameter form needs it."""
-
-    name: str
-    kind: str
-    default: object
-    title: str
-    minval: object = None
-    maxval: object = None
-    options: tuple = ()
-    #: ``step``, ``group``, ``inline`` and ``tooltip`` are the *layout* half of
-    #: an input. A form that drops them turns thirty labelled, grouped controls
-    #: into thirty rows in declaration order — technically the same settings,
-    #: and unusable, which is a control problem rather than a cosmetic one.
-    step: object = None
-    group: str = ""
-    inline: str = ""
-    tooltip: str = ""
-
-    def as_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "kind": self.kind,
-            "default": self.default,
-            "title": self.title,
-            "minval": self.minval,
-            "maxval": self.maxval,
-            "options": list(self.options),
-            "step": self.step,
-            "group": self.group,
-            "inline": self.inline,
-            "tooltip": self.tooltip,
-        }
+#: One ``input.*`` call as the settings form needs it. Defined in
+#: ``apps.pine.inputs`` beside the analysis that fills in its derived half —
+#: the widget, the category and the dependency — and re-exported here because
+#: this is where it is *collected*, and every caller already imports the
+#: validator for the rest of what a pass returns.
+InputSpec = pine_inputs.InputSpec
 
 
 @dataclass(slots=True)
@@ -130,6 +103,11 @@ class ValidationResult:
     #: object, so the numbers a report was produced with are the numbers the
     #: form showed.
     properties: StrategyProperties = field(default_factory=StrategyProperties)
+    #: The same inputs, grouped as the script grouped them and with the three
+    #: derived halves filled in — ``apps.pine.inputs``. ``inputs`` above is the
+    #: flat list in declaration order and holds the same objects; this is the
+    #: shape the settings form is drawn from and submitted values are held to.
+    input_schema: pine_inputs.InputSchema = field(default_factory=pine_inputs.InputSchema)
 
     @property
     def ok(self) -> bool:
@@ -141,6 +119,7 @@ class ValidationResult:
             "errors": [e.as_dict() for e in self.errors],
             "warnings": [w.as_dict() for w in self.warnings],
             "inputs": [i.as_dict() for i in self.inputs],
+            "input_schema": self.input_schema.as_dict(),
             "ta_call_sites": self.ta_call_sites,
             "node_count": self.node_count,
             "properties": self.properties.as_dict(),
@@ -181,9 +160,7 @@ def validate(source: str, *, limits: Limits = DEFAULT_LIMITS) -> ValidationResul
     for token in tokens:
         if token.kind == TokenKind.KEYWORD and token.value in REJECTED_KEYWORDS:
             row = REJECTED_KEYWORDS[token.value]
-            result.errors.append(
-                PineUnsupported(row.message, code=row.code, span=token.span)
-            )
+            result.errors.append(PineUnsupported(row.message, code=row.code, span=token.span))
     if result.errors:
         return result
 
@@ -210,6 +187,11 @@ def validate(source: str, *, limits: Limits = DEFAULT_LIMITS) -> ValidationResul
 
     result.program = program
     _Checker(program, result, limits).run()
+    # The derivation runs last and unconditionally, errors or not: the editor
+    # draws the settings panel beside the underlines, and a script with one
+    # mistake in it still has thirty inputs somebody is looking at.
+    result.input_schema = pine_inputs.analyse(program, result.inputs)
+    result.inputs = list(result.input_schema.fields)
     return result
 
 
@@ -298,8 +280,9 @@ class _Checker:
                     attr = node.func.attr
                     callee = attr if attr in self.methods else None
                 if callee is not None and not any(
-                    isinstance(a, ast.If | ast.Ternary | ast.Switch | ast.For | ast.ForIn
-                               | ast.While)
+                    isinstance(
+                        a, ast.If | ast.Ternary | ast.Switch | ast.For | ast.ForIn | ast.While
+                    )
                     for a in ancestors
                 ):
                     owner = next(
@@ -456,8 +439,7 @@ class _Checker:
         ta_sites = [
             node
             for node in nodes
-            if isinstance(node, ast.Call)
-            and (ast.dotted_name(node.func) or "").startswith("ta.")
+            if isinstance(node, ast.Call) and (ast.dotted_name(node.func) or "").startswith("ta.")
         ]
         self.result.ta_call_sites = len(ta_sites)
         if len(ta_sites) > self.limits.max_ta_call_sites:
@@ -621,14 +603,10 @@ class _Checker:
     def _check_method_defs(self) -> None:
         seen: set[tuple[str, str]] = set()
         for method in self.program.methods:
-            known = (
-                self._known_type(method.receiver_type)
-                or method.receiver_type in self.enums
-            )
+            known = self._known_type(method.receiver_type) or method.receiver_type in self.enums
             if not known:
                 self._error(
-                    f"method {method.name!r} is declared on unknown type "
-                    f"{method.receiver_type!r}",
+                    f"method {method.name!r} is declared on unknown type {method.receiver_type!r}",
                     code="unknown_receiver_type",
                     span=method.span,
                 )
@@ -768,8 +746,7 @@ class _Checker:
         if root in self.types:
             if attr not in ("new", "copy"):
                 self._error(
-                    f"{root!r} is a type — the only calls on it are {root}.new() and "
-                    f"{root}.copy()",
+                    f"{root!r} is a type — the only calls on it are {root}.new() and {root}.copy()",
                     code="unknown_type_member",
                     span=node.span,
                 )
@@ -777,9 +754,7 @@ class _Checker:
 
         if not isinstance(node.obj, ast.Name):
             return  # a nested access like ``a.b.c`` — the inner ``a.b`` is checked on its own
-        if not (
-            root in self.globals or root in BUILTIN_SERIES or root in BUILTIN_VALUES
-        ):
+        if not (root in self.globals or root in BUILTIN_SERIES or root in BUILTIN_VALUES):
             self._error(
                 f"{root!r} is not defined{self._suggest(root)}",
                 code="undefined_name",
@@ -792,9 +767,7 @@ class _Checker:
         if udt is None or not attr:
             return
         is_method_call = (
-            bool(ancestors)
-            and isinstance(ancestors[-1], ast.Call)
-            and ancestors[-1].func is node
+            bool(ancestors) and isinstance(ancestors[-1], ast.Call) and ancestors[-1].func is node
         )
         type_def = self.types.get(udt)
         if is_method_call:
@@ -1009,9 +982,7 @@ class _Checker:
             span=node.span,
         )
 
-    def _collect_input(
-        self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]
-    ) -> None:
+    def _collect_input(self, node: ast.Call, dotted: str, ancestors: tuple[ast.Node, ...]) -> None:
         assignment = next((a for a in reversed(ancestors) if isinstance(a, ast.Assign)), None)
         if assignment is None or len(assignment.targets) != 1:
             self._error(
@@ -1045,8 +1016,7 @@ class _Checker:
                 minval=_literal(node.keyword("minval")),
                 maxval=_literal(node.keyword("maxval")),
                 options=tuple(
-                    _literal(item)
-                    for item in getattr(node.keyword("options"), "items", ())
+                    _literal(item) for item in getattr(node.keyword("options"), "items", ())
                 ),
                 step=_literal(node.keyword("step")),
                 group=str(self._const(node.keyword("group")) or ""),

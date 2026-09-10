@@ -1012,7 +1012,10 @@
       "unreachable": "El motor no completó el handshake. /ws se sirve desde el propio origen del panel; comprueba que quien termina el TLS reenvía la cabecera Upgrade.",
       "forbidden": "El motor rechazó esta sesión. El canal en vivo es solo para personal — inicia sesión con una cuenta de staff.",
       "engine": "El panel llegó al motor pero el motor no respondió. Revisa el contenedor del backend."
-    }
+    },
+    "offlineTitle": "Sin conexión",
+    "offlineDetail": "El panel no puede alcanzar el servidor — comprueba tu conexión a internet.",
+    "offlineFor": "caído desde hace {for}"
   },
   "watchlist": {
     "title": "Lista de seguimiento",
@@ -1092,7 +1095,6 @@
     "strategies": "Estrategias",
     "strategiesLead": "Pine Script v5 y v6, comprobado mientras escribes. Todo lo que quede fuera del subconjunto admitido se rechaza por nombre, línea y columna: nada se analiza y se ignora en silencio.",
     "backtest": "Backtest",
-    "backtestLead": "Reproduce una versión sobre el histórico almacenado. El modelo de ejecución se imprime encima de las métricas, porque un backtest que se halaga a sí mismo produce un número por el que la gente actúa.",
     "newStrategy": "Nueva estrategia",
     "newBot": "Nuevo bot",
     "none": "Aún no hay bots",
@@ -1111,7 +1113,39 @@
     "errorsN": "{n} errores",
     "warningsN": "{n} avisos",
     "diagnostics": "Problemas",
-    "inputs": "Entradas",
+    "inputs": {
+      "title": "Entradas de la estrategia",
+      "lead": "Los ajustes que declara el propio script, leídos del código subido.",
+      "liveNote": "Llegan al bot en vivo sin cambios: cambiar aquí un periodo o un modo de stop cambia lo que opera, no cómo se titula el informe.",
+      "runningNote": "Este bot está en marcha. Los ajustes guardados se aplican al siguiente arranque, no a mitad de ejecución.",
+      "dialogLead": "Los ajustes del script para esta repetición. Se envían con la ejecución; no se guarda nada.",
+      "presets": "Preajustes",
+      "presetsHint": "Conjuntos de valores guardados para esta estrategia. Cargar uno rellena el formulario sin guardarlo.",
+      "presetLoad": "Cargar",
+      "presetSave": "Guardar preajuste",
+      "presetName": "Nombre del preajuste",
+      "presetSize": "{n} cambiados",
+      "ungrouped": "Entradas",
+      "allCategories": "Todas",
+      "resetAll": "Restablecer todo ({n})",
+      "resetHint": "Devolver este ajuste al valor por defecto del script",
+      "unused": "Declarado pero nunca leído por este script.",
+      "none": "Esta estrategia no declara entradas.",
+      "gateBool": "Sin efecto mientras «{name}» esté desactivado.",
+      "gateValue": "Solo tiene efecto si «{name}» es {values}.",
+      "changedN": "{n} cambiados",
+      "noChanges": "Valores del script",
+      "source": {
+        "panel": "Cambiado"
+      },
+      "category": {
+        "risk": "Riesgo",
+        "execution": "Ejecución",
+        "backtest": "Backtest",
+        "logic": "Lógica",
+        "visual": "Visual"
+      }
+    },
     "inputName": "Nombre",
     "inputType": "Tipo",
     "inputDefault": "Predeterminado",
@@ -1145,12 +1179,6 @@
     "noActionsBody": "Cada orden que envía este bot aparece aquí con lo que devolvió cada cuenta.",
     "shadowNote": "registrado, no enviado",
     "stillOpen": "{pct}% sigue abierto",
-    "noBars": "Aún no hay velas registradas",
-    "barTime": "Vela",
-    "close": "Cierre",
-    "intent": "Intención",
-    "plots": "Series",
-    "evaluated": "Evaluada en",
     "promotion": "Puerta de promoción",
     "promotionHint": "Medida, no afirmada. Se rechaza el modo real mientras quede una fila sin cumplir.",
     "requirement": "Requisito",
@@ -1185,13 +1213,13 @@
     },
     "tab": {
       "activity": "Actividad",
-      "bars": "Velas",
       "promotion": "Promoción",
       "source": "Código",
       "properties": "Propiedades",
       "journal": "Registro",
       "chart": "Gráfico",
-      "logic": "Lógica"
+      "logic": "Lógica",
+      "inputs": "Entradas"
     },
     "action": {
       "open": "Abrir",
@@ -1245,7 +1273,6 @@
     "historyNote": "El historial que esta ventana necesita y el archivo no tiene se descarga y se guarda en la primera ejecución. Un mercado que no llega tan atrás se informa sobre los números, nunca se rechaza.",
     "replayingNote": "La primera ejecución sobre un par nuevo también descarga su historial.",
     "viewingStored": "Ejecución guardada · {name}",
-    "renameBot": "Renombrar bot",
     "props": {
       "title": "Propiedades de la estrategia",
       "lead": "La pestaña Propiedades de TradingView para este bot. Estos números configuran el backtest, de modo que una repetición aquí se puede comparar con la que ejecutó en TradingView.",
@@ -1347,36 +1374,6 @@
     "clearHistoryBody": "¿Borrar los {n} backtests guardados? Las velas descargadas que hay detrás se conservan, así que volver a ejecutar no cuesta descarga.",
     "deleteRun": "Borrar esta ejecución",
     "deleteRunBody": "¿Borrar este backtest guardado? Las velas que repitió siguen en el archivo.",
-    "drills": "Simulacros",
-    "drillsHint": "Dos de las filas de la puerta son ejercicios en vez de mediciones. Estos las disparan.",
-    "drillsLead": "Un simulacro es la maquinaria real, no una simulación. Todo lo de abajo envía lo que dice que envía.",
-    "drillsNeedRunning": "Arranque primero el bot en papel — un simulacro demuestra que un bot *en marcha* se detiene.",
-    "runDrill": "Ejecutar simulacro",
-    "rerunDrill": "Ejecutar otra vez",
-    "drillPassedN": "{n} superados",
-    "q25Drills": "Simulacros de parada automática",
-    "q25DrillsBody": "Cada uno detiene el bot con ese código de motivo y lo reanuda, demostrando la vía de parada y el reinicio para ese disparador. No fabrica la condición.",
-    "drillDone": "Simulacro «{kind}» terminado.",
-    "drillClosed": "Se cerraron a la fuerza {trades} operación(es): {ok} tramos liquidados, {failed} rechazados.",
-    "drillResumed": "El bot se reanudó en la misma ejecución, así que el reloj de rodaje siguió corriendo.",
-    "drillNotResumed": "El bot no se reanudó automáticamente — arránquelo de nuevo desde la cabecera.",
-    "drillConfirmTitle": "¿Ejecutar el simulacro de parada de emergencia?",
-    "drillConfirmBody": "Esto activa la parada de toda la plataforma y cierra a la fuerza cada posición abierta en cada cuenta, sin preguntar a la estrategia. Después libera la parada y reanuda el bot. Se envían órdenes reales.",
-    "drillConfirmAction": "Parar y liquidar",
-    "drill": {
-      "halt": "Simulacro de parada de emergencia",
-      "haltBody": "Activa la parada del §7, cierra a la fuerza cada operación abierta por la misma vía que usa «Detener todo» — sin referencia a lo que la estrategia crea que está abierto — y luego libera la parada y reanuda el bot en la misma ejecución."
-    },
-    "drillKind": {
-      "halt": "Parada de emergencia",
-      "consecutive_losses": "Pérdidas consecutivas",
-      "drawdown": "Drawdown",
-      "feed_gap": "Hueco en la fuente de precios",
-      "script_error": "Error del script",
-      "state_disagreement": "Discrepancia de estado",
-      "trade_rate": "Frecuencia de operaciones",
-      "no_bars": "Sin velas"
-    },
     "trigger": {
       "entry": "Entrada",
       "order": "Orden",
@@ -1406,8 +1403,6 @@
         "restarts": "Reinicios del proceso superados limpiamente",
         "feed_gaps": "Huecos en la fuente reparados o parados limpiamente",
         "drift": "Desviaciones de reconciliación",
-        "halt_drills": "Simulacros de parada de emergencia superados",
-        "q25_drills": "Cada parada automática disparada a propósito en un simulacro",
         "risk_config": "Límites de riesgo fijados a propósito para esta estrategia",
         "adapters": "Adaptadores de exchange probados contra un exchange real o testnet"
       },
@@ -1416,8 +1411,6 @@
         "restarts": "al menos {required}, uno de ellos no planificado",
         "feed_gaps": "todos",
         "drift": "0 sin explicar",
-        "halt_drills": "al menos {required}",
-        "q25_drills": "los {total}",
         "risk_config": "no dejados en los valores por defecto",
         "adapters": "confirmado por una persona"
       },
@@ -1426,17 +1419,20 @@
         "restarts": "{n} ({unplanned} no planificados)",
         "feed_gaps": "{repaired} de {gaps}",
         "drift": "{n}",
-        "halt_drills": "{n}",
-        "q25_drills": "{done} de {total}",
         "adapters": "—"
-      }
+      },
+      "enforceLabel": "Exigir la puerta de promoción",
+      "enforceHint": "Activada, una fila incumplida rechaza papel → real. Desactivada, este bot puede pasar a real sin pruebas — las filas se siguen midiendo y mostrando.",
+      "offWarning": "La puerta está desactivada. Este bot puede pasar a real sin ninguna de las mediciones de abajo.",
+      "offUnmet": "Al menos una fila está incumplida ahora mismo.",
+      "required": "Requerida",
+      "requiredFor": "Requerida: {row}"
     },
     "journal": {
       "started": "Ejecución iniciada en {symbol} {interval}.",
       "warmup": "Se calentó con {bars} velas de histórico antes de decidir nada — una media que no ha convergido nunca llega a operar.",
       "recovered": "Volvió a esta misma ejecución tras {n} reinicio(s), {unplanned} de ellos no planificados.",
       "feedGaps": "{repaired} de {gaps} hueco(s) en la fuente se repararon desde el exchange.",
-      "drills": "Se dispararon {n} simulacro(s) de parada de emergencia en esta ejecución.",
       "stopped": "Detenido — {reason}. {detail}",
       "watching_0": "Vela cerrada en {close}. {plots} — no cruzó nada. Plano, y observando.",
       "watching_1": "{close}. {plots}. En esta vela no se cumplió ninguna condición de entrada, así que la posición sigue plana.",
@@ -1472,7 +1468,14 @@
       "actionOtherFailed": "La acción falló. {error}",
       "legsFailed": "{n} cuenta(s) no la aceptaron",
       "unsettled": "Esta acción se despachó y su resultado nunca se escribió de vuelta — la plataforma envió algo y nunca supo qué pasó."
-    }
+    },
+    "chartLoading": "Dibujando el gráfico…",
+    "editBot": "Editar bot",
+    "editLockedRunning": "Detén el bot para cambiar su instrumento, temporalidad o niveles — moverlos bajo una estrategia en marcha dejaría su estado describiendo un mercado que ya no opera. El nombre puede cambiarse en cualquier momento.",
+    "editVersionFixed": "Ejecuta {name} v{n}. La versión es la identidad de este bot y no se puede cambiar — guarda una versión nueva de la estrategia y crea un bot a partir de ella.",
+    "noActionsEvaluated": "Todavía no se ha enviado nada. {n} vela(s) evaluadas hasta ahora — un bot que ha mirado velas sin operar funciona, no está atascado.",
+    "editInputs": "Entradas de la estrategia",
+    "inputEffect": "Efecto"
   },
   "security": {
     "title": "Seguridad",

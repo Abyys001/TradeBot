@@ -19,7 +19,7 @@ import logging
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.db.models import ProtectedError
+from django.db.models import Prefetch, ProtectedError
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_POST
@@ -37,7 +37,9 @@ from apps.bots.models import (
     BacktestRun,
     Bot,
     BotAction,
+    BotRun,
     BotState,
+    InputPreset,
     StopReason,
     Strategy,
     StrategyVersion,
@@ -49,6 +51,8 @@ from apps.bots.serializers import (
     BotBarSerializer,
     BotRunSerializer,
     BotSerializer,
+    InputPresetSerializer,
+    StrategyListSerializer,
     StrategySerializer,
     StrategyVersionSerializer,
 )
@@ -63,6 +67,23 @@ class StrategyViewSet(viewsets.ModelViewSet):
     queryset = Strategy.objects.prefetch_related("versions__bots")
     serializer_class = StrategySerializer
     permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        """``?compact=1`` on the list is the bots pages' shape — see the serializer.
+
+        Only on ``list``: a retrieve is the editor asking for one strategy, and
+        that one really does want every version's source.
+        """
+        if self.action == "list" and self.request.query_params.get("compact"):
+            return StrategyListSerializer
+        return StrategySerializer
+
+    def get_queryset(self):
+        if self.action == "list" and self.request.query_params.get("compact"):
+            # No `versions__bots`: the compact shape carries no `used_by`, and
+            # that prefetch walks every bot on the platform.
+            return Strategy.objects.prefetch_related("versions")
+        return super().get_queryset()
 
     def perform_create(self, serializer) -> None:
         serializer.save(created_by=self.request.user.get_username())
@@ -117,7 +138,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             parsed_ok=result.ok,
             validation_errors=[e.as_dict() for e in result.errors],
             validation_warnings=[w.as_dict() for w in result.warnings],
-            inputs_schema=[i.as_dict() for i in result.inputs],
+            inputs_schema=result.input_schema.as_dict(),
             properties=result.properties.as_dict(),
             property_notes={
                 "live_departures": result.properties.live_departures(),
@@ -129,7 +150,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
 
 class BotViewSet(viewsets.ModelViewSet):
-    queryset = Bot.objects.select_related("strategy_version__strategy").prefetch_related("runs")
+    # `runs` is prefetched **ordered**, because `get_latest_run` reads the
+    # newest off the prefetched list. An `.order_by()` on the related manager
+    # would discard the prefetch and cost one query per bot.
+    queryset = Bot.objects.select_related("strategy_version__strategy").prefetch_related(
+        Prefetch("runs", queryset=BotRun.objects.order_by("-started_at"))
+    )
     serializer_class = BotSerializer
     permission_classes = [IsAdminUser]
 
@@ -152,15 +178,33 @@ class BotViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def actions(self, request: Request, pk=None) -> Response:
-        """The action log, with fan-out legs. The one bot surface naming accounts."""
+        """The action log, with fan-out legs. The one bot surface naming accounts.
+
+        Also carries the price each decision was made at, looked up once for the
+        whole page. A dry run has no fills to read a price back out of, so
+        without this the paper log could say when a bot went long but never at
+        what — which is most of what a paper run is for.
+        """
         bot = self.get_object()
         run = bot.runs.order_by("-started_at").first()
         if run is None:
             return Response([])
-        rows = BotAction.objects.filter(run=run).select_related("trade")[:200]
+        rows = list(BotAction.objects.filter(run=run).select_related("trade")[:200])
+        prices = dict(
+            run.bars.filter(bar_time__in=[row.bar_time for row in rows]).values_list(
+                "bar_time", "close"
+            )
+        )
         return Response(
             BotActionSerializer(
-                rows, many=True, context={"hidden_ids": _filtered(request.user)}
+                rows,
+                many=True,
+                context={
+                    "hidden_ids": _filtered(request.user),
+                    "bar_prices": prices,
+                    "symbol": bot.symbol,
+                    "interval": bot.interval,
+                },
             ).data
         )
 
@@ -248,8 +292,7 @@ class BotViewSet(viewsets.ModelViewSet):
                         "status": row.status,
                         "bot_trading_enabled": row.bot_trading_enabled,
                         "manual_trading_enabled": row.manual_trading_enabled,
-                        "eligible": row.status == AccountStatus.ACTIVE
-                        and row.bot_trading_enabled,
+                        "eligible": row.status == AccountStatus.ACTIVE and row.bot_trading_enabled,
                     }
                     for row in rows
                 ]
@@ -260,6 +303,48 @@ class BotViewSet(viewsets.ModelViewSet):
     def promotion(self, request: Request, pk=None) -> Response:
         """The Phase 7 gate with this bot's own measurements filled in."""
         return Response(gate.evaluate(self.get_object()))
+
+    @action(detail=True, methods=["post"], url_path="gate")
+    def set_gate(self, request: Request, pk=None) -> Response:
+        """Turn the promotion gate off, or waive one row of it.
+
+        ``{"enforced": false}`` is the admin saying this bot may go live without
+        the measurements; ``{"waive": "soak", "on": true}`` says the same about
+        one row. Both are stored on the bot, so a promotion that skipped the
+        numbers is answerable afterwards rather than a dialog nobody logged.
+
+        The rows keep being measured either way. A gate that stops counting the
+        moment it stops binding would leave the operator with no reading at all.
+        """
+        bot = self.get_object()
+        changed = []
+
+        if "enforced" in request.data:
+            bot.gate_enforced = bool(request.data["enforced"])
+            changed.append("gate_enforced")
+
+        key = request.data.get("waive")
+        if key:
+            keys = {row["key"] for row in gate.evaluate(bot)["rows"]}
+            if key not in keys:
+                return Response({"detail": f"no gate row called {key!r}"}, status=400)
+            waived = set(bot.gate_waived or [])
+            waived.add(key) if request.data.get("on", True) else waived.discard(key)
+            bot.gate_waived = sorted(waived)
+            changed.append("gate_waived")
+
+        if not changed:
+            return Response({"detail": "nothing to change"}, status=400)
+        bot.save(update_fields=[*changed, "updated_at"])
+        logger.info(
+            "bot %s gate changed by %s: enforced=%s waived=%s",
+            bot.id,
+            request.user.get_username(),
+            bot.gate_enforced,
+            bot.gate_waived,
+            extra={"category": "BOT"},
+        )
+        return Response({"gate": gate.evaluate(bot)})
 
     @action(detail=True, methods=["post"], url_path="acknowledge-adapters")
     def acknowledge_adapters(self, request: Request, pk=None) -> Response:
@@ -316,6 +401,63 @@ class BotViewSet(viewsets.ModelViewSet):
                 "inert": resolved.inert_here(),
             }
         )
+
+    @action(detail=True, methods=["get"])
+    def inputs(self, request: Request, pk=None) -> Response:
+        """The script's own settings for this bot, already resolved.
+
+        The same shape as ``properties`` above and for the same reason: the
+        panel is handed one value per input with the source that won it, not a
+        schema and a dictionary of overrides and the rule for combining them.
+        ``resolve_values`` is that rule and it exists once — a browser
+        recomputing it is a second place for "the script said 65 and nobody
+        changed it" to become "the operator chose 65".
+
+        ``presets`` rides along because the form needs them on first paint, and
+        a second request for four rows is a second spinner.
+        """
+        from apps.pine import inputs as pine_inputs
+
+        bot = self.get_object()
+        schema = pine_inputs.InputSchema.from_data(bot.strategy_version.inputs_schema)
+        overrides, _ = pine_inputs.validate_values(schema, bot.input_values or {})
+        return Response(
+            {
+                "bot": bot.id,
+                "strategy_version": bot.strategy_version_id,
+                # The preset endpoints key on the *strategy*, not the version —
+                # a set of values outlives the revision it was typed against.
+                "strategy": bot.strategy_version.strategy_id,
+                "schema": schema.as_dict(),
+                "resolved": pine_inputs.resolve_values(schema, overrides),
+                "overrides": overrides,
+                "presets": InputPresetSerializer(
+                    bot.strategy_version.strategy.presets.all(), many=True
+                ).data,
+            }
+        )
+
+
+class InputPresetViewSet(viewsets.ModelViewSet):
+    """Saved input sets, per strategy. ``?strategy=<id>`` to list one's own.
+
+    Deliberately thin: a preset is a name and a dictionary, and the checking
+    that matters happens where it is *applied* — against the version in hand,
+    which is the only place that knows whether the script still has an input by
+    that name.
+    """
+
+    queryset = InputPreset.objects.select_related("strategy")
+    serializer_class = InputPresetSerializer
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        rows = super().get_queryset()
+        strategy = self.request.query_params.get("strategy")
+        return rows.filter(strategy_id=strategy) if strategy else rows
+
+    def perform_create(self, serializer) -> None:
+        serializer.save(created_by=self.request.user.get_username())
 
 
 #: How many stored runs the history endpoint will hand back at once.
@@ -581,6 +723,17 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
             overrides, _ = props.validate_overrides(bot.property_overrides or {})
     payload = {**payload, "property_overrides": props.serialise_overrides(overrides)}
 
+    # The author's half of the same dialog. Held to the version's own schema
+    # here rather than at the runtime, where an out-of-range length is a wrong
+    # report instead of a refusal — and a report is what a promotion is read off.
+    from apps.pine import inputs as pine_inputs
+
+    schema = pine_inputs.InputSchema.from_data(version.inputs_schema)
+    values, input_errors = pine_inputs.validate_values(schema, payload.get("inputs"))
+    if input_errors:
+        return JsonResponse({"detail": "bad strategy inputs", "inputs": input_errors}, status=400)
+    payload = {**payload, "inputs": values}
+
     user = await request.auser()
     if not payload.get("wait"):
         job = await sync_to_async(jobs.start)(version, payload, actor=user.get_username())
@@ -607,6 +760,21 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
 
     stored = await sync_to_async(jobs.store)(version, report, payload, user.get_username())
     return JsonResponse({"backtest_id": stored.id, **report.as_dict()})
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def strategy_version(request: Request, pk: int) -> Response:
+    """One version, whole — source included.
+
+    The bot detail page needs the exact source its own version pins, and that is
+    the only reason it used to load every strategy on the platform. One row by
+    id is the question it was actually asking.
+    """
+    version = StrategyVersion.objects.filter(pk=pk).prefetch_related("bots").first()
+    if version is None:
+        return Response({"detail": "no such version"}, status=404)
+    return Response(StrategyVersionSerializer(version).data)
 
 
 @api_view(["GET"])
@@ -645,6 +813,34 @@ def version_properties(request: Request, pk: int) -> Response:
             "schema": props.schema_as_data(),
             "live_departures": resolved.live_departures(),
             "inert": resolved.inert_here(),
+        }
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def version_inputs(request: Request, pk: int) -> Response:
+    """The settings panel for a strategy *version*, with no bot in the picture.
+
+    What the backtest form draws before a run: the same schema and the same
+    defaults the bot page uses, with the overrides left to the caller, which
+    holds them in the form and posts them with the run.
+    """
+    from apps.pine import inputs as pine_inputs
+
+    version = StrategyVersion.objects.filter(pk=pk).select_related("strategy").first()
+    if version is None:
+        return Response({"detail": "no such strategy version"}, status=404)
+
+    schema = pine_inputs.InputSchema.from_data(version.inputs_schema)
+    return Response(
+        {
+            "strategy_version": version.id,
+            "strategy": version.strategy_id,
+            "schema": schema.as_dict(),
+            "resolved": schema.defaults(),
+            "overrides": {},
+            "presets": InputPresetSerializer(version.strategy.presets.all(), many=True).data,
         }
     )
 
@@ -719,41 +915,6 @@ def backtest_coverage_ratio():
 # --- drills: the safety machinery, fired on purpose --------------------------
 
 
-@require_POST
-@csrf_protect
-@admin_required
-async def run_drill(request: HttpRequest, pk: int) -> JsonResponse:
-    """Fire a drill against this bot for real. See ``apps/bots/drills.py``.
-
-    ``{"kind": "halt"}`` engages the §7 halt, force-closes every open trade
-    through ``route_close_all`` — with no reference to what the strategy thinks
-    should be open, which is the entire point — and resumes the bot into the
-    same run. Any Q25 reason code stops the bot with that code and resumes it.
-
-    Not behind step-up. A drill is a *safety* action, and the exclusion in
-    ``apps/security/stepup.py`` is deliberate about exactly this shape: a
-    password prompt in front of "flatten everything" costs money during the one
-    minute it matters.
-    """
-    bot = await sync_to_async(_get_bot)(pk)
-    if bot is None:
-        return JsonResponse({"detail": "no such bot"}, status=404)
-
-    user = await request.auser()
-    kind = str(_body(request).get("kind") or drills.HALT_DRILL)
-    try:
-        if kind == drills.HALT_DRILL:
-            result = await drills.run_halt_drill(bot, actor=user.get_username())
-        else:
-            result = await drills.run_trigger_drill(bot, kind, actor=user.get_username())
-    except drills.DrillRefused as exc:
-        return JsonResponse({"detail": str(exc), "code": "drill_refused"}, status=409)
-
-    fresh = await sync_to_async(_get_bot)(pk)
-    readiness = await sync_to_async(gate.evaluate)(fresh) if fresh else None
-    return JsonResponse({**result.as_dict(), "gate": readiness})
-
-
 def _decimal(value):
     from decimal import Decimal
 
@@ -818,9 +979,7 @@ def _chart_payload(bot: Bot, *, interval: str, limit: int) -> dict:
                     }
                     for row in rows
                 ],
-                "series": _series_from(
-                    [(row.bar_time, row.plots or {}) for row in rows]
-                ),
+                "series": _series_from([(row.bar_time, row.plots or {}) for row in rows]),
                 "markers": _markers_from_bars(rows) + _markers_from_actions(run, limit),
                 "note": "",
             }

@@ -1012,7 +1012,10 @@
       "unreachable": "Die Engine hat den Handshake nicht abgeschlossen. /ws wird vom eigenen Origin des Panels ausgeliefert; prüfen Sie, ob die TLS-Terminierung den Upgrade-Header weiterleitet.",
       "forbidden": "Die Engine hat diese Sitzung abgelehnt. Der Live-Kanal ist nur für Personal — melden Sie sich mit einem Staff-Konto an.",
       "engine": "Das Panel hat die Engine erreicht, aber sie hat nicht geantwortet. Prüfen Sie den Backend-Container."
-    }
+    },
+    "offlineTitle": "Keine Verbindung",
+    "offlineDetail": "Das Panel erreicht den Server nicht — prüfe deine Internetverbindung.",
+    "offlineFor": "seit {for} weg"
   },
   "watchlist": {
     "title": "Beobachtungsliste",
@@ -1092,7 +1095,6 @@
     "strategies": "Strategien",
     "strategiesLead": "Pine Script v5 und v6, beim Tippen geprüft. Alles außerhalb der unterstützten Teilmenge wird mit Namen, Zeile und Spalte abgelehnt — nichts wird geparst und stillschweigend ignoriert.",
     "backtest": "Backtest",
-    "backtestLead": "Eine Version über gespeicherte Historie abspielen. Das Ausführungsmodell steht über den Kennzahlen, denn ein Backtest, der sich selbst schmeichelt, erzeugt eine Zahl, nach der gehandelt wird.",
     "newStrategy": "Neue Strategie",
     "newBot": "Neuer Bot",
     "none": "Noch keine Bots",
@@ -1111,7 +1113,39 @@
     "errorsN": "{n} Fehler",
     "warningsN": "{n} Warnungen",
     "diagnostics": "Probleme",
-    "inputs": "Eingaben",
+    "inputs": {
+      "title": "Strategie-Eingaben",
+      "lead": "Die Einstellungen, die das Skript selbst deklariert — aus dem hochgeladenen Quelltext gelesen.",
+      "liveNote": "Diese erreichen den Live-Bot unverändert — eine hier geänderte Länge oder Stop-Art ändert, was gehandelt wird, nicht nur die Beschriftung des Berichts.",
+      "runningNote": "Dieser Bot läuft. Gespeicherte Einstellungen greifen beim nächsten Start, nicht mitten im Lauf.",
+      "dialogLead": "Die Einstellungen des Skripts für diesen Durchlauf. Werden mitgesendet, nichts wird gespeichert.",
+      "presets": "Voreinstellungen",
+      "presetsHint": "Gespeicherte Wertesätze für diese Strategie. Laden füllt das Formular, ohne zu speichern.",
+      "presetLoad": "Laden",
+      "presetSave": "Voreinstellung speichern",
+      "presetName": "Name der Voreinstellung",
+      "presetSize": "{n} geändert",
+      "ungrouped": "Eingaben",
+      "allCategories": "Alle",
+      "resetAll": "Alle zurücksetzen ({n})",
+      "resetHint": "Diese Einstellung auf den Standard des Skripts zurücksetzen",
+      "unused": "Deklariert, aber von diesem Skript nie gelesen.",
+      "none": "Diese Strategie deklariert keine Eingaben.",
+      "gateBool": "Ohne Wirkung, solange „{name}“ aus ist.",
+      "gateValue": "Nur wirksam, wenn „{name}“ {values} ist.",
+      "changedN": "{n} geändert",
+      "noChanges": "Skript-Standardwerte",
+      "source": {
+        "panel": "Geändert"
+      },
+      "category": {
+        "risk": "Risiko",
+        "execution": "Ausführung",
+        "backtest": "Backtest",
+        "logic": "Logik",
+        "visual": "Visuell"
+      }
+    },
     "inputName": "Name",
     "inputType": "Typ",
     "inputDefault": "Standard",
@@ -1145,12 +1179,6 @@
     "noActionsBody": "Jede Order dieses Bots erscheint hier mit dem, was jedes Konto zurückgemeldet hat.",
     "shadowNote": "aufgezeichnet, nicht gesendet",
     "stillOpen": "{pct}% weiterhin offen",
-    "noBars": "Noch keine Kerzen aufgezeichnet",
-    "barTime": "Kerze",
-    "close": "Schluss",
-    "intent": "Absicht",
-    "plots": "Plots",
-    "evaluated": "Ausgewertet in",
     "promotion": "Freigabe-Gate",
     "promotionHint": "Gemessen, nicht behauptet. Live wird abgelehnt, solange eine Zeile offen ist.",
     "requirement": "Anforderung",
@@ -1185,13 +1213,13 @@
     },
     "tab": {
       "activity": "Aktivität",
-      "bars": "Kerzen",
       "promotion": "Freigabe",
       "source": "Quelltext",
       "properties": "Eigenschaften",
       "journal": "Protokoll",
       "chart": "Chart",
-      "logic": "Logik"
+      "logic": "Logik",
+      "inputs": "Eingaben"
     },
     "action": {
       "open": "Eröffnen",
@@ -1245,7 +1273,6 @@
     "historyNote": "Historie, die dieses Fenster braucht und das Archiv nicht hat, wird beim ersten Lauf geladen und gespeichert. Eine Börse, die nicht so weit zurückreicht, wird über den Zahlen gemeldet, nicht abgewiesen.",
     "replayingNote": "Der erste Lauf auf einem neuen Paar lädt auch dessen Historie.",
     "viewingStored": "Gespeicherter Lauf · {name}",
-    "renameBot": "Bot umbenennen",
     "props": {
       "title": "Strategie-Eigenschaften",
       "lead": "TradingViews Eigenschaften-Tab für diesen Bot. Diese Zahlen konfigurieren den Backtest, sodass ein Replay hier mit dem verglichen werden kann, den Sie auf TradingView laufen ließen.",
@@ -1347,36 +1374,6 @@
     "clearHistoryBody": "Alle {n} gespeicherten Backtests löschen? Die dahinterliegenden heruntergeladenen Kerzen bleiben, ein erneuter Lauf kostet also keinen Download.",
     "deleteRun": "Diesen Lauf löschen",
     "deleteRunBody": "Diesen gespeicherten Backtest löschen? Die nachgespielten Kerzen bleiben im Archiv.",
-    "drills": "Übungen",
-    "drillsHint": "Zwei Zeilen des Gates sind Übungen statt Messungen. Diese lösen sie aus.",
-    "drillsLead": "Eine Übung ist die echte Mechanik, keine Simulation. Alles unten sendet, was es zu senden sagt.",
-    "drillsNeedRunning": "Starten Sie den Bot zuerst in den Papierhandel — eine Übung belegt, dass ein *laufender* Bot stoppt.",
-    "runDrill": "Übung ausführen",
-    "rerunDrill": "Erneut ausführen",
-    "drillPassedN": "{n} bestanden",
-    "q25Drills": "Auto-Stopp-Übungen",
-    "q25DrillsBody": "Jede stoppt den Bot mit diesem Grundcode und setzt ihn fort und belegt so den Stopp-Pfad und den Neustart für diesen Auslöser. Sie erfindet die Bedingung nicht.",
-    "drillDone": "Übung „{kind}“ abgeschlossen.",
-    "drillClosed": "{trades} Trade(s) zwangsweise geschlossen: {ok} Teilorders glattgestellt, {failed} abgelehnt.",
-    "drillResumed": "Der Bot wurde im selben Lauf fortgesetzt, die Soak-Uhr lief also weiter.",
-    "drillNotResumed": "Der Bot wurde nicht automatisch fortgesetzt — starten Sie ihn oben in der Kopfzeile erneut.",
-    "drillConfirmTitle": "Not-Aus-Übung ausführen?",
-    "drillConfirmBody": "Das aktiviert den plattformweiten Halt und schließt jede offene Position auf jedem Konto zwangsweise, ohne die Strategie zu fragen. Danach wird der Halt aufgehoben und der Bot fortgesetzt. Es werden echte Orders gesendet.",
-    "drillConfirmAction": "Anhalten und glattstellen",
-    "drill": {
-      "halt": "Not-Aus-Übung",
-      "haltBody": "Aktiviert den Halt nach §7, schließt jeden offenen Trade zwangsweise über denselben Pfad wie „Alles stoppen“ — ohne Rücksicht darauf, was die Strategie für offen hält —, hebt dann den Halt auf und setzt den Bot im selben Lauf fort."
-    },
-    "drillKind": {
-      "halt": "Not-Aus",
-      "consecutive_losses": "Verlustserie",
-      "drawdown": "Drawdown",
-      "feed_gap": "Lücke in der Kursquelle",
-      "script_error": "Skriptfehler",
-      "state_disagreement": "Zustandsabweichung",
-      "trade_rate": "Handelsfrequenz",
-      "no_bars": "Keine Bars"
-    },
     "trigger": {
       "entry": "Einstieg",
       "order": "Order",
@@ -1406,8 +1403,6 @@
         "restarts": "Prozessneustarts sauber überstanden",
         "feed_gaps": "Lücken in der Kursquelle repariert oder sauber gestoppt",
         "drift": "Abweichungen beim Abgleich",
-        "halt_drills": "Not-Aus-Übungen bestanden",
-        "q25_drills": "Jeder Auto-Stopp wurde in einer Übung bewusst ausgelöst",
         "risk_config": "Risikolimits bewusst für diese Strategie gesetzt",
         "adapters": "Börsenadapter gegen eine echte Börse oder ein Testnet belegt"
       },
@@ -1416,8 +1411,6 @@
         "restarts": "mindestens {required}, einer davon ungeplant",
         "feed_gaps": "alle",
         "drift": "0 ungeklärt",
-        "halt_drills": "mindestens {required}",
-        "q25_drills": "alle {total}",
         "risk_config": "nicht auf den Standardwerten belassen",
         "adapters": "von einer Person bestätigt"
       },
@@ -1426,17 +1419,20 @@
         "restarts": "{n} ({unplanned} ungeplant)",
         "feed_gaps": "{repaired} von {gaps}",
         "drift": "{n}",
-        "halt_drills": "{n}",
-        "q25_drills": "{done} von {total}",
         "adapters": "—"
-      }
+      },
+      "enforceLabel": "Promotion-Gate verlangen",
+      "enforceHint": "An verweigert eine nicht erfüllte Zeile Paper → Live. Aus darf dieser Bot ungetestet live gehen — die Zeilen werden weiter gemessen und gezeigt.",
+      "offWarning": "Das Gate ist aus. Dieser Bot kann ohne jede Messung unten live gehen.",
+      "offUnmet": "Mindestens eine Zeile ist derzeit nicht erfüllt.",
+      "required": "Erforderlich",
+      "requiredFor": "Erforderlich: {row}"
     },
     "journal": {
       "started": "Lauf gestartet auf {symbol} {interval}.",
       "warmup": "Auf {bars} Bars Historie aufgewärmt, bevor irgendetwas entschieden wurde — ein Durchschnitt, der nicht konvergiert ist, darf nie handeln.",
       "recovered": "Nach {n} Neustart(s), davon {unplanned} ungeplant, in denselben Lauf zurückgekehrt.",
       "feedGaps": "{repaired} von {gaps} Lücke(n) in der Kursquelle wurden von der Börse repariert.",
-      "drills": "{n} Not-Aus-Übung(en) in diesem Lauf ausgelöst.",
       "stopped": "Gestoppt — {reason}. {detail}",
       "watching_0": "Bar bei {close} geschlossen. {plots} — nichts hat gekreuzt. Flat, und beobachtend.",
       "watching_1": "{close}. {plots}. Auf diesem Bar war keine Einstiegsbedingung erfüllt, die Position bleibt also flat.",
@@ -1472,7 +1468,14 @@
       "actionOtherFailed": "Aktion fehlgeschlagen. {error}",
       "legsFailed": "{n} Konto/Konten haben es nicht angenommen",
       "unsettled": "Diese Aktion wurde abgeschickt und ihr Ergebnis nie zurückgeschrieben — die Plattform hat etwas gesendet und nie erfahren, was passiert ist."
-    }
+    },
+    "chartLoading": "Chart wird gezeichnet…",
+    "editBot": "Bot bearbeiten",
+    "editLockedRunning": "Stoppe den Bot, um Instrument, Zeitrahmen oder Level zu ändern — sie unter einer laufenden Strategie zu verschieben, ließe deren Zustand einen Markt beschreiben, den sie nicht mehr handelt. Der Name lässt sich jederzeit ändern.",
+    "editVersionFixed": "Führt {name} v{n} aus. Die Version ist die Identität dieses Bots und ist nicht änderbar — speichere eine neue Version der Strategie und baue daraus einen Bot.",
+    "noActionsEvaluated": "Noch nichts geroutet. Bisher {n} Bar(s) ausgewertet — ein Bot, der Bars gesehen und nicht gehandelt hat, arbeitet, er hängt nicht.",
+    "editInputs": "Strategie-Eingaben",
+    "inputEffect": "Wirkung"
   },
   "security": {
     "title": "Sicherheit",
