@@ -222,3 +222,19 @@ def test_nothing_streams_a_derived_interval_so_the_chart_polls_it():
     eight handshakes that each die on a KeyError is not a fallback."""
     assert streamable(["binance", "bybit"], "30m") == []
     assert streamable(["binance", "bybit"], "1h") == ["binance", "bybit"]
+
+
+def test_hyperliquid_serves_30m_itself_rather_than_folding_it():
+    """Folding 30m from 15m under Hyperliquid's 5000-bar cap reached half as far
+    back — a backtest that began in late July beside a TradingView run from March."""
+    from apps.exchanges.feed_base import fetch_candles, native_for
+    from apps.exchanges.public_sources import HyperliquidPublicSource
+
+    source = HyperliquidPublicSource()
+    assert native_for(source, "30m")
+    assert not native_for(source, "6h")
+    asked = []
+    source.candles = lambda **kw: asked.append(kw["interval"]) or []
+    fetch_candles(source, symbol="ZECUSDC", interval="30m", market=MarketType.FUTURES, limit=5)
+    assert asked == ["30m"]
+    assert streamable(["hyperliquid", "binance"], "30m") == ["hyperliquid"]

@@ -8,9 +8,13 @@
 
 The fill model is deliberately pessimistic and is stated in every report:
 
-  **Entry at the next bar's open, never the signal bar's close.** A backtest
-  that fills at the close of the bar that produced the signal has seen the
-  future. This is the single most common way a backtest lies.
+  **Orders fill where TradingView's Strategy Tester fills them.** At the next
+  bar's open by default; at the signal bar's own close when the script sets
+  ``process_orders_on_close = true``. The second is not a look-ahead — the
+  decision needs that close and nothing after it — and it is also what live
+  does, since the bot routes at market the moment the bar closes. Filling a
+  ``process_orders_on_close`` script at the next open anyway made every entry a
+  bar late against the report the operator was checking this one against.
 
   **When one bar touches both the stop and the target, the stop is assumed.**
   Without tick data there is no way to know which came first, and the optimistic
@@ -74,11 +78,6 @@ class _Position:
     entry_qty: Decimal = ZERO
     #: How much of the entry is still open, in ``(0, 1]``.
     fraction: Decimal = Decimal(1)
-    #: Banked by the scale-outs, net of their fees and their share of the entry
-    #: fee. Added to the final close so a scaled-out trade is still one trade.
-    realized: Decimal = ZERO
-    fees_paid: Decimal = ZERO
-    scale_outs: list = field(default_factory=list)
 
 
 class BacktestError(Exception):
@@ -402,6 +401,11 @@ def run(
     )
 
     assumptions = Assumptions(
+        entry_rule=(
+            "signal bar's close (process_orders_on_close)"
+            if resolved.process_orders_on_close
+            else "next bar's open"
+        ),
         slippage_bps=decimal_setting("BACKTEST_SLIPPAGE_BPS"),
         fee_bps=(
             resolved.commission_value * Decimal(100)
@@ -544,8 +548,18 @@ def _longest_lookback(result) -> int:
     longest = 0
     if result.program is None:
         return longest
+    # `strategy(max_lines_count = 500)` is a drawing budget, not a lookback. Read
+    # as one it tripled the warm-up to 1500 bars — a month of 30m history spent
+    # before the first trade, on a venue that only keeps 5000 bars at all.
+    declaration = {
+        id(child)
+        for node in ast.walk(result.program)
+        if isinstance(node, ast.Call)
+        and ast.dotted_name(node.func) in ("strategy", "indicator", "study")
+        for child in ast.walk(node)
+    }
     for node in ast.walk(result.program):
-        if isinstance(node, ast.NumberLit):
+        if isinstance(node, ast.NumberLit) and id(node) not in declaration:
             try:
                 value = int(Decimal(node.value))
             except (ValueError, ArithmeticError):
@@ -578,9 +592,9 @@ class _Engine:
         self.pending: (
             tuple[Side | None, Decimal | None, Decimal | None, str, dict | None] | None
         ) = None
-        #: A scale-out asked for on the last bar, filling at this one's open —
-        #: the same no-look-ahead rule an entry follows.
-        self.pending_reduce: tuple[Decimal, str] | None = None
+        #: The scale-outs a bar asked for — ``(fraction left, reason)`` each, in
+        #: order — filling under the same rule as an entry.
+        self.pending_reduce: tuple[tuple[Decimal, str], ...] | None = None
         self.trades: list[ClosedTrade] = []
         self.curve: list[tuple[int, Decimal]] = []
         self.intents: list = []
@@ -588,15 +602,12 @@ class _Engine:
     # --- one bar ------------------------------------------------------------
 
     def step(self, bar: Bar, *, ishistory: bool) -> None:
-        # 1. Yesterday's signal fills at *this* bar's open. Never at the close
-        #    of the bar that produced it — that is the look-ahead bug.
-        if self.pending_reduce is not None and not ishistory:
-            to_fraction, why = self.pending_reduce
-            self._reduce(bar, self._slipped(bar.open, closing=True), to_fraction, why)
-            self.pending_reduce = None
-        if self.pending is not None and not ishistory:
-            self._execute(self.pending, bar)
-            self.pending = None
+        on_close = bool(getattr(self.a.properties, "process_orders_on_close", False))
+        # 1. Yesterday's signal fills at *this* bar's open — TradingView's own
+        #    default. A script that set `process_orders_on_close` filled at the
+        #    signal bar's close instead, in step 4.
+        if not ishistory and not on_close:
+            self._fill(bar, bar.open)
 
         # 2. Resting SL/TP are checked against this bar's range, including the
         #    bar that opened the position.
@@ -615,6 +626,11 @@ class _Engine:
             netprofit=self.equity - self.a.initial_equity,
             opentrades=0 if self.position is None else 1,
             performance=self._performance(bar),
+            # What the scale-outs left, as the supervisor passes from the
+            # exchange. Omitted, the runtime restarted every bar from a whole
+            # position: TP2's "30% of what is left" read as no change from
+            # TP1's 70% and was skipped, and TP3 cut to 60% instead of 29.4%.
+            fraction=self.position.fraction if self.position is not None else None,
         )
         result = self.runtime.run_bar(bar, ishistory=ishistory)
 
@@ -625,7 +641,6 @@ class _Engine:
 
         intent = result.intent
         self.intents.append(intent)
-        self.curve.append((bar.time, self._mark_to_market(bar)))
 
         desired = intent.desired_side
         held = self.position.side if self.position else None
@@ -641,7 +656,31 @@ class _Engine:
             # Q33: the side is unchanged and the size is not, which is the one
             # change the side comparison above cannot see. Same fill rule as an
             # entry — decided on this bar, filled at the next one's open.
-            self.pending_reduce = (intent.position_fraction, intent.reason or "scale out")
+            # One step per `strategy.close(qty_percent =)` the bar made: TP2 and
+            # TP3 on the same bar are two rows in TradingView's List of Trades.
+            self.pending_reduce = intent.scale_steps or (
+                (intent.position_fraction, intent.reason or "scale out"),
+            )
+
+        # 4. `process_orders_on_close = true`: what this bar decided fills at
+        #    this bar's close, as it does in TradingView's Strategy Tester. Not a
+        #    look-ahead — the decision needs the close and nothing after it — and
+        #    it is what live does too: the bot routes at market the moment the
+        #    bar closes.
+        if on_close:
+            self._fill(bar, bar.close)
+        self.curve.append((bar.time, self._mark_to_market(bar)))
+
+    def _fill(self, bar: Bar, basis: Decimal) -> None:
+        """Fill whatever is waiting at ``basis`` — the scale-out first, then the entry."""
+        if self.pending_reduce is not None:
+            price = self._slipped(basis, closing=True)
+            for to_fraction, why in self.pending_reduce:
+                self._reduce(bar, price, to_fraction, why)
+            self.pending_reduce = None
+        if self.pending is not None:
+            self._execute(self.pending, bar, basis)
+            self.pending = None
 
     def finish(self, last: Bar) -> None:
         """Close anything still open at the last bar, so the report is complete.
@@ -655,17 +694,17 @@ class _Engine:
 
     # --- fills --------------------------------------------------------------
 
-    def _execute(self, pending, bar: Bar) -> None:
+    def _execute(self, pending, bar: Bar, basis: Decimal) -> None:
         side, sl_pct, tp_pct, reason, span = pending
 
         if self.position is not None:
             # A reversal closes first and then opens, in that order, never both
             # at once — the same rule Phase 5 enforces against a live venue.
-            self._close(bar, self._slipped(bar.open, closing=True), "signal")
+            self._close(bar, self._slipped(basis, closing=True), "signal")
         if side is None:
             return
 
-        price = self._slipped(bar.open, closing=False, side=side)
+        price = self._slipped(basis, closing=False, side=side)
         qty, notional, margin = self._size(price)
         if price <= ZERO or notional <= ZERO or qty <= ZERO:
             return
@@ -815,10 +854,11 @@ class _Engine:
         account from this bar on, and an equity curve that banked it only at the
         end would understate the drawdown the strategy actually ran.
 
-        It stays **one** trade. The slices' PnL is carried on the position and
-        added to the close, because a partial exit is not a trade a win rate can
-        count — counting three of them would make one losing position that
-        happened to touch TP1 read as two wins and a loss.
+        **Each slice is its own closed trade**, as in TradingView's List of
+        Trades: a TP1/TP2/TP3 position is four rows there, each with the entry
+        it came from. Counting it as one made this report say "4 trades" beside
+        a Strategy Tester saying 58 for the same entries, and put the win rate
+        and profit factor on a different basis from the numbers being checked.
         """
         position = self.position
         if position is None or position.entry_qty <= ZERO:
@@ -839,17 +879,21 @@ class _Engine:
         position.qty = remaining
         position.fraction = to_fraction
         position.entry_fee -= entry_share
-        position.realized += gross - exit_fee - entry_share
-        position.fees_paid += exit_fee + entry_share
-        position.scale_outs.append(
-            {
-                "time": bar.time,
-                "price": str(price),
-                "qty": str(qty),
-                "to_fraction": str(to_fraction),
-                "pnl": str(gross - exit_fee - entry_share),
-                "reason": reason,
-            }
+        self.trades.append(
+            ClosedTrade(
+                side=position.side.value,
+                entry_time=position.entry_time,
+                entry_price=position.entry_price,
+                exit_time=bar.time,
+                exit_price=price,
+                qty=qty,
+                pnl=gross - exit_fee - entry_share,
+                fees=exit_fee + entry_share,
+                bars_held=position.bars,
+                exit_reason=reason,
+                entry_reason=position.reason,
+                entry_span=position.span,
+            )
         )
 
     def _close(self, bar: Bar, price: Decimal, reason: str) -> None:
@@ -868,16 +912,15 @@ class _Engine:
                 entry_price=position.entry_price,
                 exit_time=bar.time,
                 exit_price=price,
-                # The whole position the trade opened, so a scaled-out trade is
-                # not reported as the size of whatever happened to be left.
-                qty=position.entry_qty or position.qty,
-                pnl=gross - exit_fee - position.entry_fee + position.realized,
-                fees=exit_fee + position.entry_fee + position.fees_paid,
+                # What was still open: the slices already scaled out are their
+                # own rows, each carrying its own share of the entry fee.
+                qty=position.qty,
+                pnl=gross - exit_fee - position.entry_fee,
+                fees=exit_fee + position.entry_fee,
                 bars_held=position.bars,
                 exit_reason=reason,
                 entry_reason=position.reason,
                 entry_span=position.span,
-                scale_outs=list(position.scale_outs),
             )
         )
         self.position = None

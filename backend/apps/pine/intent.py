@@ -86,6 +86,12 @@ class StrategyIntent:
     #: Going to zero is not expressed here — that is ``desired_side = None``,
     #: so there stays exactly one way to say flat.
     position_fraction: Decimal = Decimal(1)
+    #: Each ``strategy.close(qty_percent =)`` this bar made, as ``(fraction
+    #: left, reason)`` in call order. ``position_fraction`` is where they ended;
+    #: the backtest reads the steps so TP2 and TP3 landing on one bar are two
+    #: closed trades, as in TradingView. Live routes the end state only, and
+    #: storage keeps the end state only, so this stays out of ``as_dict``.
+    scale_steps: tuple[tuple[Decimal, str], ...] = ()
 
     def as_dict(self) -> dict:
         """Wire and storage shape. Decimals become strings so no float artefact

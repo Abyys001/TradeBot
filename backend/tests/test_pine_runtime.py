@@ -685,7 +685,8 @@ def test_time_close_is_the_bars_open_plus_one_interval():
     a longer timeframe.
     """
     rt = info_runtime("plot(time_close - time, 'span')\n", interval="4h")
-    assert rt.run_bar(bar("100", time=0)).intent.plots["span"] == 4 * 3600
+    # Milliseconds, Pine's own unit for `time` and `time_close`.
+    assert rt.run_bar(bar("100", time=0)).intent.plots["span"] == 4 * 3600 * 1000
 
 
 def test_timeframe_in_seconds_answers_for_the_bot_and_for_a_named_interval():

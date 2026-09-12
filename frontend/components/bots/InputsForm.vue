@@ -173,8 +173,11 @@ function categoryLabel(key: string): string {
 
 /** A `datetime-local` value from the epoch milliseconds an `input.time` holds. */
 function asLocalDateTime(value: unknown): string {
-  const ms = Number(value)
+  let ms = Number(value)
   if (!Number.isFinite(ms)) return ''
+  // A version validated before Pine time became milliseconds stored its
+  // default in seconds, which read as a date in January 1970.
+  if (ms > 0 && ms < 1e11) ms *= 1000
   const date = new Date(ms - new Date(ms).getTimezoneOffset() * 60000)
   return date.toISOString().slice(0, 16)
 }

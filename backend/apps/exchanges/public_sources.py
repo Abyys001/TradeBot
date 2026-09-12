@@ -783,7 +783,14 @@ class HyperliquidPublicSource(HttpSource):
     page_limit = 500
     limited_history = True
     _BASE = "https://api.hyperliquid.xyz"
-    _INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
+    #: Every interval the venue documents for ``candleSnapshot`` that this
+    #: platform offers (it has no 6h). Asked for directly, never folded: each
+    #: one is capped at the latest 5000 bars, so folding 30m from 15m would reach
+    #: half as far back.
+    _INTERVALS = {
+        key: key
+        for key in ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w")
+    }
     #: Hyperliquid perps are quoted in USD and margined in **USDC** — there is
     #: no USDT on this venue. The catalogue used to rename them to ``*USDT``
     #: for "platform naming", which meant the pinned feed published pairs under

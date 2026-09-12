@@ -235,7 +235,7 @@ number people act on.
 | Assumption | Default |
 |---|---|
 | Entry fills at | the **next** bar's open |
-| Slippage | `strategy(slippage = n)` in ticks when the script declares one, else `BOT_BACKTEST_SLIPPAGE_BPS`, applied against the trade |
+| Slippage | `strategy(slippage = n)` in ticks when the script declares one, else `BOT_BACKTEST_SLIPPAGE_BPS` (default 0 — TradingView's own default, so the two reports agree), applied against the trade |
 | Fee | `strategy(commission_type =, commission_value =)` when the script declares one, else `BOT_BACKTEST_FEE_BPS`, charged on **both** sides |
 | Order size | `strategy(default_qty_type =, default_qty_value =)` when the script declares one — and the header then says so, because live sizes every account at 99% of its own balance instead (§5) |
 | Initial capital | `strategy(initial_capital =)` when the script declares one |

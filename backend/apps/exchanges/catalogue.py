@@ -39,6 +39,7 @@ from apps.exchanges.feed_base import (
     SymbolInfo,
     base_ratio,
     fetch_candles,
+    native_for,
 )
 from apps.exchanges.marketdata import connected_exchanges, source_for
 from apps.trading.models import (
@@ -250,7 +251,7 @@ def backfill_series(
     # A derived interval is folded from base bars, so a full page of the venue's
     # own bars comes back as `page / ratio` of these — counting pages off the
     # raw page size would stop the walk short of the window that was asked for.
-    per_page = max(1, page // base_ratio(interval))
+    per_page = max(1, page // (1 if native_for(source, interval) else base_ratio(interval)))
     # +2 covers the partial first page and one empty probe at the end.
     max_pages = (days * 86400) // (step * per_page) + 2
 

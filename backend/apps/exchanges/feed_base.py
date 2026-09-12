@@ -90,6 +90,18 @@ def is_native(interval: str) -> bool:
     return interval in NATIVE_INTERVALS
 
 
+def native_for(source, interval: str) -> bool:
+    """Whether *this* venue serves ``interval`` itself, rather than it being folded.
+
+    A venue that lists the interval is asked for it directly. Folding 30m out of
+    15m on Hyperliquid, which serves 30m natively and caps every interval at its
+    latest 5000 bars, halved the history a backtest could reach — and a replay
+    that starts months after TradingView's is a different set of trades.
+    """
+    own = getattr(source, "_INTERVALS", None)
+    return interval in own if own else is_native(interval)
+
+
 def base_interval(interval: str) -> str:
     """The interval a venue is asked for in order to serve ``interval``."""
     return DERIVED_FROM.get(interval, interval)
@@ -390,7 +402,7 @@ def fetch_candles(
     leading partial one. A venue's own page limit still caps it: a short page
     is a shorter window, never a wrong bar.
     """
-    if is_native(interval):
+    if native_for(source, interval):
         return source.candles(
             symbol=symbol, interval=interval, market=market, limit=limit, end=end
         )

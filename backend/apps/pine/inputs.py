@@ -1013,6 +1013,12 @@ def _coerce(spec: InputSpec, value: object) -> tuple[object, str]:
             return value.lower() == "true", ""
         return None, "must be true or false"
 
+    if kind == "time":
+        # Milliseconds, Pine's unit and the panel's. A seconds value from before
+        # the switch is read as the same moment, not as a date in 1970.
+        from apps.pine.builtins import as_pine_ms
+
+        value = as_pine_ms(value)
     if kind in NUMERIC_KINDS or kind == "time":
         number, problem = _number(value, whole=kind in ("int", "time"))
         if problem:

@@ -324,7 +324,9 @@ BOT = {
     "MAX_CLOCK_SKEW_MS": int(os.getenv("BOT_MAX_CLOCK_SKEW_MS", "5000")),
     # --- Phase 4: the backtest fill model, stated in every report because the
     # numbers are meaningless without it.
-    "BACKTEST_SLIPPAGE_BPS": os.getenv("BOT_BACKTEST_SLIPPAGE_BPS", "5"),
+    # 0, TradingView's own default: a script that declares no `slippage` is
+    # replayed with none, so the report and the Strategy Tester can agree.
+    "BACKTEST_SLIPPAGE_BPS": os.getenv("BOT_BACKTEST_SLIPPAGE_BPS", "0"),
     "BACKTEST_FEE_BPS": os.getenv("BOT_BACKTEST_FEE_BPS", "5"),
     # --- Phase 5: the risk gate.
     # The intent's bar close against the live ticker. Further apart than this

@@ -464,7 +464,10 @@ and the second is the important one:
       `ensure_history` and report progress when the window is not downloaded.
 - [ ] Fill model, stated explicitly in the report because it determines whether
       the numbers mean anything:
-      - entry at the **next bar's open**, never the signal bar's close
+      - fills where TradingView's Strategy Tester puts them: the **next bar's
+        open** by default, the **signal bar's close** when the script sets
+        `process_orders_on_close = true` (which is also what live does — it
+        routes at market as the bar closes)
       - configurable slippage in basis points, default 5
       - taker fee per side, default 5 bps, per-exchange override
       - SL and TP checked against the following bars' high/low; **when both are

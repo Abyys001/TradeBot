@@ -90,7 +90,7 @@ class Assumptions:
         if self.commission_per_contract:
             fee += f", plus {self.commission_per_contract} per contract"
         return [
-            f"Entries fill at the {self.entry_rule}, never the signal bar's close.",
+            f"Orders fill at the {self.entry_rule}, as TradingView's Strategy Tester does.",
             f"Slippage {slippage} per side; {fee}.",
             f"SL/TP are checked against following bars' high/low; {self.ambiguous_bar_rule}.",
             self._sizing_line(),
@@ -148,11 +148,6 @@ class ClosedTrade:
     #: Which line asked for this trade. Carried from Phase 1's spans so the
     #: Phase 8 chart can highlight the code that fired.
     entry_span: dict | None = None
-    #: The scale-out levels this trade took before its final exit (Q33), each
-    #: with its own price, size and realised PnL. The trade stays one row —
-    #: ``pnl`` above is the total — so nothing that divides by trade count is
-    #: changed by a strategy that scales out; this is the detail underneath it.
-    scale_outs: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         row = asdict(self)

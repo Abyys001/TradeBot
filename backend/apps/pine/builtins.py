@@ -597,7 +597,12 @@ def _parse_date(text: str, default_zone) -> int:
 
 
 def builtin_timestamp(ctx, *args):
-    """Every form Pine has, in UNIX **seconds** — this platform's bar clock.
+    """Every form Pine has, in UNIX **milliseconds** — Pine's own unit.
+
+    Milliseconds because that is what ``time`` is on TradingView, and what the
+    "Backtest Start" field in the panel writes. Seconds here and milliseconds
+    there made ``time >= startTime`` false forever the moment an operator
+    picked a date, which is a bot that never trades.
 
     ``timestamp(y, m, d[, h, mi, s])``, the same with a leading timezone string,
     and ``timestamp("01 Jan 2026 00:00 +1100")``. The string form is the one
@@ -613,7 +618,7 @@ def builtin_timestamp(ctx, *args):
         zone = _zone(values[0])
         values = values[1:]
     if len(values) == 1 and isinstance(values[0], str):
-        return _parse_date(values[0], zone)
+        return _parse_date(values[0], zone) * 1000
 
     parts = [int(_dec(v)) for v in values]
     if len(parts) < 3:
@@ -622,7 +627,26 @@ def builtin_timestamp(ctx, *args):
         )
     year, month, day = parts[0], parts[1], parts[2]
     hour, minute, second = (parts + [0, 0, 0])[3:6]
-    return int(datetime(year, month, day, hour, minute, second, tzinfo=zone).timestamp())
+    return int(datetime(year, month, day, hour, minute, second, tzinfo=zone).timestamp()) * 1000
+
+
+#: Below this a stored time is in seconds. Every millisecond reading since
+#: 1973 is above it and every second reading before 5138 is below it.
+_MS_FLOOR = 100_000_000_000
+
+
+def as_pine_ms(value):
+    """An ``input.time`` value in milliseconds, whichever unit it was saved in.
+
+    Versions validated before Pine time became milliseconds stored their
+    defaults in seconds. Read either, so no stored bot or preset changes
+    meaning under it.
+    """
+    try:
+        number = int(_dec(value))
+    except Exception:  # noqa: BLE001 - not a number: the caller's coercion reports it
+        return value
+    return number * 1000 if 0 < number < _MS_FLOOR else number
 
 
 def builtin_weekofyear(ctx, when=None):

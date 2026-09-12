@@ -200,10 +200,6 @@ BACKTEST_ONLY: dict[str, str] = {
         "base currency labels the report — the platform trades USDT-denominated accounts "
         "and reports an account that is not in USDT as unusable"
     ),
-    "process_orders_on_close": (
-        "filling on the signal bar's own close is what a backtest cannot do honestly and "
-        "live cannot do at all — the bot routes after the bar has closed"
-    ),
 }
 
 #: Properties with no effect here, and why. Reported at validation time.
@@ -312,8 +308,6 @@ class StrategyProperties:
             lines.append(BACKTEST_ONLY["pyramiding"])
         if self.margin_long > 0 or self.margin_short > 0:
             lines.append(BACKTEST_ONLY["margin_long"])
-        if self.process_orders_on_close:
-            lines.append(BACKTEST_ONLY["process_orders_on_close"])
         return lines
 
     def inert_here(self) -> list[str]:
@@ -660,12 +654,10 @@ SCHEMA: tuple[PropertyField, ...] = (
         minimum=Decimal("0"),
         backtest_only=BACKTEST_ONLY["margin_short"],
     ),
-    PropertyField(
-        key="process_orders_on_close",
-        category="execution",
-        kind="bool",
-        backtest_only=BACKTEST_ONLY["process_orders_on_close"],
-    ),
+    # Honoured by the replay (fill at the signal bar's close) and matched by
+    # live, which routes at market the moment that bar closes — so not a
+    # backtest-only setting.
+    PropertyField(key="process_orders_on_close", category="execution", kind="bool"),
     PropertyField(key="use_bar_magnifier", category="execution", kind="bool"),
     PropertyField(
         key="calc_on_order_fills",

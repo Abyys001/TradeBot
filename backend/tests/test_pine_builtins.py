@@ -169,7 +169,19 @@ def test_the_calendar_takes_an_explicit_time(ctx):
 
 
 def test_timestamp_builds_one_from_parts(ctx):
-    assert bi.builtin_timestamp(ctx, 2024, 1, 3, 14, 30, 0) == 1704292200
+    assert bi.builtin_timestamp(ctx, 2024, 1, 3, 14, 30, 0) == 1704292200000
+
+
+def test_timestamp_is_in_milliseconds_like_time(ctx):
+    """Pine's unit on both sides of `time >= startTime`. The panel writes a picked
+    date in milliseconds, and seconds here made that comparison false forever —
+    a bot whose Backtest Start had been set never traded."""
+    assert bi.builtin_timestamp(ctx, 2020, 1, 1) == 1577836800000
+
+
+def test_a_stored_time_in_seconds_is_read_as_the_same_moment():
+    assert bi.as_pine_ms(1767186000) == 1767186000000
+    assert bi.as_pine_ms(1767186000000) == 1767186000000
 
 
 def test_the_calendar_is_utc_not_the_servers_timezone(ctx):
@@ -209,7 +221,7 @@ def test_the_date_string_form_is_read(ctx):
     This used to reach `int()` on a string and raise on the first bar of any
     script that declared one.
     """
-    assert bi.builtin_timestamp(ctx, "01 Jan 2026 00:00 +1100") == 1767186000
+    assert bi.builtin_timestamp(ctx, "01 Jan 2026 00:00 +1100") == 1767186000000
 
 
 def test_the_iso_form_and_the_numeric_form_agree(ctx):
@@ -221,7 +233,7 @@ def test_the_iso_form_and_the_numeric_form_agree(ctx):
 def test_a_leading_timezone_argument_shifts_the_result(ctx):
     utc = bi.builtin_timestamp(ctx, "UTC", 2026, 1, 1)
     plus_two = bi.builtin_timestamp(ctx, "UTC+2", 2026, 1, 1)
-    assert utc - plus_two == 7200
+    assert utc - plus_two == 7_200_000
 
 
 def test_a_named_timezone_is_refused_rather_than_guessed(ctx):

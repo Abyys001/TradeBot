@@ -137,6 +137,7 @@ class RunContext:
         "tp_pct",
         "position_size",
         "position_fraction",
+        "scale_steps",
         "position_avg_price",
         "position_entry_name",
         "position_entry_side",
@@ -201,6 +202,8 @@ class RunContext:
         #: partial closes move it *within* a bar, because that is the only
         #: record of a scale-out the bar produces.
         self.position_fraction: Decimal = ONE
+        #: Every scale-out this bar made, as ``(fraction left, reason)``.
+        self.scale_steps: list[tuple[Decimal, str]] = []
         self.position_avg_price: Decimal | None = None
         #: The ``id`` of the entry that opened what is held, and the side it
         #: was entered on. ``strategy.close`` takes an id, and closing by an id
@@ -392,6 +395,7 @@ class Runtime:
         ctx.reason = ""
         ctx.order_span = None
         ctx.entry_signal = False
+        ctx.scale_steps = []
         ctx.locals = []
         # A position persists until something closes it — an intent is "what
         # should be true *after* this bar", not "what this bar asked for". So the
@@ -454,6 +458,7 @@ class Runtime:
             source_span=ctx.order_span,
             entry_signal=ctx.entry_signal,
             position_fraction=ctx.position_fraction,
+            scale_steps=tuple(ctx.scale_steps),
             plots=dict(ctx.plots),
             alerts=tuple(ctx.alerts),
         )
@@ -470,13 +475,16 @@ class Runtime:
         series["hlc3"].push((bar.high + bar.low + bar.close) / 3)
         series["ohlc4"].push((bar.open + bar.high + bar.low + bar.close) / 4)
         series["hlcc4"].push((bar.high + bar.low + bar.close + bar.close) / 4)
-        series["time"].push(bar.time)
+        # Milliseconds, as on TradingView. The bar clock everywhere else on the
+        # platform is seconds; Pine only ever sees its own unit, so a script's
+        # `time - time[1] == 1800000` means what its author tested it to mean.
+        series["time"].push(bar.time * 1000)
         # Pine's `time_close` is the bar's *close*, which is its open plus one
         # interval — the interval being a fact about the bot, not about the bar,
         # which is why it arrives with `TimeframeInfo` rather than being guessed
         # from the gap to the previous bar (a gap is also what a missing bar
         # looks like).
-        series["time_close"].push(bar.time + self.ctx.timeframe.seconds)
+        series["time_close"].push((bar.time + self.ctx.timeframe.seconds) * 1000)
         series["bar_index"].push(self.ctx.bar_index)
 
     def _carry_var_series(self) -> None:
@@ -1409,6 +1417,7 @@ class Runtime:
             # A new entry is a whole position again, even on a bar that scaled
             # the previous one out before reversing.
             ctx.position_fraction = ONE
+            ctx.scale_steps = []
             ctx.position_entry_name = label
             ctx.position_entry_side = side
             ctx.reason = f"entry: {label}" if label else "entry"
@@ -1445,11 +1454,13 @@ class Runtime:
                     ctx.reason = (
                         f"scale out: {label} {percent}%" if label else f"scale out {percent}%"
                     )
+                    ctx.scale_steps.append((ctx.position_fraction, ctx.reason))
                     ctx.order_span = node.span
                     return NA
 
             ctx.desired_side = None
             ctx.position_fraction = ONE
+            ctx.scale_steps = []
             # The SL/TP a `strategy.exit` set belonged to the trade being closed.
             ctx.sl_pct = None
             ctx.tp_pct = None
@@ -1536,6 +1547,8 @@ class Runtime:
                 # keeps the script's own default rather than becoming `na`.
                 series = self.ctx.series.get(str(configured))
                 return series.value if series is not None else default
+            if dotted == "input.time":
+                configured = bi.as_pine_ms(configured)
             return _coerce_input(configured, default)
         return default
 

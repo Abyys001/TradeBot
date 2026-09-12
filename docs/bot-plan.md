@@ -309,7 +309,10 @@ for Phases 1–3. Same runtime object, fed from storage instead of a socket.
 The fill model, stated in every report because the numbers are meaningless
 without it:
 
-- entry at the **next bar's open**, never the signal bar's close;
+- fills at the **next bar's open**, or at the **signal bar's close** under
+  `process_orders_on_close = true` — TradingView's two rules, so the report and
+  the Strategy Tester describe the same trades; each scale-out slice is its own
+  closed trade, as in TradingView's List of Trades;
 - slippage `BACKTEST_SLIPPAGE_BPS`, fee `BACKTEST_FEE_BPS` per side, per-exchange override;
 - SL/TP checked against following bars' high/low, and **when one bar touches
   both, the stop is assumed** — the only honest reading without tick data.

@@ -207,7 +207,12 @@ class HyperliquidPublicStream(PublicStream):
 
     name = "hyperliquid"
     url = "wss://api.hyperliquid.xyz/ws"
-    _INTERVALS = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
+    #: The same set the REST source asks for natively — a bot on 30m streams
+    #: the venue's own bars rather than polling folded ones.
+    _INTERVALS = {
+        key: key
+        for key in ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w")
+    }
 
     def _coin(self, symbol: str) -> str:
         pair = split_pair(symbol)
@@ -287,14 +292,19 @@ STREAMS: dict[str, type[PublicStream]] = {
 def streamable(providers: list[str], interval: str = "") -> list[str]:
     """The subset of ``providers`` that can stream, order preserved.
 
-    A derived interval (30m, 8h, …) has no subscription on any venue — it is
-    folded out of base bars on this side — so nothing can stream it and the
-    caller polls. Answering that here keeps it a fact rather than eight
+    An interval a venue does not list has no subscription there — it is folded
+    out of base bars on this side — so that venue is dropped and, when none is
+    left, the caller polls. Answering that here keeps it a fact rather than
     handshakes that each fail on a ``KeyError``.
     """
-    if interval and not is_native(interval):
-        return []
-    return [name for name in providers if name in STREAMS]
+    return [
+        name
+        for name in providers
+        if name in STREAMS
+        and (not interval or interval in getattr(STREAMS[name], "_INTERVALS", {}) or (
+            not getattr(STREAMS[name], "_INTERVALS", None) and is_native(interval)
+        ))
+    ]
 
 
 @dataclass(frozen=True, slots=True)

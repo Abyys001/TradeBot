@@ -416,20 +416,23 @@ def _rising(count: int = 8) -> list[Bar]:
     return out
 
 
-def test_a_scale_out_is_still_one_trade():
-    """Three exits from one entry are not three trades. Counting them that way
-    would make one losing position that happened to touch TP1 read as two wins
-    and a loss, and every metric that divides by trade count would move."""
+def test_each_scale_out_slice_is_its_own_trade_as_in_tradingview():
+    """TradingView's List of Trades shows a partial exit as its own row with the
+    entry it came from. Folding them into one made a 58-trade Strategy Tester
+    run read as 4 trades here, for the same entries."""
     report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
-    assert len(report.trades) == 1
-    assert len(report.trades[0].scale_outs) == 1
+    assert len(report.trades) == 2
+    first, rest = report.trades
+    assert first.entry_time == rest.entry_time
+    assert first.entry_price == rest.entry_price
+    assert report.metrics["trades"] == 2
 
 
 def test_the_scale_out_slice_realises_at_its_own_price_not_the_final_exit():
     report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
-    slice_ = report.trades[0].scale_outs[0]
-    assert D(slice_["price"]) < report.trades[0].exit_price
-    assert D(slice_["to_fraction"]) == D("0.5")
+    slice_, rest = report.trades
+    assert slice_.exit_price < rest.exit_price
+    assert slice_.exit_reason.startswith("scale out")
 
 
 def test_taking_half_off_early_earns_less_than_holding_it_all_in_a_rising_market():
@@ -442,16 +445,82 @@ def test_taking_half_off_early_earns_less_than_holding_it_all_in_a_rising_market
     assert scaled < whole
 
 
-def test_the_trade_reports_the_size_it_opened_not_the_remainder():
+def test_the_slices_add_up_to_the_size_the_entry_opened():
     report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
-    taken = D(report.trades[0].scale_outs[0]["qty"])
-    assert abs(report.trades[0].qty - taken * 2) < D("1e-20")
+    slice_, rest = report.trades
+    assert abs(slice_.qty - rest.qty) < D("1e-20")
 
 
 def test_a_scale_out_fills_at_the_next_bars_open_like_every_other_signal():
     report = go(SCALE_OUT, _rising(), initial_equity=D("10000"))
     # Decided on bar 3, filled at bar 4's open.
-    assert report.trades[0].scale_outs[0]["time"] == 4 * 900
+    assert report.trades[0].exit_time == 4 * 900
+
+
+THREE_TARGETS = """//@version=5
+strategy("tp1 tp2 tp3", process_orders_on_close=true)
+if bar_index == 1
+    strategy.entry("L", strategy.long)
+if bar_index == 3
+    strategy.close("L", comment="TP1", qty_percent=30)
+if bar_index == 5
+    strategy.close("L", comment="TP2", qty_percent=30)
+    strategy.close("L", comment="TP3", qty_percent=40)
+if bar_index == 7
+    strategy.close("L")
+"""
+
+
+def test_tp1_tp2_tp3_are_each_a_trade_sized_off_what_is_still_open():
+    """TradingView applies each qty_percent to what is left, and lists every
+    exit order as its own trade — two on one bar are two rows. The backtest used
+    to forget the surviving fraction between bars, so TP2 read as "no change"
+    after TP1 and was skipped, and TP3 cut to 60% instead of 29.4%."""
+    report = go(THREE_TARGETS, _rising(), initial_equity=D("10000"))
+    assert len(report.trades) == 4
+    entry = sum((trade.qty for trade in report.trades), D(0))
+    shares = [trade.qty / entry for trade in report.trades]
+    expected = [D("0.3"), D("0.21"), D("0.196"), D("0.294")]
+    assert all(abs(got - want) < D("1e-9") for got, want in zip(shares, expected, strict=True))
+    assert report.trades[1].exit_time == report.trades[2].exit_time
+
+
+ON_CLOSE = """//@version=5
+strategy("on close", process_orders_on_close=true)
+if bar_index == 1
+    strategy.entry("L", strategy.long)
+if bar_index == 3
+    strategy.close("L", qty_percent=50)
+if bar_index == 5
+    strategy.close("L")
+"""
+
+
+def test_process_orders_on_close_fills_at_the_signal_bars_close():
+    """TradingView fills a `process_orders_on_close` script on the bar that
+    decided, at its close. Filling it at the next open anyway put every entry a
+    bar late against the Strategy Tester report being compared."""
+    bars = _rising()
+    with override_settings(BOT={**_bot_settings(), "BACKTEST_SLIPPAGE_BPS": "0"}):
+        report = go(ON_CLOSE, bars, initial_equity=D("10000"))
+    slice_, rest = report.trades
+    assert slice_.entry_time == bars[1].time
+    assert slice_.entry_price == bars[1].close
+    assert slice_.exit_time == bars[3].time
+    assert rest.exit_price == bars[5].close
+    assert "signal bar's close" in report.assumptions.lines()[0]
+
+
+def test_max_lines_count_is_not_a_lookback():
+    """A drawing budget in `strategy()` tripled the warm-up to 1500 bars."""
+    from apps.bots.backtest import _longest_lookback
+    from apps.pine.validate import validate
+
+    source = """//@version=5
+strategy("x", max_lines_count=500, max_labels_count=500)
+plot(ta.sma(close, 20))
+"""
+    assert _longest_lookback(validate(source)) == 20
 
 
 # --- history the archive does not hold --------------------------------------
