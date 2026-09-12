@@ -1116,9 +1116,9 @@ async def test_lbank_futures_is_refused_with_an_explanation():
     """Q10: no published private futures API, so this must fail loudly."""
     adapter = LbankAdapter(api_key=KEY, api_secret=SECRET,
                           client=mock(lambda r: json_response({})))
-    with pytest.raises(NotSupported, match="questions.md Q10"):
+    with pytest.raises(NotSupported, match="docs/decisions.md Q10"):
         await adapter.get_symbol_rules("BTCUSDT", MarketType.FUTURES)
-    with pytest.raises(NotSupported, match="questions.md Q10"):
+    with pytest.raises(NotSupported, match="docs/decisions.md Q10"):
         await adapter.set_sltp(symbol="BTCUSDT", stop_loss=D("1"), take_profit=None)
     await adapter.close()
 

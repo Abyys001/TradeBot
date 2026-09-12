@@ -32,8 +32,7 @@ Nuxt bundle, no exposed backend). Runbook in [`docs/deploy.md`](docs/deploy.md).
 | [`CLAUDE.md`](CLAUDE.md) | Project init — architecture, invariants, build path. **Start here.** |
 | `backend/` | Django 5 + DRF + Channels + async fan-out engine |
 | `frontend/` | Nuxt 3 + TypeScript + Tailwind + Pinia, EN/FA |
-| [`questions.md`](questions.md) | Open questions — currently none |
-| [`docs/decisions.md`](docs/decisions.md) | Every closed question, Q1–Q28, with the setting or module that implements it |
+| [`docs/decisions.md`](docs/decisions.md) | Every question asked, Q1–Q35, with the setting or module that implements it |
 | [`docs/spec/platform-spec.md`](docs/spec/platform-spec.md) | Authoritative requirements |
 | [`docs/spec/conformance.md`](docs/spec/conformance.md) | Every spec clause → where it is implemented → the test that proves it |
 | [`docs/exchanges/coverage.md`](docs/exchanges/coverage.md) | All 8 exchanges: build order, testnet, blockers |

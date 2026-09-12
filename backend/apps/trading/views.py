@@ -68,7 +68,7 @@ class TradeViewSet(viewsets.ReadOnlyModelViewSet):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def risk_preview(request):
-    """Answers questions.md Q5a with numbers instead of prose.
+    """Answers docs/decisions.md Q5a with numbers instead of prose.
 
     Give it a balance, leverage, entry and SL/TP percentages; it returns what
     those percentages mean under *both* readings — price-basis and margin-basis
@@ -139,7 +139,7 @@ def risk_preview(request):
 @api_view(["GET"])
 @permission_classes([IsAdminUser])
 def policy(request):
-    """The open questions as live settings, so the UI can show what is in force.
+    """The trading policy as live settings, so the UI can show what is in force.
 
     Staff-gated for the same reason its ``bots`` twin is: it names the halt's
     state and source, and everything else on this module is. It relied on DRF's
@@ -163,13 +163,6 @@ def policy(request):
             "stop_all_locked": halt["locked"],
             "stop_all_source": halt["source"],
             "stop_all_reason": halt["reason"],
-            "open_questions": {
-                "sltp_basis": "Q5a",
-                "sltp_reference": "Q5b/Q5c",
-                "sltp_amend_strategy": "Q5d",
-                "sltp_failure_policy": "Q5e",
-                "balance_fraction": "Q12",
-            },
         }
     )
 

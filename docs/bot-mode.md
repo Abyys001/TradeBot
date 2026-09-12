@@ -109,9 +109,9 @@ settled and is not repeated here.
 | **Q26** | **Every intent and action forever** — that is the audit trail and it is small. Bars: all of them at 15m and above; at 1m and 5m only where a signal or plot value changed, plus a rolling 7-day window. |
 | **Q27** | **Unchanged for bots.** They fan out to hidden accounts identically; nothing in `apps/pine/` or `apps/bots/` may import `accounts.visibility`. Every bot *read* surface filters, with its own case in `tests/test_account_access.py`. |
 
-One question is open, and it blocks only Phase 2's golden fixtures rather than
-its implementation: **Q29 — where the `ta.*` reference values come from.** See
-[`questions.md`](../questions.md).
+**Q29 — where the `ta.*` reference values come from** — is answered too:
+TradingView exports, for every indicator. It blocks only Phase 2's golden
+fixtures, not the implementation. See [`decisions.md`](decisions.md).
 
 ---
 
@@ -335,9 +335,9 @@ Implement each as a small stateful class with `update(x) -> value`, in
 - [ ] Each indicator gets a **golden test** against values exported from
       TradingView for a fixed BTCUSDT 1h window, to 8 decimal places. Put the
       fixture in `backend/tests/fixtures/pine/golden/`. This is the only way to
-      know you are right, and it will find bugs. **Where those reference values
-      come from is Q29, still open** — it blocks the fixture, not the
-      implementation.
+      know you are right, and it will find bugs. **Those values come from
+      TradingView (Q29)**, the unambiguous indicators included — the exports
+      block the fixture, not the implementation.
 
 ### 2.4 The execution model
 

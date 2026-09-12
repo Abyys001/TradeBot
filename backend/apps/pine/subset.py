@@ -53,7 +53,7 @@ than left implicit:
   ``loss=``/``profit=`` are *in ticks*. Accepting those as percent would silently
   give a TradingView script a different meaning here — exactly what Q24 forbids
   — so they are rejected **by name** and a distinct percent spelling is provided.
-  Recorded as Q30 in ``questions.md``.
+  Recorded as Q30 in ``docs/decisions.md``.
 """
 
 from __future__ import annotations

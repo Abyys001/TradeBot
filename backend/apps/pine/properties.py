@@ -25,7 +25,7 @@ only allowed out loud.
 
 ``pyramiding`` is in that list without being honoured anywhere: a second entry
 in a direction already held needs the multi-lot position model that
-``questions.md`` Q33 carries, and simulating one in the backtest alone would
+``docs/decisions.md`` Q33 carries, and simulating one in the backtest alone would
 produce a curve live cannot reproduce. So it is reported and dropped, which is
 the same treatment ``strategy.entry(qty=)`` gets and for the same reason.
 
@@ -184,7 +184,7 @@ BACKTEST_ONLY: dict[str, str] = {
     "pyramiding": (
         "pyramiding is not simulated at all — live commits 99% of the account on the "
         "first entry, so one open trade per account is all there is room for, and a "
-        "backtest that scaled in would describe a platform that cannot (questions.md Q33)"
+        "backtest that scaled in would describe a platform that cannot (docs/decisions.md Q33)"
     ),
     "margin_long": (
         "margin is a backtest property — the live venue's own margin rules apply, not this number"

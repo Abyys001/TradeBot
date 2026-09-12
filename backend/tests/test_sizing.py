@@ -1,4 +1,4 @@
-"""Spec §5 / questions.md Q4, Q12."""
+"""Spec §5 / docs/decisions.md Q4, Q12."""
 
 from __future__ import annotations
 

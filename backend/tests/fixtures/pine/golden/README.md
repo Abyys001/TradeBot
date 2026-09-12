@@ -1,10 +1,12 @@
-# Golden indicator values — **empty on purpose** (Q29)
+# Golden indicator values — **awaiting TradingView exports** (Q29)
 
 `docs/bot-mode.md` §2.3 wants every `ta.*` in the subset pinned to eight decimal
-places against a fixed BTCUSDT 1h window exported from TradingView. Q29 is the
-open question of where those numbers come from, and it is not a question code
-can answer: an oracle computed from the same reference formulas the
-implementation was written from shares any misreading of them.
+places against a fixed BTCUSDT 1h window exported from TradingView. Q29 settled
+where those numbers come from: TradingView, for every indicator — the seeded
+`rma` family (`rma`, `rsi`, `atr` and what is built on them) and the unambiguous
+ones (`sma`, `stdev`, `highest`, `change`) alike. Code cannot stand in: an
+oracle computed from the same reference formulas the implementation was
+written from shares any misreading of them.
 
 Until the exports land, `tests/test_pine_ta.py` does two things that do **not**
 need them:

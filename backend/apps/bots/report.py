@@ -56,6 +56,10 @@ class Assumptions:
     #: ``None`` leaves ``slippage_bps`` in force — see ``StrategyProperties``.
     slippage_ticks: int | None = None
     mintick: Decimal = Decimal("0.01")
+    #: The lot every order is rounded **down** to — TradingView's
+    #: ``syminfo.mincontract``, which is the venue's own step. ``None`` when no
+    #: listing says, and then sizes are left unrounded.
+    qty_step: Decimal | None = None
     #: What the backtest simulates that live will not do, in the script's own
     #: words. Empty is the common case and prints nothing.
     departures: tuple[str, ...] = ()
@@ -73,6 +77,7 @@ class Assumptions:
             "commission_per_contract": str(self.commission_per_contract),
             "slippage_ticks": self.slippage_ticks,
             "mintick": str(self.mintick),
+            "qty_step": str(self.qty_step) if self.qty_step is not None else None,
             "departures": list(self.departures),
             "properties": self.properties.as_dict() if self.properties is not None else None,
         }

@@ -99,15 +99,18 @@ with the skipped account raising a persistent notification.
 - **Bot mode is built but has never run live.** Phase 7's 14-day soak and Phase
   10's checklist are calendar and human items; `apps/bots/gate.py` measures them
   and cannot shorten them, and `paper → live` is refused while any row is unmet.
-  Q29 is still open: the `ta.*` golden values need a TradingView export, so the
-  indicator tests currently compare against oracles transcribed from
-  `reference/pinescriptv6/` — which pins the incremental implementations against
-  the textbook formulas but shares any misreading of them.
-  `backend/tests/fixtures/pine/golden/README.md` holds the file format, and the
-  test goes live the moment an export is committed.
+  Q29 is decided — every `ta.*` golden value comes from a TradingView export,
+  the simple indicators included — but none is committed yet, so the indicator
+  tests still compare against oracles transcribed from `reference/pinescriptv6/`,
+  which pin the incremental implementations against the textbook formulas but
+  share any misreading of them. `backend/tests/fixtures/pine/golden/README.md`
+  holds the file format, and the test goes live the moment an export is committed.
+- **Bots signal from the instrument they trade** (Q35): on the target venue,
+  the Hyperliquid perpetual. The TradingView parity test is on a spot chart and
+  proves the engine; a strategy built on spot is re-run on the perp before live.
 
-Every open question is a **setting with all branches built**, so answering one
-is a `.env` change rather than a rewrite. `/risk` in the panel answers Q5a from
+Every policy question is a **setting with all branches built**, so changing an
+answer is a `.env` change rather than a rewrite. `/risk` in the panel answers Q5a from
 numbers.
 
 ## Layout
@@ -126,12 +129,12 @@ docs/
                                      strategy, backtesting, the promotion path, the runbook
   bot-mode.md                        the eleven-phase plan behind it, and why each phase exists
   bot-plan.md                        the execution plan under that — file manifest, settings, the test per item
-  decisions.md                       every closed question, Q1–Q28, with the setting that implements it
+  decisions.md                       every question asked, Q1–Q35, with the setting or module that
+                                     implements it — there is no open-questions file
   strategy-settings.md               the two settings tabs: strategy() properties, and the inputs a
                                      script declares — detection, classification, gating, storage
   security-plan.md                   the optional-by-default security layer: one switch per control,
                                      none of them on the order-routing path
-questions.md                         open questions only — Q29, Q31, Q32, Q34; new ones start at Q35
 reference/                           read-only vendored docs & SDKs — never imported
   pinescriptv6/                      the Pine language reference (v6). The v1 subset is v5, but
                                      operators, the execution model and every ta.* formula are
@@ -385,6 +388,6 @@ Nothing here is runnable yet. In order:
   get recorded there, not silently in code.
 - Exchange API facts come from `reference/` or the `hyperliquid-docs` MCP server,
   not from memory. Exchange APIs drift.
-- New ambiguity found mid-task → append to `questions.md` (numbered from Q35),
-  and move it to `docs/decisions.md` once answered. Keep building the
-  parts that don't depend on the answer.
+- New ambiguity found mid-task → **ask the admin directly**, never park it in
+  a questions file. Record the answer in `docs/decisions.md` under the next
+  number (Q36 on). Keep building the parts that don't depend on the answer.

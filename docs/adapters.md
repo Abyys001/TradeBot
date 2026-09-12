@@ -91,7 +91,7 @@ exhaust it. Cancels get a larger allowance, so closing always remains possible.
 the public namespace `/cfd/openApi/v1/pub` — no private order, position, or
 balance endpoints exist in any published document. Every futures method raises
 `NotSupported` with that explanation rather than guessing at an undocumented
-request shape. Tracked as `questions.md` Q10.
+request shape. Tracked as `docs/decisions.md` Q10.
 
 **LBank spot is a round trip, and its market orders are asymmetric.** A market
 **buy** carries the *quote* amount to spend in `price`; a market **sell**

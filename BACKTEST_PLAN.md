@@ -492,9 +492,9 @@ in parallel with frontend phase 5; comparison (6) depends on everything above.
   `apps/accounts/visibility.py` and tested in `test_hidden_accounts.py`.
 - **i18n bilingual**: English first, Persian second, RTL-capable.
 - **Spec discipline**: anything that contradicts the platform spec gets recorded
-  in `docs/spec/` and `questions.md`, not silently.
+  in `docs/spec/` and `docs/decisions.md`, not silently.
 
-## 8. Risks and open questions (append to `questions.md` as resolved)
+## 8. Risks and open questions (recorded in `docs/decisions.md` once answered)
 
 - **Fill-model fidelity** is the accuracy risk: Pine's intra-bar stop/limit
   precedence and next-bar-open entries are documented in the vendored manual —

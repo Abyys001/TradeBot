@@ -255,25 +255,14 @@ import test and cost test are what make it true rather than reassuring.
 
 ---
 
-## 5. Open questions
+## 5. Questions — answered
 
-Appended to `questions.md` as **Q31** and **Q32**; numbering continues from
-Q30.
+Both are recorded in `docs/decisions.md`.
 
-- **Q31 — do passkeys replace the shared password, or sit beside it?** Passkeys
-  are the strongest and *least* annoying second factor available, and A1/A2
-  exist partly as the stepping stone to them. But this platform's access model
-  is deliberate: **one** shared staff login, and the access list is
-  `PanelSession` rows — one per browser, in `components/dashboard/Sessions.vue`.
-  A passkey is per-device by construction, so adopting it either (a) makes each
-  participant enrol their own key against the same account, which is strictly
-  better and needs no new model, or (b) becomes an argument for per-person
-  accounts, which is a different product decision with consequences for
-  `visibility.py` and the audit log. (a) is buildable now; (b) is the admin's
-  call.
-- **Q32 — is a WAF in front of the panel worth a hop on `/ws/`?** Caddy in
-  `docker-compose.prod.yml` short-circuits `/ws/*` straight to Channels
-  precisely to save a hop, and the top bar shows that latency. A proxying WAF
-  puts the hop back. Fronting HTTP while leaving the socket direct is the
-  obvious compromise, and it is the admin's call whether that is worth the
-  split configuration.
+- **Q31 — passkeys: not part of the panel.** The admin's passkey guards the
+  VPS, not the application login. The panel keeps its one shared staff login
+  with A1/A2 as the optional second factor, and no passkey phase is planned.
+- **Q32 — no WAF.** Latency and WebSocket performance come first. Caddy keeps
+  short-circuiting `/ws/*` straight to Channels, and nothing proxies in front
+  of it — not even for HTTP only, which would be two paths to one host with
+  one of them protected.

@@ -2,7 +2,7 @@
 
 Spec §3 requires a TradingView chart where SL/TP lines can be **dragged**, plus
 visual indicator editing on the panel. There is no Charting Library access
-today (`questions.md` Q3), so this is a two-phase plan behind one interface.
+today (`docs/decisions.md` Q3), so this is a two-phase plan behind one interface.
 
 ## Which TradingView product does what
 
@@ -48,7 +48,7 @@ phase 2, they can be done in a TradingView tab side-by-side.
 
 `GET /api/trading/market/candles/` and `/market/ticker/`, served by
 `backend/apps/exchanges/marketdata.py` — a public, **credential-free** module
-that is deliberately not an adapter (see Q13 in `questions.md`). Providers are
+that is deliberately not an adapter (see Q13 in `docs/decisions.md`). Providers are
 tried in order (Binance, then Bybit); a provider that fails is skipped for 60s
 rather than costing every request its timeout.
 

@@ -1,4 +1,4 @@
-"""Position sizing (spec §5, questions.md Q4 / Q12).
+"""Position sizing (spec §5, docs/decisions.md Q4 / Q12).
 
 Decided rule: margin = BALANCE_FRACTION (0.99) of the account's available USDT
 balance, with leverage multiplying on top. Notional = margin x leverage.

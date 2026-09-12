@@ -7,7 +7,7 @@ report prints them above the metrics rather than in a footnote.
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 import pytest
 from django.test import override_settings
@@ -321,6 +321,36 @@ def test_percent_of_equity_sizes_the_position_the_way_the_script_asked():
     assert trade.qty * trade.entry_price == pytest.approx(
         D("12500"), rel=D("0.01")
     )
+
+
+def test_percent_of_equity_buys_the_position_and_its_commission_rounded_down_to_the_lot():
+    """TradingView: 30% of 100,000 at 224.0 with a 0.05% commission is 133.8616,
+    which is 30000 / (224 × 1.0005) floored to the lot — not 30000 / 224."""
+    report = go(PERCENT_OF_EQUITY, pine_corpus.trending(40), qty_step=D("0.001"))
+    trade = report.trades[0]
+    expected = (D("12500") / (trade.entry_price * D("1.0005"))).quantize(
+        D("0.001"), rounding=ROUND_FLOOR
+    )
+    assert trade.qty == expected
+
+
+def test_a_filler_the_venue_serves_for_a_quiet_slot_is_not_replayed():
+    bars = pine_corpus.trending(40)
+    quiet = bars[10].close
+    filler = Bar(
+        time=bars[10].time + 1, open=quiet, high=quiet, low=quiet, close=quiet, volume=D("0")
+    )
+    spliced = [*bars[:11], filler, *bars[11:]]
+    assert go(ALWAYS_LONG, spliced).bars == go(ALWAYS_LONG, bars).bars
+
+
+def test_a_price_tick_rounds_the_bars_half_up_as_tradingviews_are():
+    bars = [
+        bar("100.05", "100.05", "100.05", "100.05", time=0),
+        bar("100.15", "100.15", "100.15", "100.15", time=900),
+    ]
+    report = go(ALWAYS_LONG, bars, price_tick=D("0.1"))
+    assert report.trades[0].entry_price == D("100.2")
 
 
 def test_a_commission_declared_by_the_script_beats_the_platform_default():

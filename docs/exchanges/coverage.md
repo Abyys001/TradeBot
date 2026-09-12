@@ -5,7 +5,7 @@ material exists for each. Derived from `docs/spec/exchange_list.original.txt`
 (the admin's raw list, kept verbatim — names there contain typos) and
 `docs/spec/platform-spec.md` §2 ("up to ~10 exchanges").
 
-**All 8 are in v1** (admin, 2026-08-11 — `questions.md` Q1). Build order below is
+**All 8 are in v1** (admin, 2026-08-11 — `docs/decisions.md` Q1). Build order below is
 a sequencing proposal; scope is not negotiable.
 
 | # | Exchange | Raw list entry | Order | Reference material | Testnet | Status |
@@ -36,15 +36,15 @@ query string, `X-BB-APIKEY`), `BTC-SWAP-USDT` contract ids mapped via
 `position/trading-stop` SL/TP amend.
 
 Testnet column feeds spec §9: exchanges marked ❌ must be shown in the panel as
-"no test environment — cannot be used in test mode" (`questions.md` Q9).
+"no test environment — cannot be used in test mode" (`docs/decisions.md` Q9).
 
 ## Known blockers
 
 - **LBank futures**: only the public namespace is publicly documented. No
   private order/position/balance endpoints exist in any published doc. See
-  `reference/exchanges/lbank/README.md` and `questions.md` Q10.
+  `reference/exchanges/lbank/README.md` and `docs/decisions.md` Q10.
 - **Hyperliquid**: agent-wallet withdrawal rights unverified against spec §7.
-  See `questions.md` Q11.
+  See `docs/decisions.md` Q11.
 
 ## Per-exchange capability checklist
 

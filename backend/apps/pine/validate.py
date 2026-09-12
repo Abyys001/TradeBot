@@ -62,9 +62,10 @@ ORDER_CALLS = frozenset({"strategy.entry", "strategy.close", "strategy.close_all
 #: execution model and every ``ta.*`` formula are identical between them, and
 #: ``reference/pinescriptv6/`` is what the implementation is checked against.
 #: The v5→v6 differences that could bite inside the subset are boolean
-#: short-circuiting and ``na``-in-a-condition; both are recorded as Q34 and
-#: neither is reachable from a construct this subset accepts without the script
-#: relying on a side effect inside an operand, which it has nowhere to put.
+#: short-circuiting and ``na``-in-a-condition. Neither is reachable from a
+#: construct this subset accepts without the script relying on a side effect
+#: inside an operand, which it has nowhere to put — so one implementation
+#: serves both, and TradingView's output under each is the check (Q34).
 SUPPORTED_VERSIONS = frozenset({5, 6})
 
 #: ``strategy.entry`` arguments that name a size. Parsed, ignored, reported (Q20).

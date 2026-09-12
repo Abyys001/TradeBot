@@ -14,7 +14,7 @@
  *     page, so a notice cannot be lost by navigating away.
  *   - each card keeps the spec's size, now inside the panel.
  *
- * Recorded as a deliberate amendment in questions.md (Q16) rather than a silent
+ * Recorded as a deliberate amendment in docs/decisions.md (Q16) rather than a silent
  * departure from the spec.
  */
 const { t } = useI18n()

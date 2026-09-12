@@ -8,7 +8,7 @@ different states and the second one is worth being able to see.
 
 Audit date: **Thu Aug 13 2026** · Fixes landed: **Thu Aug 13 2026**
 Audit basis: `docs/spec/platform-spec.md`, `docs/spec/conformance.md`,
-`questions.md` (Q1–Q17), full backend (`backend/apps/*` + `backend/tests/*`),
+`docs/decisions.md` (Q1–Q17), full backend (`backend/apps/*` + `backend/tests/*`),
 full frontend (`frontend/stores|components|pages|composables|layouts|middleware|server`).
 
 Status key: **✅ conforms** · **⚠️ done but with a caveat** · **❌ non-conformant / bug**
@@ -175,7 +175,7 @@ Tests: `tests/test_accounts_api.py` (6 cases).
   actually flatten a spot leg. Found and fixed alongside it: the market **buy**
   was sending a base quantity where LBank documents a quote amount, which would
   have bought the wrong size. Remaining caveat, now documented in
-  `questions.md` Q10 and `docs/adapters.md`: spot still has no SL/TP, so a spot
+  `docs/decisions.md` Q10 and `docs/adapters.md`: spot still has no SL/TP, so a spot
   leg with SL/TP set buys and immediately sells back under the default policy.
 - **G9 — `sltp.py` docstring drift. Fixed.** It said liquidation sits ~1% away;
   it is 1/leverage, so 10% at 10x. The docstring now carries the correction and

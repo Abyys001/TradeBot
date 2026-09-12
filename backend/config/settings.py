@@ -232,7 +232,7 @@ CREDENTIAL_ENCRYPTION_KEYS = [
 ]
 
 # --- Trading policy ---------------------------------------------------------
-# Each of these encodes an open question in questions.md. Both/all branches are
+# Each of these encodes a question answered in docs/decisions.md. Both/all branches are
 # implemented; flipping the setting changes behaviour with no code change.
 TRADING = {
     # Q12 / spec §5. Fraction of available balance committed as margin.

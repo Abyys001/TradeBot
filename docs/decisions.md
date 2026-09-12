@@ -1,15 +1,19 @@
 # Decisions — binding
 
 Every question this project has closed, with the reasoning and the setting or
-module that implements it. **Still-open questions live in `questions.md`.**
+module that implements it. There is no open-questions file: a new question goes
+to the admin directly, and its answer lands here under the next number.
 
-Q-numbers are cited from code comments (`questions.md Q5a` in
-`config/settings.py`, `questions.md Q11` in `exchanges/hyperliquid.py`) and from
+Q-numbers are cited from code comments (`Q5a` in `config/settings.py`, `Q10`
+in `exchanges/lbank.py`) and from
 `docs/spec/conformance.md`; they mean the same thing here. Q1–Q4 and Q6–Q9 were
 answered by the admin on 2026-08-11; Q5, Q10 and Q12–Q19 are answered by the
 shipped default, each with both branches implemented and a test that pins it, so
 what remains on those is a `.env` change rather than a decision; Q20–Q27 were
-taken on 2026-08-23 ahead of `docs/bot-mode.md` being built.
+taken on 2026-08-23 ahead of `docs/bot-mode.md` being built; Q29, Q31, Q32,
+Q34 and Q35 were answered by the admin on 2026-09-12. The spec §11 legal item
+is closed — the activity has been signed off by a lawyer, and this repository
+is a technical one.
 
 Where an answer names a setting, `backend/config/settings.py` is the authority
 on its current default.
@@ -692,7 +696,7 @@ had been drawn. Four changes, and one refusal that stands:
 - **v6 is read as well as v5**, on the argument this repository already makes —
   the operators, the execution model and every `ta.*` formula are shared, and
   `reference/pinescriptv6/` is what the implementation is checked against. The
-  two differences that could bite are recorded as **Q34** rather than asserted.
+  two differences that could bite are **Q34**, below.
 
 The refusal that stands is **`strategy.close(qty_percent = …)`** — a partial
 close. Q20 drops `strategy.entry(qty = …)` with a *warning* because the
@@ -892,7 +896,7 @@ Five decisions, now binding:
    — including deletions, which outlive the row they describe. A blank actor
    means the platform itself, which is only ever the `detected` action.
 
-Open: whether the threshold should be per-exchange — **Q28 in `questions.md`**.
+Whether the threshold should be per-exchange is **Q28** — it is.
 
 Backed by `backend/apps/accounts/detection.py`, `backend/apps/accounts/
 bookkeeping.py`, `/accounts/ledger/detections/*` and `/accounts/ledger/events/`
@@ -975,3 +979,119 @@ unexplained balance change and is offered to the operator as somebody's deposit.
 **unknown** price — `get_closed_pnl` reports a closed position, not a slice of an
 open one, so there is nothing at that seam to price it from, and a mark price is
 not a fill.
+
+---
+
+## Q29. `ta.*` golden values ✅ TradingView exports, every indicator
+
+Answered by the admin, 2026-09-12. The seeded family — `rma`, `rsi`, `atr` and
+everything built on them — is pinned to values exported from TradingView, where
+a seeding misreading is silent and permanent. The arithmetically unambiguous
+ones (`sma`, `stdev`, `highest`, `change`) are pinned to TradingView output as
+well, rather than to values recomputed from the reference formulas: an oracle
+written from the same formulas as the code cannot disagree with it.
+
+The exports are a sitting at TradingView, not code. Until they are committed,
+`tests/test_pine_ta.py` compares the incremental implementations against naive
+transcriptions of `reference/pinescriptv6/` and asserts the warm-up shape and
+the `rma` seeding; `test_the_exported_golden_values` runs the moment a file
+lands in `backend/tests/fixtures/pine/golden/` (format in its README).
+
+---
+
+## Q30. A percent exit is spelled `loss_pct=` / `profit_pct=` ✅ Answered in code
+
+Raised and answered 2026-08-25, implementing Phase 1. A deliberate difference
+from TradingView, not an omission.
+
+Q21 says a percent `strategy.exit` wins for that trade and a tick or point exit
+is rejected. Pine's own `strategy.exit` spells both the same way: `loss=` and
+`profit=` are **in ticks**, and `stop=`/`limit=` are absolute prices. There is no
+percent argument to accept, and reading `loss=10` as "10 percent" would give a
+TradingView script a different meaning here without saying so — the failure Q24
+exists to prevent, on the argument that limits the loss.
+
+So `loss`, `profit`, `stop`, `limit`, `trail_points`, `trail_offset` and
+`trail_price` are **rejected by name**, each with its own message, and the
+platform provides `loss_pct=` / `profit_pct=`. A script written for TradingView
+fails to load rather than trading a different stop, and the error says which
+argument to change to what. `apps/pine/subset.py` holds both halves —
+`EXIT_PERCENT_ARGS` and the `unsupported_exit_*` rejections — and
+`tests/test_pine_validate.py` proves each message, line and column.
+
+Two narrowings were recorded with it: decorative constants accepted only inside
+a visual call (since widened, see the Q24 amendments), and the **Q27 read-surface
+carve-out** — `accounts.visibility` may be imported by `apps/bots/views.py` and
+`apps/bots/serializers.py` and nowhere else in `apps/pine/` or `apps/bots/`,
+enforced by `tests/test_account_access.py` walking both packages' imports.
+
+---
+
+## Q31. Passkeys ✅ Not part of the panel
+
+Answered by the admin, 2026-09-12: the passkey in use guards the **VPS**, not
+the application login, so it has no bearing on the panel. The access model is
+unchanged — one shared staff login, `PanelSession` rows as the access list,
+the authenticator-app second factor (A1) and "remember this browser" (A2) as
+the optional layer in `docs/security-plan.md`. No passkey phase is planned.
+
+---
+
+## Q32. WAF in front of the panel ✅ No
+
+Answered by the admin, 2026-09-12: latency and WebSocket performance matter
+more. Caddy in `docker-compose.prod.yml` keeps short-circuiting `/ws/*` straight
+to Channels, and no proxying WAF sits in front of either path — fronting HTTP
+alone would be two paths to one host with only one protected.
+
+---
+
+## Q34. Pine v5 and v6 ✅ One implementation, checked against TradingView
+
+Answered by the admin, 2026-09-12: both versions run on the current
+implementation, and TradingView's output is the check. The two differences that
+could bite — v6's boolean short-circuiting and `na` in a condition — have no
+reachable effect inside the subset (an operand has nowhere to put a side
+effect; a `ta.*` site advances every bar regardless of branch,
+`runtime._advance_untouched`; `series._Na.__bool__` is false in both), so
+`validate.SUPPORTED_VERSIONS` stays `{5, 6}` over one runtime. A TradingView
+export of a script under each version is what confirms it, the same kind of
+fixture as Q29's and `tests/test_tradingview_parity.py`.
+
+---
+
+## Q35. Which series a bot reads its signal from ✅ The instrument it trades
+
+Raised 2026-09-12 replaying the admin's McG T3 Flow run, which TradingView drew
+on **Hyperliquid spot** `UZEC/USDC` while the bots trade the `ZEC`
+**perpetual**. The admin named Hyperliquid futures as the target and left the
+design to this repository.
+
+**Decision: signal and execution share one series — the traded instrument,
+which on the target venue is the Hyperliquid perpetual.** No separate signal
+source is built.
+
+- **A signal on one series and fills on another put every exit on a price the
+  position does not have.** `sl_pct` / `profit_pct` are measured from the
+  fill; spot and perp differ by basis and funding (one bar: low 1002.7 on spot,
+  1001.2 on the perp), so a stop the script placed on spot fires, or fails to,
+  on a perp that went somewhere else. Live PnL would stop tracking the Strategy
+  Tester — the one comparison the gate exists to make.
+- **Hyperliquid spot `UZEC` is a thin, bridged market.** Its filler bars are why
+  `feed.untraded` exists. Evaluating a strategy on it to trade 99% of every
+  partner account on the perp is the thinner market steering the deeper one.
+- **It is what already runs.** A bot reads bars from the instrument it trades;
+  a second feed per bot would be a second archive key and another way for the
+  chart, the backtest and live to disagree.
+
+What it asks for: McG T3 Flow is re-run on TradingView's `ZECUSDC.P`
+(Hyperliquid perpetual), and that Strategy Tester export is the result to review
+before it goes live — a new result, not the spot one. Committed beside the spot
+fixture, it gives `tests/test_tradingview_parity.py` a perp case. The spot
+parity test stays: it proves the engine, which does not depend on the series.
+
+`backtest.run(price_tick =)` stays a replay argument for lining up with a
+TradingView chart quoted coarser than the venue; it is not a panel setting.
+Untraded filler bars are dropped from backtest and live alike
+(`feed.untraded`), which parity needs on any thin pair.
+

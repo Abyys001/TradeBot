@@ -1,4 +1,4 @@
-"""SL/TP maths — both readings of questions.md Q5a, side by side.
+"""SL/TP maths — both readings of docs/decisions.md Q5a, side by side.
 
 The admin has not yet chosen between them, so both are implemented and
 ``TRADING["SLTP_BASIS"]`` selects one. ``compare_bases`` renders both at once
@@ -11,7 +11,7 @@ is a 0.2% price move, twenty times tighter for the same number in the box.
 
 (Liquidation distance is 1/leverage — 10% at 10x, 20% at 5x — and does not
 depend on how much of the account is committed as margin. An earlier version of
-this docstring said ~1%; the correction is recorded in questions.md and the
+this docstring said ~1%; the correction is recorded in docs/decisions.md and the
 numbers are asserted in tests/test_sltp.py.)
 """
 

@@ -667,7 +667,7 @@ class ToobitPublicSource(HttpSource):
 
 
 class LbankPublicSource(HttpSource):
-    """LBank **spot** public data. Futures is unreachable at all (questions.md Q10)."""
+    """LBank **spot** public data. Futures is unreachable at all (docs/decisions.md Q10)."""
 
     name = "lbank"
     exchange = "lbank"
@@ -691,7 +691,7 @@ class LbankPublicSource(HttpSource):
     def _guard(self, market: MarketType) -> None:
         if market is MarketType.FUTURES:
             raise MarketDataError(
-                "lbank: no public futures market data — see questions.md Q10"
+                "lbank: no public futures market data — see docs/decisions.md Q10"
             )
 
     def _rows(self, payload) -> list:

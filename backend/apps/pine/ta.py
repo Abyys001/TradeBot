@@ -13,7 +13,7 @@ Three properties every class here holds to, and each one is load-bearing:
   recursive. Built from the textbook recurrence instead, an RSI is off by a few
   tenths **forever**; a few tenths is enough to flip a ``crossover``, and a
   flipped crossover is a trade that should not have happened at 99% of every
-  partner's balance. Q29 covers where the reference numbers come from.
+  partner's balance. The reference numbers are TradingView exports (Q29).
 
   **``Decimal``.** These values become stop prices. The project-wide rule holds
   here with no exception carved out for speed — the arithmetic is a few hundred

@@ -7,7 +7,7 @@ no published private endpoints for placing orders, reading positions, or
 querying balances, so every futures method here raises ``NotSupported`` rather
 than guessing at an undocumented request shape and silently mis-trading.
 
-Tracked as questions.md Q10. Spot is fully documented and works.
+Tracked as docs/decisions.md Q10. Spot is fully documented and works.
 
 Signing (spot): MD5 of the sorted parameter string, uppercased, then
 HMAC-SHA256 with the secret. ``echostr`` is a random 30–40 character
@@ -44,7 +44,7 @@ from apps.exchanges.rest import RestAdapter
 FUTURES_UNAVAILABLE = (
     "LBank publishes no private futures API. Only public market data is "
     "documented, so orders, positions and balances cannot be implemented. "
-    "See questions.md Q10 — request the private contract docs from LBank."
+    "See docs/decisions.md Q10 — request the private contract docs from LBank."
 )
 
 
@@ -250,7 +250,7 @@ class LbankAdapter(RestAdapter):
     ) -> None:
         raise NotSupported(
             "lbank: no SL/TP on spot via the documented API, and futures is unavailable. "
-            "See questions.md Q10."
+            "See docs/decisions.md Q10."
         )
 
     async def get_position(self, symbol: str) -> Position | None:

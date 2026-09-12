@@ -8,9 +8,9 @@ against the textbook one.
 
 It is deliberately **not** what Q29 asks for. An oracle written from the same
 reference the implementation was written from cannot catch a misreading of that
-reference — only an export from TradingView can, and Q29 is the open question of
-who produces it. `test_the_exported_golden_values` runs the moment one appears
-in `fixtures/pine/golden/`.
+reference — only an export from TradingView can, which is what Q29 decided
+every indicator is pinned to. `test_the_exported_golden_values` runs the
+moment one appears in `fixtures/pine/golden/`.
 """
 
 from __future__ import annotations

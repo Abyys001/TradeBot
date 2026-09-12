@@ -73,7 +73,7 @@ class StrategyIntent:
     #: backtest acts on a repeat. It is carried for the action log, where "the
     #: script asked again" and "nothing happened" are different things worth
     #: telling apart, and it is what a ``pyramiding`` implementation would read
-    #: if one is ever built (``questions.md`` Q33). Deliberately absent from
+    #: if one is ever built (``docs/decisions.md`` Q33). Deliberately absent from
     #: ``divergence.intent_fingerprint``: the digest compares the desired
     #: *position*, which is what live routes, and adding this would make a bar
     #: that re-issued an entry read as a divergence between two runs that agree.

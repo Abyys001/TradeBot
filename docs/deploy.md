@@ -187,9 +187,9 @@ visible in the source of truth.
 
 ### The settings that change how it trades
 
-Every one of these is an open question in `questions.md` with **both branches
-built**, so answering one is an `.env` edit and a restart, never a rewrite.
-Decide before connecting real accounts.
+Every one of these is a question answered in `docs/decisions.md` with **both
+branches built**, so changing an answer is an `.env` edit and a restart, never
+a rewrite. Review them before connecting real accounts.
 
 | Setting | Default | What it decides |
 |---|---|---|
@@ -200,7 +200,7 @@ Decide before connecting real accounts.
 | `SLTP_AMEND_STRATEGY` | `place_then_cancel` | Mid-trade SL/TP change where the venue has no native amend (Q5d). The alternative leaves a moment unprotected instead of a moment double-protected. |
 | `SLTP_FAILURE_POLICY` | `retry_then_close` | A leg that fills but whose stop will not attach (Q5e). The default closes it rather than leaving a position running unprotected at leverage. |
 | `REJECT_SL_BEYOND_LIQUIDATION` | `true` | Refuses an order whose stop can never trigger because the position liquidates first. |
-| `FANOUT_TIMEOUT_SECONDS` | `10.0` | Per-leg deadline (spec §4, **amended** — `questions.md` Q19). Was 1.0, which VPS exchange round trips blew on healthy orders. One slow exchange cannot hold up the others past this. A leg that fails *after* its order went out — deadline, HTTP read timeout, 5xx — is re-read from the exchange and reported as a fill when the position is there; raising this only makes that path rarer, it is not what makes the reporting correct. |
+| `FANOUT_TIMEOUT_SECONDS` | `10.0` | Per-leg deadline (spec §4, **amended** — `docs/decisions.md` Q19). Was 1.0, which VPS exchange round trips blew on healthy orders. One slow exchange cannot hold up the others past this. A leg that fails *after* its order went out — deadline, HTTP read timeout, 5xx — is re-read from the exchange and reported as a fill when the position is there; raising this only makes that path rarer, it is not what makes the reporting correct. |
 | `STOP_ALL` | `false` | `true` is an un-clearable halt pin. Leave `false` — the panel's own halt switch is the everyday control. |
 
 ### The settings that change what it shows

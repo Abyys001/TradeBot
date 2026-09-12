@@ -1,4 +1,4 @@
-"""questions.md Q5a — the two readings, in numbers."""
+"""docs/decisions.md Q5a — the two readings, in numbers."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from apps.trading.sltp import (
     resolve_active,
 )
 
-# The worked example from questions.md Q5a: $1,000 account, 10x, BTC at 100k.
+# The worked example from docs/decisions.md Q5a: $1,000 account, 10x, BTC at 100k.
 CASE = dict(
     side=Side.LONG,
     entry=D("100000"),

@@ -21,10 +21,11 @@ The fill model is deliberately pessimistic and is stated in every report:
   reading turns a losing strategy into a winning one on paper.
 
 Sizing mirrors spec §5 for one notional account — 99% of equity as margin with
-leverage on top — because that is what the platform will actually do. It does
-*not* model per-account minimum notionals or step rounding: those differ per
-account and per venue, and a backtest that pretended to know them would be
-inventing precision it does not have. ``sizing.py`` owns that at execution time.
+leverage on top — unless the script declared its own ``default_qty_type``. It
+does *not* model per-account minimum notionals: those differ per account, and
+``sizing.py`` owns them at execution time. It does round every order **down to
+the venue's lot**, as TradingView rounds to ``syminfo.mincontract``; a
+TP1/TP2/TP3 split is otherwise off in the fourth decimal on every slice.
 """
 
 from __future__ import annotations
@@ -34,13 +35,13 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 
 from apps.bots.config import decimal_setting, limits
 from apps.bots.divergence import digest_intents
-from apps.bots.feed import interval_seconds, to_bar, warmup_bars_needed
+from apps.bots.feed import interval_seconds, to_bar, untraded, warmup_bars_needed
 from apps.bots.report import Assumptions, ClosedTrade, Report, compute_metrics
 from apps.exchanges.base import MarketType
 from apps.pine import properties as props_module
@@ -344,9 +345,17 @@ def run(
     bars: list[Bar] | None = None,
     property_overrides: dict | None = None,
     mintick: Decimal | None = None,
+    qty_step: Decimal | None = None,
+    price_tick: Decimal | None = None,
     progress: Progress = _noop_progress,
 ) -> Report:
-    """Validate, replay, and report. ``bars`` is for tests and the divergence check."""
+    """Validate, replay, and report. ``bars`` is for tests and the divergence check.
+
+    ``price_tick`` is the chart's tick when TradingView quotes the pair coarser
+    than the venue does — UZEC/USDC is 0.1 there and 0.01 on Hyperliquid — and
+    rounds every price half-up to it, as TradingView's bars are. Signals do not
+    move with it; fill prices, and so every PnL figure, do.
+    """
     progress("validating", 0.0, {})
     result = validate(source, limits=limits())
     if not result.ok:
@@ -374,6 +383,7 @@ def run(
             "from_archive": window.from_archive,
             "total": len(window.bars),
         }
+    series = [_quantize(bar, price_tick) for bar in series if not untraded(bar)]
     if not series:
         raise BacktestError(
             f"no bars for {symbol} {interval} between {from_time} and {to_time}"
@@ -399,6 +409,8 @@ def run(
     tick = mintick if mintick is not None else (
         _mintick_for(symbol, market) if bars is None else Decimal("0.01")
     )
+    if qty_step is None and bars is None:
+        qty_step = _qty_step_for(symbol, market)
 
     assumptions = Assumptions(
         entry_rule=(
@@ -428,6 +440,7 @@ def run(
         ),
         slippage_ticks=resolved.slippage,
         mintick=tick,
+        qty_step=qty_step,
         departures=tuple(resolved.live_departures()),
     )
 
@@ -533,6 +546,32 @@ def _mintick_for(symbol: str, market: MarketType) -> Decimal:
         .first()
     )
     return listing.price_tick if listing is not None else Decimal("0.01")
+
+
+def _qty_step_for(symbol: str, market: MarketType) -> Decimal | None:
+    """The finest lot any connected venue trades this pair in, or ``None``."""
+    from apps.trading.models import ExchangeSymbol
+
+    listing = (
+        ExchangeSymbol.objects.filter(symbol=symbol.upper(), market=str(market), active=True)
+        .exclude(qty_step=None)
+        .order_by("qty_step")
+        .first()
+    )
+    return listing.qty_step if listing is not None else None
+
+
+def _quantize(bar: Bar, tick: Decimal | None) -> Bar:
+    if tick is None:
+        return bar
+    return Bar(
+        time=bar.time,
+        open=bar.open.quantize(tick, ROUND_HALF_UP),
+        high=bar.high.quantize(tick, ROUND_HALF_UP),
+        low=bar.low.quantize(tick, ROUND_HALF_UP),
+        close=bar.close.quantize(tick, ROUND_HALF_UP),
+        volume=bar.volume,
+    )
 
 
 def _longest_lookback(result) -> int:
@@ -697,6 +736,12 @@ class _Engine:
     def _execute(self, pending, bar: Bar, basis: Decimal) -> None:
         side, sl_pct, tp_pct, reason, span = pending
 
+        # Sized on the equity the order was *placed* against: the position being
+        # reversed still open and marked at this price, its exit fee not yet
+        # paid. That is `strategy.equity` on the signal bar, and it is what
+        # TradingView sizes a reversal from — the post-close figure is short by
+        # exactly that fee, which put every reversal 0.01% small.
+        sizing_equity = self._mark_at(basis)
         if self.position is not None:
             # A reversal closes first and then opens, in that order, never both
             # at once — the same rule Phase 5 enforces against a live venue.
@@ -705,7 +750,7 @@ class _Engine:
             return
 
         price = self._slipped(basis, closing=False, side=side)
-        qty, notional, margin = self._size(price)
+        qty, notional, margin = self._size(price, sizing_equity)
         if price <= ZERO or notional <= ZERO or qty <= ZERO:
             return
         fee = self._commission(notional, qty)
@@ -790,7 +835,7 @@ class _Engine:
             peak = max(peak, value)
             yield peak, value
 
-    def _size(self, price: Decimal) -> tuple[Decimal, Decimal, Decimal]:
+    def _size(self, price: Decimal, equity: Decimal) -> tuple[Decimal, Decimal, Decimal]:
         """``(qty, notional, margin)`` — the script's rule, or the platform's.
 
         ``default_qty_type`` is a *backtest* property (spec §5 sizes every live
@@ -805,21 +850,35 @@ class _Engine:
         value = getattr(properties, "default_qty_value", ZERO)
 
         if qty_type is QtyType.PLATFORM:
-            margin = self.equity * self.a.balance_fraction
+            margin = equity * self.a.balance_fraction
             notional = margin * Decimal(self.a.leverage)
-            return (notional / price if price > ZERO else ZERO), notional, margin
+            qty = self._lot(notional / price) if price > ZERO else ZERO
+            return qty, qty * price, margin
         if qty_type is QtyType.FIXED:
             qty = value
         elif qty_type is QtyType.CASH:
             qty = value / price if price > ZERO else ZERO
         else:  # percent_of_equity
-            qty = (self.equity * value / Decimal(100)) / price if price > ZERO else ZERO
+            # The share buys the position *and* its entry commission, so the
+            # price is grossed up by the percentage fee before dividing. Checked
+            # against 24 entries of a TradingView List of Trades: 30% of
+            # 100,000 at 224.0 is 133.8616 there, 30000 / (224 × 1.0005).
+            gross = price * (1 + self.a.fee_bps / BPS)
+            qty = (equity * value / Decimal(100)) / gross if price > ZERO else ZERO
+        qty = self._lot(qty)
         notional = qty * price
         # `margin_long`/`margin_short` are a percent of the position the account
         # must fund; TradingView's own default is 0, meaning "no requirement".
         requirement = getattr(properties, "margin_long", ZERO)
         margin = notional * requirement / Decimal(100) if requirement else notional
         return qty, notional, margin
+
+    def _lot(self, qty: Decimal) -> Decimal:
+        """Down to the venue's lot — never up, the §5 rule and TradingView's."""
+        step = self.a.qty_step
+        if not step or qty <= ZERO:
+            return qty
+        return (qty / step).to_integral_value(ROUND_FLOOR) * step
 
     def _commission(self, notional: Decimal, qty: Decimal) -> Decimal:
         """One side's cost under whichever of the three models is in force."""
@@ -861,19 +920,25 @@ class _Engine:
         and profit factor on a different basis from the numbers being checked.
         """
         position = self.position
-        if position is None or position.entry_qty <= ZERO:
+        if position is None or position.entry_qty <= ZERO or position.fraction <= ZERO:
             return
-        remaining = position.entry_qty * to_fraction
-        qty = position.qty - remaining
+        # `qty_percent` is a share of what is *still open*, rounded down to the
+        # lot on its own — so what stays is the remainder, not entry × fraction.
+        # TradingView: 30% of 79.5183 closes 23.8554, not 23.8555.
+        qty = self._lot(position.qty * (1 - to_fraction / position.fraction))
         if qty <= ZERO:
             return
+        remaining = position.qty - qty
 
         direction = Decimal(1) if position.side is Side.LONG else Decimal(-1)
         gross = (price - position.entry_price) * qty * direction
         exit_fee = self._commission(price * qty, qty)
         # The entry fee follows the size out of the position, so the slice
         # carries its own share and the remainder is not charged for it twice.
-        entry_share = position.entry_fee * qty / position.entry_qty
+        # `entry_fee` is what the still-open quantity carries, so the share is of
+        # *that* — dividing by the entry size under-charged TP2 and TP3 and left
+        # the difference on the final close.
+        entry_share = position.entry_fee * qty / position.qty
 
         self.equity += gross - exit_fee
         position.qty = remaining
@@ -944,10 +1009,13 @@ class _Engine:
         return price + drift if side is Side.LONG else price - drift
 
     def _mark_to_market(self, bar: Bar) -> Decimal:
+        return self._mark_at(bar.close)
+
+    def _mark_at(self, price: Decimal) -> Decimal:
         if self.position is None:
             return self.equity
         direction = Decimal(1) if self.position.side is Side.LONG else Decimal(-1)
-        return self.equity + (bar.close - self.position.entry_price) * self.position.qty * direction
+        return self.equity + (price - self.position.entry_price) * self.position.qty * direction
 
 
 def _resolve_levels(

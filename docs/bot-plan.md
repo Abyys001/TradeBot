@@ -505,7 +505,7 @@ Before any bot routes to a real account:
       real deployment.
 - [ ] The §11 legal note re-read. Automating discretionary trading of other
       people's capital is a different activity from mirroring a human's trades.
-      `questions.md` records the activity as signed off by a lawyer; that
+      `docs/decisions.md` records the activity as signed off by a lawyer; that
       sign-off predates bot mode.
 
 ---
@@ -534,5 +534,5 @@ Phase 3 is independent of 1 and 2 and can be built in parallel by a second pair
 of hands; so can 8 and 9 alongside 6 and 7. Phase 10 waits for all of them.
 
 **Start at** `backend/apps/pine/tokens.py`. Nothing above it needs a decision
-that has not been taken — except Q29, which blocks only Phase 2's golden
-fixtures and not its implementation.
+that has not been taken. Q29's TradingView exports block only Phase 2's golden
+fixtures, not its implementation.

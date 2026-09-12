@@ -98,6 +98,19 @@ def to_bar(candle: Candle) -> Bar:
     )
 
 
+def untraded(bar: Bar | Candle) -> bool:
+    """A slot in which nothing traded — a venue's filler, not a bar.
+
+    Hyperliquid answers a quiet 30 minutes on a thin pair with a flat,
+    zero-volume candle at the last price; TradingView draws nothing there. Kept,
+    one of them shifts every ``x[2]`` in the script by a bar and drags the ATR
+    toward zero: on UZEC/USDC 30m it moved a reversal a bar early against the
+    Strategy Tester. Both conditions, so a feed that simply omits volume does
+    not lose every bar it serves.
+    """
+    return bar.volume == 0 and bar.open == bar.high == bar.low == bar.close
+
+
 def interval_seconds(interval: str) -> int:
     step = INTERVALS.get(interval)
     if step is None:
@@ -208,7 +221,9 @@ class BarFeed:
 
         merged = candlestore.merge(list(archived), live)
         # An unfinished bar at the head is exactly what Q23 excludes.
-        closed = [c for c in merged if is_confirmed(c.time, self.interval)]
+        closed = [
+            c for c in merged if is_confirmed(c.time, self.interval) and not untraded(c)
+        ]
         return closed[-need:] if len(closed) > need else closed, source or "archive"
 
     # --- the clock ----------------------------------------------------------
@@ -336,7 +351,8 @@ class BarFeed:
                 self.last_bar_time = repaired[-1].time if repaired else self.last_bar_time
 
         self.last_bar_time = candle.time
-        out.append(FeedBar(bar=to_bar(candle), source=provider, transport=self.transport))
+        if not untraded(candle):
+            out.append(FeedBar(bar=to_bar(candle), source=provider, transport=self.transport))
         return out
 
     async def _repair(self, first_missing: int, up_to: int) -> list[Candle]:
@@ -376,7 +392,9 @@ class BarFeed:
             ) from exc
 
         by_time = {c.time: c for c in (_candle_from(row) for row in payload.get("candles", []))}
-        recovered = [by_time[t] for t in wanted if t in by_time]
+        # A slot the venue answers with an untraded filler is accounted for, not
+        # missing: nothing happened there, and TradingView has no bar for it.
+        recovered = [by_time[t] for t in wanted if t in by_time and not untraded(by_time[t])]
         still_missing = [t for t in wanted if t not in by_time]
         if still_missing:
             raise FeedGap(

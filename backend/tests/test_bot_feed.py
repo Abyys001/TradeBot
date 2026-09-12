@@ -15,6 +15,7 @@ from apps.bots.feed import (
     interval_seconds,
     is_confirmed,
     to_bar,
+    untraded,
     warmup_bars_needed,
 )
 from apps.exchanges.base import MarketType
@@ -150,6 +151,50 @@ async def test_a_gap_that_cannot_be_repaired_stops_the_bot():
     f._repair = refuse
     with pytest.raises(FeedGap):
         await f._accept(candle(2700), "test")
+
+
+def filler(time: int, price: str = "100") -> Candle:
+    """What Hyperliquid serves for a slot in which nothing traded."""
+    p = D(price)
+    return Candle(time=time, open=p, high=p, low=p, close=p, volume=D("0"))
+
+
+def test_a_flat_zero_volume_candle_is_untraded():
+    assert untraded(filler(900)) is True
+
+
+def test_a_flat_candle_that_traded_is_a_bar():
+    assert untraded(candle(900)) is False
+
+
+def test_zero_volume_with_a_range_is_a_bar():
+    """A feed that omits volume must not lose every bar it serves."""
+    bar = Candle(time=900, open=D(100), high=D(101), low=D(99), close=D(100), volume=D(0))
+    assert untraded(bar) is False
+
+
+async def test_an_untraded_slot_advances_the_feed_without_reaching_the_strategy():
+    """TradingView draws nothing there, so the script must see nothing either."""
+    f = feed()
+    f.last_bar_time = 900
+    assert await f._accept(filler(1800), "test") == []
+    assert f.last_bar_time == 1800
+    accepted = await f._accept(candle(2700), "test")
+    assert [item.bar.time for item in accepted] == [2700]
+    assert f.gaps == 0
+
+
+async def test_a_slot_the_venue_answers_with_a_filler_is_not_a_gap(monkeypatch):
+    """The stream may skip a quiet slot; the refetch then finds the filler. The
+    slot is accounted for, and stopping the bot over it would be a false alarm."""
+    from apps.exchanges import marketdata
+
+    quiet = {"t": 1800, "o": "100", "h": "100", "l": "100", "c": "100", "v": "0"}
+    monkeypatch.setattr(marketdata, "get_candles", lambda **_: {"candles": [quiet]})
+    f = feed()
+    f.last_bar_time = 900
+    accepted = await f._accept(candle(2700), "test")
+    assert [item.bar.time for item in accepted] == [2700]
 
 
 def test_a_feed_gap_names_the_bars_it_is_missing():

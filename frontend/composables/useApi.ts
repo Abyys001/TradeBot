@@ -833,7 +833,6 @@ export interface Policy {
   stop_all_locked: boolean
   stop_all_source: 'env' | 'panel' | 'off'
   stop_all_reason: string
-  open_questions: Record<string, string>
 }
 
 export interface Account {

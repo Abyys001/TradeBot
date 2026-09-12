@@ -62,7 +62,7 @@ A main trading page, similar in layout to a standard exchange:
 - Initial entry orders must also be dispatched to all accounts within
   **~1 second** of each other.
 
-  > **Amended in use (see `questions.md` Q19).** The cap was 1 second on a
+  > **Amended in use (see `docs/decisions.md` Q19).** The cap was 1 second on a
   > machine where that held; on the production VPS a leg's exchange round
   > trips (balance, leverage, order, then SL/TP placement) routinely landed at
   > 1–2 seconds, so a healthy order was failing the deadline and raising a
@@ -89,7 +89,7 @@ A main trading page, similar in layout to a standard exchange:
   The notification must remain visible until the admin manually dismisses it
   — it should not auto-expire.
 
-  > **Amended in use (see `questions.md` Q16).** Docked over the page, these
+  > **Amended in use (see `docs/decisions.md` Q16).** Docked over the page, these
   > covered the chart at the moment they mattered. They now live in a
   > notification centre in the top bar, present on every page, with a count
   > badge; a new failure opens it automatically and only a manual dismiss (a
@@ -146,7 +146,7 @@ A main trading page, similar in layout to a standard exchange:
   if something goes wrong and immediate action is needed across every
   account at once.)*
 
-  > **Amended in use (`questions.md` Q14).** The panel's Stop-all halts **and
+  > **Amended in use (`docs/decisions.md` Q14).** The panel's Stop-all halts **and
   > flattens**: it stops new routing and then market-closes every open trade in
   > the same request. Halting alone leaves the leveraged position that is
   > already running exactly where it was, which is not what "immediate action

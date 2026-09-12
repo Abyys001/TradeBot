@@ -8,8 +8,8 @@ same code the admin's manual button already goes through. If a change to
 `apps/bots/` ever adds a second order path it is wrong regardless of what it
 does.
 
-The decisions behind every rule here are Q20–Q27 in `docs/decisions.md`, plus
-Q30 in `questions.md`. They are cited by number throughout, and the argument for
+The decisions behind every rule here are Q20–Q27, Q30 and Q35 in
+`docs/decisions.md`. They are cited by number throughout, and the argument for
 each is settled.
 
 - `docs/bot-mode.md` — the eleven-phase plan and why each phase exists.
@@ -237,10 +237,27 @@ number people act on.
 | Entry fills at | the **next** bar's open |
 | Slippage | `strategy(slippage = n)` in ticks when the script declares one, else `BOT_BACKTEST_SLIPPAGE_BPS` (default 0 — TradingView's own default, so the two reports agree), applied against the trade |
 | Fee | `strategy(commission_type =, commission_value =)` when the script declares one, else `BOT_BACKTEST_FEE_BPS`, charged on **both** sides |
-| Order size | `strategy(default_qty_type =, default_qty_value =)` when the script declares one — and the header then says so, because live sizes every account at 99% of its own balance instead (§5) |
+| Order size | `strategy(default_qty_type =, default_qty_value =)` when the script declares one — and the header then says so, because live sizes every account at 99% of its own balance instead (§5). `percent_of_equity` buys the position *and* its percentage commission, and is sized on the equity the order was placed against (a reversed leg still marked, its exit fee unpaid) — TradingView's rule |
+| Lot | every order, scale-outs included, rounded **down** to the venue's lot (`syminfo.mincontract` on TradingView) |
+| Bars | a flat zero-volume candle — a venue's filler for a slot in which nothing traded — is dropped, in backtest and live alike: TradingView draws no bar there, and one kept shifts every `x[n]` by a bar |
 | Initial capital | `strategy(initial_capital =)` when the script declares one |
 | A bar that touches both the stop and the target | assumed **stopped out** |
 | Warm-up | `max(indicator lookback) × BOT_WARMUP_MULTIPLIER`, and a window with too little of it says so |
+
+Checked against a real Strategy Tester run, not only against the docs:
+`tests/test_tradingview_parity.py` replays the admin's McG T3 Flow export on
+Hyperliquid spot UZEC/USDC 30m and matches all 21 trades in its window on the
+bar and at the price, and to the cent from the second campaign. Prices there
+are rounded to TradingView's chart tick (`backtest.run(price_tick =)`), which is
+coarser than the venue's for that pair — a replay argument for lining up with
+a TradingView chart, not a panel setting.
+
+That run proves the engine, not the market. **A bot reads its signal from the
+instrument it trades** — on the target venue, the Hyperliquid perpetual — never
+from a spot chart beside it (Q35): signals on one series and fills on another
+put every stop and target on a price the position does not have. A strategy
+built on a spot chart is re-run on TradingView's perp (`ZECUSDC.P` for this
+one) and reviewed as the new result it is before it goes live.
 
 ### The Properties tab
 
@@ -270,7 +287,7 @@ rows where that matters.** Spec §5 is an invariant: a live order is 99% of that
 account's own balance as margin with the bot's leverage on top, identically
 across every connected account. So `default_qty_type`/`default_qty_value` and
 the margin pair size the *simulated* account and stop there; `pyramiding` is not
-simulated at all (questions.md Q33); `process_orders_on_close` is a fill live
+simulated at all (docs/decisions.md Q33); `process_orders_on_close` is a fill live
 cannot perform; and `calc_on_every_tick` and `fill_orders_on_standard_ohlc` do
 nothing here at all — no tick archive, no Heikin Ashi candles. Each of those
 carries its own sentence, served from the same module the validator reads, and
@@ -575,7 +592,8 @@ promotion gate can tell whether they were set deliberately or left at defaults.
   measures it; nothing can shorten it.
 - **Phase 10's checklist is human**: the testnet drill, the lawyer's re-read, the
   canary week at one account.
-- **The `ta.*` golden values are Q29** — open. The indicator tests currently
+- **The `ta.*` golden values are not exported yet.** Q29 decided every one
+  comes from TradingView; until one is committed the indicator tests
   compare against oracles transcribed from the Pine reference, which pins the
   incremental implementations against the textbook formulas but cannot catch a
   misreading of the reference itself. See
