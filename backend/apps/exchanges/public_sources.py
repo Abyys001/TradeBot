@@ -770,6 +770,48 @@ class LbankPublicSource(HttpSource):
         return out
 
 
+#: Hyperliquid's own spelling of every perp it lists, keyed by the uppercase
+#: form every other layer here works in.
+#:
+#: The venue is **case-sensitive** and writes the 1000x perps ``kSHIB``,
+#: ``kPEPE``, ``kBONK``, ``kLUNC``, ``kFLOKI``, ``kDOGS``, ``kNEIRO`` — a
+#: lowercase ``k`` that a platform-wide ``.upper()`` erases. ``/info`` answers
+#: **HTTP 500** for a coin it does not know, so this platform's own catalogue
+#: entry ``KSHIBUSDT`` came back looking like an *outage* rather than a name,
+#: and under ``MARKET_DATA_PIN`` there is no second provider: one such pair
+#: cooled the feed off and took every *other* pair's chart and ticker down with
+#: it. This map is what turns a name back into the venue's own string — and a
+#: name that is genuinely not in it into ``SymbolNotListed``, which is one pair
+#: rather than the venue.
+HL_NAMES_KEY = "md:hl:names"
+#: Listings change at human speed; a chart tick must not pay to ask.
+HL_NAMES_TTL = 600
+
+#: Binance and Bybit write the same 1000x perps ``1000SHIB``, and the picker
+#: offers whatever the connected catalogues list. ``k`` is Hyperliquid's
+#: spelling of exactly that multiple, so the two name one instrument at one
+#: scale and the marks are comparable. Only an exact ``1000`` prefix maps:
+#: Bybit's ``10000SATS`` is a different multiple and must never quietly become
+#: ``kSATS``, because a mark ten times out is the substitution the pin exists
+#: to prevent.
+HL_KILO_PREFIX = "1000"
+
+
+def hyperliquid_coin(symbol: str, names: dict[str, str]) -> str | None:
+    """``KSHIBUSDT`` / ``1000SHIBUSDT`` -> ``kSHIB``.
+
+    ``None`` when the venue lists no such perp, which callers turn into
+    ``SymbolNotListed`` rather than an outage.
+    """
+    pair = split_pair(symbol)
+    base = (pair[0] if pair else symbol).upper()
+    if base in names:
+        return names[base]
+    if base.startswith(HL_KILO_PREFIX):
+        return names.get(f"K{base[len(HL_KILO_PREFIX) :]}")
+    return None
+
+
 class HyperliquidPublicSource(HttpSource):
     """Hyperliquid's ``/info`` endpoint — POST, unsigned, no account context.
 
@@ -806,9 +848,35 @@ class HyperliquidPublicSource(HttpSource):
     _CTX_KEY = "md:hl:ctxs"
     _CTX_TTL = 3
 
+    def _names(self) -> dict[str, str]:
+        """The perp universe as ``{UPPERCASE: the venue's own spelling}``."""
+        cached = cache.get(HL_NAMES_KEY)
+        if cached is not None:
+            return cached
+        payload = self._info({"type": "meta"})
+        universe = payload.get("universe") if isinstance(payload, dict) else None
+        if not isinstance(universe, list):
+            raise MarketDataError("hyperliquid: unexpected meta shape")
+        names = {
+            str(asset["name"]).upper(): str(asset["name"])
+            for asset in universe
+            if isinstance(asset, dict) and asset.get("name")
+        }
+        if names:
+            cache.set(HL_NAMES_KEY, names, HL_NAMES_TTL)
+        return names
+
     def _coin(self, symbol: str) -> str:
-        pair = split_pair(symbol)
-        return pair[0] if pair else symbol.upper()
+        """The coin name to put on the wire, resolved against the universe.
+
+        Resolved rather than derived: the casing is the venue's and cannot be
+        guessed, and asking for a coin it does not list is an HTTP 500 that
+        reads as the venue being down. See ``HL_NAMES_KEY``.
+        """
+        coin = hyperliquid_coin(symbol, self._names())
+        if coin is None:
+            raise SymbolNotListed(f"hyperliquid: no market for {symbol}")
+        return coin
 
     def _info(self, body: dict):
         return self._post(f"{self._BASE}/info", body)
@@ -863,7 +931,7 @@ class HyperliquidPublicSource(HttpSource):
     def ticker(self, *, symbol, market):
         coin = self._coin(symbol)
         for asset, context in self._contexts():
-            if str(asset.get("name", "")).upper() != coin:
+            if str(asset.get("name", "")).upper() != coin.upper():
                 continue
             mark = D(str(context.get("markPx") or context.get("midPx") or "0"))
             previous = D(str(context.get("prevDayPx") or "0"))
@@ -884,7 +952,11 @@ class HyperliquidPublicSource(HttpSource):
         for asset, context in self._contexts():
             if asset.get("isDelisted"):
                 continue
-            base = str(asset.get("name", "")).upper()
+            # The venue's own spelling is kept in ``native`` — that field is
+            # by definition the string this exchange answers to, and for the
+            # 1000x perps it is the only place the lowercase ``k`` survives.
+            native = str(asset.get("name", ""))
+            base = native.upper()
             if not base:
                 continue
             # szDecimals is the size precision; there is no separate step.
@@ -894,7 +966,7 @@ class HyperliquidPublicSource(HttpSource):
                     symbol=f"{base}{self._QUOTE}",
                     base=base,
                     quote=self._QUOTE,
-                    native=base,
+                    native=native,
                     qty_step=step,
                     min_qty=step,
                     # $10 is the documented minimum order value on Hyperliquid.

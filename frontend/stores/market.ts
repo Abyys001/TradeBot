@@ -206,9 +206,12 @@ export const useMarketStore = defineStore('market', {
     loading: false,
     error: '',
     /**
-     * Set when the API answered "no exchange reachable" (503). Distinct from
-     * `error`: this is the honest empty state the panel renders instead of a
-     * chart, not a transient request failure to retry quietly.
+     * Set when the API answered that there is no price for this pair — no
+     * exchange reachable (503), or every one of them reachable and none of
+     * them listing it (404). Distinct from `error`: this is the honest empty
+     * state the panel renders instead of a chart, not a transient request
+     * failure to retry quietly. Which of the two it was reaches the reader
+     * through `error`, whose text is the backend's own reason.
      */
     feedDown: false,
     /**
@@ -472,10 +475,12 @@ export const useMarketStore = defineStore('market', {
         this.applyHistory(feed.history)
         this.revision++
       } catch (e: any) {
-        // 503 is the backend saying no exchange answered. It is not a transient
-        // glitch to retry silently: the panel has to stop claiming the chart is
-        // current, and it must not draw a bar nobody quoted.
-        if (statusOf(e) === 503) {
+        // The backend saying there is no price for this pair — no exchange
+        // answered (503), or every one of them did and none lists it (404).
+        // Neither is a transient glitch to retry silently: the panel has to
+        // stop claiming the chart is current, and it must not draw a bar
+        // nobody quoted.
+        if (isNoFeed(e)) {
           this.feedDown = true
           this.live = false
           this.source = ''
@@ -574,7 +579,7 @@ export const useMarketStore = defineStore('market', {
         // The last real price stays on screen but `stale` greys it within a few
         // seconds. What must never happen is a *new* price appearing from
         // anywhere but an exchange, so nothing is written here.
-        if (statusOf(e) === 503) {
+        if (isNoFeed(e)) {
           this.feedDown = true
           this.live = false
         }

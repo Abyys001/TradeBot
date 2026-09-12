@@ -85,6 +85,39 @@ def test_hyperliquid_frame_is_keyed_by_base_asset():
     assert update.closed is True
 
 
+def test_hyperliquid_subscribes_to_the_venues_own_spelling_of_a_1000x_perp():
+    """``kSHIB``, not ``KSHIB`` and not ``1000SHIB``.
+
+    A subscription to a coin this venue does not know is not refused — it is
+    simply never answered, so the socket connects and goes mute. The name map
+    is the REST source's, read from the cache rather than re-fetched from the
+    event loop; with nothing cached the plain base is still right for every
+    perp but the seven 1000x ones.
+    """
+    from django.core.cache import cache
+
+    from apps.exchanges.public_sources import HL_NAMES_KEY
+
+    stream = HyperliquidPublicStream()
+    cache.set(HL_NAMES_KEY, {"BTC": "BTC", "KSHIB": "kSHIB"})
+    try:
+        for symbol in ("KSHIBUSDT", "1000SHIBUSDT", "KSHIBUSDC"):
+            frame = stream.subscription(
+                symbol=symbol, interval="1m", market=MarketType.FUTURES
+            )
+            assert frame["subscription"]["coin"] == "kSHIB", symbol
+        # A name the map has never heard of still goes out as the plain base:
+        # the stream degrades to silence, which the poller already covers.
+        assert (
+            stream.subscription(
+                symbol="ETHUSDT", interval="1m", market=MarketType.FUTURES
+            )["subscription"]["coin"]
+            == "ETH"
+        )
+    finally:
+        cache.delete(HL_NAMES_KEY)
+
+
 def test_binance_is_addressed_by_url_with_no_subscribe_frame():
     stream = BinancePublicStream()
     url = stream.endpoint(symbol="BTCUSDT", interval="1m", market=MarketType.FUTURES)

@@ -27,6 +27,23 @@ export function statusOf(e: any): number | null {
 }
 
 /**
+ * Is this a market endpoint saying "there is no price here"?
+ *
+ * Two statuses, one panel state. 503 is "no exchange answered"; 404 is "every
+ * exchange answered and none of them lists this pair" — the ordinary reply for
+ * a pair named the way another venue names it, or for spot, while
+ * `MARKET_DATA_PIN` holds the feed to a perpetuals venue. They are different
+ * facts and only one is a fault, which is why the backend stopped conflating
+ * them; what the chart does about either is identical, because in both cases
+ * there is no number and drawing one anyway is the thing that must never
+ * happen. The reason itself reaches the reader through `error`.
+ */
+export function isNoFeed(e: any): boolean {
+  const status = statusOf(e)
+  return status === 503 || status === 404
+}
+
+/**
  * Did this request fail *before* it reached the server?
  *
  * A dropped Wi-Fi, a dead tunnel and a stopped backend all surface as an

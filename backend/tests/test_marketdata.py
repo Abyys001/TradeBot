@@ -941,6 +941,8 @@ def test_a_watchlist_refresh_downloads_the_hyperliquid_universe_once(monkeypatch
     def fake_post(self, url, body):
         posts.append(body["type"])
         marketdata.record_rtt(self.name, 10.0)
+        if body["type"] == "meta":
+            return {"universe": [{"name": "BTC"}, {"name": "ETH"}]}
         return [
             {"universe": [{"name": "BTC"}, {"name": "ETH"}]},
             [{"markPx": "100", "prevDayPx": "99"}, {"markPx": "10", "prevDayPx": "9"}],
@@ -953,7 +955,78 @@ def test_a_watchlist_refresh_downloads_the_hyperliquid_universe_once(monkeypatch
 
     assert btc["price"] == "100"
     assert eth["price"] == "10"
-    assert posts == ["metaAndAssetCtxs"]
+    # `meta` is the name map (which spelling of the coin this venue answers to),
+    # cached for ten minutes; the universe itself is the quote. Both are shared
+    # across symbols, which is the point: two quotes, not four downloads.
+    assert posts == ["meta", "metaAndAssetCtxs"]
+
+
+@pytest.mark.django_db
+def test_hyperliquid_is_asked_for_the_coin_name_it_actually_answers_to(monkeypatch):
+    """``KSHIBUSDT`` is not a coin on this venue; ``kSHIB`` is.
+
+    Hyperliquid names its 1000x perps with a lowercase ``k`` and is
+    case-sensitive about it, while everything else here uppercases symbols —
+    including this platform's own catalogue, which stored the pair as
+    ``KSHIBUSDT``. Asking for ``KSHIB`` is an **HTTP 500**, which reads as the
+    venue being down, and under MARKET_DATA_PIN there is nothing behind it.
+    """
+    asked = []
+
+    def fake_post(self, url, body):
+        marketdata.record_rtt(self.name, 10.0)
+        if body["type"] == "meta":
+            return {"universe": [{"name": "BTC"}, {"name": "kSHIB"}]}
+        asked.append(body["req"]["coin"])
+        base = 1700000000000
+        return [
+            {"t": base + i * 60000, "o": "1", "h": "1", "l": "1", "c": "1", "v": "1"}
+            for i in range(5)
+        ]
+
+    monkeypatch.setattr(marketdata.HttpSource, "_post", fake_post)
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["hyperliquid"]}):
+        get_candles(symbol="KSHIBUSDT", interval="1m", market=MarketType.FUTURES, limit=5)
+        # And the way *other* venues write the same 1000x perp, which is what
+        # the picker offers whenever a Binance or Bybit catalogue is downloaded.
+        get_candles(symbol="1000SHIBUSDT", interval="1m", market=MarketType.FUTURES, limit=5)
+
+    assert asked == ["kSHIB", "kSHIB"]
+
+
+@pytest.mark.django_db
+def test_a_pair_the_pinned_venue_does_not_list_is_not_an_outage(monkeypatch):
+    """404, not 503 — and the venue is not marked down over it.
+
+    "No exchange is reachable" and "this venue has no such market" are
+    different facts and only the first is a fault. Answering 503 to the second
+    logged an ERROR per poll from two loggers, so a panel doing exactly what it
+    should reported a system error every two seconds; and marking the provider
+    down over it took every *other* pair's price with it.
+    """
+
+    def fake_post(self, url, body):
+        marketdata.record_rtt(self.name, 10.0)
+        if body["type"] == "meta":
+            return {"universe": [{"name": "BTC"}]}
+        return [
+            {"universe": [{"name": "BTC"}]},
+            [{"markPx": "100", "prevDayPx": "99"}],
+        ]
+
+    monkeypatch.setattr(marketdata.HttpSource, "_post", fake_post)
+    client = user_client()
+    with override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["hyperliquid"]}):
+        response = client.get("/api/trading/market/ticker/?symbol=1000CATUSDT")
+        assert response.status_code == 404
+        assert response.json()["listed"] is False
+        assert "price" not in response.json()
+
+        candles = client.get("/api/trading/market/candles/?symbol=1000CATUSDT")
+        assert candles.status_code == 404
+
+        # The pair nobody lists did not cost the pair everybody does.
+        assert client.get("/api/trading/market/ticker/?symbol=BTCUSDT").status_code == 200
 
 
 # --- the candle archive ------------------------------------------------------

@@ -284,6 +284,7 @@ def _try_providers(call, *, what: str):
     cooldown = SOLE_COOLDOWN if len(configured) == 1 else COOLDOWN
 
     reasons: list[str] = []
+    unlisted = 0
     for name in configured:
         if _cooling_off(name):
             reasons.append(f"{name}: cooling off ({cache.get(f'md:down:{name}')})")
@@ -296,6 +297,7 @@ def _try_providers(call, *, what: str):
             # a working provider because of one symbol — under MARKET_DATA_PIN,
             # off the only provider there is. Try the next one, say why if none
             # of them lists it, and log once rather than on every poll.
+            unlisted += 1
             reasons.append(f"{name}: {exc}")
             _note_unlisted(name, exc)
         except (MarketDataError, httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
@@ -305,7 +307,16 @@ def _try_providers(call, *, what: str):
             _mark_down(name, exc, cooldown)
             reasons.append(f"{name}: {exc}")
             logger.exception("unexpected market data failure fetching %s", what)
-    raise MarketDataError(f"no provider could serve {what} — " + "; ".join(reasons))
+    detail = f"no provider could serve {what} — " + "; ".join(reasons)
+    # Every provider answered, and the answer was that none of them lists this
+    # pair. Nothing is down — there is simply no such market here, which is the
+    # ordinary state of a Binance-named pair under a Hyperliquid pin, and of
+    # every spot pair under it. Callers turn this into 404 rather than 503, so
+    # a pair the pinned venue does not carry stops reporting a *system fault*
+    # on every poll of a panel that is working perfectly.
+    if unlisted and unlisted == len(configured):
+        raise SymbolNotListed(detail)
+    raise MarketDataError(detail)
 
 
 def normalise_interval(value: str | None) -> str:

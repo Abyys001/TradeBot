@@ -35,10 +35,12 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import websockets
+from django.core.cache import cache
 
 from apps.core.money import D
 from apps.exchanges.base import MarketType
 from apps.exchanges.feed_base import Candle, is_native, record_rtt, split_pair
+from apps.exchanges.public_sources import HL_NAMES_KEY, hyperliquid_coin
 
 logger = logging.getLogger(__name__)
 
@@ -215,8 +217,20 @@ class HyperliquidPublicStream(PublicStream):
     }
 
     def _coin(self, symbol: str) -> str:
+        """The venue's own spelling — ``kSHIB``, never ``KSHIB``.
+
+        A subscription to a coin this venue does not know is not refused, it is
+        simply never answered, so the casing matters here exactly as much as it
+        does over HTTP (see ``public_sources.HL_NAMES_KEY``) and fails more
+        quietly. Read from the cache only: the REST source has always quoted
+        this pair before a socket is opened for it, and an HTTP round trip from
+        the event loop to re-derive one name is not worth the stall. With
+        nothing cached the plain base is still right for every perp but the
+        seven 1000x ones.
+        """
         pair = split_pair(symbol)
-        return pair[0] if pair else symbol.upper()
+        base = pair[0] if pair else symbol.upper()
+        return hyperliquid_coin(symbol, cache.get(HL_NAMES_KEY) or {}) or base
 
     def subscription(self, *, symbol, interval, market):
         return {

@@ -30,6 +30,7 @@ from apps.exchanges.marketdata import (
     DEFAULT_LIMIT,
     INTERVALS,
     MarketDataError,
+    SymbolNotListed,
     get_candles,
     get_ticker,
     normalise_interval,
@@ -55,6 +56,18 @@ HISTORY_DOWNLOADING = 202
 #: their browser; this only stops a hand-written URL from turning into a
 #: hundred outbound calls.
 MAX_WATCHLIST = 30
+
+#: Returned when every provider answered and none of them lists the pair.
+#:
+#: Not 503. "No exchange is reachable" and "this venue has no such market" are
+#: different facts, and only the first is a fault: under ``MARKET_DATA_PIN``
+#: the second is the ordinary answer for a pair named the way another exchange
+#: names it, and for every spot pair, since the pinned venue is perpetuals
+#: only. Answering 503 logged one ERROR per poll — from the access log and from
+#: ``django.request`` both — so a panel doing exactly what it should reported a
+#: system error every two seconds for as long as the admin left that pair on
+#: screen. The panel still draws no price either way.
+NOT_LISTED = 404
 
 #: Returned when nothing has been downloaded yet. Not 200-with-a-list: the
 #: picker used to offer ten pairs this platform had simply asserted were
@@ -93,6 +106,12 @@ def candles(request):
         payload = get_candles(
             symbol=symbol, interval=interval, market=market, limit=limit, end=end
         )
+    except SymbolNotListed as exc:
+        # Nothing to download either: a venue that does not list the pair has
+        # no history of it to backfill.
+        return Response(
+            {"detail": str(exc), "live": False, "listed": False}, status=NOT_LISTED
+        )
     except MarketDataError as exc:
         history = ensure_history(market.value, symbol, interval)
         if history["state"] == "downloading":
@@ -126,6 +145,10 @@ def ticker(request):
     symbol = (request.query_params.get("symbol") or "BTCUSDT").upper()
     try:
         payload = get_ticker(symbol=symbol, market=market)
+    except SymbolNotListed as exc:
+        return Response(
+            {"detail": str(exc), "live": False, "listed": False}, status=NOT_LISTED
+        )
     except MarketDataError as exc:
         return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
     return Response(payload)

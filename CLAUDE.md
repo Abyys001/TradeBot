@@ -75,13 +75,19 @@ with the skipped account raising a persistent notification.
   chart cannot change exchange behind the admin's back when an account is
   connected elsewhere — a Binance mark compared against a Hyperliquid fill is a
   different number and sizing reads it. A pinned venue that cannot answer is a
-  503 and "no price feed", never a quiet fallback. Note Hyperliquid is
-  perpetuals only, so the spot chart has no feed under the pin. Clear
-  `MARKET_DATA_PIN` to restore the old behaviour: the venue an account sits on
-  quotes itself, with `MARKET_DATA_PROVIDERS` (Hyperliquid → Binance → Bybit)
-  behind it. Prices arrive **streamed** where the venue has a public WebSocket
-  and **polled** everywhere else; both are real exchange data, and the panel
-  names which is in force rather than blurring them.
+  503 and "no price feed", never a quiet fallback — while a pair it simply does
+  not **list** is a **404**, because "nothing is reachable" and "there is no
+  such market here" are different facts and only the first is a fault. The panel
+  draws no price either way; the log stops calling the second one a system error
+  on every poll. Note Hyperliquid is perpetuals only, so the spot chart has no
+  feed under the pin — and it names its 1000× perps `kSHIB`/`kPEPE`,
+  case-sensitively, which `public_sources.hyperliquid_coin` resolves from the
+  venue's own universe so that `KSHIBUSDT` and Binance's `1000SHIBUSDT` both
+  reach it. Clear `MARKET_DATA_PIN` to restore the old behaviour: the venue an
+  account sits on quotes itself, with `MARKET_DATA_PROVIDERS` (Hyperliquid →
+  Binance → Bybit) behind it. Prices arrive **streamed** where the venue has a
+  public WebSocket and **polled** everywhere else; both are real exchange data,
+  and the panel names which is in force rather than blurring them.
 - **TradingView is not a data source and cannot become one.** The Charting
   Library is a chart UI that consumes a datafeed you supply — it ships no
   prices. The feeds behind tradingview.com are licensed and reachable only via
