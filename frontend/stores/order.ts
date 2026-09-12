@@ -171,6 +171,11 @@ export const useOrderStore = defineStore('order', {
     adoptTrade(trade: HydratableTrade) {
       if (this.hydratedTradeId === trade.id) return
       if (this.lastEditedAt !== null && Date.now() - this.lastEditedAt < ADOPT_GRACE_MS) {
+        // The grace protects the admin's levels, not the trade's direction. A
+        // stale side draws a short's stop below entry, and dragging it back
+        // above — where a short's stop belongs — reads as a negative stop,
+        // which `setSL` clears: the line vanishes and the amend is refused.
+        this.side = sideOf(trade)
         this.hydratedTradeId = trade.id
         return
       }
@@ -180,7 +185,7 @@ export const useOrderStore = defineStore('order', {
     /** Adopt an open trade after a page reload so the terminal is not blank. */
     hydrateFromTrade(trade: HydratableTrade) {
       this.symbol = trade.symbol
-      this.side = trade.side === 'short' ? 'short' : 'long'
+      this.side = sideOf(trade)
       this.market = trade.market === 'spot' ? 'spot' : 'futures'
       this.leverage = trade.leverage || this.leverage
       this.basis = trade.sltp_basis === 'margin' ? 'margin' : 'price'
@@ -222,6 +227,10 @@ type HydratableTrade = Pick<
 
 /** How long a fresh edit is protected from the poll's older view of the trade. */
 const ADOPT_GRACE_MS = 15_000
+
+function sideOf(trade: Pick<Trade, 'side'>): 'long' | 'short' {
+  return trade.side === 'short' ? 'short' : 'long'
+}
 
 /** Chart drags produce long floats; four decimals is past any exchange's tick. */
 function round4(n: number): number {

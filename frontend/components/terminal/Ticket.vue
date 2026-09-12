@@ -141,6 +141,7 @@ function useMarketPrice() {
     <UiSegmented
       :model-value="order.side"
       :options="sideOptions"
+      :disabled="alreadyInTrade"
       @update:model-value="order.side = $event as 'long' | 'short'"
     />
 

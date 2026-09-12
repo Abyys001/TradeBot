@@ -13,10 +13,14 @@ type Option = {
 }
 
 const model = defineModel<string>({ required: true })
-withDefaults(defineProps<{ options: Option[]; size?: 'sm' | 'md'; block?: boolean }>(), {
-  size: 'md',
-  block: true,
-})
+withDefaults(
+  defineProps<{ options: Option[]; size?: 'sm' | 'md'; block?: boolean; disabled?: boolean }>(),
+  {
+    size: 'md',
+    block: true,
+    disabled: false,
+  },
+)
 
 const TONE: Record<string, string> = {
   long: 'bg-long-dim text-long border-long/60',
@@ -41,7 +45,8 @@ const TONE: Record<string, string> = {
       v-for="option in options"
       :key="option.value"
       type="button"
-      class="rounded-[0.4rem] border transition-all duration-150 font-medium"
+      class="rounded-[0.4rem] border transition-all duration-150 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+      :disabled="disabled"
       :class="[
         block ? 'flex-1 min-w-0 truncate' : 'shrink-0 whitespace-nowrap',
         size === 'sm' ? 'text-xs py-1 px-2' : 'text-sm py-1.5 px-3',
