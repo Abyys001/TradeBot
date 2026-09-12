@@ -30,7 +30,7 @@ import logging
 
 from asgiref.sync import sync_to_async
 
-from apps.bots.models import Bot, BotAction, BotRun, StopReason
+from apps.bots.models import Bot, BotAction, BotRun
 from apps.bots.riskgate import limit_for
 from apps.logging.utils import system_log
 
@@ -79,12 +79,18 @@ async def reconcile_run(bot: Bot, run: BotRun) -> dict:
             f"no known result after {report['passes']} reconcile pass(es). This bot will "
             f"not trade until a person has looked at them."
         )
+        # Left uncoded on purpose: the `_AutoStop`/`StateDisagreement` this
+        # raises is caught by `supervisor._supervise`, which calls
+        # `_announce_stop` — that row already carries
+        # `error_code=state_disagreement`, and every other auto-stop reason
+        # (consecutive_losses, drawdown, ...) is announced from that one place
+        # too. Coding this row as well would double the Telegram notice for
+        # the same stop.
         system_log(
             "CRITICAL",
             "BOT",
             detail,
             source="apps.bots.recovery",
-            error_code=StopReason.STATE_DISAGREEMENT,
             context=report,
         )
         raise StateDisagreement(detail)

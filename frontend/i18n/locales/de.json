@@ -1588,5 +1588,87 @@
       "offTitle": "Die Historie ist aus",
       "offBody": "Schalten Sie oben „Zugriffshistorie führen“ ein, um Anmeldungen und Ablehnungen zu erfassen. Änderungen an den Schaltern werden ohnehin erfasst."
     }
+  },
+  "telegram": {
+    "title": "Telegram-Benachrichtigungen",
+    "hint": "Sendet die Benachrichtigungen des Panels an einen einzigen Telegram-Chat. Der Bot-Token wird verschlüsselt gespeichert und nach dem Speichern nicht erneut angezeigt.",
+    "status": {
+      "linked": "Verknüpft",
+      "pending": "Verknüpfung ausstehend",
+      "notLinked": "Nicht verknüpft"
+    },
+    "enable": {
+      "label": "Benachrichtigungen an Telegram senden",
+      "hint": "Liefert die unten stehenden Ereignisgruppen an den verknüpften Chat.",
+      "blockedToken": "Zuerst einen Bot-Token speichern.",
+      "blockedLink": "Zuerst einen Chat verknüpfen."
+    },
+    "token": {
+      "label": "Bot-Token",
+      "help": "Erstelle einen Bot mit {'@'}BotFather und füge seinen Token hier ein.",
+      "fieldLabel": "Token",
+      "placeholder": "123456:ABC-DEF...",
+      "fingerprint": "Kennung {fp}",
+      "removeTitle": "Bot-Token entfernen",
+      "removeBody": "Dies deaktiviert die Zustellung und verwirft den gespeicherten Token — eine erneute Verbindung braucht einen neuen Token von {'@'}BotFather."
+    },
+    "recipient": {
+      "label": "Empfänger-Benutzername",
+      "hint": "Der Telegram-Benutzername, der unten auf Start drückt, mit oder ohne führendes {'@'}."
+    },
+    "link": {
+      "label": "Chat verknüpfen",
+      "hint": "Öffnet Telegram, damit der Empfänger auf Start drückt. Die Chat-ID ist erst danach bekannt.",
+      "button": "Chat verknüpfen",
+      "openLink": "In Telegram öffnen",
+      "waiting": "Warte darauf, dass du in Telegram auf Start drückst…",
+      "linkedTo": "Verknüpft mit {username}",
+      "unlink": "Verknüpfung aufheben"
+    },
+    "language": {
+      "label": "Sprache der Nachrichten",
+      "en": "English",
+      "fa": "فارسی"
+    },
+    "groups": {
+      "label": "Was gesendet wird",
+      "trades": {
+        "label": "Trades",
+        "description": "Jede weitergeleitete Order, manuell oder per Bot, und Positionen, die die Börse selbst geschlossen hat — Stop, Take-Profit, Liquidation."
+      },
+      "bots": {
+        "label": "Bots",
+        "description": "Ein Bot, der startet, stoppt, pausiert oder auf Live hochgestuft wird."
+      },
+      "money": {
+        "label": "Geld",
+        "description": "Einzahlungen, Auszahlungen, Änderungen im Kontobuch und Guthabenänderungen, für die es keine Erklärung im Bestand gibt."
+      },
+      "risk": {
+        "label": "Risiko",
+        "description": "Automatische Stopps, der Notstopp, ein fehlgeschlagener Stop/Take-Profit, eine Abweichung beim Abgleich."
+      },
+      "system": {
+        "label": "System",
+        "description": "Fehler, Ausfälle der Börse oder ihrer API, bald ablaufende Zugangsdaten."
+      },
+      "admin": {
+        "label": "Admin",
+        "description": "Ein Konto verbunden oder entfernt, eine Sicherheits- oder Telegram-Einstellung geändert, eine Anmeldung von einem neuen Gerät."
+      }
+    },
+    "test": {
+      "button": "Testnachricht senden",
+      "ok": "Gesendet.",
+      "failed": "Testnachricht konnte nicht gesendet werden."
+    },
+    "health": {
+      "notifierDown": "Der Benachrichtigungsdienst läuft nicht — es werden keine Nachrichten zugestellt.",
+      "lastDelivery": "Letzte Zustellung: {when}",
+      "noDeliveryYet": "Noch keine Nachricht gesendet.",
+      "lastError": "Letzter Fehler: {error}"
+    },
+    "commandsHint": "Aus dem verknüpften Chat: /status /positions /balance /bots /help",
+    "updated": "Zuletzt geändert von {user}, {when}"
   }
 }

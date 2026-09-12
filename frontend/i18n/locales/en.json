@@ -1588,5 +1588,87 @@
       "offTitle": "The history is off",
       "offBody": "Turn on “Keep an access history” above to start recording sign-ins and refusals. Changes to the switches are recorded either way."
     }
+  },
+  "telegram": {
+    "title": "Telegram notifications",
+    "hint": "Sends the panel's notifications to one Telegram chat. The bot token is stored encrypted and never shown again once saved.",
+    "status": {
+      "linked": "Linked",
+      "pending": "Link pending",
+      "notLinked": "Not linked"
+    },
+    "enable": {
+      "label": "Send notifications to Telegram",
+      "hint": "Delivers the event groups below to the linked chat.",
+      "blockedToken": "Save a bot token first.",
+      "blockedLink": "Link a chat first."
+    },
+    "token": {
+      "label": "Bot token",
+      "help": "Create a bot with {'@'}BotFather and paste its token here.",
+      "fieldLabel": "Token",
+      "placeholder": "123456:ABC-DEF...",
+      "fingerprint": "Key {fp}",
+      "removeTitle": "Remove the bot token",
+      "removeBody": "This disables delivery and forgets the stored token — reconnecting needs a new one from {'@'}BotFather."
+    },
+    "recipient": {
+      "label": "Recipient username",
+      "hint": "The Telegram username that presses Start on the link below, with or without the leading {'@'}."
+    },
+    "link": {
+      "label": "Link a chat",
+      "hint": "Opens Telegram so the recipient can press Start. The chat id is only known once they do.",
+      "button": "Link chat",
+      "openLink": "Open in Telegram",
+      "waiting": "Waiting for you to press Start in Telegram…",
+      "linkedTo": "Linked to {username}",
+      "unlink": "Unlink"
+    },
+    "language": {
+      "label": "Message language",
+      "en": "English",
+      "fa": "فارسی"
+    },
+    "groups": {
+      "label": "What to send",
+      "trades": {
+        "label": "Trades",
+        "description": "Every order routed, manual or bot, and positions the exchange closed itself — a stop, a take-profit, a liquidation."
+      },
+      "bots": {
+        "label": "Bots",
+        "description": "A bot starting, stopping, pausing, or being promoted to live."
+      },
+      "money": {
+        "label": "Money",
+        "description": "Deposits, withdrawals, ledger changes, and balance changes nothing on record explains."
+      },
+      "risk": {
+        "label": "Risk",
+        "description": "Auto-stops, the emergency halt, a failed SL/TP, a reconciliation discrepancy."
+      },
+      "system": {
+        "label": "System",
+        "description": "Errors, exchange or API failures, a credential nearing expiry."
+      },
+      "admin": {
+        "label": "Admin",
+        "description": "An account connected or removed, a security or Telegram setting changed, a new-device sign-in."
+      }
+    },
+    "test": {
+      "button": "Send test message",
+      "ok": "Sent.",
+      "failed": "Could not send the test message."
+    },
+    "health": {
+      "notifierDown": "Notifier is not running — no messages will be delivered.",
+      "lastDelivery": "Last delivery: {when}",
+      "noDeliveryYet": "No message sent yet.",
+      "lastError": "Last error: {error}"
+    },
+    "commandsHint": "From the linked chat: /status /positions /balance /bots /help",
+    "updated": "Last changed by {user}, {when}"
   }
 }

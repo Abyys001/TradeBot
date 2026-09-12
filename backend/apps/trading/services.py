@@ -45,6 +45,7 @@ from apps.engine.executor import (
 from apps.engine.fanout import NEVER_SENT_CODES, FanOutResult, LegResult, StopAllActive
 from apps.exchanges import pool
 from apps.exchanges.base import ExchangeAdapter, MarketType, OrderType, Side
+from apps.logging.utils import system_log
 from apps.trading import killswitch
 from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 
@@ -399,6 +400,72 @@ def _leg_payload(result: FanOutResult) -> list[dict]:
     ]
 
 
+def _leg_qty_price(value: object) -> tuple[str | None, str | None]:
+    """Best-effort qty/price out of whatever a leg's outcome carries.
+
+    The fill shape differs per action (``LegFill``, ``LegReduction``, a bare
+    ``Decimal`` exit price, or an ``SltpResult`` with neither) — this reads
+    only attributes that exist rather than importing every one of those types.
+    """
+    if value is None:
+        return None, None
+    if isinstance(value, Decimal):
+        return None, str(value)
+    qty = getattr(value, "qty", None)
+    price = getattr(value, "entry_price", None)
+    if price is None:
+        price = getattr(value, "price", None)
+    return (str(qty) if qty is not None else None, str(price) if price is not None else None)
+
+
+def _fanout_legs(result: FanOutResult, accounts: list[ConnectedAccount]) -> list[dict]:
+    """Telegram/Log event legs: one dict per leg, account named only here."""
+    by_id = {account.id: account for account in accounts}
+    legs = []
+    for leg in result.legs:
+        account = by_id.get(leg.account_id)
+        qty, price = _leg_qty_price(leg.value)
+        legs.append(
+            {
+                "account_id": leg.account_id,
+                "account": account.label if account else None,
+                "exchange": account.exchange if account else None,
+                "ok": leg.ok,
+                "qty": qty,
+                "price": price,
+                "error_code": leg.error_code or None,
+                "error": leg.error or None,
+            }
+        )
+    return legs
+
+
+def _fanout_level(result: FanOutResult) -> str:
+    if not result.legs or result.all_ok:
+        return "INFO"
+    return "WARNING" if result.succeeded else "ERROR"
+
+
+def _log_fanout(
+    *,
+    code: str,
+    message: str,
+    trade: Trade,
+    result: FanOutResult,
+    accounts: list[ConnectedAccount],
+    context: dict,
+) -> None:
+    context["legs"] = _fanout_legs(result, accounts)
+    system_log(
+        _fanout_level(result),
+        "TRADE",
+        message,
+        trade_id=trade.id,
+        error_code=code,
+        context=context,
+    )
+
+
 # --- pricing ----------------------------------------------------------------
 
 
@@ -488,6 +555,29 @@ async def route_open(
 
     trade = await _persist_open(intent=intent, result=result, accounts=accounts)
     notifications = await _persist_notifications(result)
+
+    _log_fanout(
+        code="trade_opened",
+        message=(
+            f"opened {trade.symbol} {trade.side} on "
+            f"{len(result.succeeded)}/{len(result.legs)} account(s)"
+        ),
+        trade=trade,
+        result=result,
+        accounts=accounts,
+        context={
+            "symbol": trade.symbol,
+            "side": trade.side,
+            "market": trade.market,
+            "leverage": trade.leverage,
+            "order_type": trade.order_type,
+            "sl_pct": str(trade.sl_pct) if trade.sl_pct is not None else None,
+            "tp_pct": str(trade.tp_pct) if trade.tp_pct is not None else None,
+            "origin": "bot" if source == "bot" else "manual",
+            "bot": None,
+            "fanout_ms": result.total_ms,
+        },
+    )
 
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
     for notification in notifications:
@@ -653,6 +743,28 @@ async def route_amend(
     )
 
     await _save_amend(trade, result, sl_pct, tp_pct)
+    _log_fanout(
+        code="trade_amended",
+        message=(
+            f"amended SL/TP on {trade.symbol} {trade.side} on "
+            f"{len(result.succeeded)}/{len(result.legs)} account(s)"
+        ),
+        trade=trade,
+        result=result,
+        accounts=accounts,
+        context={
+            "symbol": trade.symbol,
+            "side": trade.side,
+            "market": trade.market,
+            "leverage": trade.leverage,
+            "order_type": trade.order_type,
+            "sl_pct": str(sl_pct) if sl_pct is not None else None,
+            "tp_pct": str(tp_pct) if tp_pct is not None else None,
+            "origin": "bot" if trade.bot_run_id else "manual",
+            "bot": None,
+            "fanout_ms": result.total_ms,
+        },
+    )
     for notification in await _persist_notifications(result):
         await _broadcast("notification", notification)
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
@@ -748,6 +860,28 @@ async def route_close(*, trade: Trade) -> FanOutResult:
     result = await close_trade(adapters, symbol=trade.symbol)
 
     await _persist_close(trade, result)
+    _log_fanout(
+        code="trade_closed",
+        message=(
+            f"closed {trade.symbol} {trade.side} on "
+            f"{len(result.succeeded)}/{len(result.legs)} account(s)"
+        ),
+        trade=trade,
+        result=result,
+        accounts=accounts,
+        context={
+            "symbol": trade.symbol,
+            "side": trade.side,
+            "market": trade.market,
+            "leverage": trade.leverage,
+            "order_type": trade.order_type,
+            "sl_pct": str(trade.sl_pct) if trade.sl_pct is not None else None,
+            "tp_pct": str(trade.tp_pct) if trade.tp_pct is not None else None,
+            "origin": "bot" if trade.bot_run_id else "manual",
+            "bot": None,
+            "fanout_ms": result.total_ms,
+        },
+    )
     for notification in await _persist_notifications(result):
         await _broadcast("notification", notification)
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})
@@ -787,6 +921,29 @@ async def route_reduce(*, trade: Trade, fraction: Decimal) -> FanOutResult:
         entry_qty=entry_qty,
     )
     await sync_to_async(_persist_reduce)(trade, result, fraction)
+    _log_fanout(
+        code="trade_reduced",
+        message=(
+            f"reduced {trade.symbol} {trade.side} to {fraction * 100}% on "
+            f"{len(result.succeeded)}/{len(result.legs)} account(s)"
+        ),
+        trade=trade,
+        result=result,
+        accounts=accounts,
+        context={
+            "symbol": trade.symbol,
+            "side": trade.side,
+            "market": trade.market,
+            "leverage": trade.leverage,
+            "order_type": trade.order_type,
+            "sl_pct": str(trade.sl_pct) if trade.sl_pct is not None else None,
+            "tp_pct": str(trade.tp_pct) if trade.tp_pct is not None else None,
+            "fraction": str(fraction),
+            "origin": "bot" if trade.bot_run_id else "manual",
+            "bot": None,
+            "fanout_ms": result.total_ms,
+        },
+    )
     for notification in await _persist_notifications(result):
         await _broadcast("notification", notification)
     await _broadcast("leg_result", {"trade_id": trade.id, "legs": _leg_payload(result)})

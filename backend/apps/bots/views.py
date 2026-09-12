@@ -57,6 +57,7 @@ from apps.bots.serializers import (
     StrategyVersionSerializer,
 )
 from apps.core.auth import admin_required
+from apps.logging.utils import system_log
 from apps.pine.validate import validate
 from apps.security import stepup
 
@@ -342,7 +343,17 @@ class BotViewSet(viewsets.ModelViewSet):
             request.user.get_username(),
             bot.gate_enforced,
             bot.gate_waived,
-            extra={"category": "BOT"},
+            extra={
+                "category": "BOT",
+                "error_code": "bot_gate_changed",
+                "context": {
+                    "bot": bot.name,
+                    "bot_id": bot.id,
+                    "actor": request.user.get_username(),
+                    "gate_enforced": bot.gate_enforced,
+                    "gate_waived": bot.gate_waived,
+                },
+            },
         )
         return Response({"gate": gate.evaluate(bot)})
 
@@ -656,6 +667,22 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
         )
 
     run = await supervisor.start(bot)
+    if target == BotState.LIVE:
+        system_log(
+            "INFO",
+            "BOT",
+            f"bot {bot.name} promoted to live",
+            source="apps.bots.views",
+            error_code="bot_promoted",
+            context={
+                "bot": bot.name,
+                "bot_id": bot.id,
+                "symbol": bot.symbol,
+                "interval": bot.interval,
+                "gate_enforced": bot.gate_enforced,
+                "gate_waived": bot.gate_waived,
+            },
+        )
     return JsonResponse(
         {"bot_id": bot.id, "state": bot.state, "run_id": run.id, "deactivated": deactivated}
     )

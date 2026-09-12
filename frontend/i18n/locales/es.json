@@ -1588,5 +1588,87 @@
       "offTitle": "El historial está apagado",
       "offBody": "Active «Guardar un historial de accesos» arriba para empezar a registrar inicios de sesión y rechazos. Los cambios en los interruptores se registran igualmente."
     }
+  },
+  "telegram": {
+    "title": "Notificaciones de Telegram",
+    "hint": "Envía las notificaciones del panel a un único chat de Telegram. El token del bot se guarda cifrado y no vuelve a mostrarse tras guardarlo.",
+    "status": {
+      "linked": "Vinculado",
+      "pending": "Vinculación pendiente",
+      "notLinked": "Sin vincular"
+    },
+    "enable": {
+      "label": "Enviar notificaciones a Telegram",
+      "hint": "Entrega los grupos de eventos siguientes al chat vinculado.",
+      "blockedToken": "Guarda antes un token de bot.",
+      "blockedLink": "Vincula antes un chat."
+    },
+    "token": {
+      "label": "Token del bot",
+      "help": "Crea un bot con {'@'}BotFather y pega aquí su token.",
+      "fieldLabel": "Token",
+      "placeholder": "123456:ABC-DEF...",
+      "fingerprint": "ID {fp}",
+      "removeTitle": "Quitar el token del bot",
+      "removeBody": "Esto desactiva el envío y olvida el token guardado — volver a conectar necesita un token nuevo de {'@'}BotFather."
+    },
+    "recipient": {
+      "label": "Usuario destinatario",
+      "hint": "El usuario de Telegram que pulsa Start en el enlace de abajo, con o sin la {'@'} inicial."
+    },
+    "link": {
+      "label": "Vincular un chat",
+      "hint": "Abre Telegram para que el destinatario pulse Start. El id del chat solo se conoce después de eso.",
+      "button": "Vincular chat",
+      "openLink": "Abrir en Telegram",
+      "waiting": "Esperando a que pulses Start en Telegram…",
+      "linkedTo": "Vinculado a {username}",
+      "unlink": "Desvincular"
+    },
+    "language": {
+      "label": "Idioma de los mensajes",
+      "en": "English",
+      "fa": "فارسی"
+    },
+    "groups": {
+      "label": "Qué enviar",
+      "trades": {
+        "label": "Operaciones",
+        "description": "Toda orden enrutada, manual o de un bot, y las posiciones que la propia casa de cambio cerró — stop, take-profit, liquidación."
+      },
+      "bots": {
+        "label": "Bots",
+        "description": "Un bot que arranca, se detiene, se pausa o se promueve a real."
+      },
+      "money": {
+        "label": "Dinero",
+        "description": "Depósitos, retiros, cambios en el libro contable y variaciones de saldo que nada en el registro explica."
+      },
+      "risk": {
+        "label": "Riesgo",
+        "description": "Paradas automáticas, el corte de emergencia, un stop/take-profit fallido, una discrepancia de reconciliación."
+      },
+      "system": {
+        "label": "Sistema",
+        "description": "Errores, fallos de la casa de cambio o de su API, una credencial próxima a vencer."
+      },
+      "admin": {
+        "label": "Administración",
+        "description": "Una cuenta conectada o eliminada, un cambio de seguridad o de Telegram, un inicio de sesión desde un dispositivo nuevo."
+      }
+    },
+    "test": {
+      "button": "Enviar mensaje de prueba",
+      "ok": "Enviado.",
+      "failed": "No se pudo enviar el mensaje de prueba."
+    },
+    "health": {
+      "notifierDown": "El servicio de notificaciones no está en ejecución — no se entregará ningún mensaje.",
+      "lastDelivery": "Última entrega: {when}",
+      "noDeliveryYet": "Aún no se ha enviado ningún mensaje.",
+      "lastError": "Último error: {error}"
+    },
+    "commandsHint": "Desde el chat vinculado: /status /positions /balance /bots /help",
+    "updated": "Último cambio de {user}, {when}"
   }
 }

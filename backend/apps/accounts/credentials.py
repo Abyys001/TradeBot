@@ -27,6 +27,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
+from apps.logging.utils import system_log
 
 #: No expiry recorded, or one too far out to be worth mentioning.
 OK = ""
@@ -180,5 +181,24 @@ def sync_notifications(now: datetime | None = None) -> int:
                 f"start now rather than on the day."
             )
         Notification.objects.create(account=account, code=code, message=message)
+        system_log(
+            "WARNING",
+            "SYSTEM",
+            message,
+            source="apps.accounts.credentials",
+            account_id=account.id,
+            exchange=account.exchange,
+            error_code=code,
+            context={
+                "account": account.label,
+                "exchange": account.exchange,
+                "days": remaining,
+                "expires_at": (
+                    account.credential_expires_at.isoformat()
+                    if account.credential_expires_at
+                    else None
+                ),
+            },
+        )
         created += 1
     return created

@@ -486,6 +486,22 @@ export function useApi() {
     forgetTrustedDevices: () =>
       request<TotpState & { forgotten: number }>('/security/trusted/forget/', { method: 'POST' }),
 
+    // --- telegram notifications ---
+    telegramState: () => request<TelegramState>('/telegram/'),
+    /** Only what changed — `enabled` cannot be turned on with no token, and the
+        server refuses that rather than the client guessing. */
+    saveTelegram: (changes: Partial<Pick<TelegramState, 'enabled' | 'recipient_username' | 'language' | 'groups'>>) =>
+      request<TelegramState>('/telegram/', { method: 'POST', body: changes }),
+    /** An empty string removes the stored token. The token itself is never
+        returned by any endpoint — only its fingerprint. */
+    saveTelegramToken: (token: string) =>
+      request<TelegramState>('/telegram/token/', { method: 'POST', body: { token } }),
+    /** Issues a fresh deep link; the caller opens `link_url` and polls
+        `telegramState` until `linked` flips or `link_expires_at` passes. */
+    telegramLink: () => request<TelegramLinkResult>('/telegram/link/', { method: 'POST' }),
+    telegramUnlink: () => request<TelegramState>('/telegram/unlink/', { method: 'POST' }),
+    telegramTest: () => request<{ ok: true }>('/telegram/test/', { method: 'POST' }),
+
     // --- system log ---
     logs: (params?: Record<string, string>) => {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
@@ -769,6 +785,38 @@ export interface SecurityEvent {
   user_agent: string
   detail: Record<string, unknown>
 }
+
+/** `docs/decisions.md` — Telegram delivery for the notifications the panel
+    already raises. One chat, one bot token, held encrypted server-side and
+    never sent back down — only its 8-hex-char fingerprint is. */
+export interface TelegramState {
+  enabled: boolean
+  /** A token is stored, whatever `enabled` says. */
+  configured: boolean
+  bot_username: string
+  token_fingerprint: string
+  /** Stored without the leading '@'. */
+  recipient_username: string
+  /** The chat id is known — the recipient has pressed Start on the link. */
+  linked: boolean
+  /** A link code was issued and has not expired yet. */
+  link_pending: boolean
+  language: 'en' | 'fa'
+  groups: string[]
+  all_groups: string[]
+  health: {
+    /** A heartbeat inside the last 30s — a dead notifier delivers nothing and
+        looks exactly like calm, so the card watches this rather than assuming. */
+    notifier_running: boolean
+    last_heartbeat_at: string | null
+    last_sent_at: string | null
+    last_error: string
+  }
+  updated_at: string | null
+  updated_by: string
+}
+
+export type TelegramLinkResult = TelegramState & { link_url: string; link_expires_at: string }
 
 export interface SessionUser {
   username?: string

@@ -37,6 +37,7 @@ from apps.accounts.sessions import (
     record_logout,
 )
 from apps.accounts.visibility import _check
+from apps.logging.utils import system_log
 from apps.security import flags, ratelimit, totp
 from apps.security.audit import record
 from apps.security.middleware import LOGIN_AT_KEY
@@ -104,6 +105,14 @@ def _new_device_notice(request, user, digest: str) -> None:
         account=None,
         code="new_device",
         message=f"New sign-in as {user.get_username()} from {where} on {what}.",
+    )
+    system_log(
+        "WARNING",
+        "AUTH",
+        f"new sign-in as {user.get_username()} from {where} on {what}",
+        source="apps.accounts.auth_views",
+        error_code="new_device",
+        context={"ip": where, "device": what, "username": user.get_username()},
     )
     record(SecurityEventKind.NEW_DEVICE, request, username=user.get_username())
 

@@ -63,6 +63,7 @@ from apps.accounts.models import AccountStatus, ConnectedAccount, Notification
 from apps.core.money import D
 from apps.engine.fanout import FanOutResult, fan_out
 from apps.exchanges.base import ClosedFill, ExchangeAdapter, Position
+from apps.logging.utils import system_log
 from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
 
 logger = logging.getLogger(__name__)
@@ -207,7 +208,9 @@ def _read(adapter: ExchangeAdapter, symbols: list[str]):
 # --- writing ----------------------------------------------------------------
 
 
-def _notify(*, account_id: int | None, code: str, message: str) -> dict | None:
+def _notify(
+    *, account_id: int | None, code: str, message: str, context: dict | None = None
+) -> dict | None:
     """One persistent notice, not one per sweep.
 
     Spec §4 notices clear only by hand. A sweep every three seconds over a
@@ -215,6 +218,10 @@ def _notify(*, account_id: int | None, code: str, message: str) -> dict | None:
     cards, so an undismissed notice with the same code for the same account
     suppresses the next one. The condition is still live; the card already
     says so.
+
+    Also the one place a possync event reaches ``LogEntry``, and only here:
+    the log row is raised exactly when the notice is, so a dedupe suppressing
+    the card suppresses the Telegram announcement the same way.
     """
     if Notification.objects.filter(
         account_id=account_id, code=code, dismissed_at__isnull=True
@@ -222,6 +229,15 @@ def _notify(*, account_id: int | None, code: str, message: str) -> dict | None:
         return None
     notification = Notification.objects.create(
         account_id=account_id, code=code, message=message
+    )
+    system_log(
+        "WARNING",
+        "TRADE",
+        message,
+        source="apps.trading.possync",
+        account_id=account_id,
+        error_code=code,
+        context=context or {},
     )
     return {
         "id": notification.id,
@@ -369,6 +385,11 @@ def _reconcile(
                         f"platform's trade is {trade.side}. Nothing was changed — "
                         f"check this account on the exchange."
                     ),
+                    context={
+                        "symbol": position.symbol,
+                        "side": position.side.value,
+                        "qty": str(position.size),
+                    },
                 )
                 if notice:
                     notices.append(notice)
@@ -401,6 +422,12 @@ def _reconcile(
                         f"not from the panel. The platform's record has been "
                         f"corrected; the exit price and PnL are unknown."
                     ),
+                    context={
+                        "symbol": trade.symbol,
+                        "side": trade.side,
+                        "exit_price": str(leg.exit_price) if leg.exit_price else None,
+                        "pnl": str(leg.pnl) if leg.pnl is not None else None,
+                    },
                 )
                 if notice:
                     notices.append(notice)
@@ -441,6 +468,12 @@ def _reconcile(
                         f"platform had recorded as closed or never opened. It is "
                         f"back in the panel and can be closed from there."
                     ),
+                    context={
+                        "symbol": trade.symbol,
+                        "side": trade.side,
+                        "qty": str(leg.qty) if leg.qty is not None else None,
+                        "entry_price": str(leg.entry_price) if leg.entry_price else None,
+                    },
                 )
                 if notice:
                     notices.append(notice)
@@ -468,6 +501,11 @@ def _reconcile(
                         f"belongs to no trade in this platform. It cannot be closed "
                         f"from the panel — close it on the exchange."
                     ),
+                    context={
+                        "symbol": position.symbol,
+                        "side": position.side.value,
+                        "qty": str(position.size),
+                    },
                 )
                 if notice:
                     notices.append(notice)
@@ -493,6 +531,12 @@ def _reconcile(
                     f"that the platform had no record of. It is now in the panel and "
                     f"can be closed from there."
                 ),
+                context={
+                    "symbol": trade.symbol,
+                    "side": trade.side,
+                    "qty": str(position.size),
+                    "entry_price": str(position.entry_price) if position.entry_price else None,
+                },
             )
             if notice:
                 notices.append(notice)
@@ -517,6 +561,14 @@ def _reconcile(
                         f"although the platform had closed the trade. The trade was "
                         f"reopened so it can be closed from the panel."
                     ),
+                    context={
+                        "symbol": position.symbol,
+                        "side": position.side.value,
+                        "qty": str(position.size),
+                        "entry_price": (
+                            str(position.entry_price) if position.entry_price else None
+                        ),
+                    },
                 )
                 if notice:
                     notices.append(notice)
@@ -531,6 +583,11 @@ def _reconcile(
                     f"account that belongs to no trade in this platform. It cannot "
                     f"be closed from the panel — close it on the exchange."
                 ),
+                context={
+                    "symbol": position.symbol,
+                    "side": position.side.value,
+                    "qty": str(position.size),
+                },
             )
             if notice:
                 notices.append(notice)
@@ -605,7 +662,12 @@ def _reopen(account_id: int, position: Position, now) -> int | None:
         "exchange — reopened from the exchange",
         trade.id,
         account_id,
-        extra={"trade_id": trade.id, "account_id": account_id},
+        extra={
+            "trade_id": trade.id,
+            "account_id": account_id,
+            "error_code": "trade_reopened",
+            "context": {"symbol": trade.symbol, "side": trade.side},
+        },
     )
     return trade.id
 

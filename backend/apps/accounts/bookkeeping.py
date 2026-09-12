@@ -23,6 +23,7 @@ from apps.accounts.models import (
     DetectionStatus,
     FundMovement,
     FundMovementSource,
+    FundMovementType,
     LedgerAction,
     LedgerEvent,
 )
@@ -59,6 +60,10 @@ def _snapshot(movement: FundMovement) -> dict[str, Any]:
 
 
 def _log(event: LedgerEvent, verb: str) -> None:
+    if verb == "recorded a":
+        code = "ledger_deposit" if event.kind == FundMovementType.DEPOSIT else "ledger_withdrawal"
+    else:
+        code = "ledger_changed"
     system_log(
         "INFO",
         "ADMIN",
@@ -68,7 +73,16 @@ def _log(event: LedgerEvent, verb: str) -> None:
         ),
         source="apps.accounts.bookkeeping",
         account_id=event.account_id,
-        context={"before": event.before, "after": event.after, "note": event.note},
+        error_code=code,
+        context={
+            "account": event.account_label,
+            "exchange": event.account.exchange if event.account_id else None,
+            "amount": str(event.amount) if event.amount is not None else None,
+            "detail": verb,
+            "before": event.before,
+            "after": event.after,
+            "note": event.note,
+        },
     )
 
 
@@ -389,4 +403,6 @@ def record_split_change(*, before: dict[str, str], after: dict[str, str], actor:
         "ADMIN",
         f"{actor} changed the profit split: {before} -> {after}",
         source="apps.accounts.bookkeeping",
+        error_code="split_changed",
+        context={"actor": actor, "before": before, "after": after},
     )

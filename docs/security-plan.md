@@ -152,6 +152,7 @@ from it is the missing verb, and it is strictly an addition.
 | B2 | **Step-up re-auth on dangerous writes** — rotating a credential, deleting a connection, editing the profit split, arming a bot for live. | One password check, on those endpoints only. | Deliberately **excludes** order routing, close, amend and `STOP_ALL`. Asking for a password mid-trade is a loss, not a control. |
 | B3 | **Security audit log** — `SecurityEvent`, append-only: logins, failures, flag flips, credential decrypt-for-use, step-up prompts. | One insert per event; none of these events is on a per-order path. | The `LedgerEvent` pattern (`apps/accounts/bookkeeping.py`) applied to access instead of money — actor, before, after. |
 | B4 | **Rate limit on admin writes** (not routing). | Cache ops on those routes. | Same exclusion as B2, for the same reason. |
+| B5 | **Telegram notifier** (Q36) — its own card, off until a token is saved and a chat is linked. | A separate process tailing the log table. Nothing on the routing path. | Its writes take B2's step-up, because muting the alerts is the first thing a stolen session would do. For the same reason, switching it off tells the chat first. The token is encrypted like an exchange key and redacted from both log handlers. |
 
 ### C. Build-time only — no switch, because there is nothing to switch
 

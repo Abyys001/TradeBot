@@ -178,6 +178,10 @@ shape:
 - Exact UI/UX layout beyond what's specified above.
 - Notification behavior for *successful* trades/confirmations (only the
   failed-order notification is specified above).
+  > **Amended (Q36):** in the panel, successes are transient toasts and
+  > failures stay persistent (Q16). Every trade, success or failure, is also
+  > delivered to the admin's linked Telegram chat, together with bot, money,
+  > risk, system and admin events.
 - Whether/how self-service partner onboarding gets added later.
 - Detailed exchange-by-exchange API integration specifics (rate limits,
   auth methods, order-type quirks) — to be handled per exchange as they're

@@ -1588,5 +1588,87 @@
       "offTitle": "Geçmiş kapalı",
       "offBody": "Girişleri ve redleri kaydetmeye başlamak için yukarıdaki \"Erişim geçmişi tut\" seçeneğini açın. Anahtarlardaki değişiklikler her hâlükârda kaydedilir."
     }
+  },
+  "telegram": {
+    "title": "Telegram bildirimleri",
+    "hint": "Panelin bildirimlerini tek bir Telegram sohbetine gönderir. Bot token'ı şifrelenmiş olarak saklanır ve kaydedildikten sonra bir daha gösterilmez.",
+    "status": {
+      "linked": "Bağlandı",
+      "pending": "Bağlantı bekleniyor",
+      "notLinked": "Bağlı değil"
+    },
+    "enable": {
+      "label": "Bildirimleri Telegram'a gönder",
+      "hint": "Aşağıdaki olay gruplarını bağlı sohbete iletir.",
+      "blockedToken": "Önce bir bot token'ı kaydedin.",
+      "blockedLink": "Önce bir sohbet bağlayın."
+    },
+    "token": {
+      "label": "Bot token'ı",
+      "help": "{'@'}BotFather ile bir bot oluşturun ve token'ını buraya yapıştırın.",
+      "fieldLabel": "Token",
+      "placeholder": "123456:ABC-DEF...",
+      "fingerprint": "Kimlik {fp}",
+      "removeTitle": "Bot token'ını kaldır",
+      "removeBody": "Bu, teslimatı devre dışı bırakır ve kayıtlı token'ı unutur — yeniden bağlanmak {'@'}BotFather'dan yeni bir token gerektirir."
+    },
+    "recipient": {
+      "label": "Alıcı kullanıcı adı",
+      "hint": "Aşağıdaki bağlantıda Başlat'a basacak Telegram kullanıcı adı, baştaki {'@'} olsun ya da olmasın."
+    },
+    "link": {
+      "label": "Bir sohbet bağla",
+      "hint": "Alıcının Başlat'a basması için Telegram'ı açar. Sohbet kimliği ancak bundan sonra bilinir.",
+      "button": "Sohbeti bağla",
+      "openLink": "Telegram'da aç",
+      "waiting": "Telegram'da Başlat'a basmanız bekleniyor…",
+      "linkedTo": "{username} ile bağlandı",
+      "unlink": "Bağlantıyı kaldır"
+    },
+    "language": {
+      "label": "Mesaj dili",
+      "en": "English",
+      "fa": "فارسی"
+    },
+    "groups": {
+      "label": "Ne gönderilecek",
+      "trades": {
+        "label": "İşlemler",
+        "description": "Manuel veya bot kaynaklı yönlendirilen her emir ve borsanın kendisinin kapattığı pozisyonlar — stop, kâr al, tasfiye."
+      },
+      "bots": {
+        "label": "Botlar",
+        "description": "Bir botun başlaması, durması, duraklaması veya canlıya yükseltilmesi."
+      },
+      "money": {
+        "label": "Para",
+        "description": "Yatırımlar, çekimler, hesap defteri değişiklikleri ve kayıtta hiçbir şeyin açıklamadığı bakiye değişiklikleri."
+      },
+      "risk": {
+        "label": "Risk",
+        "description": "Otomatik durdurmalar, acil durdurma, başarısız bir stop/kâr al, bir mutabakat tutarsızlığı."
+      },
+      "system": {
+        "label": "Sistem",
+        "description": "Hatalar, borsa veya API arızaları, süresi yaklaşan bir kimlik bilgisi."
+      },
+      "admin": {
+        "label": "Yönetim",
+        "description": "Bağlanan veya kaldırılan bir hesap, değişen bir güvenlik veya Telegram ayarı, yeni bir cihazdan girişi."
+      }
+    },
+    "test": {
+      "button": "Test mesajı gönder",
+      "ok": "Gönderildi.",
+      "failed": "Test mesajı gönderilemedi."
+    },
+    "health": {
+      "notifierDown": "Bildirim servisi çalışmıyor — hiçbir mesaj teslim edilmeyecek.",
+      "lastDelivery": "Son teslimat: {when}",
+      "noDeliveryYet": "Henüz mesaj gönderilmedi.",
+      "lastError": "Son hata: {error}"
+    },
+    "commandsHint": "Bağlı sohbetten: /status /positions /balance /bots /help",
+    "updated": "Son değişiklik: {user}, {when}"
   }
 }

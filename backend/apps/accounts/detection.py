@@ -246,6 +246,12 @@ def observe(
         source="apps.accounts.detection",
         account_id=account.id,
         exchange=account.exchange,
+        error_code="balance_unexplained",
+        context={
+            "account": account.label,
+            "exchange": account.exchange,
+            "amount": str(unexplained),
+        },
     )
     if sweep is not None:
         sweep.detections.append(detection)

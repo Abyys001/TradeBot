@@ -104,6 +104,18 @@ async def stop(bot_id: int, *, reason: str, detail: str = "") -> None:
             await task
     await _close_run(bot_id, reason=reason, detail=detail)
     await _broadcast("bot_state", {"bot_id": bot_id, "state": BotState.STOPPED})
+    if reason == StopReason.MANUAL:
+        bot_name = await sync_to_async(
+            lambda: Bot.objects.filter(id=bot_id).values_list("name", flat=True).first()
+        )()
+        system_log(
+            "WARNING",
+            "BOT",
+            f"bot {bot_name or bot_id} stopped manually" + (f": {detail}" if detail else ""),
+            source="apps.bots.supervisor",
+            error_code="bot_stopped",
+            context={"bot": bot_name, "bot_id": bot_id, "reason": reason, "detail": detail},
+        )
 
 
 async def stop_all(*, reason: str = StopReason.HALT, detail: str = "") -> list[int]:
@@ -284,7 +296,15 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
         "BOT",
         f"bot {bot.name} warmed up on {len(warmup)} bars via {feed.source or 'archive'}",
         source="apps.bots.supervisor",
-        context={"bot_id": bot.id, "run_id": run.id, "bars": len(warmup)},
+        error_code="bot_started",
+        context={
+            "bot": bot.name,
+            "bot_id": bot.id,
+            "run_id": run.id,
+            "symbol": bot.symbol,
+            "interval": bot.interval,
+            "bars": len(warmup),
+        },
     )
     await _broadcast("bot_state", {"bot_id": bot.id, "state": bot.state, "run_id": run.id})
 
@@ -294,6 +314,10 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
 
     # --- the bar loop ------------------------------------------------------
     previous_row: dict | None = None
+    # The reason this bot is currently paused (riskgate ``Decision.code``), or
+    # None when it is not. Kept here rather than re-derived so a pause that
+    # persists across many bars announces once, not on every one.
+    last_pause_code: str | None = None
     async for feed_bar in feed:
         bot = await sync_to_async(_load_bot)(bot_id) or bot
         if bot.state not in (BotState.PAPER, BotState.LIVE):
@@ -307,6 +331,24 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             raise _AutoStop(triggers.code, triggers.reason)
 
         before = await gate.before_bar(bar_time=feed_bar.bar.time)
+        if before.paused:
+            if before.code != last_pause_code:
+                system_log(
+                    "WARNING",
+                    "BOT",
+                    f"bot {bot.name} paused: {before.reason}",
+                    source="apps.bots.supervisor",
+                    error_code="bot_paused",
+                    context={
+                        "bot": bot.name,
+                        "bot_id": bot.id,
+                        "reason": before.code,
+                        "detail": before.reason,
+                    },
+                )
+            last_pause_code = before.code
+        else:
+            last_pause_code = None
 
         # The exchange decides what is open, and the script has to be told
         # *before* it evaluates. An intent is "what should be true after this
@@ -675,13 +717,16 @@ async def _reconcile() -> None:
 
 
 async def _announce_stop(bot_id: int, reason: str, detail: str) -> None:
+    bot_name = await sync_to_async(
+        lambda: Bot.objects.filter(id=bot_id).values_list("name", flat=True).first()
+    )()
     system_log(
         "ERROR",
         "BOT",
         f"bot {bot_id} stopped: {reason} — {detail}",
         source="apps.bots.supervisor",
         error_code=reason,
-        context={"bot_id": bot_id},
+        context={"bot": bot_name, "bot_id": bot_id, "reason": reason, "detail": detail},
     )
     await _broadcast("bot_stopped", {"bot_id": bot_id, "reason": reason, "detail": detail})
 

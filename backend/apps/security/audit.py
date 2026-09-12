@@ -12,6 +12,7 @@ import logging
 
 from django.db import DatabaseError
 
+from apps.logging.utils import system_log
 from apps.security.flags import policy
 from apps.security.models import SecurityEvent, SecurityEventKind
 
@@ -83,6 +84,17 @@ def record_policy_change(changed: dict, *, actor: str) -> None:
         # Booleans and small integers, and for everything in ``REDACTED`` the
         # name alone.
         detail={"changed": {name: _readable(name, *pair) for name, pair in changed.items()}},
+    )
+    system_log(
+        "WARNING",
+        "ADMIN",
+        f"{actor} changed the security settings: {', '.join(sorted(changed))}",
+        source="apps.security.audit",
+        error_code="security_changed",
+        # Field NAMES only, never values — REDACTED protects the same field
+        # here as it does in the detail above, but this list is never values
+        # in the first place.
+        context={"actor": actor, "changed": sorted(changed)},
     )
 
 

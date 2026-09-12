@@ -939,3 +939,32 @@ async def test_a_bot_stop_notice_reaches_everyone():
     assert message["persistent"] is True
     assert message["reason"] == "drawdown"
     await communicator.disconnect()
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_telegram_is_a_reader_that_never_sees_hidden_accounts():
+    """The chat has no Django user behind it, so it reads as anyone but ``_svc``
+    does: a hidden account's own events never leave, and a fan-out is counted
+    over the visible legs only. More cases in ``test_telegram.py``."""
+    from datetime import timedelta
+
+    from apps.logging.models import LogEntry
+    from apps.telegram import sink
+    from apps.telegram.models import TelegramBot
+
+    visible, hidden = make_account("open-book"), make_account("quiet", hidden=True)
+    TelegramBot.objects.create(chat_id=1, enabled=True, log_cursor=0)
+    for account in (visible, hidden):
+        LogEntry.objects.create(
+            level="WARNING",
+            category="ADMIN",
+            source="test",
+            message="unexplained",
+            error_code="balance_unexplained",
+            account_id=account.id,
+            context={"account": account.label},
+        )
+    later = timezone.now() + timedelta(seconds=10)
+    [message] = sink.collect(TelegramBot.load(), later, sink.Repeats()).messages
+    assert "open-book" in message.text and "quiet" not in message.text

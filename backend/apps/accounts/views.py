@@ -44,6 +44,7 @@ from apps.accounts.visibility import _check, accessible
 from apps.core.money import D
 from apps.exchanges.base import AdapterError, NotSupported, WithdrawalPermissionError
 from apps.exchanges.registry import build_adapter
+from apps.logging.utils import system_log
 from apps.security import stepup
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,16 @@ def _refuse(account: ConnectedAccount, exc: Exception) -> None:
             "withdrawal_checked_at",
         ]
     )
+    system_log(
+        "WARNING",
+        "SYSTEM",
+        f"account {account.label} refused: {exc}",
+        source="apps.accounts.views",
+        account_id=account.id,
+        exchange=account.exchange,
+        error_code="account_refused",
+        context={"account": account.label, "exchange": account.exchange, "reason": str(exc)},
+    )
 
 
 
@@ -230,6 +241,7 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
             account.withdrawal_checked_at = timezone.now()
             account.save(update_fields=["withdrawal_check_passed", "withdrawal_checked_at"])
             after_connect(account)
+            self._announce_connected(account)
             return
 
         try:
@@ -246,6 +258,20 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account.full_clean()
         account.save(update_fields=["status"])
         after_connect(account)
+        self._announce_connected(account)
+
+    @staticmethod
+    def _announce_connected(account: ConnectedAccount) -> None:
+        system_log(
+            "INFO",
+            "ADMIN",
+            f"account {account.label} connected on {account.exchange}",
+            source="apps.accounts.views",
+            account_id=account.id,
+            exchange=account.exchange,
+            error_code="account_connected",
+            context={"account": account.label, "exchange": account.exchange},
+        )
 
     @action(detail=True, methods=["post"])
     def verify(self, request, pk=None):
@@ -294,7 +320,31 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account.eligible_from = timezone.now()
         account.full_clean()
         account.save(update_fields=["status", "eligible_from", "updated_at"])
+        system_log(
+            "INFO",
+            "ADMIN",
+            f"account {account.label} resumed",
+            source="apps.accounts.views",
+            account_id=account.id,
+            exchange=account.exchange,
+            error_code="account_resumed",
+            context={"account": account.label, "exchange": account.exchange},
+        )
         return Response(ConnectedAccountSerializer(account).data)
+
+    def perform_destroy(self, instance) -> None:
+        label, exchange, account_id = instance.label, instance.exchange, instance.id
+        instance.delete()
+        system_log(
+            "WARNING",
+            "ADMIN",
+            f"account {label} removed",
+            source="apps.accounts.views",
+            account_id=account_id,
+            exchange=exchange,
+            error_code="account_removed",
+            context={"account": label, "exchange": exchange},
+        )
 
     @action(detail=True, methods=["post"], url_path="manual-trading")
     def manual_trading(self, request, pk=None):

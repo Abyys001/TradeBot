@@ -358,6 +358,16 @@ def positions(request):
     """
     async_to_sync(reconcile_open_trade)()
     async_to_sync(sync_positions)()
+    return Response(open_positions(sees_hidden=_check(request.user)))
+
+
+def open_positions(*, sees_hidden: bool) -> dict:
+    """The positions payload, for any reader — the panel, or Telegram's ``/positions``.
+
+    One function so the two cannot disagree about a total. It reconciles
+    nothing: the view runs its sweeps first, and the Telegram notifier relies
+    on the ``possync`` service, which sweeps whether or not anyone is reading.
+    """
     open_trades = list(
         Trade.objects.filter(status=TradeStatus.OPEN).prefetch_related("legs__account")
     )
@@ -369,24 +379,20 @@ def positions(request):
     # count says so out loud; the close button flattens all of them.
     others = max(0, len(open_trades) - 1)
     if trade is None:
-        return Response(
-            {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
-        )
+        return {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
 
     # Hidden accounts are dropped here, before anything is priced or summed, so
     # the totals below are computed over the visible legs rather than trimmed
     # afterwards. A total that still counted a hidden account's margin would
     # give it away as surely as printing its label.
     legs = list(trade.legs.all())
-    if not _check(request.user):
+    if not sees_hidden:
         legs = [leg for leg in legs if not leg.account.hidden]
     if not legs:
         # Every leg of the open trade belongs to an account this reader cannot
         # see, so as far as they are concerned there is no open trade — not an
         # empty one, which would still be an admission that something is running.
-        return Response(
-            {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
-        )
+        return {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
 
     market = MarketType(trade.market)
     # The position itself is a fact and is reported either way; only the
@@ -477,8 +483,7 @@ def positions(request):
             }
         )
 
-    return Response(
-        {
+    return {
             "trade": {
                 "id": trade.id,
                 "symbol": trade.symbol,
@@ -509,7 +514,6 @@ def positions(request):
                 ),
             },
         }
-    )
 
 
 def _s(value: Decimal | None) -> str | None:

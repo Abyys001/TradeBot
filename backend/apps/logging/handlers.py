@@ -147,8 +147,31 @@ _SECRET_PARAM = re.compile(
 )
 
 
+#: A Telegram bot token, as it appears in every Bot API URL: ``/bot<id>:<secret>/``.
+#: It is a path segment rather than a ``key=value`` pair, so the rule above
+#: never sees it — and httpx prints the URL of every request it makes.
+_TELEGRAM_TOKEN = re.compile(r"bot\d{5,}:[A-Za-z0-9_-]{20,}")
+
+
 def _redact(text: str) -> str:
+    text = _TELEGRAM_TOKEN.sub("bot***", text)
     return _SECRET_PARAM.sub(lambda m: f"{m.group(1)}{m.group(2)}***", text)
+
+
+class RedactFilter(logging.Filter):
+    """``_redact`` for the console handler, which has no ``emit`` of our own.
+
+    ``NoiseFilter`` keeps httpx off the database handler, but the console still
+    prints ``HTTP Request: POST https://api.telegram.org/bot<token>/…`` for
+    every call the notifier makes — a credential in ``docker logs``.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _redact(message)
+        if redacted != message:
+            record.msg, record.args = redacted, None
+        return True
 
 
 #: The same names, as a whole JSON *key* rather than a `key=value` pair.

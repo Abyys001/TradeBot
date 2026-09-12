@@ -1095,3 +1095,43 @@ TradingView chart quoted coarser than the venue; it is not a panel setting.
 Untraded filler bars are dropped from backtest and live alike
 (`feed.untraded`), which parity needs on any thin pair.
 
+## Q36. How the admin watches an unattended book ✅ One Telegram chat, read-only commands
+
+Raised 2026-09-12: the admin asked for every important panel event — trades,
+bot starts and stops, deposits and withdrawals, SL/TP, auto-stops, feed gaps,
+reconciliation, risk-gate refusals, errors, admin actions — delivered to their
+Telegram (`@Abyys01`), so running bots does not mean watching the panel.
+Answered directly by the admin:
+
+- **Notifications plus read-only commands** (`/status`, `/positions`,
+  `/balance`, `/bots`, `/help`), answered only in the linked chat. Nothing
+  from Telegram can place, amend or close an order, touch the halt, or start a
+  bot.
+- **Message language is a setting, English or Persian.**
+- **One recipient.**
+
+**Decision: the log table is the outbox.** `apps/telegram/` adds a
+`run_telegram` compose service that tails `LogEntry` from a stored cursor.
+Every process already writes there (backend, `possync`, `run_bots`), so it sees
+them all, resumes after a restart, and adds nothing to the routing path. An
+event is an ordinary `system_log(..., error_code=CODE, context={...})` call at
+the place it happens, and `apps/telegram/events.py` lists which codes are
+events; any other ERROR row goes out as a generic "system error".
+`tests/test_telegram.py` fails when a code has no title in both languages, or
+when nothing emits it.
+
+- **Telegram reads as a non-`_svc` reader.** The chat has no Django user, so a
+  hidden account's rows never leave, and a fan-out is counted over its visible
+  legs only. A free-text error that names a hidden label is dropped.
+- **Linking is a one-time deep link and a username match.** The Bot API cannot
+  message a username. The chat links only when the `/start` code matches, the
+  sender is the named recipient, and the chat is private.
+- **The token is a credential.** It is Fernet at rest, never returned, and
+  redacted from both log handlers: the Bot API URL carries it in the path, and
+  httpx prints request URLs. The proxy is explicit only (`TELEGRAM_PROXY`).
+- **Silence must not read as calm.** The card shows the service's heartbeat.
+  Switching the notifier off, unlinking it or replacing the token first tells
+  the chat who did it. A backlog (the service was down) arrives as one summary
+  message rather than a flood.
+- The credential-expiry sweep also runs hourly from this service, since it
+  otherwise ran only when a panel polled balances.

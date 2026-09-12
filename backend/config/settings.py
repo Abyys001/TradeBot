@@ -46,6 +46,9 @@ INSTALLED_APPS = [
     # itself imports no Django; see apps/pine/__init__.py.
     "apps.pine",
     "apps.bots",
+    # Telegram notifications (Q36). Reads the log table and writes only its own
+    # row; nothing on the routing path imports it.
+    "apps.telegram",
 ]
 
 MIDDLEWARE = [
@@ -527,9 +530,14 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {"plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"}},
-    "filters": {"not_library_noise": {"()": "apps.logging.handlers.NoiseFilter"}},
+    "filters": {
+        "not_library_noise": {"()": "apps.logging.handlers.NoiseFilter"},
+        "redact": {"()": "apps.logging.handlers.RedactFilter"},
+    },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+        # httpx logs every request URL here, and a Telegram URL carries the
+        # bot token in its path.
+        "console": {"class": "logging.StreamHandler", "formatter": "plain", "filters": ["redact"]},
         "database": {
             "class": "apps.logging.handlers.DatabaseHandler",
             "level": "INFO",
@@ -544,6 +552,18 @@ LOGGING = {
         "handlers": ["console", "database"],
         "level": os.getenv("LOG_LEVEL", "INFO"),
     },
+}
+
+# --- Telegram notifications (Q36) -------------------------------------------
+# Token, recipient and event groups are set from the panel, not here; these are
+# only the service's plumbing.
+TELEGRAM = {
+    # Explicit only, like EXCHANGE_PROXY: the ambient shell proxy is ignored.
+    "PROXY": os.getenv("TELEGRAM_PROXY", ""),
+    # More undelivered events than this (the notifier was down) becomes one
+    # summary message instead of a flood.
+    "BACKLOG_MAX": int(os.getenv("TELEGRAM_BACKLOG_MAX", "50")),
+    "POLL_SECONDS": float(os.getenv("TELEGRAM_POLL_SECONDS", "2")),
 }
 
 # --- Production hardening ---------------------------------------------------

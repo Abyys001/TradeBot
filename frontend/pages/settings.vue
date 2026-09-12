@@ -376,6 +376,10 @@ const diagnostics = computed(() => [
          (docs/security-plan.md §1). -->
     <SecuritySecurityCard />
 
+    <!-- 4b. Telegram delivery for the notifications this panel already
+         raises — one chat, off until a token is stored and that chat linked. -->
+    <TelegramTelegramCard />
+
     <UiCard :title="t('security.events.title')" :hint="t('security.events.hint')" flush>
       <template #actions>
         <UiBadge :tone="security.policy?.audit_log ? 'ok' : 'neutral'" dot>

@@ -190,7 +190,8 @@ async def _open_one(
                     intent.symbol,
                 )
                 protection = await _protect(
-                    adapter, intent, risk.stop_price, risk.take_profit_price
+                    adapter, intent, risk.stop_price, risk.take_profit_price,
+                    account_id=account_id,
                 )
             else:
                 protection = SltpResult(
@@ -202,7 +203,9 @@ async def _open_one(
         else:
             # Q5e: entry is filled and the position is live but unprotected. This
             # is the dangerous window; _protect applies the configured policy.
-            protection = await _protect(adapter, intent, risk.stop_price, risk.take_profit_price)
+            protection = await _protect(
+                adapter, intent, risk.stop_price, risk.take_profit_price, account_id=account_id
+            )
     else:
         protection = SltpResult(None, None, attached=attach, verified=False)
 
@@ -395,6 +398,8 @@ async def _protect(
     intent: TradeIntent,
     stop_loss: Decimal | None,
     take_profit: Decimal | None,
+    *,
+    account_id: object = None,
 ) -> SltpResult:
     """Attach SL/TP after entry, applying the Q5e failure policy.
 
@@ -433,7 +438,18 @@ async def _protect(
             "SL/TP could not be attached to %s — closing at market (policy=%s)",
             intent.symbol,
             policy,
-            extra={"exchange": adapter.name, "error_code": "sltp_failed"},
+            extra={
+                "exchange": adapter.name,
+                "error_code": "sltp_failed",
+                "account_id": account_id,
+                "context": {
+                    "account": None,
+                    "exchange": adapter.name,
+                    "symbol": intent.symbol,
+                    "side": intent.side.value,
+                    "error": str(last_error),
+                },
+            },
         )
         await adapter.close_position(intent.symbol)
         raise AdapterError(
@@ -446,7 +462,18 @@ async def _protect(
         logger.error(
             "SL/TP could not be attached to %s — position is UNPROTECTED",
             intent.symbol,
-            extra={"exchange": adapter.name, "error_code": "sltp_unprotected"},
+            extra={
+                "exchange": adapter.name,
+                "error_code": "sltp_unprotected",
+                "account_id": account_id,
+                "context": {
+                    "account": None,
+                    "exchange": adapter.name,
+                    "symbol": intent.symbol,
+                    "side": intent.side.value,
+                    "error": str(last_error),
+                },
+            },
         )
         return SltpResult(stop_loss, take_profit, attached=False, verified=False)
     raise ValueError(f"unknown SLTP_FAILURE_POLICY: {policy!r}")
@@ -545,7 +572,22 @@ async def _reconcile(
             _mark_unverifiable(leg)
             continue
         ok, value, error, error_code = outcome
-        logger.info("reconcile account=%s -> ok=%s (%s)", leg.account_id, ok, error_code)
+        adapter = by_account.get(leg.account_id)
+        logger.info(
+            "reconcile account=%s -> ok=%s (%s)",
+            leg.account_id,
+            ok,
+            error_code,
+            extra={
+                "account_id": leg.account_id,
+                "error_code": error_code or None,
+                "context": {
+                    "account": None,
+                    "exchange": getattr(adapter, "name", None),
+                    "error": error,
+                },
+            },
+        )
         leg.ok = ok
         leg.value = value
         leg.error = error

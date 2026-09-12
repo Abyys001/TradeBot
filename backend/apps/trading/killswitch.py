@@ -26,6 +26,8 @@ from django.core.cache import cache
 from django.db import DatabaseError
 from django.utils import timezone
 
+from apps.logging.utils import system_log
+
 logger = logging.getLogger(__name__)
 
 CACHE_KEY = "trading:stop_all"
@@ -98,12 +100,23 @@ def set_stop_all(on: bool, *, actor: str = "", reason: str = "") -> dict:
         raise PermissionError("STOP_ALL is pinned on by the environment")
 
     row = _row()
+    was_on = row.stop_all
     row.stop_all = bool(on)
     row.reason = reason[:200]
     row.updated_by = actor[:150]
     row.save(update_fields=["stop_all", "reason", "updated_by", "updated_at"])
     cache.set(CACHE_KEY, row.stop_all, CACHE_TTL)
     logger.warning("STOP_ALL set to %s by %s (%s)", row.stop_all, actor or "?", reason or "-")
+
+    if row.stop_all != was_on:
+        system_log(
+            "CRITICAL" if row.stop_all else "WARNING",
+            "ADMIN",
+            f"STOP_ALL set to {row.stop_all} by {actor or '?'} ({reason or '-'})",
+            source="apps.trading.killswitch",
+            error_code="halt_on" if row.stop_all else "halt_off",
+            context={"actor": actor or None, "reason": reason or None},
+        )
 
     if row.stop_all:
         # Q22, and the most important line of the eight: **the halt stops every
