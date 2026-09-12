@@ -374,11 +374,11 @@ const diagnostics = computed(() => [
     <!-- 4. The optional security layer. Everything here is off until it is
          switched on, and none of it is on the order-routing path
          (docs/security-plan.md §1). -->
-    <SecuritySecurityCard />
+    <SecurityCard />
 
     <!-- 4b. Telegram delivery for the notifications this panel already
          raises — one chat, off until a token is stored and that chat linked. -->
-    <TelegramTelegramCard />
+    <TelegramCard />
 
     <UiCard :title="t('security.events.title')" :hint="t('security.events.hint')" flush>
       <template #actions>

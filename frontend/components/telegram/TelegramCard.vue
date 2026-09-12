@@ -6,7 +6,7 @@
  * Enabling is refused server-side with no token or no linked chat, so the
  * switch here is disabled with a reason rather than sent and bounced.
  * Token replacement, linking and unlinking are the sensitive writes and can
- * ask for the password again — same shared prompt `SecuritySecurityCard`
+ * ask for the password again — same shared prompt `SecurityCard`
  * uses, replayed the same way: keep the retry, replay it once granted.
  */
 const { t } = useI18n()
