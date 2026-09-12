@@ -286,7 +286,9 @@ class BotRunSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "started_at",
+            "started_by",
             "stopped_at",
+            "stopped_by",
             "stop_reason",
             "stop_detail",
             "warmup_bars",

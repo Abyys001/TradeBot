@@ -296,6 +296,63 @@ def test_a_bot_starts_into_paper():
     assert bot.dry_run is True
 
 
+def test_starting_and_stopping_record_who_pressed_it():
+    """One password per person, so "the bot went live" needs a name beside it.
+
+    Recorded on the run rather than only logged: the log is trimmed and the run
+    is what the panel draws.
+    """
+    bot = make_bot(state=BotState.DRAFT)
+    client = staff()
+    post(client, f"/api/bots/bots/{bot.id}/start/", {"state": "paper"})
+    run = BotRun.objects.filter(bot=bot).latest("started_at")
+    assert run.started_by == "boss"
+
+    post(client, f"/api/bots/bots/{bot.id}/stop/", {"reason": "enough"})
+    run.refresh_from_db()
+    assert run.stopped_by == "boss"
+
+
+def test_a_run_the_process_resumed_by_itself_names_nobody():
+    """Blank is the platform, and that is a different fact from a person."""
+    from asgiref.sync import async_to_sync
+
+    from apps.bots import supervisor
+
+    bot = make_bot(state=BotState.LIVE)
+    run = async_to_sync(supervisor._open_run)(bot)
+    assert run.started_by == ""
+
+
+def test_a_bot_can_be_deleted():
+    bot = make_bot(state=BotState.STOPPED)
+    make_run(bot)
+    assert staff().delete(f"/api/bots/bots/{bot.id}/").status_code == 204
+    assert not BotRun.objects.filter(bot_id=bot.id).exists()
+
+
+def test_a_running_bot_is_not_deleted_out_from_under_its_own_task():
+    bot = make_bot(state=BotState.LIVE)
+    response = staff().delete(f"/api/bots/bots/{bot.id}/")
+    assert response.status_code == 409
+    assert response.json()["code"] == "bot_running"
+    bot.refresh_from_db()
+    assert bot.state == BotState.LIVE
+
+
+def test_deleting_a_bot_keeps_the_trades_it_placed():
+    """Money that was made is not the bot's to take away with it (§8)."""
+    from apps.trading.models import Trade
+
+    bot = make_bot(state=BotState.STOPPED)
+    run = make_run(bot)
+    trade = Trade.objects.create(symbol="BTCUSDT", side="long", leverage=1, bot_run=run)
+
+    assert staff().delete(f"/api/bots/bots/{bot.id}/").status_code == 204
+    trade.refresh_from_db()
+    assert trade.bot_run_id is None
+
+
 def test_going_live_without_the_gate_is_refused_with_the_gate_attached():
     """Not a confirmation dialog — a gate that knows the numbers."""
     bot = make_bot(state=BotState.PAPER)

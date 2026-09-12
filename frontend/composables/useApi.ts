@@ -1517,7 +1517,11 @@ export interface BotRun {
   id: number
   bot: number
   started_at: string
+  /** Who pressed start, and who pressed stop. Blank is the platform itself —
+      a resume after a restart, the halt, or one of Q25's auto-stops. */
+  started_by: string
   stopped_at: string | null
+  stopped_by: string
   /** One of the Q25 triggers, `halt`, `manual`, or `risk_gate`. */
   stop_reason: string
   stop_detail: string

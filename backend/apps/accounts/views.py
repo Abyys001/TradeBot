@@ -158,17 +158,34 @@ def _refuse(account: ConnectedAccount, exc: Exception) -> None:
 
 
 def _announce_change(
-    account: ConnectedAccount, code: str, message: str, *, changed: str | None = None
+    account: ConnectedAccount,
+    code: str,
+    message: str,
+    *,
+    changed: str | None = None,
+    actor: str = "",
 ) -> None:
+    """One account-settings change, named and attributed.
+
+    ``actor`` is the staff username that pressed it. The panel's login is
+    shared per person rather than by everybody, so which switch moved and who
+    moved it are two separate facts — and on a book somebody else's money is
+    in, the second is the one that cannot be reconstructed later.
+    """
     system_log(
         "INFO",
         "ADMIN",
-        message,
+        message + (f" by {actor}" if actor else ""),
         source="apps.accounts.views",
         account_id=account.id,
         exchange=account.exchange,
         error_code=code,
-        context={"account": account.label, "exchange": account.exchange, "changed": changed},
+        context={
+            "account": account.label,
+            "exchange": account.exchange,
+            "changed": changed,
+            "actor": actor,
+        },
     )
 
 
@@ -272,19 +289,20 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account.full_clean()
         account.save(update_fields=["status"])
         after_connect(account)
-        self._announce_connected(account)
+        self._announce_connected(account, actor=self.request.user.get_username())
 
     @staticmethod
-    def _announce_connected(account: ConnectedAccount) -> None:
+    def _announce_connected(account: ConnectedAccount, *, actor: str = "") -> None:
         system_log(
             "INFO",
             "ADMIN",
-            f"account {account.label} connected on {account.exchange}",
+            f"account {account.label} connected on {account.exchange}"
+            + (f" by {actor}" if actor else ""),
             source="apps.accounts.views",
             account_id=account.id,
             exchange=account.exchange,
             error_code="account_connected",
-            context={"account": account.label, "exchange": account.exchange},
+            context={"account": account.label, "exchange": account.exchange, "actor": actor},
         )
 
     @action(detail=True, methods=["post"])
@@ -305,7 +323,12 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account = self.get_object()
         account.status = AccountStatus.PAUSED
         account.save(update_fields=["status", "updated_at"])
-        _announce_change(account, "account_paused", f"account {account.label} paused")
+        _announce_change(
+            account,
+            "account_paused",
+            f"account {account.label} paused",
+            actor=request.user.get_username(),
+        )
         return Response(ConnectedAccountSerializer(account).data)
 
     @action(detail=True, methods=["post"])
@@ -343,7 +366,11 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
             account_id=account.id,
             exchange=account.exchange,
             error_code="account_resumed",
-            context={"account": account.label, "exchange": account.exchange},
+            context={
+                "account": account.label,
+                "exchange": account.exchange,
+                "actor": request.user.get_username(),
+            },
         )
         return Response(ConnectedAccountSerializer(account).data)
 
@@ -358,7 +385,11 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
             account_id=account_id,
             exchange=exchange,
             error_code="account_removed",
-            context={"account": label, "exchange": exchange},
+            context={
+                "account": label,
+                "exchange": exchange,
+                "actor": self.request.user.get_username(),
+            },
         )
 
     @action(detail=True, methods=["post"], url_path="manual-trading")
@@ -382,6 +413,7 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
             f"account {account.label} manual trading "
             f"{'on' if account.manual_trading_enabled else 'off'}",
             changed=f"manual trading {'on' if account.manual_trading_enabled else 'off'}",
+            actor=request.user.get_username(),
         )
         return Response(ConnectedAccountSerializer(account).data)
 
@@ -398,6 +430,7 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
             f"account {account.label} bot trading "
             f"{'on' if account.bot_trading_enabled else 'off'}",
             changed=f"bot trading {'on' if account.bot_trading_enabled else 'off'}",
+            actor=request.user.get_username(),
         )
         return Response(ConnectedAccountSerializer(account).data)
 

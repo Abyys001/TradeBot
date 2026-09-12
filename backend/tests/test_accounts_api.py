@@ -8,6 +8,8 @@ eight exchanges publish nothing, so the stricter reading would ban them.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from cryptography.fernet import Fernet
 from django.contrib.auth.models import User
@@ -193,6 +195,28 @@ def test_manual_trading_can_be_switched_off():
     # The other switch, and everything else about the account, is untouched.
     assert account.bot_trading_enabled is False
     assert account.status == AccountStatus.PAUSED
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_flipping_a_trading_switch_records_who_flipped_it(caplog):
+    """Two people share the panel's login screen, not the login.
+
+    Which switch moved is already in the log; on a book somebody else's money
+    is in, *who* moved it is the half nobody can reconstruct afterwards — and
+    it is what the Telegram notice carries.
+    """
+    account = make_account()
+    with caplog.at_level(logging.INFO, logger="apps.accounts.views"):
+        staff_client().post(
+            f"/api/accounts/accounts/{account.id}/bot-trading/",
+            data={"enabled": True},
+            content_type="application/json",
+        )
+
+    [record] = [r for r in caplog.records if getattr(r, "error_code", "") == "account_changed"]
+    assert record.context["actor"] == "boss"
+    assert record.context["changed"] == "bot trading on"
+    assert "boss" in record.getMessage()
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])

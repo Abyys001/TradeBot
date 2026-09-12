@@ -163,6 +163,51 @@ class BotViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer) -> None:
         serializer.save(created_by=self.request.user.get_username())
 
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        """Delete a bot — but never one that is running.
+
+        A bot in ``paper`` or ``live`` has a supervisor task behind it and, in
+        ``live``, possibly a position on every account. Deleting the row would
+        leave the task evaluating bars for a bot that no longer exists and the
+        position with nothing pointing at it, so this refuses and says to stop
+        it first. Everything else goes: its runs, bars and actions cascade.
+
+        The trades it placed do **not** go with it — ``Trade.bot_run`` is
+        ``SET_NULL``, so §8 history keeps every row and simply stops naming the
+        bot on them. Money that was made is not the bot's to take away.
+        """
+        bot = self.get_object()
+        if bot.is_running:
+            return Response(
+                {
+                    "code": "bot_running",
+                    "detail": (
+                        f"“{bot.name}” is {bot.state}. Stop it before deleting it."
+                    ),
+                },
+                status=409,
+            )
+        from apps.trading.models import Trade
+
+        name, bot_id, symbol = bot.name, bot.id, bot.symbol
+        trades = Trade.objects.filter(bot_run__bot_id=bot_id).count()
+        bot.delete()
+        system_log(
+            "WARNING",
+            "BOT",
+            f"bot {name} deleted by {request.user.get_username()}",
+            source="apps.bots.views",
+            error_code="bot_deleted",
+            context={
+                "bot": name,
+                "bot_id": bot_id,
+                "actor": request.user.get_username(),
+                "symbol": symbol,
+                "detail": f"{trades} trade(s) keep their history without the bot's name",
+            },
+        )
+        return Response(status=204)
+
     @action(detail=True, methods=["get"])
     def runs(self, request: Request, pk=None) -> Response:
         bot = self.get_object()
@@ -658,25 +703,34 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
     # one's own transition and gate checks have already passed means a start
     # that is about to be refused (an illegal transition, an unmet live gate)
     # never takes down a bot that was working fine.
+    # ``request.user`` is a lazy object that would hit the database from the
+    # event loop; ``auser()`` is the async door onto the same user, and
+    # ``admin_required`` has already been through it.
+    actor = (await request.auser()).get_username()
     deactivated = await sync_to_async(_other_running_ids)(bot.id)
     for other_id in deactivated:
         await supervisor.stop(
             other_id,
             reason=StopReason.MANUAL,
             detail=f"deactivated to activate “{bot.name}” — only one bot runs at a time",
+            actor=actor,
         )
 
-    run = await supervisor.start(bot)
+    run = await supervisor.start(bot, actor=actor)
     if target == BotState.LIVE:
         system_log(
             "INFO",
             "BOT",
-            f"bot {bot.name} promoted to live",
+            f"bot {bot.name} promoted to live by {actor}",
             source="apps.bots.views",
             error_code="bot_promoted",
             context={
                 "bot": bot.name,
                 "bot_id": bot.id,
+                # One password does not mean one person: the panel has a staff
+                # login each, and putting a bot on real money is the event
+                # where "which of them" matters most.
+                "actor": actor,
                 "symbol": bot.symbol,
                 "interval": bot.interval,
                 "gate_enforced": bot.gate_enforced,
@@ -700,7 +754,10 @@ async def stop_bot(request: HttpRequest, pk: int) -> JsonResponse:
 
     detail = str(_body(request).get("reason", ""))[:200]
     await supervisor.stop(
-        bot.id, reason=StopReason.MANUAL, detail=detail or "stopped from the panel"
+        bot.id,
+        reason=StopReason.MANUAL,
+        detail=detail or "stopped from the panel",
+        actor=(await request.auser()).get_username(),
     )
     return JsonResponse({"bot_id": bot.id, "state": BotState.STOPPED})
 

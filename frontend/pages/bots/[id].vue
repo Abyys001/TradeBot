@@ -134,6 +134,24 @@ async function act(action: 'paper' | 'live' | 'stop') {
   }
 }
 
+/** Deleting this bot. The list has the same button; this is where you already are. */
+const confirmingDelete = ref(false)
+
+async function remove() {
+  busy.value = true
+  error.value = ''
+  try {
+    await store.remove(id.value)
+    confirmingDelete.value = false
+    navigateTo(localePath('/bots'))
+  } catch (e: any) {
+    confirmingDelete.value = false
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+
 /**
  * What this bot *is*, editable. Everything but the strategy version: a version
  * is immutable and is the bot's identity — pointing it at a different script
@@ -354,6 +372,19 @@ onMounted(load)
             <UiIcon name="pause" :size="14" />
             {{ t('bots.stop.action') }}
           </button>
+          <button
+            class="btn-quiet btn-sm btn-icon text-ink-muted hover:text-short"
+            :disabled="busy || bot.state === 'paper' || bot.state === 'live'"
+            :aria-label="t('bots.deleteBot')"
+            :title="
+              bot.state === 'paper' || bot.state === 'live'
+                ? t('bots.deleteBotRunning')
+                : t('bots.deleteBot')
+            "
+            @click="confirmingDelete = true"
+          >
+            <UiIcon name="trash" :size="15" />
+          </button>
         </div>
       </header>
 
@@ -365,6 +396,9 @@ onMounted(load)
       >
         <strong>{{ t(`bots.stop.${run.stop_reason}`, run.stop_reason) }}</strong>
         <span v-if="run.stop_detail"> — {{ run.stop_detail }}</span>
+        <!-- Named when a person pressed it; silent when the platform did, which
+             is the difference an operator reading this at 03:00 needs. -->
+        <span v-if="run.stopped_by"> · {{ t('bots.stoppedBy', { name: run.stopped_by }) }}</span>
         <p class="text-ink-muted mt-1">{{ t('bots.noAutoResume') }}</p>
       </div>
 
@@ -386,6 +420,7 @@ onMounted(load)
           :tone="run.feed_gaps > run.feed_gaps_repaired ? 'signal' : undefined"
         />
         <UiStat :label="t('bots.restarts')" :value="String(run.recoveries)" />
+        <UiStat :label="t('bots.startedByLabel')" :value="run.started_by || '—'" />
         <UiStat :label="t('bots.feed')" :value="run.feed_transport || run.feed_source || '—'" />
       </div>
 
@@ -744,6 +779,19 @@ onMounted(load)
         </template>
       </UiModal>
 
+      <UiModal v-model="confirmingDelete" :title="t('bots.deleteBotTitle')" size="sm">
+        <p class="text-sm leading-relaxed">
+          {{ t('bots.deleteBotConfirm', { name: bot.name }) }}
+        </p>
+        <template #footer>
+          <button class="btn-ghost btn-sm" @click="confirmingDelete = false">
+            {{ t('common.cancel') }}
+          </button>
+          <button class="btn-danger btn-sm" :disabled="busy" @click="remove">
+            {{ t('common.delete') }}
+          </button>
+        </template>
+      </UiModal>
     </template>
   </div>
 </template>

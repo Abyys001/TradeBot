@@ -55,7 +55,9 @@ EVENTS: dict[str, Event] = {
     # --- trades: one row per fan-out, legs in context ------------------------
     # context: symbol, side, market, leverage, order_type, sl_pct, tp_pct,
     # fraction (reduce only), origin ("manual" | "bot"), bot, fanout_ms,
-    # legs[{account_id, account, exchange, ok, qty, price, error_code, error}]
+    # legs[{account_id, account, exchange, ok, qty, price, pnl, error_code, error}]
+    # ``pnl`` is per leg and only on a close; the message sums the legs it is
+    # allowed to show rather than carrying a total a hidden account is inside.
     "trade_opened": Event(Group.TRADES),
     "trade_amended": Event(Group.TRADES),
     "trade_closed": Event(Group.TRADES),
@@ -76,6 +78,7 @@ EVENTS: dict[str, Event] = {
     "bot_stopped": Event(Group.BOTS),
     "bot_paused": Event(Group.BOTS),
     "bot_gate_changed": Event(Group.ADMIN),
+    "bot_deleted": Event(Group.ADMIN),
     # The Q25 auto-stops, logged by ``supervisor._announce_stop`` with the
     # ``StopReason`` value as the code. ``halt`` and ``manual`` are not here:
     # the halt has its own event and a manual stop is ``bot_stopped``.

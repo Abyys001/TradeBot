@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 from decimal import Decimal
 
-from asgiref.sync import sync_to_async
+from asgiref.sync import ThreadSensitiveContext, sync_to_async
 from channels.layers import get_channel_layer
 from django.utils import timezone
 
@@ -75,19 +76,40 @@ def running_ids() -> set[int]:
     return {bot_id for bot_id, task in _TASKS.items() if not task.done()}
 
 
-async def start(bot: Bot) -> BotRun:
+async def start(bot: Bot, *, actor: str = "") -> BotRun:
     """Start (or resume) ``bot``. Idempotent — starting a running bot is a no-op."""
     async with _LOCK:
         existing = _TASKS.get(bot.id)
         if existing is not None and not existing.done():
-            return await _open_run(bot)
-        run = await _open_run(bot)
-        task = asyncio.create_task(_supervise(bot.id, run.id), name=f"bot-{bot.id}")
+            return await _open_run(bot, actor=actor)
+        run = await _open_run(bot, actor=actor)
+        task = asyncio.create_task(
+            _supervise(bot.id, run.id),
+            name=f"bot-{bot.id}",
+            # **The task must not inherit the caller's context.** The panel
+            # starts a bot from an HTTP request, and Django wraps every request
+            # in an ``asgiref`` ``ThreadSensitiveContext`` whose executor is
+            # shut down the moment the response is sent. A task created inside
+            # that context keeps pointing at the dead executor, so the *first*
+            # ``sync_to_async`` call after the response — ``feed.check_clock()``,
+            # a bar away from any order — raises "CurrentThreadExecutor already
+            # quit or is broken" and the bot dies seconds after it was started.
+            # A bot started from the panel therefore never evaluated a bar,
+            # while the panel went on showing it as live.
+            #
+            # A fresh context is the fix rather than a nested
+            # ``ThreadSensitiveContext``: that manager is re-entrant, so
+            # entering it *inside* the request's would be a no-op. ``_supervise``
+            # opens one of its own on top of this empty context, which gives
+            # each bot its own executor thread — the same isolation between
+            # bots the rest of this module promises.
+            context=contextvars.Context(),
+        )
         _TASKS[bot.id] = task
         return run
 
 
-async def stop(bot_id: int, *, reason: str, detail: str = "") -> None:
+async def stop(bot_id: int, *, reason: str, detail: str = "", actor: str = "") -> None:
     """Stop one bot and close its run. Safe to call on a bot that is not running.
 
     Broadcasts the new state so every open panel — not just the tab that asked
@@ -102,7 +124,7 @@ async def stop(bot_id: int, *, reason: str, detail: str = "") -> None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-    await _close_run(bot_id, reason=reason, detail=detail)
+    await _close_run(bot_id, reason=reason, detail=detail, actor=actor)
     await _broadcast("bot_state", {"bot_id": bot_id, "state": BotState.STOPPED})
     if reason == StopReason.MANUAL:
         bot_name = await sync_to_async(
@@ -114,7 +136,16 @@ async def stop(bot_id: int, *, reason: str, detail: str = "") -> None:
             f"bot {bot_name or bot_id} stopped manually" + (f": {detail}" if detail else ""),
             source="apps.bots.supervisor",
             error_code="bot_stopped",
-            context={"bot": bot_name, "bot_id": bot_id, "reason": reason, "detail": detail},
+            context={
+                "bot": bot_name,
+                "bot_id": bot_id,
+                # Who pressed it. Blank when the platform stopped the bot
+                # itself — deactivating one bot to start another, say — and
+                # that difference is the reason this is recorded at all.
+                "actor": actor,
+                "reason": reason,
+                "detail": detail,
+            },
         )
 
 
@@ -215,7 +246,18 @@ async def shutdown() -> None:
 
 
 async def _supervise(bot_id: int, run_id: int) -> None:
-    """One bot's whole life. Every exception ends here and nowhere else."""
+    """One bot's whole life. Every exception ends here and nowhere else.
+
+    The whole of it — the stop handlers included, since those write to the
+    database too — runs inside a thread-sensitive executor of this bot's own.
+    See the note on ``start``'s ``create_task``: the context this task is
+    created with is empty precisely so this is the outermost one and binds.
+    """
+    async with ThreadSensitiveContext():
+        await _supervise_inner(bot_id, run_id)
+
+
+async def _supervise_inner(bot_id: int, run_id: int) -> None:
     try:
         await _run_bot(bot_id, run_id)
     except asyncio.CancelledError:
@@ -301,6 +343,11 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             "bot": bot.name,
             "bot_id": bot.id,
             "run_id": run.id,
+            "mode": bot.state,
+            # Blank when the process resumed the run by itself on start-up,
+            # which is exactly the case worth telling apart from a person
+            # pressing start.
+            "actor": run.started_by,
             "symbol": bot.symbol,
             "interval": bot.interval,
             "bars": len(warmup),
@@ -493,23 +540,31 @@ def _validated(bot: Bot):
 
 
 @sync_to_async
-def _open_run(bot: Bot) -> BotRun:
+def _open_run(bot: Bot, *, actor: str = "") -> BotRun:
     """The bot's open run, or a new one.
 
     Resuming into the *same* run across a process restart is what lets the
     Phase 7 gate ask for fourteen continuous days and three survived restarts
     from the same row.
+
+    ``actor`` is whoever pressed start, and it is recorded only when a person
+    did: a resume after a restart passes nothing, and overwriting the name on
+    the run would make the platform's own recovery look like somebody's press.
     """
     run = BotRun.objects.filter(bot=bot, stopped_at__isnull=True).order_by("-started_at").first()
     if run is not None:
         run.recoveries += 1
-        run.save(update_fields=["recoveries"])
+        fields = ["recoveries"]
+        if actor:
+            run.started_by = actor
+            fields.append("started_by")
+        run.save(update_fields=fields)
         return run
-    return BotRun.objects.create(bot=bot)
+    return BotRun.objects.create(bot=bot, started_by=actor)
 
 
 @sync_to_async
-def _close_run(bot_id: int, *, reason: str, detail: str) -> None:
+def _close_run(bot_id: int, *, reason: str, detail: str, actor: str = "") -> None:
     run = (
         BotRun.objects.filter(bot_id=bot_id, stopped_at__isnull=True)
         .order_by("-started_at")
@@ -519,7 +574,8 @@ def _close_run(bot_id: int, *, reason: str, detail: str) -> None:
         run.stopped_at = timezone.now()
         run.stop_reason = reason
         run.stop_detail = detail[:2000]
-        run.save(update_fields=["stopped_at", "stop_reason", "stop_detail"])
+        run.stopped_by = actor
+        run.save(update_fields=["stopped_at", "stop_reason", "stop_detail", "stopped_by"])
     Bot.objects.filter(id=bot_id).update(state=BotState.STOPPED, dry_run=True)
 
 

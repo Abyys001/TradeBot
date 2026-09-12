@@ -228,6 +228,14 @@ class BotRun(models.Model):
     )
     stop_detail = models.TextField(blank=True)
 
+    #: Who pressed start, and who pressed stop. Blank means the platform itself
+    #: — a resume after a restart, the halt, or one of Q25's auto-stops. The
+    #: panel has one shared staff login *per person*, not one for everybody, so
+    #: "the bot went live" and "who put it there" are two different facts and
+    #: the second one is the one nobody can reconstruct afterwards.
+    started_by = models.CharField(max_length=150, blank=True)
+    stopped_by = models.CharField(max_length=150, blank=True)
+
     warmup_bars = models.PositiveIntegerField(default=0)
     #: "stream" or "poll" — the bot knows which it is on and says so (Phase 3).
     feed_source = models.CharField(max_length=12, blank=True)

@@ -16,6 +16,7 @@ error text — goes through ``html.escape``; only the markup written here is not
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from html import escape, unescape
 from typing import Any
 
@@ -60,6 +61,7 @@ TITLES: dict[str, tuple[str, str]] = {
     "bot_stopped": ("Bot stopped", "ربات متوقف شد"),
     "bot_paused": ("Bot paused by the risk gate", "ربات توسط کنترل ریسک موقتاً متوقف شد"),
     "bot_gate_changed": ("Promotion gate changed", "دروازه ارتقا تغییر کرد"),
+    "bot_deleted": ("Bot deleted", "ربات حذف شد"),
     "consecutive_losses": ("Bot auto-stopped: losing streak", "توقف خودکار ربات: ضررهای پیاپی"),
     "drawdown": ("Bot auto-stopped: drawdown limit", "توقف خودکار ربات: حد افت سرمایه"),
     "feed_gap": ("Bot auto-stopped: price feed gap", "توقف خودکار ربات: قطعی داده قیمت"),
@@ -158,6 +160,12 @@ VALUES: dict[str, tuple[str, str]] = {
 TEXT: dict[str, tuple[str, str]] = {
     "trade": ("Trade", "معامله"),
     "accounts_ok": ("{ok}/{total} accounts filled", "{ok} از {total} حساب انجام شد"),
+    "accounts_closed": ("{ok}/{total} accounts closed", "{ok} از {total} حساب بسته شد"),
+    "accounts_amended": ("{ok}/{total} accounts updated", "{ok} از {total} حساب به‌روزرسانی شد"),
+    # The levels, written the way they are read: "SL 0.5%", not "SL % 0.5".
+    "sl_short": ("SL", "حد ضرر"),
+    "tp_short": ("TP", "حد سود"),
+    "left_open": ("left open", "باز مانده"),
     "leg_failed": ("failed", "ناموفق"),
     "similar": ("+{n} similar in the last 10 min", "+{n} مورد مشابه در ۱۰ دقیقه گذشته"),
     "backlog": (
@@ -250,6 +258,136 @@ def _lines(context: dict[str, Any], language: str) -> list[str]:
     ]
 
 
+#: The four fan-out events. They are rendered by hand rather than through the
+#: label table because a label per field turned one trade into a dozen lines —
+#: symbol, side, market, leverage, order type, both percentages, the fan-out
+#: timing and then a line per account — and the one number the operator opened
+#: the message for, the money, was not among them. A chat is read on a phone
+#: while something is happening; it gets the instrument, the levels, and what
+#: it made or lost.
+TRADE_CODES = frozenset({"trade_opened", "trade_amended", "trade_closed", "trade_reduced"})
+
+
+def _num(raw: Any) -> str:
+    """A stored ``str(Decimal)`` without its trailing zeros. ``0.5000`` → ``0.5``."""
+    text = str(raw).strip()
+    if "." not in text:
+        return text
+    text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _signed(raw: Any) -> str:
+    """Money with its sign always shown — ``+12.34``, ``-3.1``, and never ``0``
+    dressed up as a gain."""
+    text = _num(raw)
+    return text if text.startswith(("+", "-")) else f"+{text}"
+
+
+def _total(legs: list[dict[str, Any]]) -> Decimal | None:
+    """The PnL of the legs **that are being shown**.
+
+    Summed here, off the filtered list, rather than carried in the context as a
+    figure somebody computed earlier: a hidden account's money must not reach a
+    reader who cannot see the account, and a pre-computed total would contain
+    it. Everything else on this platform filters its totals the same way.
+    """
+    found = [leg["pnl"] for leg in legs if leg.get("pnl") not in (None, "")]
+    if not found:
+        return None
+    try:
+        return sum((Decimal(str(one)) for one in found), Decimal(0))
+    except (InvalidOperation, TypeError):
+        return None
+
+
+def _instrument(context: dict[str, Any], language: str) -> str:
+    """``BTCUSDC short · futures 10×`` — the whole of what used to be six lines."""
+    parts = [escape(str(context.get("symbol") or ""))]
+    if context.get("side"):
+        parts.append(value(context["side"], language))
+    line = " ".join(part for part in parts if part)
+    tail = []
+    if context.get("market"):
+        leverage = context.get("leverage")
+        venue = value(context["market"], language)
+        tail.append(f"{venue} {leverage}×" if leverage and str(leverage) != "1" else venue)
+    if context.get("order_type") and str(context["order_type"]) != "market":
+        # A market order is the default and says nothing; "limit" is news.
+        tail.append(value(context["order_type"], language))
+    if context.get("origin"):
+        origin = value(context["origin"], language)
+        bot = context.get("bot")
+        tail.append(f"{origin} ({escape(str(bot))})" if bot else origin)
+    return " · ".join([line, *tail]) if line else " · ".join(tail)
+
+
+def _levels(context: dict[str, Any], language: str) -> str:
+    parts = []
+    if context.get("sl_pct"):
+        parts.append(f"{t('sl_short', language)} {_num(context['sl_pct'])}%")
+    if context.get("tp_pct"):
+        parts.append(f"{t('tp_short', language)} {_num(context['tp_pct'])}%")
+    if context.get("fraction"):
+        # A scale-out's target is what is *left*, not what was taken off.
+        share = Decimal(str(context["fraction"])) * 100
+        parts.append(f"{_num(share)}% {t('left_open', language)}")
+    return " · ".join(parts)
+
+
+def _account_name(leg: dict[str, Any]) -> str:
+    return escape(str(leg.get("account") or f"#{leg.get('account_id')}"))
+
+
+def _trade_body(code: str, context: dict[str, Any], language: str) -> list[str]:
+    legs: list[dict[str, Any]] = context.get("legs") or []
+    ok = [leg for leg in legs if leg.get("ok")]
+    failed = [leg for leg in legs if not leg.get("ok")]
+
+    body = [line for line in (_instrument(context, language), _levels(context, language)) if line]
+
+    total = _total(ok)
+    if total is not None:
+        # The headline of a close: one number, signed, before anything else
+        # about how it got there.
+        body.append(f"{label('pnl', language)}: <b>{_signed(total)}</b>")
+
+    if legs:
+        # Filled, closed, updated: the same count, and three different facts.
+        wording = {
+            "trade_closed": "accounts_closed",
+            "trade_reduced": "accounts_closed",
+            "trade_amended": "accounts_amended",
+        }.get(code, "accounts_ok")
+        summary = t(wording, language, ok=len(ok), total=len(legs))
+        prices = {str(leg.get("price")) for leg in ok if leg.get("price") not in (None, "")}
+        if len(prices) == 1 and total is None:
+            # One fill price for the whole fan-out is the normal case and worth
+            # one line; several means the accounts filled apart, and the panel
+            # is where that is read leg by leg.
+            summary += f" @ {escape(_num(prices.pop()))}"
+        if ok and total is None:
+            # The accounts by name, on the same line — *which* of them took the
+            # trade is worth knowing; how much each one sized is what the panel
+            # is for. A line per account is the clutter this replaced.
+            summary += " — " + ", ".join(_account_name(leg) for leg in ok)
+        body.append(f"✅ {summary}" if ok else summary)
+
+    # Per-account money, and only that: whoever is reading wants to know which
+    # account made what, not what size it held.
+    for leg in ok:
+        if leg.get("pnl") in (None, ""):
+            continue
+        body.append(f"• {_account_name(leg)} {_signed(leg['pnl'])}")
+
+    # A failure is never summarised away. It is the one thing in a fan-out that
+    # asks the operator to do something.
+    for leg in failed:
+        why = leg.get("error") or leg.get("error_code") or t("leg_failed", language)
+        body.append(f"❌ {_account_name(leg)} — {escape(str(why))[:160]}")
+    return body
+
+
 def _legs(legs: list[dict[str, Any]], language: str) -> list[str]:
     ok = sum(1 for leg in legs if leg.get("ok"))
     lines = [t("accounts_ok", language, ok=ok, total=len(legs))]
@@ -288,10 +426,13 @@ def render(
     head = f"{MARK.get(level, '•')} <b>{escape(title(code, language))}</b>"
     if trade_id:
         head += f" · {t('trade', language)} #{trade_id}"
-    body = _lines(context, language)
-    legs = context.get("legs")
-    if legs:
-        body += _legs(legs, language)
+    if code in TRADE_CODES:
+        body = _trade_body(code, context, language)
+    else:
+        body = _lines(context, language)
+        legs = context.get("legs")
+        if legs:
+            body += _legs(legs, language)
     if repeats:
         body.append(f"<i>{t('similar', language, n=repeats)}</i>")
     body.append(f"🕒 {when(timestamp)}")

@@ -377,6 +377,22 @@ def _persist_close(trade: Trade, result: FanOutResult) -> None:
     trade.save(update_fields=["status", "closed_at"])
 
 
+@sync_to_async
+def _realised_pnl(trade: Trade) -> dict[int, str]:
+    """What each account actually made on this trade, read back after the close.
+
+    Off the legs rather than off the fan-out result: ``_persist_close`` is what
+    turns an exit price into money, and it is the only place that arithmetic
+    lives. A leg with no entry price or no fill has no PnL and is simply absent
+    — the message then says nothing about it rather than saying zero.
+    """
+    return {
+        leg.account_id: str(leg.pnl)
+        for leg in trade.legs.all()
+        if leg.pnl is not None
+    }
+
+
 # --- broadcasting -----------------------------------------------------------
 
 
@@ -418,8 +434,19 @@ def _leg_qty_price(value: object) -> tuple[str | None, str | None]:
     return (str(qty) if qty is not None else None, str(price) if price is not None else None)
 
 
-def _fanout_legs(result: FanOutResult, accounts: list[ConnectedAccount]) -> list[dict]:
-    """Telegram/Log event legs: one dict per leg, account named only here."""
+def _fanout_legs(
+    result: FanOutResult,
+    accounts: list[ConnectedAccount],
+    pnl: dict[int, str] | None = None,
+) -> list[dict]:
+    """Telegram/Log event legs: one dict per leg, account named only here.
+
+    ``pnl`` is what each account realised, for the events that have one — a
+    close. It travels per leg and is never summed here: a reader who cannot see
+    a hidden account must not be handed a total containing its money, so the
+    sum belongs to whoever has already dropped the legs that reader may not see
+    (``apps/telegram/messages.py``).
+    """
     by_id = {account.id: account for account in accounts}
     legs = []
     for leg in result.legs:
@@ -433,6 +460,7 @@ def _fanout_legs(result: FanOutResult, accounts: list[ConnectedAccount]) -> list
                 "ok": leg.ok,
                 "qty": qty,
                 "price": price,
+                "pnl": (pnl or {}).get(leg.account_id),
                 "error_code": leg.error_code or None,
                 "error": leg.error or None,
             }
@@ -454,8 +482,9 @@ def _log_fanout(
     result: FanOutResult,
     accounts: list[ConnectedAccount],
     context: dict,
+    pnl: dict[int, str] | None = None,
 ) -> None:
-    context["legs"] = _fanout_legs(result, accounts)
+    context["legs"] = _fanout_legs(result, accounts, pnl)
     system_log(
         _fanout_level(result),
         "TRADE",
@@ -860,8 +889,10 @@ async def route_close(*, trade: Trade) -> FanOutResult:
     result = await close_trade(adapters, symbol=trade.symbol)
 
     await _persist_close(trade, result)
+    realised = await _realised_pnl(trade)
     _log_fanout(
         code="trade_closed",
+        pnl=realised,
         message=(
             f"closed {trade.symbol} {trade.side} on "
             f"{len(result.succeeded)}/{len(result.legs)} account(s)"

@@ -31,7 +31,7 @@ export const useOrderStore = defineStore('order', {
     liquidationPrice: null as number | null,
     lastEditedFrom: null as EditSource | null,
     lastEditedAt: null as number | null,
-    /** The open trade these numbers describe, so a poll re-hydrates only once. */
+    /** The open trade these numbers describe — see `adoptTrade`. */
     hydratedTradeId: null as number | null,
   }),
 
@@ -126,6 +126,13 @@ export const useOrderStore = defineStore('order', {
       if (!entry) return
       const move = this.side === 'long' ? (entry - price) / entry : (price - entry) / entry
       const pct = move * 100
+      // A drag is a *move*, never a clear. Pulled across entry it computes a
+      // negative stop, which `setSL` turns into null — and a null level is a
+      // line that disappears off the chart with no way to get it back, on a
+      // position that is still live and still protected on the exchange. The
+      // level stays where it was and the line simply refuses to go there; the
+      // way to remove a stop is to empty the box on the ticket.
+      if (!(pct > 0)) return
       this.setSL(round4(this.basis === 'margin' ? pct * this.leverage : pct), from)
     },
     setTPFromPrice(price: number, from: EditSource = 'chart') {
@@ -133,6 +140,7 @@ export const useOrderStore = defineStore('order', {
       if (!entry) return
       const move = this.side === 'long' ? (price - entry) / entry : (entry - price) / entry
       const pct = move * 100
+      if (!(pct > 0)) return
       this.setTP(round4(this.basis === 'margin' ? pct * this.leverage : pct), from)
     },
 
@@ -169,30 +177,66 @@ export const useOrderStore = defineStore('order', {
      * exchanges rest on the new one.
      */
     adoptTrade(trade: HydratableTrade) {
-      if (this.hydratedTradeId === trade.id) return
-      if (this.lastEditedAt !== null && Date.now() - this.lastEditedAt < ADOPT_GRACE_MS) {
-        // The grace protects the admin's levels, not the trade's direction. A
-        // stale side draws a short's stop below entry, and dragging it back
-        // above — where a short's stop belongs — reads as a negative stop,
-        // which `setSL` clears: the line vanishes and the amend is refused.
-        this.side = sideOf(trade)
-        this.hydratedTradeId = trade.id
+      const editing =
+        this.lastEditedAt !== null && Date.now() - this.lastEditedAt < ADOPT_GRACE_MS
+
+      if (this.hydratedTradeId !== trade.id) {
+        if (editing) {
+          // The grace protects the admin's levels, not the trade's direction. A
+          // stale side draws a short's stop below entry, and dragging it back
+          // above — where a short's stop belongs — reads as a negative stop,
+          // which `setSL` clears: the line vanishes and the amend is refused.
+          this.side = sideOf(trade)
+          this.hydratedTradeId = trade.id
+          return
+        }
+        this.hydrateFromTrade(trade)
         return
       }
-      this.hydrateFromTrade(trade)
+
+      // Already this trade — but "already adopted" is not "still agrees". The
+      // server is the authority on an open position's levels, and the panel
+      // has to fall back in step with it on every poll rather than only on the
+      // first one. Adopting once per trade id is what let the two drift: a
+      // level cleared in the browser (a stop dragged across entry used to do
+      // exactly that), an amend made from another tab, or a trade `possync`
+      // restored left the chart drawing levels the exchanges had never agreed
+      // to — or, when the level had been cleared, drawing **nothing at all**
+      // for the rest of the position while the stop sat resting on every
+      // account. Only the levels are re-read; the symbol, market and leverage
+      // are not, so the admin can still look at another pair mid-position.
+      if (editing || this.matchesTrade(trade)) return
+      this.adoptLevels(trade)
+    },
+
+    /** Does the panel already show this trade's protection, exactly? */
+    matchesTrade(trade: HydratableTrade): boolean {
+      const same = (mine: number | null, theirs: string | null) =>
+        mine === (theirs === null || theirs === '' ? null : Number(theirs))
+      return (
+        this.side === sideOf(trade) &&
+        this.basis === basisOf(trade) &&
+        same(this.slPct, trade.sl_pct) &&
+        same(this.tpPct, trade.tp_pct)
+      )
+    },
+
+    /** The protection as the server holds it — side, basis and both levels. */
+    adoptLevels(trade: HydratableTrade) {
+      this.side = sideOf(trade)
+      this.basis = basisOf(trade)
+      this.slPct = trade.sl_pct === null ? null : Number(trade.sl_pct)
+      this.tpPct = trade.tp_pct === null ? null : Number(trade.tp_pct)
+      this.lastEditedFrom = null
     },
 
     /** Adopt an open trade after a page reload so the terminal is not blank. */
     hydrateFromTrade(trade: HydratableTrade) {
       this.symbol = trade.symbol
-      this.side = sideOf(trade)
       this.market = trade.market === 'spot' ? 'spot' : 'futures'
       this.leverage = trade.leverage || this.leverage
-      this.basis = trade.sltp_basis === 'margin' ? 'margin' : 'price'
-      this.slPct = trade.sl_pct === null ? null : Number(trade.sl_pct)
-      this.tpPct = trade.tp_pct === null ? null : Number(trade.tp_pct)
+      this.adoptLevels(trade)
       if (trade.admin_entry_price) this.entryPrice = Number(trade.admin_entry_price)
-      this.lastEditedFrom = null
       this.hydratedTradeId = trade.id
     },
 
@@ -230,6 +274,10 @@ const ADOPT_GRACE_MS = 15_000
 
 function sideOf(trade: Pick<Trade, 'side'>): 'long' | 'short' {
   return trade.side === 'short' ? 'short' : 'long'
+}
+
+function basisOf(trade: Pick<Trade, 'sltp_basis'>): Basis {
+  return trade.sltp_basis === 'margin' ? 'margin' : 'price'
 }
 
 /** Chart drags produce long floats; four decimals is past any exchange's tick. */

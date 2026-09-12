@@ -190,8 +190,64 @@ def test_a_trade_arrives_with_its_details():
     )
     [text] = pending()
     assert "Trade opened" in text and "#7" in text
-    assert "BTCUSDT" in text and "Main" in text and "0.01" in text and "60000" in text
+    assert "BTCUSDT" in text and "Main" in text and "60000" in text
     assert "1/1 accounts" in text
+    # Short on purpose: the instrument, the fill, who took it, and the time.
+    # Per-account sizes and the fan-out timing are the panel's job — a message
+    # read on a phone that runs past a screen is one nobody reads.
+    assert len(text.splitlines()) <= 5
+
+
+def test_a_close_leads_with_the_money_and_names_it_per_account():
+    """The one number the chat is opened for.
+
+    A close used to say symbol, side, market, leverage, order type, both
+    percentages and a fill price per account — and not what any of it made.
+    """
+    linked()
+    main = make_account("Main")
+    other = make_account("Other")
+    log(
+        "trade_closed",
+        trade_id=9,
+        context={
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "legs": [
+                {"account_id": main.id, "account": "Main", "ok": True, "pnl": "12.5000"},
+                {"account_id": other.id, "account": "Other", "ok": True, "pnl": "-2.2500"},
+            ],
+        },
+    )
+    [text] = pending()
+    assert "PnL: <b>+10.25</b>" in text
+    assert "• Main +12.5" in text and "• Other -2.25" in text
+
+
+def test_a_closes_total_never_counts_a_hidden_accounts_money():
+    """The totals rule (``CLAUDE.md``), applied to the one total in a chat.
+
+    The sum is taken over the legs that survived filtering, so a hidden
+    account's PnL cannot arrive inside it.
+    """
+    linked()
+    main = make_account("Main")
+    hidden = make_account("Hidden", hidden=True)
+    log(
+        "trade_closed",
+        trade_id=10,
+        context={
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "legs": [
+                {"account_id": main.id, "account": "Main", "ok": True, "pnl": "4"},
+                {"account_id": hidden.id, "account": "Hidden", "ok": True, "pnl": "1000"},
+            ],
+        },
+    )
+    [text] = pending()
+    assert "PnL: <b>+4</b>" in text
+    assert "Hidden" not in text and "1000" not in text
 
 
 def test_an_event_that_carries_only_the_account_id_still_names_the_account():

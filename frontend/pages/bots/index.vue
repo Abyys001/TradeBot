@@ -91,6 +91,29 @@ async function act(bot: BotSummary, action: 'paper' | 'live' | 'stop') {
   }
 }
 
+/**
+ * Deleting one. Asked for rather than assumed: a bot is a thing somebody built,
+ * and the confirm names what goes with it — the runs, the bars, the action log
+ * — and what does not: the trades it placed keep their place in the history.
+ */
+const deleting = ref<BotSummary | null>(null)
+
+async function remove() {
+  const bot = deleting.value
+  if (!bot) return
+  busy.value = bot.id
+  error.value = ''
+  try {
+    await store.remove(bot.id)
+    deleting.value = null
+  } catch (e: any) {
+    deleting.value = null
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = null
+  }
+}
+
 function open() {
   step.value = 'strategy'
   form.strategy_version = null
@@ -201,10 +224,19 @@ onMounted(() => store.load())
                 <span v-if="runOf(bot)!.stop_detail" class="text-ink-muted">
                   — {{ runOf(bot)!.stop_detail }}
                 </span>
+                <!-- Who, when a person did it. Blank means the platform stopped
+                     it: an auto-stop, the halt, or a restart — and those two are
+                     not the same news. -->
+                <span v-if="runOf(bot)?.stopped_by" class="text-ink-muted">
+                  · {{ t('bots.stoppedBy', { name: runOf(bot)!.stopped_by }) }}
+                </span>
               </p>
               <p v-else-if="lastBar(bot)" class="text-tick text-ink-faint num">
                 {{ t('bots.lastBar') }} {{ dateTime(new Date(lastBar(bot)! * 1000).toISOString()) }}
                 · {{ t('bots.barsN', { n: runOf(bot)?.bars_evaluated ?? 0 }) }}
+                <span v-if="runOf(bot)?.started_by">
+                  · {{ t('bots.startedBy', { name: runOf(bot)!.started_by }) }}
+                </span>
               </p>
             </div>
 
@@ -234,6 +266,19 @@ onMounted(() => store.load())
               >
                 <UiIcon name="pause" :size="14" />
                 {{ t('bots.stop.action') }}
+              </button>
+              <button
+                class="btn-quiet btn-sm btn-icon text-ink-muted hover:text-short"
+                :disabled="busy === bot.id || bot.state === 'paper' || bot.state === 'live'"
+                :aria-label="t('bots.deleteBot')"
+                :title="
+                  bot.state === 'paper' || bot.state === 'live'
+                    ? t('bots.deleteBotRunning')
+                    : t('bots.deleteBot')
+                "
+                @click="deleting = bot"
+              >
+                <UiIcon name="trash" :size="15" />
               </button>
               <NuxtLink :to="localePath(`/bots/${bot.id}`)" class="btn-ghost btn-sm btn-icon">
                 <UiIcon name="chevronRight" :size="14" class="flip-rtl" />
@@ -371,6 +416,23 @@ onMounted(() => store.load())
           @click="create"
         >
           {{ t('common.create') }}
+        </button>
+      </template>
+    </UiModal>
+
+    <UiModal
+      :model-value="deleting !== null"
+      :title="t('bots.deleteBotTitle')"
+      size="sm"
+      @update:model-value="deleting = null"
+    >
+      <p class="text-sm leading-relaxed">
+        {{ t('bots.deleteBotConfirm', { name: deleting?.name ?? '' }) }}
+      </p>
+      <template #footer>
+        <button class="btn-ghost btn-sm" @click="deleting = null">{{ t('common.cancel') }}</button>
+        <button class="btn-danger btn-sm" :disabled="busy !== null" @click="remove">
+          {{ t('common.delete') }}
         </button>
       </template>
     </UiModal>

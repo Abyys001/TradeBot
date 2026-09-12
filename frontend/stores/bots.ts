@@ -98,6 +98,19 @@ export const useBotsStore = defineStore('bots', () => {
     return result
   }
 
+  /**
+   * Delete a bot and drop it from the list.
+   *
+   * The server refuses a running one (409 `bot_running`) rather than deleting
+   * a bot with a task still evaluating bars behind it, so nothing is removed
+   * here until the request comes back.
+   */
+  async function remove(id: number) {
+    await api.deleteBot(id)
+    bots.value = bots.value.filter((bot) => bot.id !== id)
+    delete runs.value[id]
+  }
+
   return {
     strategies,
     bots,
@@ -115,5 +128,6 @@ export const useBotsStore = defineStore('bots', () => {
     applyRun,
     start,
     stop,
+    remove,
   }
 })
