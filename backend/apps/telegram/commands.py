@@ -83,8 +83,17 @@ def _link(row: TelegramBot, chat: dict, sender: dict, code: str) -> bool:
     username = (sender.get("username") or "").lower()
     if not username or username != row.recipient_username.lower():
         return False
+    # Linking switches delivery on: the chat is about to be told it "will now
+    # receive the panel's notifications", and a link left waiting on a second
+    # switch was a notifier that confirmed itself and then sent nothing.
+    # ``log_cursor=None`` starts it at the head, as the switch does.
     TelegramBot.objects.filter(pk=row.pk).update(
-        chat_id=chat["id"], link_code_hash="", link_code_expires_at=None, last_error=""
+        chat_id=chat["id"],
+        link_code_hash="",
+        link_code_expires_at=None,
+        last_error="",
+        enabled=True,
+        log_cursor=None,
     )
     system_log(
         "INFO",

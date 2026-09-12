@@ -157,6 +157,20 @@ def _refuse(account: ConnectedAccount, exc: Exception) -> None:
     )
 
 
+def _announce_change(
+    account: ConnectedAccount, code: str, message: str, *, changed: str | None = None
+) -> None:
+    system_log(
+        "INFO",
+        "ADMIN",
+        message,
+        source="apps.accounts.views",
+        account_id=account.id,
+        exchange=account.exchange,
+        error_code=code,
+        context={"account": account.label, "exchange": account.exchange, "changed": changed},
+    )
+
 
 def _window_bound(raw: str, *, end: bool) -> datetime:
     """One ``?start=``/``?end=`` value as an aware instant.
@@ -291,6 +305,7 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account = self.get_object()
         account.status = AccountStatus.PAUSED
         account.save(update_fields=["status", "updated_at"])
+        _announce_change(account, "account_paused", f"account {account.label} paused")
         return Response(ConnectedAccountSerializer(account).data)
 
     @action(detail=True, methods=["post"])
@@ -361,6 +376,13 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account = self.get_object()
         account.manual_trading_enabled = bool(request.data.get("enabled", True))
         account.save(update_fields=["manual_trading_enabled", "updated_at"])
+        _announce_change(
+            account,
+            "account_changed",
+            f"account {account.label} manual trading "
+            f"{'on' if account.manual_trading_enabled else 'off'}",
+            changed=f"manual trading {'on' if account.manual_trading_enabled else 'off'}",
+        )
         return Response(ConnectedAccountSerializer(account).data)
 
     @action(detail=True, methods=["post"], url_path="bot-trading")
@@ -370,6 +392,13 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
         account = self.get_object()
         account.bot_trading_enabled = bool(request.data.get("enabled", True))
         account.save(update_fields=["bot_trading_enabled", "updated_at"])
+        _announce_change(
+            account,
+            "account_changed",
+            f"account {account.label} bot trading "
+            f"{'on' if account.bot_trading_enabled else 'off'}",
+            changed=f"bot trading {'on' if account.bot_trading_enabled else 'off'}",
+        )
         return Response(ConnectedAccountSerializer(account).data)
 
     @action(detail=True, methods=["get"])

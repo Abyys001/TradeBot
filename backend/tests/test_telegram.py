@@ -360,6 +360,70 @@ def test_the_deep_link_from_the_named_user_links_their_private_chat():
     assert reply is not None and reply.chat_id == 42 and "Linked" in reply.text
     row = TelegramBot.load()
     assert row.chat_id == 42 and row.link_code_hash == ""
+    # The chat was just told it will receive notifications — so it does.
+    assert row.enabled is True
+
+
+def test_a_trade_opened_after_linking_is_delivered_without_a_second_switch():
+    _awaiting_link()
+    make_account("Main")
+    commands.handle(_start("link-code-1"))
+    assert pending() == []  # the first pass starts at the head
+
+    log("trade_opened", trade_id=9, context={"symbol": "BTCUSDT", "side": "long"})
+    log("trade_closed", trade_id=9, context={"symbol": "BTCUSDT"})
+    [text] = pending()
+    assert "Trade opened" in text and "Trade closed" in text
+
+
+@pytest.fixture
+def log_rows():
+    """The ``/logs`` writer, which conftest detaches, for the tests that prove a
+    real view emits. Sync views write in-thread, so the writer-thread hazard
+    conftest guards against does not arise."""
+    from apps.logging.handlers import DatabaseHandler
+
+    handler = DatabaseHandler(level=logging.INFO)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    yield
+    root.removeHandler(handler)
+
+
+@pytest.mark.usefixtures("log_rows")
+def test_every_sign_in_is_an_event():
+    linked()
+    User.objects.create_user("boss", password=PASSWORD, is_staff=True)
+    for _ in range(2):
+        response = Client().post(
+            "/api/accounts/auth/login/",
+            {"username": "boss", "password": PASSWORD},
+            content_type="application/json",
+            HTTP_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) Firefox/128",
+        )
+        assert response.status_code == 200
+
+    texts = "\n\n".join(pending())
+    assert texts.count("Signed in to the panel") == 2
+    assert "boss" in texts
+
+
+@pytest.mark.usefixtures("log_rows")
+def test_account_pause_and_trading_switches_are_events():
+    linked()
+    account = make_account("Main")
+    client = staff_client()
+    client.post(f"/api/accounts/accounts/{account.id}/pause/")
+    client.post(
+        f"/api/accounts/accounts/{account.id}/bot-trading/",
+        {"enabled": True},
+        content_type="application/json",
+    )
+
+    text = "\n\n".join(pending())
+    assert "Account paused" in text
+    assert "Account settings changed" in text and "bot trading on" in text
+    assert "Main" in text
 
 
 @pytest.mark.parametrize(

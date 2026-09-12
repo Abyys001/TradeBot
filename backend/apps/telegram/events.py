@@ -97,6 +97,8 @@ EVENTS: dict[str, Event] = {
     "account_connected": Event(Group.ADMIN),
     "account_refused": Event(Group.SYSTEM),
     "account_resumed": Event(Group.ADMIN),
+    "account_paused": Event(Group.ADMIN),
+    "account_changed": Event(Group.ADMIN),
     "account_removed": Event(Group.ADMIN),
     "credential_expiring": Event(Group.SYSTEM),
     "credential_expired": Event(Group.SYSTEM),
@@ -104,6 +106,7 @@ EVENTS: dict[str, Event] = {
     "halt_on": Event(Group.RISK),
     "halt_off": Event(Group.RISK),
     "new_device": Event(Group.ADMIN),
+    "signed_in": Event(Group.ADMIN),
     "security_changed": Event(Group.ADMIN),
     "telegram_changed": Event(Group.ADMIN),
 }

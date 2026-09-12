@@ -1135,3 +1135,13 @@ when nothing emits it.
   message rather than a flood.
 - The credential-expiry sweep also runs hourly from this service, since it
   otherwise ran only when a panel polled balances.
+
+**Amendment (2026-09-13): linking switches delivery on.** Reported by the
+admin: the chat linked, answered "this chat will now receive the panel's
+notifications", and a trade opened afterwards sent nothing — delivery waited on
+the separate *enabled* switch, which linking left off. The `/start` link now
+sets `enabled` and starts the cursor at the head. The same report asked for
+every sign-in and every account change, so three events were added:
+`signed_in` (every sign-in; a new browser is still `new_device` instead, never
+both), `account_paused`, and `account_changed` (the manual/bot trading
+switches), all in the admin group.

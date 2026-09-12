@@ -143,6 +143,22 @@ def _finish_login(request, user, *, remember: bool = False, factor: str = "") ->
 
     if fresh:
         _new_device_notice(request, user, digest)
+    else:
+        # Every sign-in is an event, not only a new browser's: on one shared
+        # login the chat is where a second participant shows up. A new device
+        # already announced itself above, so it is not announced twice.
+        system_log(
+            "INFO",
+            "AUTH",
+            f"signed in as {user.get_username()}",
+            source="apps.accounts.auth_views",
+            error_code="signed_in",
+            context={
+                "username": user.get_username(),
+                "ip": client_ip(request) or None,
+                "device": describe_agent(request.META.get("HTTP_USER_AGENT", "")) or None,
+            },
+        )
 
     ratelimit.clear(_bucket(request, user.get_username()))
     record(
