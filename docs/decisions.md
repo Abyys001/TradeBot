@@ -1267,3 +1267,34 @@ can tell the two apart.
   logs only what it accepted cannot tell the operator that somebody has been
   posting to it for a week. The caller gets `invalid signature` and a 404 that
   does not distinguish unknown from disabled; the operator gets the real code.
+
+**Amendment (2026-09-13): the panel was answering for the server.** Reported
+from live use immediately after the above shipped — a bot whose script manages
+its own exits was still refused at Go live, with *"Every order this platform
+sends carries both a stop loss and a take profit… Set SL % and TP % on the bot,
+then go live."* That sentence was a hardcoded i18n string, `bots.unprotectedHere`,
+written before Q37. Both bot pages caught the `unprotected` code and threw the
+server's `detail` away, so the message that named the second option — the one
+this whole decision added — was computed, sent, and never displayed.
+
+The refusal itself was correct: the bot was still on `protected`, which is the
+default and should be. What was wrong is that the panel made a correct refusal
+look like a dead end.
+
+- **The panel renders the server's own words now.** It knows which half is
+  missing and which of the two questions it was asking; the page knows neither.
+  The two stale strings are deleted rather than left resolving, because a
+  sentence that still renders is one the next edit reaches for.
+- **The refusal carries `can_switch`**, from `supervisor.can_self_exit` — does
+  this script actually call `strategy.close` / `close_all` / `exit`? When it
+  does, the detail page offers *"Let the strategy close its own trades, and
+  start"*, which saves `exit_policy` through the ordinary bot endpoint and
+  retries the start. When it does not, nothing is offered: swapping one refusal
+  for a bot that opens a position nothing ever closes is the failure the
+  strategy-managed gate exists to catch.
+- **The switch is never made for the operator.** Flipping a policy on their
+  behalf would be the platform deciding how partner capital is protected. It is
+  one click, in front of them, recorded on the bot.
+- **The create-bot form can set the policy up front**, which it could not — so
+  every new bot was born `protected` and the only way to change it was a dialog
+  on another page.

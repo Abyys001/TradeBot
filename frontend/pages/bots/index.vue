@@ -35,6 +35,8 @@ const form = reactive({
   leverage: 1,
   sl_pct: '',
   tp_pct: '',
+  exit_policy: 'protected' as ExitPolicy,
+  safety_net_pct: '',
 })
 
 /** One row per strategy — its newest version, which is the only one a new bot may use. */
@@ -90,7 +92,11 @@ async function act(bot: BotSummary, action: 'paper' | 'live' | 'stop') {
       code === 'gate_unmet'
         ? t('bots.gateUnmet', { name: bot.name })
         : code === 'unprotected'
-          ? t('bots.unprotected', { name: bot.name })
+          // The server's own words, prefixed with which bot they are about —
+          // the list shows many. It knows which half is missing and which of
+          // Q37's two questions it asked; this page knows neither, and the
+          // canned string it used to show named neither.
+          ? `${bot.name}: ${errorMessage(e)}`
           : errorMessage(e)
   } finally {
     busy.value = null
@@ -146,6 +152,12 @@ async function create() {
       symbol: form.symbol.trim().toUpperCase(),
       sl_pct: form.sl_pct || null,
       tp_pct: form.tp_pct || null,
+      // Cleared unless the policy can use it: the server drops it anyway, and
+      // a net stored under a fixed stop reads as protection that exists.
+      safety_net_pct:
+        form.exit_policy === 'strategy_managed' && form.safety_net_pct
+          ? form.safety_net_pct
+          : null,
     })
     store.upsert(bot)
     creating.value = false
@@ -394,6 +406,20 @@ onMounted(() => store.load())
               <span class="label">{{ t('ticket.leverage') }}</span>
               <input v-model.number="form.leverage" type="number" min="1" max="10" class="field" />
             </label>
+            <label class="col-span-2 block space-y-1.5">
+              <span class="label">{{ t('ticket.exitPolicy.label') }}</span>
+              <select v-model="form.exit_policy" class="field">
+                <option value="protected">{{ t('ticket.exitPolicy.protected') }}</option>
+                <option value="strategy_managed">{{ t('ticket.exitPolicy.managed') }}</option>
+              </select>
+              <p class="text-tick text-ink-faint leading-relaxed">
+                {{
+                  form.exit_policy === 'strategy_managed'
+                    ? t('bots.exitPolicy.managedHint')
+                    : t('bots.exitPolicy.protectedHint')
+                }}
+              </p>
+            </label>
             <label class="block space-y-1.5">
               <span class="label">{{ t('ticket.stopLoss') }} %</span>
               <input v-model="form.sl_pct" class="field" placeholder="—" />
@@ -401,6 +427,20 @@ onMounted(() => store.load())
             <label class="block space-y-1.5">
               <span class="label">{{ t('ticket.takeProfit') }} %</span>
               <input v-model="form.tp_pct" class="field" placeholder="—" />
+            </label>
+            <label
+              v-if="form.exit_policy === 'strategy_managed'"
+              class="col-span-2 block space-y-1.5"
+            >
+              <span class="label">{{ t('ticket.safetyNet.label') }}</span>
+              <input
+                v-model="form.safety_net_pct"
+                class="field"
+                :placeholder="t('ticket.safetyNet.placeholder')"
+              />
+              <p class="text-tick text-ink-faint leading-relaxed">
+                {{ t('ticket.safetyNet.hint') }}
+              </p>
             </label>
           </div>
         </div>

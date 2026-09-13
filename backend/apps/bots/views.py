@@ -39,6 +39,7 @@ from apps.bots.models import (
     BotAction,
     BotRun,
     BotState,
+    ExitPolicy,
     InputPreset,
     StopReason,
     Strategy,
@@ -693,14 +694,32 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
                 },
                 status=409,
             )
-        # Not a gate row, and deliberately not waivable: every order carries
-        # both a stop loss and a take profit (§4/§5), so a bot that can supply
-        # neither would have every entry refused inside the fan-out. Said here,
-        # in front of the button, rather than by a bot that goes live and stops
-        # itself a second later.
+        # Not a gate row, and deliberately not waivable: under the `protected`
+        # exit policy every order carries both a stop loss and a take profit
+        # (§4/§5), so a bot that can supply neither would have every entry
+        # refused inside the fan-out. Said here, in front of the button, rather
+        # than by a bot that goes live and stops itself a second later.
+        #
+        # Q37 makes the refusal actionable instead of terminal. When the script
+        # closes its own positions, the operator is one setting away from a bot
+        # that works, and `can_switch` is what lets the panel offer that switch
+        # rather than sending them to find two numbers the strategy was never
+        # going to use. The switch is still theirs to make: flipping it here
+        # would be the platform deciding how somebody's capital is protected.
         gap = await sync_to_async(supervisor.protection_gap)(bot)
         if gap:
-            return JsonResponse({"detail": gap, "code": "unprotected"}, status=409)
+            return JsonResponse(
+                {
+                    "detail": gap,
+                    "code": "unprotected",
+                    "exit_policy": bot.exit_policy,
+                    "can_switch": (
+                        bot.exit_policy == ExitPolicy.PROTECTED
+                        and await sync_to_async(supervisor.can_self_exit)(bot)
+                    ),
+                },
+                status=409,
+            )
 
     try:
         bot = await sync_to_async(lifecycle.transition)(bot, target)

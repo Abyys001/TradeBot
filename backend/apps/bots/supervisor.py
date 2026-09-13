@@ -756,6 +756,33 @@ def _current_equity() -> Decimal | None:
 EXIT_CALLS = ("strategy.close", "strategy.close_all", "strategy.exit")
 
 
+def can_self_exit(bot: Bot, *, program=None) -> bool:
+    """Does this bot's script close its own positions?
+
+    Read off the call sites, and it is the question that turns Q37's refusal
+    into something the operator can act on: a bot refused under ``protected``
+    for having no levels, whose script *does* call ``strategy.close``, is one
+    switch away from working. The panel offers that switch rather than telling
+    somebody to go and find two numbers the strategy was never going to use.
+
+    A webhook bot is trivially true — its exits arrive from outside, and there
+    is no script to find them in.
+    """
+    from apps.pine import ast_nodes as ast
+
+    if bot.is_webhook:
+        return True
+    if program is None:
+        program = _validated(bot).program
+    if program is None:
+        return False
+    return any(
+        ast.dotted_name(node.func) in EXIT_CALLS
+        for node in ast.walk(program)
+        if isinstance(node, ast.Call)
+    )
+
+
 def protection_gap(bot: Bot, *, program=None) -> str:
     """Why this bot could never work, or ``""``. Two questions, one per policy.
 

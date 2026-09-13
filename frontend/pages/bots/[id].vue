@@ -114,9 +114,47 @@ async function load() {
   }
 }
 
+/**
+ * The bot was refused for having nothing to protect an order with, *and* its
+ * script has its own exits — so the fix is one field, offered right here.
+ */
+const canSwitchPolicy = ref(false)
+/** What the operator asked for, so the retry after the switch is the same act. */
+const lastAction = ref<'paper' | 'live' | null>(null)
+
+/**
+ * Switch to strategy-managed exits, then retry the start that was refused.
+ *
+ * The switch is a real edit to the bot, saved through the same endpoint the
+ * settings dialog uses — not a flag on this request. A bot that went live under
+ * a policy the stored row does not reflect is a bot whose trade log would
+ * describe the wrong thing.
+ */
+async function switchToStrategyExits() {
+  const row = bot.value
+  const action = lastAction.value
+  if (!row || !action) return
+  busy.value = true
+  error.value = ''
+  try {
+    const updated = await api.updateBot(row.id, { exit_policy: 'strategy_managed' })
+    bot.value = updated
+    store.upsert(updated)
+    canSwitchPolicy.value = false
+  } catch (e: any) {
+    error.value = errorMessage(e)
+    busy.value = false
+    return
+  }
+  busy.value = false
+  await act(action)
+}
+
 async function act(action: 'paper' | 'live' | 'stop') {
   busy.value = true
   error.value = ''
+  canSwitchPolicy.value = false
+  if (action !== 'stop') lastAction.value = action
   try {
     if (action === 'stop') await store.stop(id.value, t('bots.stoppedByHand'))
     else await store.start(id.value, action)
@@ -127,9 +165,15 @@ async function act(action: 'paper' | 'live' | 'stop') {
       tab.value = 'promotion'
       error.value = t('bots.gateUnmetHere')
     } else if (e?.data?.code === 'unprotected') {
-      // Not a gate row and not waivable — the order itself cannot be sent
-      // without both halves, so the answer is the two fields, not this page.
-      error.value = t('bots.unprotectedHere')
+      // **The server's own words, not a canned string.** It knows which half is
+      // missing and which of Q37's two questions it was asking; this page
+      // knows neither. A hardcoded sentence here is how the panel went on
+      // telling operators to "set SL % and TP %" long after a second, better
+      // answer existed — and never mentioned it.
+      error.value = errorMessage(e)
+      // When the script closes its own positions, the operator is one setting
+      // away from a bot that works. Offer it here, where they hit the wall.
+      canSwitchPolicy.value = Boolean(e.data.can_switch)
     } else {
       error.value = errorMessage(e)
     }
@@ -404,7 +448,20 @@ onMounted(load)
         </div>
       </header>
 
-      <p v-if="error" class="alert px-3 py-2 text-xs leading-relaxed">{{ error }}</p>
+      <div v-if="error" class="alert px-3 py-2 text-xs leading-relaxed">
+        <p>{{ error }}</p>
+        <!-- The way out, where the wall is. Only when the script really does
+             close its own positions — offering it otherwise would swap one
+             refusal for a bot that opens a trade nothing ever closes. -->
+        <button
+          v-if="canSwitchPolicy"
+          class="btn-brand btn-sm mt-2"
+          :disabled="busy"
+          @click="switchToStrategyExits"
+        >
+          {{ t('bots.exitPolicy.switchAndStart') }}
+        </button>
+      </div>
 
       <div
         v-if="bot.state === 'stopped' && run?.stop_reason"

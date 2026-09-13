@@ -37,7 +37,7 @@ signals from outside** (`BUY`/`SELL`/`EXIT_BUY`/`EXIT_SELL` posted to
 **optional security layer**: one On/Off row per control on
 `/settings`, every one off by default, none of them on the order-routing path
 (`docs/security-plan.md`).
-**~2180 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
+**~2190 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
 setup`), **`ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are

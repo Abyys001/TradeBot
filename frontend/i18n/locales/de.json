@@ -1179,8 +1179,6 @@
     "gateBlocks": "Das Freigabe-Gate ist noch nicht erfüllt",
     "gateUnmet": "{name} hat das Freigabe-Gate nicht erfüllt",
     "gateUnmetHere": "Dieser Bot hat das Freigabe-Gate nicht erfüllt. Jede offene Zeile steht unten.",
-    "unprotected": "{name} hat weder Stop-Loss noch Take-Profit, die mit einer Order mitgehen könnten — setze zuerst beide am Bot",
-    "unprotectedHere": "Jede Order dieser Plattform trägt Stop-Loss und Take-Profit, und dieser Bot hat weder einen strategy.exit-Prozentsatz im Skript noch eigene Werte. Setze SL % und TP % am Bot und gehe dann live.",
     "stoppedByHand": "im Panel gestoppt",
     "noAutoResume": "Nichts hier läuft von selbst wieder an. Einen Bot, der sich selbst gestoppt hat, startet ein Mensch, der den Grund gelesen hat.",
     "lastBar": "Letzte Kerze",
@@ -1502,7 +1500,8 @@
     "inputEffect": "Wirkung",
     "exitPolicy": {
       "protectedHint": "Bei jedem Einstieg liegen ein Stop-Loss und ein Take-Profit an der Börse. Beide sind erforderlich, bevor dieser Bot starten kann.",
-      "managedHint": "Das Skript schließt seine Positionen selbst — strategy.close, eine Umkehr, ein selbst berechnetes Ziel. Stop und Ziel sind optional; das Skript braucht aber irgendeinen Ausstieg."
+      "managedHint": "Das Skript schließt seine Positionen selbst — strategy.close, eine Umkehr, ein selbst berechnetes Ziel. Stop und Ziel sind optional; das Skript braucht aber irgendeinen Ausstieg.",
+      "switchAndStart": "Die Strategie ihre Trades selbst schließen lassen und starten"
     }
   },
   "security": {

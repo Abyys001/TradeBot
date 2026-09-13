@@ -1179,8 +1179,6 @@
     "gateBlocks": "La puerta de promoción aún no se cumple",
     "gateUnmet": "{name} no ha cumplido la puerta de promoción",
     "gateUnmetHere": "Este bot no ha cumplido la puerta de promoción. Cada fila pendiente está abajo.",
-    "unprotected": "{name} no tiene stop loss ni take profit que enviar con una orden — configura ambos en el bot primero",
-    "unprotectedHere": "Toda orden que envía esta plataforma lleva stop loss y take profit, y este bot no tiene ni un porcentaje de strategy.exit en el script ni los suyos propios. Configura SL % y TP % en el bot y luego ponlo en vivo.",
     "stoppedByHand": "detenido desde el panel",
     "noAutoResume": "Nada de esto se reanuda solo. Un bot que se detuvo a sí mismo lo reinicia una persona que ha leído por qué.",
     "lastBar": "Última vela",
@@ -1502,7 +1500,8 @@
     "inputEffect": "Efecto",
     "exitPolicy": {
       "protectedHint": "En cada entrada quedan un stop loss y un take profit puestos en el exchange. Ambos son obligatorios antes de que este bot pueda arrancar.",
-      "managedHint": "El script cierra sus propias posiciones: strategy.close, un giro, un objetivo que calcula. El stop y el objetivo son opcionales; el script sí necesita alguna salida."
+      "managedHint": "El script cierra sus propias posiciones: strategy.close, un giro, un objetivo que calcula. El stop y el objetivo son opcionales; el script sí necesita alguna salida.",
+      "switchAndStart": "Dejar que la estrategia cierre sus operaciones y arrancar"
     }
   },
   "security": {
