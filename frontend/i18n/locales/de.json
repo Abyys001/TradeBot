@@ -1494,6 +1494,8 @@
     "chartLoading": "Chart wird gezeichnet…",
     "editBot": "Bot bearbeiten",
     "editLockedRunning": "Stoppe den Bot, um Instrument, Zeitrahmen oder Level zu ändern — sie unter einer laufenden Strategie zu verschieben, ließe deren Zustand einen Markt beschreiben, den sie nicht mehr handelt. Der Name lässt sich jederzeit ändern.",
+    "stopToEdit": "Bot stoppen und diese Felder freigeben",
+    "stoppedToEdit": "im Panel gestoppt, um eine Einstellung zu ändern",
     "editVersionFixed": "Führt {name} v{n} aus. Die Version ist die Identität dieses Bots und ist nicht änderbar — speichere eine neue Version der Strategie und baue daraus einen Bot.",
     "noActionsEvaluated": "Noch nichts geroutet. Bisher {n} Bar(s) ausgewertet — ein Bot, der Bars gesehen und nicht gehandelt hat, arbeitet, er hängt nicht.",
     "editInputs": "Strategie-Eingaben",

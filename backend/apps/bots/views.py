@@ -161,6 +161,18 @@ class BotViewSet(viewsets.ModelViewSet):
     serializer_class = BotSerializer
     permission_classes = [IsAdminUser]
 
+    def get_serializer_context(self) -> dict:
+        """``protection_gap`` is asked for on one bot, never on the list.
+
+        It costs a full Pine parse of the script — ~60ms for a published
+        strategy — so a list of twenty bots would spend a second answering a
+        question the list has no room to show. The detail page has the room,
+        and is where the one-setting fix is offered.
+        """
+        context = super().get_serializer_context()
+        context["with_protection"] = self.action == "retrieve"
+        return context
+
     def perform_create(self, serializer) -> None:
         serializer.save(created_by=self.request.user.get_username())
 

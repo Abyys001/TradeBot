@@ -222,3 +222,58 @@ def _fake_repair(candles):
         return candles
 
     return repair
+
+
+# --- a close the venue never flags ------------------------------------------
+#
+# Hyperliquid — the pinned market-data venue — marks a candle's end with `T`,
+# the last millisecond it accepts trades, and stops sending frames for that bar
+# *before* `T` passes. So the final frame a bar ever gets is computed
+# `closed=False`. It is flagged only when a frame happens to land after `T`,
+# which is luck: measured live on ZECUSDC 1m, one run saw four complete bars and
+# 118 updates without a single flag, a second saw one flag in five bars. A feed
+# waiting on that flag therefore loses most bars and stalls indefinitely on a
+# quiet pair, which is why every bot run on this platform so far had
+# `bars_evaluated = 0` while looking perfectly healthy.
+
+
+async def test_a_later_bar_arriving_proves_the_one_before_it_finished():
+    """The signal that does arrive, when the flag never does."""
+    f = feed()
+    f.last_bar_time = 900
+    # Updates to the bar that is still forming release nothing.
+    assert await f._rollover(candle(1800), "test") == []
+    assert await f._rollover(candle(1800, "101"), "test") == []
+    # The venue moves on. That is the proof the 1800 bar is finished — and it
+    # is the *last* state seen of it that is delivered, not the first.
+    released = await f._rollover(candle(2700), "test")
+    assert [item.bar.time for item in released] == [1800]
+    assert released[0].bar.close == D("101")
+
+
+async def test_a_rolled_over_bar_waits_out_the_confirmation_lag_rather_than_being_dropped():
+    """Q23 still decides when a finished bar may be *used*."""
+    import time
+
+    f = feed()
+    now = int(time.time())
+    current = now - now % 900
+    f.last_bar_time = current - 1800
+    # The previous bar has only just rolled over, so it is inside
+    # BAR_CONFIRM_LAG_MS and must not be delivered yet.
+    await f._rollover(candle(current - 900), "test")
+    with override_settings(BOT=bot_settings_with(BAR_CONFIRM_LAG_MS=86_400_000)):
+        assert await f._rollover(candle(current), "test") == []
+        assert [row.time for row in f._finished] == [current - 900]
+    # Held, not thrown away: the next update admits it once the lag has passed.
+    released = await f._rollover(candle(current, "101"), "test")
+    assert [item.bar.time for item in released] == [current - 900]
+
+
+async def test_rollover_never_delivers_the_bar_that_is_still_forming():
+    f = feed()
+    f.last_bar_time = 900
+    await f._rollover(candle(1800), "test")
+    await f._rollover(candle(2700), "test")
+    # 2700 is the open bar now. Nothing has proved it finished.
+    assert f.last_bar_time == 1800

@@ -144,6 +144,11 @@ class BotSerializer(serializers.ModelSerializer):
         source="strategy_version.version", read_only=True, default=None
     )
     updated_at = serializers.DateTimeField(read_only=True)
+    # Why this bot would never place an order, and whether one setting fixes it.
+    # Detail reads only — each one costs a full Pine parse — so on a list these
+    # are ``null``, which is "not asked here" rather than "nothing wrong".
+    protection_gap = serializers.SerializerMethodField()
+    can_switch_policy = serializers.SerializerMethodField()
     # Named to match the frontend's `BotSummary.latest_run` — the panel seeds
     # its per-bot run cache from this on every list load, socket pushes aside.
     latest_run = serializers.SerializerMethodField()
@@ -175,8 +180,40 @@ class BotSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "latest_run",
+            "protection_gap",
+            "can_switch_policy",
         )
         read_only_fields = ("state", "dry_run", "created_by", "drills_fired")
+
+    def get_protection_gap(self, obj) -> str | None:
+        """The sentence ``supervisor.protection_gap`` would refuse a start with.
+
+        Read here as well as at the button because the refusal only guards
+        *live*. A paper bot with the gap starts, warms up, evaluates every bar
+        and routes nothing — which in the panel is indistinguishable from a
+        quiet market, and is what "no matter what I enter, nothing changes"
+        looks like from the operator's side.
+        """
+        if not self.context.get("with_protection"):
+            return None
+        from apps.bots import supervisor
+
+        return supervisor.protection_gap(obj)
+
+    def get_can_switch_policy(self, obj) -> bool | None:
+        """Whether the gap above closes by switching to strategy-managed exits.
+
+        Same question ``start_bot`` answers with ``can_switch``, and the same
+        reason: a script that calls ``strategy.close`` is one setting away from
+        working, and telling its operator to go and find two percentages it was
+        never going to use is the wrong instruction.
+        """
+        if not self.context.get("with_protection"):
+            return None
+        from apps.bots import supervisor
+        from apps.trading.protection import ExitPolicy
+
+        return str(obj.exit_policy) == ExitPolicy.PROTECTED and supervisor.can_self_exit(obj)
 
     def get_latest_run(self, obj):
         """The newest run, off the prefetched list.

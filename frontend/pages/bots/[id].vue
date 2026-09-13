@@ -132,11 +132,23 @@ const lastAction = ref<'paper' | 'live' | null>(null)
  */
 async function switchToStrategyExits() {
   const row = bot.value
-  const action = lastAction.value
-  if (!row || !action) return
+  if (!row) return
+  // Where to put it back. What the operator asked for if they asked, otherwise
+  // whatever it was doing when they pressed this — the button exists to leave
+  // the bot running, not to trade a refusal for a stopped bot.
+  const running = row.state === 'paper' || row.state === 'live'
+  const resume = lastAction.value ?? (running ? (row.state as 'paper' | 'live') : null)
   busy.value = true
   error.value = ''
   try {
+    // **The policy is frozen while a bot runs**, and for a real reason: an open
+    // position would be left protected by one rule while the bot plans against
+    // the other. So the switch stops it first rather than handing back the
+    // server's "stop the bot before changing this" and leaving somebody to find
+    // the stop button, come back, and repeat the whole click. That round trip
+    // is what made a bot refused at the Live button unfixable from the banner
+    // offering the fix — the bot was already running in paper.
+    if (running) await store.stop(id.value, t('bots.stoppedToEdit'))
     const updated = await api.updateBot(row.id, { exit_policy: 'strategy_managed' })
     bot.value = updated
     store.upsert(updated)
@@ -144,10 +156,36 @@ async function switchToStrategyExits() {
   } catch (e: any) {
     error.value = errorMessage(e)
     busy.value = false
+    // It may have stopped before the edit failed. Show what is actually true.
+    await load()
     return
   }
   busy.value = false
-  await act(action)
+  if (resume) await act(resume)
+  else await load()
+}
+
+/**
+ * Stop the bot without leaving the settings dialog.
+ *
+ * What a bot trades is frozen while it runs and the fields grey out to say so,
+ * but the operator still has to act on that, and closing the dialog to hunt for
+ * the stop button and coming back is exactly where "I change it and nothing
+ * happens" comes from. `editable` flips on the reload, so the form already open
+ * becomes writable in place — and nothing is re-seeded, so a name typed before
+ * pressing this survives.
+ */
+async function stopToEdit() {
+  busy.value = true
+  error.value = ''
+  try {
+    await store.stop(id.value, t('bots.stoppedToEdit'))
+    await load()
+  } catch (e: any) {
+    error.value = errorMessage(e)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function act(action: 'paper' | 'live' | 'stop') {
@@ -455,6 +493,26 @@ onMounted(load)
              refusal for a bot that opens a trade nothing ever closes. -->
         <button
           v-if="canSwitchPolicy"
+          class="btn-brand btn-sm mt-2"
+          :disabled="busy"
+          @click="switchToStrategyExits"
+        >
+          {{ t('bots.exitPolicy.switchAndStart') }}
+        </button>
+      </div>
+
+      <!-- Why this bot would place no order if it signalled one. Shown standing,
+           not only at the Live button: the server's refusal guards `live` only,
+           so a paper bot with this gap starts, warms up, evaluates every bar and
+           routes nothing — which on this page is indistinguishable from a quiet
+           market, and is what "nothing changes" looks like from the outside. -->
+      <div
+        v-if="bot.protection_gap && !error"
+        class="alert px-3 py-2.5 text-xs leading-relaxed"
+      >
+        <p>{{ bot.protection_gap }}</p>
+        <button
+          v-if="bot.can_switch_policy"
           class="btn-brand btn-sm mt-2"
           :disabled="busy"
           @click="switchToStrategyExits"
@@ -775,9 +833,13 @@ onMounted(load)
             <input v-model="settings.name" class="field" autofocus />
           </label>
 
-          <p v-if="!editable" class="alert px-3 py-2 text-xs leading-relaxed">
-            {{ t('bots.editLockedRunning') }}
-          </p>
+          <div v-if="!editable" class="alert px-3 py-2 text-xs leading-relaxed">
+            <p>{{ t('bots.editLockedRunning') }}</p>
+            <!-- The way out, in the dialog that is refusing. -->
+            <button class="btn-brand btn-sm mt-2" :disabled="busy" @click="stopToEdit">
+              {{ t('bots.stopToEdit') }}
+            </button>
+          </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="block space-y-1.5">

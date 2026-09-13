@@ -1494,6 +1494,8 @@
     "chartLoading": "Grafik çiziliyor…",
     "editBot": "Botu düzenle",
     "editLockedRunning": "Enstrümanı, zaman dilimini veya seviyeleri değiştirmek için botu durdurun — çalışan bir stratejinin altında bunları taşımak, durumunun artık işlem yapmadığı bir piyasayı anlatmasına yol açar. Ad her zaman değiştirilebilir.",
+    "stopToEdit": "Botu durdur ve bu alanların kilidini aç",
+    "stoppedToEdit": "bir ayarı değiştirmek için panelden durduruldu",
     "editVersionFixed": "{name} v{n} çalıştırıyor. Sürüm bu botun kimliğidir ve değiştirilemez — stratejiye yeni bir sürüm kaydedip ondan bir bot kurun.",
     "noActionsEvaluated": "Henüz hiçbir emir gönderilmedi. Şu ana kadar {n} mum değerlendirildi — mumlara bakıp işlem açmayan bir bot çalışıyordur, takılmış değildir.",
     "editInputs": "Strateji girdileri",

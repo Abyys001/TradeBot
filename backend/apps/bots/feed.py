@@ -166,6 +166,12 @@ class BarFeed:
         self.source = ""
         self.gaps = 0
         self.gaps_repaired = 0
+        #: The latest state of the bar still forming, and the bars a later one
+        #: has proved finished but ``BAR_CONFIRM_LAG_MS`` has not yet released.
+        #: See ``_rollover`` for why a stream's own ``closed`` flag is not
+        #: enough on its own.
+        self._forming: Candle | None = None
+        self._finished: list[Candle] = []
 
     # --- history ------------------------------------------------------------
 
@@ -284,6 +290,7 @@ class BarFeed:
                         extra={"category": "BOT"},
                     )
                     self.transport = "poll"
+                    self._forming, self._finished = None, []
                     async for item in self._poll(until_stream_returns=True):
                         yield item
                     self.transport = "stream"
@@ -291,9 +298,13 @@ class BarFeed:
 
                 provider, bar_update = update
                 self.source = provider
-                if not bar_update.closed:
+                if bar_update.closed:
+                    # The venue said so. Nothing left forming behind it.
+                    self._forming = None
+                    for item in await self._accept(bar_update.candle, provider):
+                        yield item
                     continue
-                for item in await self._accept(bar_update.candle, provider):
+                for item in await self._rollover(bar_update.candle, provider):
                     yield item
 
     async def _poll(self, *, until_stream_returns: bool = False) -> AsyncIterator[FeedBar]:
@@ -320,6 +331,42 @@ class BarFeed:
                 return
 
     # --- ordering and gaps --------------------------------------------------
+
+    async def _rollover(self, candle: Candle, provider: str) -> list[FeedBar]:
+        """Bars proved finished by a later one arriving, rather than by a flag.
+
+        **A stream's own ``closed`` flag cannot be the only signal.** Hyperliquid
+        — the pinned market-data venue — marks a candle's end with ``T``, the
+        last millisecond it accepts trades, and simply stops sending frames for
+        that bar once it is done. So the last frame a bar receives almost always
+        arrives with ``now < T`` and is computed ``closed=False``; the flag
+        fires only when one happens to land after ``T``, which is luck.
+        Measured on ZECUSDC 1m: one run saw four complete bars and 118 updates
+        without a single flag, a second saw one flag in five bars. A feed
+        waiting on that flag loses most bars and stalls outright on a quiet
+        pair — which is why every run of this platform's bots so far evaluated
+        zero bars while looking perfectly healthy.
+
+        Rollover is the signal that does arrive. An update for a *later* bar is
+        the venue saying it has moved on, which is proof the earlier one
+        finished, and it is true of every exchange rather than one frame format.
+        Q23 still decides when that bar may be *used*: ``is_confirmed`` gates it
+        exactly as before, so a bar inside ``BAR_CONFIRM_LAG_MS`` is held here
+        and admitted on the next update rather than dropped.
+        """
+        if self._forming is not None and self._forming.time < candle.time:
+            self._finished.append(self._forming)
+        self._forming = candle
+
+        ready = [row for row in self._finished if is_confirmed(row.time, self.interval)]
+        if not ready:
+            return []
+        released = {row.time for row in ready}
+        self._finished = [row for row in self._finished if row.time not in released]
+        out: list[FeedBar] = []
+        for row in sorted(ready, key=lambda item: item.time):
+            out.extend(await self._accept(row, provider))
+        return out
 
     async def _accept(self, candle: Candle, provider: str) -> list[FeedBar]:
         """Admit one bar, repairing anything missing before it.

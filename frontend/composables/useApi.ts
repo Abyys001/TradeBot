@@ -1573,6 +1573,15 @@ export interface BotSummary {
   created_at: string
   updated_at: string
   latest_run: BotRun | null
+  /**
+   * Why this bot would place no order if it signalled one, or `''` when it
+   * would. `null` on a list read: the sentence costs a full parse of the
+   * script, so only the detail read asks for it, and `null` means "not asked
+   * here" rather than "nothing wrong".
+   */
+  protection_gap: string | null
+  /** Whether switching to strategy-managed exits is what closes that gap. */
+  can_switch_policy: boolean | null
 }
 
 /**

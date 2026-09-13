@@ -1494,6 +1494,8 @@
     "chartLoading": "Dibujando el gráfico…",
     "editBot": "Editar bot",
     "editLockedRunning": "Detén el bot para cambiar su instrumento, temporalidad o niveles — moverlos bajo una estrategia en marcha dejaría su estado describiendo un mercado que ya no opera. El nombre puede cambiarse en cualquier momento.",
+    "stopToEdit": "Detener el bot y desbloquear estos campos",
+    "stoppedToEdit": "detenido desde el panel para cambiar un ajuste",
     "editVersionFixed": "Ejecuta {name} v{n}. La versión es la identidad de este bot y no se puede cambiar — guarda una versión nueva de la estrategia y crea un bot a partir de ella.",
     "noActionsEvaluated": "Todavía no se ha enviado nada. {n} vela(s) evaluadas hasta ahora — un bot que ha mirado velas sin operar funciona, no está atascado.",
     "editInputs": "Entradas de la estrategia",

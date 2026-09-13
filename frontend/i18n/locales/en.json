@@ -1494,6 +1494,8 @@
     "chartLoading": "Drawing the chart…",
     "editBot": "Edit bot",
     "editLockedRunning": "Stop the bot to change its instrument, timeframe or levels — moving them under a running strategy would leave its state describing a market it is no longer trading. The name can be changed at any time.",
+    "stopToEdit": "Stop the bot and unlock these fields",
+    "stoppedToEdit": "stopped from the panel to change a setting",
     "editVersionFixed": "Runs {name} v{n}. The version is what this bot is and cannot be changed — save a new version on the strategy and build a bot from it.",
     "noActionsEvaluated": "Nothing routed yet. {n} bar(s) evaluated so far — a bot that has looked at bars without trading is working, not stuck.",
     "editInputs": "Strategy inputs",
