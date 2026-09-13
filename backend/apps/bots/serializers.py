@@ -115,12 +115,34 @@ class StrategyListSerializer(serializers.ModelSerializer):
 
 #: What a bot trades, and so what cannot change while it is paper or live.
 #: ``name`` is deliberately absent: renaming a running bot changes nothing it does.
-RUNNING_FROZEN = ("symbol", "interval", "market", "leverage", "sl_pct", "tp_pct")
+RUNNING_FROZEN = (
+    "symbol",
+    "interval",
+    "market",
+    "leverage",
+    "sl_pct",
+    "tp_pct",
+    # Q37. The policy decides what rests at the exchange, and flipping it under
+    # a running bot would leave the open position protected by one rule while
+    # the bot plans against the other — the safety net taken off a position
+    # that is still open, or a stop appearing on one the strategy was managing.
+    "exit_policy",
+    "safety_net_pct",
+    "signal_source",
+)
 
 
 class BotSerializer(serializers.ModelSerializer):
-    strategy_name = serializers.CharField(source="strategy_version.strategy.name", read_only=True)
-    version = serializers.IntegerField(source="strategy_version.version", read_only=True)
+    # ``default=None`` rather than bare ``read_only``: a webhook bot has no
+    # version (Q37), and without a default DRF raises ``SkipField`` on the
+    # dotted source and drops the key entirely — so the panel would receive a
+    # bot object missing two fields its type says are always there.
+    strategy_name = serializers.CharField(
+        source="strategy_version.strategy.name", read_only=True, default=None
+    )
+    version = serializers.IntegerField(
+        source="strategy_version.version", read_only=True, default=None
+    )
     updated_at = serializers.DateTimeField(read_only=True)
     # Named to match the frontend's `BotSummary.latest_run` — the panel seeds
     # its per-bot run cache from this on every list load, socket pushes aside.
@@ -140,6 +162,9 @@ class BotSerializer(serializers.ModelSerializer):
             "leverage",
             "sl_pct",
             "tp_pct",
+            "exit_policy",
+            "safety_net_pct",
+            "signal_source",
             "input_values",
             "risk_config",
             "property_overrides",
@@ -179,6 +204,14 @@ class BotSerializer(serializers.ModelSerializer):
         if errors:
             raise serializers.ValidationError([row["message"] for row in errors])
         return props.serialise_overrides(clean)
+
+    def validate_exit_policy(self, value):
+        from apps.trading import protection
+
+        try:
+            return protection.parse_policy(value).value
+        except protection.ProtectionInvalid as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def validate_interval(self, value):
         """Only a timeframe the feed can serve — native or folded (``feed_base``).
@@ -235,6 +268,8 @@ class BotSerializer(serializers.ModelSerializer):
                         {field: ["stop the bot before changing this"] for field in moved}
                     )
 
+        self._check_exit_policy(attrs)
+
         if "input_values" not in attrs:
             return attrs
         version = attrs.get("strategy_version") or getattr(self.instance, "strategy_version", None)
@@ -247,6 +282,61 @@ class BotSerializer(serializers.ModelSerializer):
                 {"input_values": [f"{row['name']}: {row['message']}" for row in errors]}
             )
         attrs["input_values"] = clean
+        return attrs
+
+
+    def _check_exit_policy(self, attrs):
+        """Q37's three ways the policy and the fields around it can disagree.
+
+        Object-level because each rule needs the instance as well as the
+        payload — a PATCH that sends only ``exit_policy`` has to be judged
+        against the percentages already on the bot, and one that sends only a
+        safety net against the policy already on it.
+        """
+        from apps.bots.models import SignalSourceKind
+        from apps.trading.protection import ExitPolicy
+
+        def resolved(field):
+            if field in attrs:
+                return attrs[field]
+            return getattr(self.instance, field, None)
+
+        policy = resolved("exit_policy") or ExitPolicy.PROTECTED
+        managed = str(policy) == ExitPolicy.STRATEGY_MANAGED
+
+        if not managed and resolved("safety_net_pct") is not None:
+            raise serializers.ValidationError(
+                {
+                    "safety_net_pct": [
+                        "a safety net only applies when the strategy decides the exit "
+                        "— under a fixed stop loss the stop is already resting at the "
+                        "venue, and a second one would be the one that fires"
+                    ]
+                }
+            )
+
+        net = resolved("safety_net_pct")
+        stop = resolved("sl_pct")
+        if managed and net is not None and stop is not None and net <= stop:
+            raise serializers.ValidationError(
+                {
+                    "safety_net_pct": [
+                        "the safety net must sit further out than the stop loss — it is "
+                        "the disaster stop for when this platform is not running"
+                    ]
+                }
+            )
+
+        source = resolved("signal_source") or SignalSourceKind.PINE
+        if str(source) == SignalSourceKind.PINE and resolved("strategy_version") is None:
+            raise serializers.ValidationError(
+                {
+                    "strategy_version": [
+                        "a Pine bot must pin a strategy version — that version is what "
+                        "makes its behaviour reproducible"
+                    ]
+                }
+            )
         return attrs
 
 

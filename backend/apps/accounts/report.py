@@ -85,6 +85,11 @@ def _leg_row(leg: TradeLeg) -> dict[str, Any]:
         "sl_pct": _str(trade.sl_pct),
         "tp_pct": _str(trade.tp_pct),
         "sltp_basis": trade.sltp_basis,
+        # Q37: blank percentages mean two different things now — "nobody filled
+        # this in" under `protected`, and "the strategy said when" under
+        # `strategy_managed`. The per-account page shows every leg it was given,
+        # so it has to be able to tell the reader which.
+        "exit_policy": trade.exit_policy,
         "trade_status": trade.status,
         "fanout_ms": trade.fanout_ms,
         "ok": leg.ok,

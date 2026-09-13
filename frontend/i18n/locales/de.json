@@ -50,7 +50,8 @@
     "change": "Ändern",
     "saving": "Wird gespeichert…",
     "apply": "Übernehmen",
-    "refresh": "Aktualisieren"
+    "refresh": "Aktualisieren",
+    "copy": "Kopieren"
   },
   "theme": {
     "toLight": "Zu hell wechseln",
@@ -171,7 +172,21 @@
     "tpPrice": "Zielpreis",
     "amendsLive": "Ein Trade ist offen: Eine Änderung von Stop oder Ziel hier geht sofort an alle Konten.",
     "stopLoss": "Stop-Loss",
-    "takeProfit": "Take-Profit"
+    "takeProfit": "Take-Profit",
+    "exitPolicy": {
+      "label": "Wie dieser Trade endet",
+      "protected": "Stop / Ziel",
+      "managed": "Strategie entscheidet",
+      "protectedHint": "Ein Stop-Loss und ein Take-Profit liegen an der Börse. Beide sind erforderlich.",
+      "managedHint": "Die Strategie schließt diese Position, wenn ihre eigene Logik es sagt — bei welchem Ergebnis auch immer. Stop und Ziel sind optional und werden weiterhin gesendet, wenn du sie setzt."
+    },
+    "safetyNet": {
+      "label": "Sicherheitsnetz %",
+      "placeholder": "Optional",
+      "hint": "Ein Notfall-Stop, weit genug entfernt, dass die Strategie immer zuerst aussteigt. Er liegt an der Börse, damit die Position auch dann endet, wenn diese Plattform nicht läuft.",
+      "beyondLiquidation": "Ein so weites Netz liegt bei diesem Hebel hinter der Liquidation und könnte nie auslösen. Nutze weniger als {pct}% oder senke den Hebel."
+    },
+    "unprotected": "Für diesen Trade liegt nichts an der Börse. Nur die Strategie schließt ihn — läuft diese Plattform nicht mehr, bleibt die Position offen."
   },
   "position": {
     "entry": "Einstieg",
@@ -1484,7 +1499,11 @@
     "editVersionFixed": "Führt {name} v{n} aus. Die Version ist die Identität dieses Bots und ist nicht änderbar — speichere eine neue Version der Strategie und baue daraus einen Bot.",
     "noActionsEvaluated": "Noch nichts geroutet. Bisher {n} Bar(s) ausgewertet — ein Bot, der Bars gesehen und nicht gehandelt hat, arbeitet, er hängt nicht.",
     "editInputs": "Strategie-Eingaben",
-    "inputEffect": "Wirkung"
+    "inputEffect": "Wirkung",
+    "exitPolicy": {
+      "protectedHint": "Bei jedem Einstieg liegen ein Stop-Loss und ein Take-Profit an der Börse. Beide sind erforderlich, bevor dieser Bot starten kann.",
+      "managedHint": "Das Skript schließt seine Positionen selbst — strategy.close, eine Umkehr, ein selbst berechnetes Ziel. Stop und Ziel sind optional; das Skript braucht aber irgendeinen Ausstieg."
+    }
   },
   "security": {
     "title": "Sicherheit",
@@ -1679,5 +1698,34 @@
     },
     "commandsHint": "Aus dem verknüpften Chat: /status /positions /balance /bots /help",
     "updated": "Zuletzt geändert von {user}, {when}"
+  },
+  "signals": {
+    "title": "Externe Signalquellen",
+    "hint": "Strategien außerhalb dieser Plattform, die Positionen öffnen und schließen dürfen — jede an genau einen Bot gebunden.",
+    "status": {
+      "active": "{n} aktiv",
+      "none": "Keine aktiv"
+    },
+    "boundTo": "Sendet an „{bot}“ · {symbol}",
+    "signed": "Signiert · {fp}",
+    "unsigned": "Unsigniert",
+    "unsignedWarning": "Diese Quelle ist aktiv und unsigniert — die URL oben ist damit das Einzige zwischen jedem, der sie je gesehen hat, und den Positionen dieses Bots. Ein Live-Bot verlangt eine Signatur.",
+    "lastAccepted": "Letztes Signal {when}",
+    "lastSeen": "Zuletzt kontaktiert {when}",
+    "neverUsed": "Nie benutzt",
+    "rotate": "Neues Secret",
+    "add": "Quelle hinzufügen",
+    "noWebhookBots": "Noch nimmt kein Bot externe Signale an. Stelle zuerst die Signalquelle eines Bots auf „Webhook“ — dem Bot gehören Paar, Hebel und Größe, und eine Quelle wählt nichts davon.",
+    "empty": "Keine externe Strategie erreicht diese Plattform.",
+    "form": {
+      "name": "Name",
+      "bot": "Bot",
+      "pickBot": "Bot wählen"
+    },
+    "secret": {
+      "title": "Kopiere dieses Secret jetzt",
+      "help": "Es wird einmal gezeigt und nie wieder. Dein Sender signiert damit jede Anfrage. Geht es verloren, erzeuge ein neues — die URL bleibt gleich.",
+      "saved": "Gespeichert"
+    }
   }
 }

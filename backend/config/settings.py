@@ -46,6 +46,9 @@ INSTALLED_APPS = [
     # itself imports no Django; see apps/pine/__init__.py.
     "apps.pine",
     "apps.bots",
+    # Q37: inbound strategy signals. One unauthenticated endpoint, and every
+    # control that normally comes from the session carried inside the request.
+    "apps.signals",
     # Telegram notifications (Q36). Reads the log table and writes only its own
     # row; nothing on the routing path imports it.
     "apps.telegram",

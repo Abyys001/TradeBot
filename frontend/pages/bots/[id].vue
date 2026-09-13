@@ -175,6 +175,8 @@ const settings = reactive({
   leverage: 1,
   sl_pct: '',
   tp_pct: '',
+  exit_policy: 'protected' as ExitPolicy,
+  safety_net_pct: '',
 })
 
 const editable = computed(() => bot.value?.state === 'draft' || bot.value?.state === 'stopped')
@@ -189,6 +191,8 @@ function openSettings() {
   settings.leverage = row.leverage
   settings.sl_pct = row.sl_pct ?? ''
   settings.tp_pct = row.tp_pct ?? ''
+  settings.exit_policy = row.exit_policy ?? 'protected'
+  settings.safety_net_pct = row.safety_net_pct ?? ''
   editing.value = true
 }
 
@@ -211,6 +215,14 @@ async function saveSettings() {
         leverage: settings.leverage,
         sl_pct: settings.sl_pct === '' ? null : settings.sl_pct,
         tp_pct: settings.tp_pct === '' ? null : settings.tp_pct,
+        exit_policy: settings.exit_policy,
+        // Cleared rather than left set when the policy cannot use it: the
+        // server drops it anyway, and a net stored under a fixed stop reads on
+        // this page as protection that exists.
+        safety_net_pct:
+          settings.exit_policy === 'strategy_managed' && settings.safety_net_pct !== ''
+            ? settings.safety_net_pct
+            : null,
       })
     }
     const updated = await api.updateBot(row.id, body)
@@ -739,6 +751,20 @@ onMounted(load)
                 :disabled="!editable"
               />
             </label>
+            <label class="col-span-2 block space-y-1.5">
+              <span class="label">{{ t('ticket.exitPolicy.label') }}</span>
+              <select v-model="settings.exit_policy" class="field" :disabled="!editable">
+                <option value="protected">{{ t('ticket.exitPolicy.protected') }}</option>
+                <option value="strategy_managed">{{ t('ticket.exitPolicy.managed') }}</option>
+              </select>
+              <p class="text-tick text-ink-faint leading-relaxed">
+                {{
+                  settings.exit_policy === 'strategy_managed'
+                    ? t('bots.exitPolicy.managedHint')
+                    : t('bots.exitPolicy.protectedHint')
+                }}
+              </p>
+            </label>
             <label class="block space-y-1.5">
               <span class="label">{{ t('ticket.stopLoss') }} %</span>
               <input
@@ -762,6 +788,24 @@ onMounted(load)
                 placeholder="—"
                 :disabled="!editable"
               />
+            </label>
+            <label
+              v-if="settings.exit_policy === 'strategy_managed'"
+              class="col-span-2 block space-y-1.5"
+            >
+              <span class="label">{{ t('ticket.safetyNet.label') }}</span>
+              <input
+                v-model="settings.safety_net_pct"
+                type="number"
+                step="0.01"
+                min="0"
+                class="field num"
+                :placeholder="t('ticket.safetyNet.placeholder')"
+                :disabled="!editable"
+              />
+              <p class="text-tick text-ink-faint leading-relaxed">
+                {{ t('ticket.safetyNet.hint') }}
+              </p>
             </label>
           </div>
 

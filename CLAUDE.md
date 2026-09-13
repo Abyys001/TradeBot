@@ -26,10 +26,18 @@ stops at the backtest),
 backtest, supervisor and panel (`docs/bots.md`), gated
 per account by two independent switches (`manual_trading_enabled`,
 `bot_trading_enabled` — `docs/bots.md` §7) and restricted to **one running bot
-at a time** — and an **optional security layer**: one On/Off row per control on
+at a time**, with **how a trade ends as a policy rather than a constant** (Q37:
+`protected` is spec §3's required stop-and-target and stays the default;
+`strategy_managed` makes them optional and treats the strategy's own exit — a
+`strategy.close`, a reversal, a level it computed — as the instruction that
+closes the position at any PnL, with an optional `safety_net_pct` resting at
+the venue for when this platform is not running), and **bots that take their
+signals from outside** (`BUY`/`SELL`/`EXIT_BUY`/`EXIT_SELL` posted to
+`apps/signals/`, joined to the *same* order path a Pine bar takes) — and an
+**optional security layer**: one On/Off row per control on
 `/settings`, every one off by default, none of them on the order-routing path
 (`docs/security-plan.md`).
-**~2090 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
+**~2180 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
 setup`), **`ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
@@ -181,6 +189,8 @@ reference/                           read-only vendored docs & SDKs — never im
 | `apps/pine/` | **The Pine Script v5/v6 engine.** Lexer, parser, the Q24 subset as data, validator, incremental `ta.*`, `objects.py` (the value model for user-defined types and enums), `properties.py` (TradingView's Properties tab as data — resolved platform → script → panel, and naming every setting the backtest honours that live will not), `symbol.py` (the instrument and interval, fed in rather than looked up), `explain.py` (what a strategy computes and what makes it trade, read off its own AST and sliced back out of the operator's source by span — a paraphrase would be a second opinion), and a bar-at-a-time runtime that emits a `StrategyIntent`. That intent carries no size and one *share*: `position_fraction`, what a `strategy.close(id, qty_percent =)` scale-out left running (Q33) — a proportion of a position the platform already sized, which is the same kind of thing as `sl_pct` and not a quantity. Imports **stdlib only** — no `django.*`, no `apps.*` — which is what makes it the *same object* in a backtest and in the live loop. Checked against `reference/pinescriptv6/`, pinned by `tests/test_pine_purity.py`. |
 | `apps/bots/` | **A bot is a signal source, not a second execution path.** `translate.py` turns an intent into the `route_*` calls that already exist and nothing below it is forked; `backtest.py` replays; `riskgate.py` is Q25's seven auto-stops; `supervisor.py` is one asyncio task per bot in the ASGI process, started in **a context of its own** — a task that inherits the request's dies with it, and a bot whose task died sits in the panel reading `live` while evaluating nothing (`tests/test_bot_supervisor_context.py`); `gate.py` is the measured `paper → live` gate, with two operator switches on top of it — `Bot.gate_enforced` turns it off entirely and `Bot.gate_waived` does the same per row, both recorded on the bot and neither stopping the rows being measured; `drills.py` is now only the adapters acknowledgement, the two drill rows and the drills that fired them having been removed at the admin's instruction (they sent real close orders through a live book to clear a checkbox — the §7 halt in the top bar is still one press away, and `riskgate.py` still fires all seven auto-stops for real); `jobs.py` runs a backtest on a thread behind a progress bar, because a first run on an unseen pair is mostly downloading; `narrate.py` projects the stored bars and actions into journal events as **codes and params, never sentences**, which is the only way narration exists in six locales. **Both drivers tell the runtime what is held before the bar, never after** (`sync_position`): an intent is "what should be true *after* this bar", so it starts from the position the exchange says is open — a runtime that is never told starts every bar flat, and the first quiet bar after an entry becomes an instruction to close it. A **scale-out** (Q33) is the fourth route and the one action that leaves the side alone: `route_reduce` sends a reduce-only market order for the difference, the target is where the position should *end up* so re-planning a bar cannot take a level twice, and an account that cannot express a partial exit keeps the whole position rather than being flattened. |
 | `apps/pine/inputs.py` | **The settings panel a script declares.** `properties.py` is the broker's half of TradingView's dialog; this is the author's. The validator transcribes every `input.*` call site; this derives the three things the call site does not say — a **widget**, a **category** (risk / execution / backtest / logic / visual, read off the *sinks the value reaches*, never off its name, because the next uploaded strategy will not use this one's vocabulary), and a **dependency**, the condition every non-visual use sits under, intersected so one use outside the guard drops it. That last one is **advisory**: a gated row is dimmed and still editable, because an input wrongly greyed out is a setting the operator cannot reach on a live book. Also `validate_values` — the one door a submitted value comes through, keeping only what differs from the script's own default. `docs/strategy-settings.md`. |
+| `apps/trading/protection.py` | **What bounds a trade's loss, and which of the two ways (Q37).** `protected` is spec §3 unchanged — both percentages required, refused before any account is touched, and the default everywhere. `strategy_managed` makes them optional and lets the strategy's own exit signal be the instruction that closes the position, at any PnL. The single door every caller comes through, so "what counts as a routable order" is one function rather than four agreeing conventions. `resting_sl` is where the safety net's precedence over a blank stop lives — the net is a *fallback*, never a second stop (Q5d), and one past liquidation is refused as decoration rather than stored. |
+| `apps/signals/` | **The second signal source, and deliberately not a second order path.** `BUY`/`SELL`/`EXIT_BUY`/`EXIT_SELL` arrive at the one unauthenticated write endpoint on the platform, are parsed into the *same* `StrategyIntent` a Pine bar produces, and go through the same `translate.plan` → `RiskGate` → `route_*`. A source is bound to one bot, which owns the pair, the leverage, the size and the stop button; a payload naming `qty`, `leverage`, `price` or an account is refused **by name**. Everything the session normally provides is carried in the request instead: token in the path, HMAC over the raw body, a signed timestamp, and `UNIQUE (source, signal_id)` for the retries every alert system makes. Every delivery is recorded, the refused ones included — an endpoint that logs only what it accepted cannot tell you somebody has been posting to it for a week. |
 | `apps/core/crypto.py` | Fernet encryption + rotation for credentials. |
 | `apps/telegram/` | **Telegram notifications (Q36): the log table is the outbox.** The `run_telegram` service tails `LogEntry` from a stored cursor (settled rows only — ids commit out of order across processes) and sends what `events.py` names, rendered in English or Persian by `messages.py`. An event is a plain `system_log(..., error_code=CODE, context={...})` at the place it happens — nothing that emits imports this app. Accounts travel as `account_id` or `context["legs"][].account_id`, because that is the only place `sink.py` looks when it drops hidden accounts (Telegram reads as a non-`_svc` reader). `commands.py` is read-only by decision and answers only the linked chat, which is linked by a one-time deep link *and* a username match. The bot token is a credential: Fernet at rest, and `_redact` strips it from both log handlers, since httpx logs every URL and this one carries the token in its path. |
 
@@ -331,6 +341,19 @@ leverage) are declared per adapter and handled behind the interface — never wi
   clients, per-account rate limiters, per-task timeouts.
 - Identical **leverage and SL/TP percentages** across all accounts; only dollar
   size differs (spec §5).
+- **How a trade may end is a policy, not a constant (Q37).** `protected` is the
+  old rule — both percentages required, refused before any account is touched —
+  and is the default for every bot, every order, and every row written before
+  it. `strategy_managed` makes them optional and treats the strategy's own exit
+  as a first-class instruction: `desired_side=None` becomes a `CLOSE` against
+  whatever the exchange says is held, **at any PnL, with no threshold read
+  anywhere on that path**. Both branches go through `protection.resolve` and
+  then through the one order path; a second one would be a second set of rules
+  about partner capital. What `strategy_managed` gives up is that its
+  protection is a *running process* — `safety_net_pct` rests a disaster stop at
+  the venue for when this platform is not there, and the panel says plainly
+  when nothing rests at all. New way to end a trade → a branch in
+  `protection.py` and a case in `tests/test_exit_policy.py`.
 - **Sizing:** margin = 99% of that account's available **USDT** balance, with
   leverage multiplying on top (not 99% as notional). Spot uses the same 99% with
   no multiplier. An account not denominated in USDT is **reported on the

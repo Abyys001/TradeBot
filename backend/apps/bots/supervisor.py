@@ -73,7 +73,22 @@ async def _broadcast(event: str, payload: dict) -> None:
 
 
 def running_ids() -> set[int]:
+    """Bots with a live evaluation task. **Not** the set of bots that can trade.
+
+    A webhook bot (Q37) is absent from here by design — it has no bar loop —
+    so anything asking "may this bot still act?" reads ``Bot.state`` instead.
+    ``stop_all`` unions the two.
+    """
     return {bot_id for bot_id, task in _TASKS.items() if not task.done()}
+
+
+def _running_bot_ids() -> list[int]:
+    """Every bot the database says is running, task or no task."""
+    return list(
+        Bot.objects.filter(state__in=[BotState.PAPER, BotState.LIVE]).values_list(
+            "id", flat=True
+        )
+    )
 
 
 async def start(bot: Bot, *, actor: str = "") -> BotRun:
@@ -83,6 +98,16 @@ async def start(bot: Bot, *, actor: str = "") -> BotRun:
         if existing is not None and not existing.done():
             return await _open_run(bot, actor=actor)
         run = await _open_run(bot, actor=actor)
+        if bot.is_webhook:
+            # Q37: a webhook bot has no bars to evaluate and no script to
+            # evaluate them with. Its run is the thing that matters — that is
+            # what ``signals.service`` dispatches against, what the risk gate
+            # measures, and what the stop button closes — so the run opens and
+            # no task is created. Deliberately not a task that sleeps: an idle
+            # task would have to be kept alive across restarts to prove
+            # nothing, and "the loop is running" would stop meaning anything
+            # for the bots where it does.
+            return run
         task = asyncio.create_task(
             _supervise(bot.id, run.id),
             name=f"bot-{bot.id}",
@@ -155,8 +180,16 @@ async def stop_all(*, reason: str = StopReason.HALT, detail: str = "") -> list[i
     A halt that flattens positions while a bot is still evaluating is a halt that
     re-enters ninety seconds later, which is not a halt. Called from
     ``killswitch.set_stop_all(True)`` and from the panel's flatten path.
+
+    **Database-first, like ``stop_all_sync``, and for a sharper reason since
+    Q37.** The authority on whether a bot may trade is ``Bot.state``, never a
+    live task — and a webhook bot has no task at all: its signals arrive from
+    outside, so there is nothing in ``_TASKS`` to find. Reading the task map
+    here would have let the §7 halt sail straight past the one kind of bot that
+    can still be told to open a position by something this process does not
+    control, which is the exact failure Q22 puts at the top of its list.
     """
-    ids = list(running_ids())
+    ids = sorted(set(await sync_to_async(_running_bot_ids)()) | running_ids())
     for bot_id in ids:
         await stop(bot_id, reason=reason, detail=detail)
     if ids:
@@ -300,6 +333,11 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
     bot = await sync_to_async(_load_bot)(bot_id)
     run = await sync_to_async(_load_run)(run_id)
     if bot is None or run is None:
+        return
+    if bot.is_webhook:
+        # Belt and braces: ``start`` never creates a task for one of these, and
+        # if some future path does, it must not try to validate a script that
+        # does not exist and stop the bot for a SCRIPT_ERROR it cannot have.
         return
 
     result = await sync_to_async(_validated)(bot)
@@ -472,7 +510,12 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             continue
 
         actions = translate.plan(
-            intent=intent, held=held, default_sl=bot.sl_pct, default_tp=bot.tp_pct
+            intent=intent,
+            held=held,
+            default_sl=bot.sl_pct,
+            default_tp=bot.tp_pct,
+            policy=bot.exit_policy,
+            safety_net=bot.safety_net_pct,
         )
         if not actions:
             continue
@@ -633,15 +676,21 @@ def _persist_bar(run: BotRun, feed_bar, outcome, previous: dict | None) -> dict:
     return {"intent": intent, "plots": plots}
 
 
-def _record_shadow(run: BotRun, bar_time: int, actions, intent) -> None:
+def _record_shadow(run: BotRun, bar_time: int, actions, intent, scope: str = "") -> None:
     """A dry-run bot's would-have-been, written down like any other action.
 
     Recorded rather than only logged because Phase 7's divergence check compares
     these against a backtest over the same bars, and a comparison needs rows.
+
+    ``scope`` is the webhook's (Q37): a signal-driven shadow is keyed on the
+    delivery rather than on a bar, and the two numbering schemes must not be
+    able to land on the same key.
     """
     for ordinal, action in enumerate(actions):
         BotAction.objects.get_or_create(
-            idempotency_key=translate.idempotency_key(run.id, bar_time, "shadow", ordinal),
+            idempotency_key=translate.idempotency_key(
+                run.id, bar_time, "shadow", ordinal, scope
+            ),
             defaults={
                 "run": run,
                 "bar_time": bar_time,
@@ -701,11 +750,18 @@ def _current_equity() -> Decimal | None:
     return sum(values, Decimal("0")) if values else None
 
 
-def protection_gap(bot: Bot, *, program=None) -> str:
-    """Why an entry from this bot could never be routed, or ``""``.
+#: The calls that can end a position from inside a script. A strategy-managed
+#: bot needs at least one of them, which is the whole of what "the strategy
+#: decides the exit" means when written down.
+EXIT_CALLS = ("strategy.close", "strategy.close_all", "strategy.exit")
 
-    Every order this platform sends carries both a stop loss and a take profit
-    — ``executor._require_protection``, spec §4/§5 — and there are exactly two
+
+def protection_gap(bot: Bot, *, program=None) -> str:
+    """Why this bot could never work, or ``""``. Two questions, one per policy.
+
+    Under ``protected`` — the default, and the only behaviour before Q37 —
+    every order this platform sends carries both a stop loss and a take profit
+    (``executor._require_protection``, spec §4/§5), and there are exactly two
     places the pair can come from: a percent ``strategy.exit`` in the script,
     or the bot's own ``sl_pct``/``tp_pct`` (Q21, in that order of precedence).
     A script that manages its stops with ``strategy.close`` on later bars
@@ -713,14 +769,26 @@ def protection_gap(bot: Bot, *, program=None) -> str:
     *every* entry it ever signals, one at a time, deep inside a fan-out that
     never starts.
 
-    Checked once at start-up instead, for the reason the clock and the warm-up
-    are: a bot that cannot trade should say so to the person pressing the
-    button, not at three in the morning to nobody. The condition is read off
-    the script's own call sites — ``strategy.exit`` is the only call that can
-    carry ``loss_pct``/``profit_pct``, and the validator has already refused
-    one that carries neither.
+    Under ``strategy_managed`` that question is answered by the policy itself,
+    and a different one takes its place: **can this script ever close a
+    position?** A protected bot with no exit logic is merely inefficient — its
+    stop or its target eventually ends the trade. A strategy-managed one with
+    no exit logic enters a position that nothing will ever close, which is the
+    one failure this policy can introduce that the old rule could not. So it is
+    refused in the same place and for the same reason: at the button, to
+    somebody who can fix it, rather than at three in the morning to nobody.
+
+    A webhook bot is exempt from both. Its exits arrive from outside and no
+    amount of reading a script it does not have would find them.
+
+    The condition is read off the script's own call sites — ``strategy.exit``
+    is the only call that can carry ``loss_pct``/``profit_pct``, and the
+    validator has already refused one that carries neither.
     """
     from apps.pine import ast_nodes as ast
+
+    if bot.is_webhook:
+        return ""
 
     if program is None:
         program = _validated(bot).program
@@ -729,10 +797,21 @@ def protection_gap(bot: Bot, *, program=None) -> str:
         # with its own line numbers, not this one's.
         return ""
 
+    calls = [node for node in ast.walk(program) if isinstance(node, ast.Call)]
+
+    if bot.strategy_managed:
+        can_exit = any(ast.dotted_name(node.func) in EXIT_CALLS for node in calls)
+        if can_exit:
+            return ""
+        return (
+            "this bot's exit policy says the strategy decides when to close, and the "
+            "script never calls strategy.close, strategy.close_all or strategy.exit "
+            "— every position it opened would stay open. Give the script an exit, or "
+            "switch the bot back to a fixed stop loss and take profit"
+        )
+
     exits = [
-        node
-        for node in ast.walk(program)
-        if isinstance(node, ast.Call) and ast.dotted_name(node.func) == "strategy.exit"
+        node for node in calls if ast.dotted_name(node.func) == "strategy.exit"
     ]
     named = {arg.name for node in exits for arg in node.args}
     missing = [
@@ -748,7 +827,8 @@ def protection_gap(bot: Bot, *, program=None) -> str:
     return (
         f"this bot has no {' and no '.join(missing)}: the script never sets one and the "
         f"bot's own percentages are blank, so every entry it signals would be refused "
-        f"— set them on the bot before starting it"
+        f"— set them on the bot before starting it, or switch its exit policy to "
+        f"“strategy decides” if the script closes its own positions"
     )
 
 

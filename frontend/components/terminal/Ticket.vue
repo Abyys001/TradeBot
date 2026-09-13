@@ -40,6 +40,19 @@ const basisOptions = computed(() => [
   { value: 'margin', label: t('risk.basis.margin') },
 ])
 
+/**
+ * Q37. Which of the two ways this trade is allowed to end.
+ *
+ * `protected` is first and is the default — nothing about an order the admin
+ * types changes unless they deliberately move this. `strategy_managed` makes
+ * the two boxes below optional, for a position something else is going to
+ * close: a bot's script, or an external strategy posting an exit signal.
+ */
+const exitPolicyOptions = computed(() => [
+  { value: 'protected', label: t('ticket.exitPolicy.protected') },
+  { value: 'strategy_managed', label: t('ticket.exitPolicy.managed') },
+])
+
 const marketOptions = computed(() => [
   { value: 'futures', label: t('market.futures') },
   { value: 'spot', label: t('market.spot') },
@@ -73,6 +86,10 @@ const canSubmit = computed(
     !trading.submitting &&
     order.hasProtection &&
     !order.slBeyondLiquidation &&
+    // A net that can never fire is protection that is not there, and the
+    // server refuses it — better a disabled button next to the number than a
+    // 400 the moment the admin commits.
+    !order.safetyNetBeyondLiquidation &&
     !noAccounts.value &&
     !halted.value &&
     !alreadyInTrade.value,
@@ -105,6 +122,8 @@ async function submit() {
       leverage: order.leverage,
       sl_pct: order.slPct,
       tp_pct: order.tpPct,
+      exit_policy: order.exitPolicy,
+      safety_net_pct: order.safetyNetPct,
       limit_price: order.limitPrice,
     })
     await positions.load()
@@ -204,6 +223,24 @@ function useMarketPrice() {
     </div>
 
     <div>
+      <span class="label">{{ t('ticket.exitPolicy.label') }}</span>
+      <UiSegmented
+        :model-value="order.exitPolicy"
+        :options="exitPolicyOptions"
+        size="sm"
+        class="mt-1.5"
+        @update:model-value="order.setExitPolicy($event as ExitPolicy)"
+      />
+      <p class="label mt-1 leading-relaxed">
+        {{
+          order.strategyManaged
+            ? t('ticket.exitPolicy.managedHint')
+            : t('ticket.exitPolicy.protectedHint')
+        }}
+      </p>
+    </div>
+
+    <div>
       <span class="label">{{ t('ticket.sltpBasis') }}</span>
       <UiSegmented
         :model-value="order.basis"
@@ -277,6 +314,25 @@ function useMarketPrice() {
       </UiField>
     </div>
 
+    <!-- Q37: the disaster stop. Only under the managed policy, because under
+         the other one a real stop is already resting and a second one would be
+         the one that fires. -->
+    <UiField
+      v-if="order.strategyManaged"
+      v-slot="{ id }"
+      :label="t('ticket.safetyNet.label')"
+    >
+      <input
+        :id="id"
+        :value="order.safetyNetPct"
+        class="field"
+        inputmode="decimal"
+        :placeholder="t('ticket.safetyNet.placeholder')"
+        @input="order.setSafetyNet(Number(($event.target as HTMLInputElement).value) || null)"
+      />
+      <p class="label mt-1 leading-relaxed">{{ t('ticket.safetyNet.hint') }}</p>
+    </UiField>
+
     <!-- The cost of those two numbers, in the units that matter. -->
     <dl
       v-if="order.slAccountLossPct !== null || order.tpAccountGainPct !== null"
@@ -332,6 +388,20 @@ function useMarketPrice() {
 
     <p v-if="order.slBeyondLiquidation" class="alert p-2.5 text-xs leading-relaxed">
       {{ t('ticket.slBeyondLiquidation') }}
+    </p>
+
+    <p v-if="order.safetyNetBeyondLiquidation" class="alert p-2.5 text-xs leading-relaxed">
+      {{ t('ticket.safetyNet.beyondLiquidation', { pct: order.liquidationDistancePct.toFixed(1) }) }}
+    </p>
+
+    <!-- Not a blocker. A deliberate, legal state, and the one fact that has to
+         be in front of the admin before they commit: from here on the position
+         is protected by something that has to keep running, not by the venue. -->
+    <p
+      v-else-if="order.unprotected"
+      class="rounded-lg border border-signal/40 bg-signal/5 p-2.5 text-xs leading-relaxed text-ink-muted"
+    >
+      {{ t('ticket.unprotected') }}
     </p>
 
 

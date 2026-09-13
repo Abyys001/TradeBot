@@ -35,6 +35,7 @@ from apps.core.auth import admin_required
 from apps.core.money import D
 from apps.engine.fanout import StopAllActive
 from apps.exchanges.base import MarketType, OrderType, Side
+from apps.trading import protection
 from apps.trading.models import Trade, TradeStatus
 from apps.trading.services import (
     NoLegsToRoute,
@@ -108,17 +109,26 @@ def _symbol(data: dict) -> str:
     return value
 
 
-def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal:
-    """An SL/TP percentage, mandatory and bounded.
+def _percent(
+    data: dict, key: str, *, ceiling: Decimal | None, required: bool = True
+) -> Decimal | None:
+    """An SL/TP percentage, bounded — and mandatory unless the policy says not.
 
-    Mandatory because protection is part of the order, not an option on top of
-    it: spec §4 fans an entry at leverage across every partner account, and a
-    leg with no stop is one exchange outage away from an unbounded loss on
-    money that is not the admin's. Both percentages are therefore required
-    here and turned into real trigger prices per account, which the adapter
-    sends *to the exchange* — on the entry order where the venue accepts it,
-    and immediately after the fill where it does not (`executor._protect`).
-    Nothing is kept as an intention inside the platform.
+    Mandatory under the default ``protected`` policy because protection is part
+    of the order, not an option on top of it: spec §4 fans an entry at leverage
+    across every partner account, and a leg with no stop is one exchange outage
+    away from an unbounded loss on money that is not the admin's. Both
+    percentages are turned into real trigger prices per account, which the
+    adapter sends *to the exchange* — on the entry order where the venue
+    accepts it, and immediately after the fill where it does not
+    (`executor._protect`). Nothing is kept as an intention inside the platform.
+
+    Q37 adds the second answer. Under ``strategy_managed`` the exit is a signal
+    rather than a level, and ``required`` goes false: a blank box means "the
+    strategy will say when", and what *is* filled in is still sent to the
+    exchange exactly as before. Nothing else about this function changes,
+    including both bounds — a blank is an instruction, but a typo is still a
+    typo.
 
     Unbounded, these reach `sltp.resolve` and turn into a stop price: a
     negative one puts the stop on the *profit* side of entry, where it fires
@@ -128,8 +138,14 @@ def _percent(data: dict, key: str, *, ceiling: Decimal | None) -> Decimal:
     The take-profit has no ceiling — a 250% target is a real thing to ask for.
     """
     value = _optional_decimal(data, key)
+    if value is None and not required:
+        return None
     if value is None:
-        raise ValueError(f"{key} is required — every order carries a stop loss and a take profit")
+        raise ValueError(
+            f"{key} is required under the protected exit policy — every order carries "
+            f"a stop loss and a take profit. Send exit_policy=\"strategy_managed\" if "
+            f"this position is closed by a strategy signal instead."
+        )
     if value <= 0:
         raise ValueError(f"{key} must be greater than zero")
     if ceiling is not None and value > ceiling:
@@ -199,11 +215,31 @@ async def open_position(request: HttpRequest) -> JsonResponse:
         side = Side(data.get("side", "long"))
         market = MarketType(data.get("market", "futures"))
         order_type = OrderType(data.get("order_type", "market"))
+        # Q37: which of the two ways this order is allowed to end. Absent means
+        # `protected`, so an existing caller — the panel's ticket included —
+        # gets exactly the behaviour it had before this field existed.
+        policy = protection.parse_policy(data.get("exit_policy"))
+        required = policy is protection.ExitPolicy.PROTECTED
         # A stop loss past 100% is a price below zero; a take profit past it is
         # just an ambitious target, so only the stop is capped.
-        sl_pct = _percent(data, "sl_pct", ceiling=Decimal("100"))
-        tp_pct = _percent(data, "tp_pct", ceiling=None)
+        sl_pct = _percent(data, "sl_pct", ceiling=Decimal("100"), required=required)
+        tp_pct = _percent(data, "tp_pct", ceiling=None, required=required)
+        safety_net_pct = _percent(
+            data, "safety_net_pct", ceiling=Decimal("100"), required=False
+        )
         limit_price = _optional_decimal(data, "limit_price")
+        # Resolve here as well as in the engine: the engine's refusal is the
+        # backstop that stops an illegal intent reaching an adapter, but a
+        # caller deserves a 400 naming the field rather than a 500 from inside
+        # a fan-out. Leverage is passed so an unreachable safety net is caught
+        # against *this* order's leverage.
+        protection.resolve(
+            policy=policy,
+            sl_pct=sl_pct,
+            tp_pct=tp_pct,
+            safety_net_pct=safety_net_pct,
+            leverage=leverage,
+        )
     except (ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
 
@@ -242,6 +278,8 @@ async def open_position(request: HttpRequest) -> JsonResponse:
             leverage=leverage,
             sl_pct=sl_pct,
             tp_pct=tp_pct,
+            exit_policy=policy,
+            safety_net_pct=safety_net_pct,
             limit_price=limit_price,
             source="manual",
         )
@@ -277,13 +315,31 @@ async def amend_position(request: HttpRequest, pk: int) -> JsonResponse:
 
     data = _body(request)
     try:
-        sl_pct = _percent(data, "sl_pct", ceiling=Decimal("100"))
-        tp_pct = _percent(data, "tp_pct", ceiling=None)
+        # An amend inherits the trade's own policy unless it names one, so a
+        # "just move my stop" request on a protected trade still has to carry
+        # both sides — `apply_sltp` replaces the resting pair wholesale, and
+        # dropping one silently would take the other side off the exchange.
+        policy = protection.parse_policy(
+            data.get("exit_policy"),
+            default=protection.parse_policy(trade.exit_policy),
+        )
+        required = policy is protection.ExitPolicy.PROTECTED
+        sl_pct = _percent(data, "sl_pct", ceiling=Decimal("100"), required=required)
+        tp_pct = _percent(data, "tp_pct", ceiling=None, required=required)
+        safety_net_pct = _percent(
+            data, "safety_net_pct", ceiling=Decimal("100"), required=False
+        )
     except (ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": str(exc)}, status=400)
 
     try:
-        result = await route_amend(trade=trade, sl_pct=sl_pct, tp_pct=tp_pct)
+        result = await route_amend(
+            trade=trade,
+            sl_pct=sl_pct,
+            tp_pct=tp_pct,
+            exit_policy=policy,
+            safety_net_pct=safety_net_pct,
+        )
     except NoLegsToRoute as exc:
         return JsonResponse({"detail": str(exc), "code": "no_legs"}, status=409)
     hidden = await _filtered(await request.auser())

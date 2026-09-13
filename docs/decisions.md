@@ -1145,3 +1145,125 @@ every sign-in and every account change, so three events were added:
 `signed_in` (every sign-in; a new browser is still `new_device` instead, never
 both), `account_paused`, and `account_changed` (the manual/bot trading
 switches), all in the admin group.
+
+## Q37. A strategy exit is a trading instruction ✅ Exit policy, per bot and per order
+
+**Asked by the admin (2026-09-13).** A strategy decides its own exits — a
+structure break, a trailing rule, a reversal, a target it computes on the bar.
+The platform required every order to carry a fixed stop *and* a fixed take
+profit, so that kind of strategy could not run: it was made to declare levels
+nobody chose, and those levels then fired ahead of the logic that was supposed
+to close the trade. The ask: let the strategy's own exit be a first-class
+instruction, keep percentage protection as an option rather than the only way
+out, and make the API, the webhook payload, the order path, the position
+manager and the bot engine agree about it.
+
+**Most of it already existed, and that is the important half of the answer.**
+`StrategyIntent.desired_side` has always been `long | short | None`.
+`translate.plan()` has always diffed that against what the *exchange* says is
+held and emitted `OPEN` / `CLOSE` / `AMEND` / `REDUCE`. A `strategy.close()` on
+any bar has always produced a close, at whatever the PnL happened to be. No
+line on that path reads a percentage, a target or a threshold. Execution was
+already separate from how exits are decided.
+
+What blocked it was one rule in four places: `executor._require_protection`,
+`order_views._percent`, `supervisor.protection_gap` (which refused to *start* a
+bot whose script managed its own exits and whose percentages were blank), and
+§3 of the spec, which says "both are required".
+
+**The answer is a policy with both branches built, defaulting to the old one.**
+`apps/trading/protection.py` owns it, and it is the single door every caller
+comes through — the ticket, `route_open`, the bot translator and the webhook.
+
+| | `protected` (default) | `strategy_managed` |
+|---|---|---|
+| SL and TP | both required, refused before any account is touched | both optional |
+| What rests at the venue | the stop and the target | whatever was supplied, or the safety net, or nothing |
+| What closes the trade | the resting orders, or a close | the strategy's exit signal, at any PnL |
+| Start-up check asks | "can this bot supply both?" | "can this script ever close a position?" |
+
+Every bot and every trade written before Q37 is `protected`, the manual ticket
+defaults to it, and an order body with no `exit_policy` behaves exactly as it
+did. **Nothing changed for anyone who did not ask for it** — that is what the
+regression half of `tests/test_exit_policy*.py` is for.
+
+- **The exit was never the hard part; the refusal was.** Below `plan()`
+  everything was already policy-neutral — `sltp.resolve` returns `None` prices
+  for a `None` percentage and `open_trade` already had an `else` branch for a
+  leg with no protection. The change is mostly the removal of one guard, made
+  conditional, plus the bookkeeping to say which branch a trade took.
+
+- **A strategy-managed position is protected by a running process, not by the
+  venue.** A crash, a deploy, a severed feed, a lapsed credential — and it is
+  live at leverage with nothing resting anywhere. `safety_net_pct` is the
+  answer and is deliberately **not** a stop loss: it sits far enough out that
+  the strategy's own exit always reaches the position first, and it exists so
+  that *something* ends the trade when this platform is not there to. It
+  engages only where no real stop was given (`Protection.resting_sl`), because
+  two stops on one position is the state Q5d exists to prevent.
+
+- **A net past liquidation is decoration.** At 10x liquidation sits 10% away,
+  so a "wide" 20% net can never fire — the position is gone first. That is
+  refused at the form and at the intent, naming the leverage and the ceiling,
+  rather than arriving as `stop sits below liquidation` from inside a fan-out
+  that opened nothing. Under the margin basis the same number is always inside,
+  so the basis is read rather than assumed (`protection.net_reachable`).
+
+- **The policy is recorded per trade, not just per bot.** Same reason
+  `sltp_basis` is: a bot's policy can change tomorrow, and a trade log read
+  against today's setting would call a position unprotected when it was not.
+
+- **The new failure this introduces, and where it is caught.** A protected bot
+  with no exit logic is merely inefficient — its stop or its target ends the
+  trade eventually. A *strategy-managed* bot with no exit logic opens a
+  position that nothing will ever close. `protection_gap` therefore swaps its
+  question with the policy: a strategy-managed script that never calls
+  `strategy.close`, `strategy.close_all` or `strategy.exit` is refused at the
+  start button, to somebody who can fix it.
+
+### The webhook — `BUY` · `SELL` · `EXIT_BUY` · `EXIT_SELL`
+
+`apps/signals/` is the second signal source. **It is not a second order path**,
+and that is its whole design: a delivery is parsed into a `StrategyIntent` —
+the same object a Pine bar produces — and goes through the same
+`translate.plan`, the same `RiskGate`, the same `translate.dispatch`, the same
+`route_*`, the same fan-out, reconciliation and history. Below `plan()` nothing
+can tell the two apart.
+
+- **A source is bound to exactly one bot**, and that binding is what makes an
+  unauthenticated endpoint safe to have at all. The bot owns the pair, the
+  market, the leverage, the exit policy, the risk gate, the journal, the
+  one-open-trade rule and the stop button. A payload that names `qty`,
+  `leverage`, `price` or an account is **refused by name**, not ignored — a
+  silently dropped `qty` is a strategy author who believes sizing is theirs.
+  The worst a leaked secret can do is trade the pair the admin already chose,
+  at the size §5 already fixed.
+- **Four checks replace the session** this endpoint cannot have: the token in
+  the path says who, an HMAC-SHA256 over the raw body says it was really them,
+  a timestamp inside the signed material says it is not a replay, and the
+  `UNIQUE (source, signal_id)` constraint says it is not a duplicate. An alert
+  system that retries gets a `200 duplicate` rather than a 4xx, because a 4xx
+  is what makes it retry the retry.
+- **`EXIT_BUY` while short is a no-op, not a flatten.** The verb names the side
+  it acts on, and a stale duplicate is exactly how that arrives.
+- **A signal is never queued.** A stopped bot refuses it: by the time the bot
+  is restarted, the market the signal described is gone.
+- **The halt stops a webhook bot too** (Q22). It has no evaluation task, so
+  `supervisor.stop_all` was changed to read `Bot.state` rather than the task
+  map — otherwise the §7 halt would have sailed straight past the one kind of
+  bot that can still be told to open a position by something this process does
+  not control. `stop_all_sync` was already database-first for the same reason.
+- **`/api/signals/hooks/` is exempt from the panel allowlist**, for a different
+  reason from `stop-all`'s: the allowlist bounds where the admin's *session*
+  may be used from, and a webhook carries no session — the caller is a host
+  this platform has never seen, which is precisely the address the allowlist
+  refuses. It keeps its own per-source allowlist, plus a signature the panel
+  allowlist cannot offer. It is exempt from the write rate limiter too: one
+  sender posts for every account at once, and a rate-limited exit is a position
+  nobody closed. Volume is bounded where it should be — by Q25's trade-rate
+  auto-stop, which counts trades and stops the bot rather than silently
+  discarding a request.
+- **Every delivery is recorded, the refused ones included.** An endpoint that
+  logs only what it accepted cannot tell the operator that somebody has been
+  posting to it for a week. The caller gets `invalid signature` and a 404 that
+  does not distinguish unknown from disabled; the operator gets the real code.

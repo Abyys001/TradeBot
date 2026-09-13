@@ -53,6 +53,8 @@ class TradeSerializer(serializers.ModelSerializer):
             "sl_pct",
             "tp_pct",
             "sltp_basis",
+            "exit_policy",
+            "safety_net_pct",
             "admin_entry_price",
             "status",
             "opened_at",

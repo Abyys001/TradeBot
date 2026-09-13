@@ -516,6 +516,12 @@ def open_positions(*, sees_hidden: bool) -> dict:
                 "sl_pct": _s(trade.sl_pct),
                 "tp_pct": _s(trade.tp_pct),
                 "sltp_basis": trade.sltp_basis,
+                # Q37: without these the panel re-reads a strategy-managed
+                # position into a ticket still set to `protected`, where two
+                # blank boxes read as an unfinished form and the amend button
+                # refuses a change the server would have accepted.
+                "exit_policy": trade.exit_policy,
+                "safety_net_pct": _s(trade.safety_net_pct),
                 "admin_entry_price": _s(trade.admin_entry_price),
                 "opened_at": trade.opened_at,
             },

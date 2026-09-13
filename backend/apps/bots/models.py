@@ -69,6 +69,26 @@ class ActionType(models.TextChoices):
     SHADOW = "shadow"
 
 
+class ExitPolicy(models.TextChoices):
+    """Q37, as the database spells it. Mirrors ``apps.trading.protection``.
+
+    Redeclared rather than imported for the reason every Django choices enum
+    is: a migration must not depend on a module that may be refactored out from
+    under it. ``tests/test_exit_policy.py`` pins the two spellings together, so
+    a divergence fails loudly rather than storing a policy nothing recognises.
+    """
+
+    PROTECTED = "protected", "Fixed SL/TP"
+    STRATEGY_MANAGED = "strategy_managed", "Strategy decides the exit"
+
+
+class SignalSourceKind(models.TextChoices):
+    """What produces this bot's intents."""
+
+    PINE = "pine", "Pine script"
+    WEBHOOK = "webhook", "External webhook"
+
+
 class Strategy(models.Model):
     """A named script. Its *versions* hold the source; this holds the identity."""
 
@@ -143,8 +163,17 @@ class Bot(models.Model):
     for that trade only.
     """
 
+    #: Null only for a ``webhook`` bot, which has no script to pin: its
+    #: identity is the source posting to it, and the signals arrive already
+    #: decided. A ``pine`` bot always has one, and ``clean()`` enforces both
+    #: halves of that — an unpinned script bot has no behaviour to reproduce,
+    #: which is the whole reason versions are immutable.
     strategy_version = models.ForeignKey(
-        StrategyVersion, on_delete=models.PROTECT, related_name="bots"
+        StrategyVersion,
+        on_delete=models.PROTECT,
+        related_name="bots",
+        null=True,
+        blank=True,
     )
     name = models.CharField(max_length=120)
     symbol = models.CharField(max_length=32)
@@ -154,6 +183,38 @@ class Bot(models.Model):
     leverage = models.PositiveSmallIntegerField(default=1)
     sl_pct = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
     tp_pct = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True)
+
+    #: Q37: what is allowed to end this bot's trades.
+    #:
+    #: ``protected`` is the rule as it was — both percentages above are
+    #: required and rest at the exchange, and a bot that can supply neither is
+    #: refused at the start button rather than one entry at a time inside a
+    #: fan-out. It is the default, and every bot that existed before Q37 is one.
+    #:
+    #: ``strategy_managed`` says the script decides: a ``strategy.close`` on a
+    #: later bar, a reversal, a target it computed — closing at whatever PnL
+    #: happens to be true, which is the case a percentage pair cannot express.
+    #: The percentages stay optional *and* honoured: a bot may set a take
+    #: profit and leave the stop to the strategy.
+    exit_policy = models.CharField(
+        max_length=20, choices=ExitPolicy.choices, default=ExitPolicy.PROTECTED
+    )
+    #: The disaster stop, for ``strategy_managed`` only. Deliberately far out —
+    #: the strategy's own exit should always reach the position first. It exists
+    #: because a strategy-managed position is protected by a *running process*,
+    #: and a crash, a deploy or a severed feed leaves it at leverage with
+    #: nothing resting at the venue. Blank means that exposure was accepted.
+    safety_net_pct = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True
+    )
+    #: Where this bot's signals come from. ``pine`` is a script the supervisor
+    #: evaluates bar by bar. ``webhook`` is an external strategy posting the
+    #: four verbs to ``/api/signals/`` — no bars are evaluated here, and the
+    #: same ``translate.plan`` turns what arrives into the same orders, because
+    #: a second order path would be a second set of rules about partner capital.
+    signal_source = models.CharField(
+        max_length=12, choices=SignalSourceKind.choices, default=SignalSourceKind.PINE
+    )
 
     input_values = models.JSONField(default=dict, blank=True)
     #: Per-bot overrides of the Q25 defaults in ``settings.BOT``. Phase 10
@@ -208,6 +269,40 @@ class Bot(models.Model):
     @property
     def is_running(self) -> bool:
         return self.state in (BotState.PAPER, BotState.LIVE)
+
+    @property
+    def strategy_managed(self) -> bool:
+        """Whether this bot's exits are signals rather than levels (Q37)."""
+        return self.exit_policy == ExitPolicy.STRATEGY_MANAGED
+
+    @property
+    def is_webhook(self) -> bool:
+        return self.signal_source == SignalSourceKind.WEBHOOK
+
+    def clean(self) -> None:
+        """The two ways the three new fields can contradict each other.
+
+        Refused at the model rather than in a serializer because the admin site
+        and a management command reach the same rows, and a bot with no signal
+        source is a bot that sits in the panel reading ``live`` while deciding
+        nothing — the failure Q37's whole point is to avoid confusing with a
+        quiet market.
+        """
+        from django.core.exceptions import ValidationError
+
+        errors = {}
+        if self.signal_source == SignalSourceKind.PINE and self.strategy_version_id is None:
+            errors["strategy_version"] = (
+                "a Pine bot must pin a strategy version — that version is what makes "
+                "its behaviour reproducible"
+            )
+        if self.safety_net_pct is not None and not self.strategy_managed:
+            errors["safety_net_pct"] = (
+                "a safety net only applies under the strategy-managed exit policy; "
+                "under the protected policy the stop loss is already resting at the venue"
+            )
+        if errors:
+            raise ValidationError(errors)
 
 
 class BotRun(models.Model):

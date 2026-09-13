@@ -240,19 +240,34 @@ export const useTradingStore = defineStore('trading', {
       if (id !== null && id !== this.tradeId) this.tradeId = id
     },
 
-    async amend(slPct: number | null, tpPct: number | null) {
+    async amend(
+      slPct: number | null,
+      tpPct: number | null,
+      exitPolicy: ExitPolicy = 'protected',
+      safetyNetPct: number | null = null,
+    ) {
       if (this.tradeId === null) return null
       // An amend replaces the protection resting on the exchange wholesale, so
-      // sending one side alone would take the other side *off* the position.
-      // The server refuses it too; refusing here keeps the half-cleared box
-      // from reading as an exchange failure.
-      if (slPct === null || tpPct === null) {
+      // under the protected policy sending one side alone would take the other
+      // side *off* the position. The server refuses it too; refusing here keeps
+      // the half-cleared box from reading as an exchange failure.
+      //
+      // Under `strategy_managed` (Q37) that same wholesale replacement is the
+      // point — "stop managing this by levels, I will close it myself" is a
+      // real mid-trade request — so both sides may legitimately be blank and
+      // the refusal does not apply.
+      if (exitPolicy === 'protected' && (slPct === null || tpPct === null)) {
         this.error = useNuxtApp().$i18n.t('position.sltpRequired')
         return null
       }
       this.error = ''
       try {
-        const result = await useApi().amendOrder(this.tradeId, { sl_pct: slPct, tp_pct: tpPct })
+        const result = await useApi().amendOrder(this.tradeId, {
+          sl_pct: slPct,
+          tp_pct: tpPct,
+          exit_policy: exitPolicy,
+          safety_net_pct: safetyNetPct,
+        })
         this.lastResult = result
         this.confirm('toast.amended', result)
         return result

@@ -50,7 +50,8 @@
     "change": "Değiştir",
     "saving": "Kaydediliyor…",
     "apply": "Uygula",
-    "refresh": "Yenile"
+    "refresh": "Yenile",
+    "copy": "Kopyala"
   },
   "theme": {
     "toLight": "Aydınlığa geç",
@@ -171,7 +172,21 @@
     "tpPrice": "Hedef fiyat",
     "amendsLive": "Açık bir işlem var: buradan stop veya hedefi değiştirmek, düzeltmeyi aynı anda her hesaba gönderir.",
     "stopLoss": "Zarar durdur",
-    "takeProfit": "Kâr al"
+    "takeProfit": "Kâr al",
+    "exitPolicy": {
+      "label": "Bu işlem nasıl biter",
+      "protected": "Stop / hedef",
+      "managed": "Stratejiye bırak",
+      "protectedHint": "Borsada bir zarar durdur ve bir kâr al emri bekler. İkisi de zorunludur.",
+      "managedHint": "Strateji, kendi mantığı söylediğinde bu pozisyonu kapatır — kâr ya da zarar fark etmez. Stop ve hedef isteğe bağlıdır; girersen yine gönderilir."
+    },
+    "safetyNet": {
+      "label": "Güvenlik ağı %",
+      "placeholder": "İsteğe bağlı",
+      "hint": "Stratejinin her zaman önce çıkacağı kadar uzak bir acil durum stopu. Bu platform çalışmadığında pozisyonu bir şeyin kapatması için borsada bekler.",
+      "beyondLiquidation": "Bu genişlikte bir ağ, bu kaldıraçta likidasyonun ötesinde kalır ve hiç tetiklenemez. %{pct} altında bir değer kullan ya da kaldıracı düşür."
+    },
+    "unprotected": "Bu işlem için borsada hiçbir emir beklemeyecek. Onu yalnızca strateji kapatır — bu platform çalışmayı bırakırsa pozisyon açık kalır."
   },
   "position": {
     "entry": "Giriş",
@@ -1484,7 +1499,11 @@
     "editVersionFixed": "{name} v{n} çalıştırıyor. Sürüm bu botun kimliğidir ve değiştirilemez — stratejiye yeni bir sürüm kaydedip ondan bir bot kurun.",
     "noActionsEvaluated": "Henüz hiçbir emir gönderilmedi. Şu ana kadar {n} mum değerlendirildi — mumlara bakıp işlem açmayan bir bot çalışıyordur, takılmış değildir.",
     "editInputs": "Strateji girdileri",
-    "inputEffect": "Etki"
+    "inputEffect": "Etki",
+    "exitPolicy": {
+      "protectedHint": "Her girişte borsada bir zarar durdur ve bir kâr al emri bekler. Bu bot başlayabilmeden önce ikisi de zorunludur.",
+      "managedHint": "Betik kendi pozisyonlarını kapatır — strategy.close, bir dönüş, kendi hesapladığı bir hedef. Stop ve hedef isteğe bağlıdır; ama betiğin bir çıkışı olmalı."
+    }
   },
   "security": {
     "title": "Güvenlik",
@@ -1679,5 +1698,34 @@
     },
     "commandsHint": "Bağlı sohbetten: /status /positions /balance /bots /help",
     "updated": "Son değişiklik: {user}, {when}"
+  },
+  "signals": {
+    "title": "Dış sinyal kaynakları",
+    "hint": "Bu platformun dışında olup pozisyon açıp kapatabilen stratejiler; her biri tek bir bota bağlı.",
+    "status": {
+      "active": "{n} etkin",
+      "none": "Etkin yok"
+    },
+    "boundTo": "“{bot}” botuna gönderir · {symbol}",
+    "signed": "İmzalı · {fp}",
+    "unsigned": "İmzasız",
+    "unsignedWarning": "Bu kaynak açık ve imzasız; yani yukarıdaki adresi görmüş herkesle bu botun pozisyonları arasındaki tek şey o adres. Canlı bot imza ister.",
+    "lastAccepted": "Son sinyal {when}",
+    "lastSeen": "Son temas {when}",
+    "neverUsed": "Hiç kullanılmadı",
+    "rotate": "Yeni gizli anahtar",
+    "add": "Kaynak ekle",
+    "noWebhookBots": "Henüz hiçbir bot dış sinyal kabul etmiyor. Önce bir botun sinyal kaynağını “webhook” yap — parite, kaldıraç ve büyüklük bota aittir, kaynak bunların hiçbirini seçemez.",
+    "empty": "Hiçbir dış strateji bu platforma ulaşamıyor.",
+    "form": {
+      "name": "Ad",
+      "bot": "Bot",
+      "pickBot": "Bir bot seç"
+    },
+    "secret": {
+      "title": "Bu gizli anahtarı şimdi kopyala",
+      "help": "Bir kez gösterilir, bir daha asla. Göndericin her isteği bununla imzalar. Kaybedersen yenisini üret — adres aynı kalır.",
+      "saved": "Kaydettim"
+    }
   }
 }

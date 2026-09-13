@@ -193,6 +193,119 @@ command and the panel cannot disagree about whether a script is fine.
 
 ---
 
+## 2b. How a bot's trades end — the exit policy (Q37)
+
+Every bot carries one of two answers, and it is a field on the bot, not a
+property of the script.
+
+**`protected` — a stop and a target (the default).** Both percentages are
+required and both rest at the exchange as real trigger prices. They come from a
+percent `strategy.exit` in the script, or from the bot's own SL %/TP % boxes
+(Q21, in that order of precedence). A bot that can supply neither is refused at
+the start button rather than one entry at a time from inside a fan-out. Every
+bot that existed before Q37 is one of these, and nothing about them changed.
+
+**`strategy_managed` — the script decides.** Both percentages become optional
+and the script's own exit is what closes the position: a `strategy.close` on a
+later bar, a reversal, a target it computed, a trailing rule. It closes **at
+whatever the PnL is** — in profit or in loss, whether or not any target was
+configured — because that is the case a pair of percentages fixed at entry
+cannot express. Anything you *do* set is still honoured and still sent to the
+exchange, so "a take profit, with the stop left to the script" is a real
+configuration and not a half-filled form.
+
+Choose it when the script manages its own exits. The tell is a script whose
+`strategy.close`/`strategy.close_all` calls are doing the real work while the
+SL/TP boxes are blank — under `protected` that bot refuses every entry it ever
+signals.
+
+### The safety net
+
+A strategy-managed position is protected by a **running process**: the
+supervisor evaluating bars, or the sender that can reach us. A crash, a deploy,
+a severed feed, an expired credential — and it is live at leverage with nothing
+resting at the venue to end it.
+
+`safety_net_pct` is the answer, and it is deliberately not a stop loss. Set it
+far enough out that the strategy's own exit always reaches the position first;
+it exists so that *something* is resting on the exchange when this platform is
+not there to act. It engages only where no real stop was given — a stop and a
+net together would be two stops on one position, and the narrower would fire
+first, which would make the net a stop loss by another name.
+
+It must sit **inside** the liquidation distance or it can never fire: at 10x
+liquidation is 10% away, so a "wide" 20% net is decoration. The panel and the
+API both refuse one that cannot trigger, naming the ceiling for that leverage.
+
+Leaving it blank is allowed and is an accepted risk, not a hidden one: the
+ticket, the positions panel and the trade log all say when nothing rests at the
+exchange for a position.
+
+### What the start button checks
+
+The question changes with the policy, because the failure does:
+
+| Policy | Refused at start when… |
+|---|---|
+| `protected` | the script sets no percent `strategy.exit` **and** the bot's SL %/TP % are blank — every entry would be refused |
+| `strategy_managed` | the script never calls `strategy.close`, `strategy.close_all` or `strategy.exit` — it would open a position nothing ever closes |
+
+A protected bot with no exit logic is merely inefficient; its stop or its target
+ends the trade eventually. A strategy-managed one with no exit logic is a trap,
+which is why that check exists at all.
+
+---
+
+## 2c. Bots driven from outside — the webhook (Q37)
+
+A bot's `signal source` is `pine` (a script this platform evaluates bar by bar)
+or `webhook` (an external strategy posting to `/api/signals/hooks/<token>/`). A
+webhook bot pins no script and evaluates no bars; its run exists so that the
+risk gate, the journal, the one-open-trade rule and the stop button all still
+apply to it.
+
+Four verbs, and nothing else is an instruction:
+
+| Verb | Means | Also accepted |
+|---|---|---|
+| `BUY` | open a long | `LONG`, `ENTER_LONG` |
+| `SELL` | open a short | `SHORT`, `ENTER_SHORT` |
+| `EXIT_BUY` | close the long | `EXIT_LONG`, `CLOSE_LONG` |
+| `EXIT_SELL` | close the short | `EXIT_SHORT`, `CLOSE_SHORT` |
+
+```
+POST /api/signals/hooks/<token>/
+X-Signature: sha256=<hmac of "<timestamp>.<raw body>" with the source secret>
+X-Signature-Timestamp: <unix seconds>
+
+{"action": "EXIT_BUY", "symbol": "BTCUSDT", "id": "my-alert-42"}
+```
+
+`sl_pct`, `tp_pct` and `comment` are the only other fields. **A payload may not
+name `qty`, `leverage`, `price` or an account** — those are the platform's (§5,
+§4) and are refused by name rather than ignored, so a strategy author finds out
+on their first test message instead of wondering why their sizing never took.
+
+- **Send an `id`.** It is how a retry is recognised as a retry. Without one a
+  digest of the body is used, which still blocks a replay but makes two
+  genuinely separate signals with identical bodies collide.
+- **A signal is never queued.** A stopped bot refuses it — by the time the bot
+  is restarted the market the signal described is gone.
+- **`EXIT_BUY` while short does nothing**, and says so. The verb names the side
+  it acts on; honouring it against the other one would turn a stale duplicate
+  into an unwanted flatten.
+- **A reversal is one signal and two sequenced actions** — close, confirm flat,
+  then open — exactly as it is for a Pine bot.
+- **The §7 halt stops a webhook bot like any other.**
+
+Sources are managed on `/settings`. Each is off until switched on, bound to one
+bot, and its secret is shown **once** — copy it then, or issue a new one later.
+An unsigned source is allowed on a paper bot and refused on a live one: without
+a signature the endpoint URL is the only thing between anyone who has ever seen
+it and that bot's positions.
+
+---
+
 ## 3. What the runtime does that TradingView does not
 
 **Every registered `ta.*` call site advances on every bar.** An indicator inside

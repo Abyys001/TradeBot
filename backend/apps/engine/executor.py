@@ -29,6 +29,8 @@ from apps.exchanges.base import (
     SLTPState,
     SymbolRules,
 )
+from apps.trading.protection import ExitPolicy, Protection
+from apps.trading.protection import resolve as resolve_protection
 from apps.trading.sizing import SizingRejection, size_order
 from apps.trading.sltp import SLTPRejection, anchor_price, resolve_active
 
@@ -46,12 +48,41 @@ class TradeIntent:
     leverage: int
     sl_pct: Decimal | None = None
     tp_pct: Decimal | None = None
+    #: Q37: how this trade is allowed to end. ``PROTECTED`` is the rule as it
+    #: always was — both percentages required, refused before any account is
+    #: touched. ``STRATEGY_MANAGED`` says the exit arrives as a signal, so the
+    #: percentages are optional and whatever is given is still sent to the
+    #: exchange. Defaulted here rather than required so that every caller that
+    #: predates Q37 keeps the behaviour it was written against.
+    exit_policy: str = ExitPolicy.PROTECTED
+    #: The disaster stop that rests at the venue when the strategy is the exit
+    #: and this platform is not running. Engages only when ``sl_pct`` is None.
+    safety_net_pct: Decimal | None = None
     limit_price: Decimal | None = None
     #: Price used to size a *market* order, from the public feed. Never sent to
     #: an exchange as an order price — sizing only. The caller supplies it only
     #: when a real exchange answered (see services.route_open); nothing else may
     #: decide how much of someone's capital goes into a live trade.
     reference_price: Decimal | None = None
+
+    def protection(self) -> Protection:
+        """What rests at the exchange for this trade (Q37).
+
+        Every leg reads it through here rather than off ``sl_pct``/``tp_pct``
+        directly, because the safety net's precedence over a blank stop is one
+        rule and a leg that re-derived it would be the leg that got it wrong —
+        the entry would place the net and the reconcile would not, leaving one
+        account holding a resting stop the others do not have.
+        """
+        return resolve_protection(
+            policy=self.exit_policy,
+            sl_pct=self.sl_pct,
+            tp_pct=self.tp_pct,
+            safety_net_pct=self.safety_net_pct,
+            # So an unreachable net is named as one, before the fan-out, rather
+            # than arriving per account as "stop sits below liquidation".
+            leverage=self.leverage,
+        )
 
 
 @dataclass(slots=True)
@@ -155,8 +186,8 @@ async def _open_one(
         leverage=sized.leverage,
         margin=sized.margin,
         notional=sized.notional,
-        sl_pct=intent.sl_pct,
-        tp_pct=intent.tp_pct,
+        sl_pct=intent.protection().resting_sl,
+        tp_pct=intent.protection().resting_tp,
         price_tick=rules.price_tick,
     )
 
@@ -680,8 +711,8 @@ async def _reconcile_open(
         leverage=leverage,
         margin=margin,
         notional=notional,
-        sl_pct=intent.sl_pct,
-        tp_pct=intent.tp_pct,
+        sl_pct=intent.protection().resting_sl,
+        tp_pct=intent.protection().resting_tp,
         price_tick=rules.price_tick,
     )
 
@@ -913,23 +944,37 @@ async def _reconcile_amend(
     )
 
 
-def _require_protection(sl_pct: Decimal | None, tp_pct: Decimal | None) -> None:
-    """Both legs of the protection, or no order at all.
+def _require_protection(
+    sl_pct: Decimal | None,
+    tp_pct: Decimal | None,
+    *,
+    policy: str = ExitPolicy.PROTECTED,
+    safety_net_pct: Decimal | None = None,
+) -> Protection:
+    """What rests at the exchange for this trade, or no order at all.
 
     Spec §4/§5: every account takes the same entry at the same leverage, and
-    the SL/TP are what bound the loss on capital that belongs to partners. They
-    are part of the order — resolved into prices per account and sent to the
-    exchange — so an intent missing either is not an order this platform routes.
+    what bounds the loss is identical across all of them — only the dollar size
+    differs. Under ``PROTECTED`` that is a stop and a take profit, both
+    required, exactly as it was before Q37: they are part of the order, and an
+    intent missing either is not an order this platform routes.
+
+    Under ``STRATEGY_MANAGED`` the bound is the strategy's own exit signal, and
+    the percentages become optional. What is supplied is still resolved into
+    trigger prices and sent to the venue — the difference is only that nothing
+    is invented to fill a blank, because a stop nobody chose fires ahead of the
+    logic that was meant to close the trade.
+
+    Returns the resolved ``Protection`` rather than ``None`` so the caller uses
+    ``resting_sl``/``resting_tp`` — the one place the safety net's precedence
+    over a blank stop is decided.
     """
-    missing = [
-        name
-        for name, value in (("stop loss", sl_pct), ("take profit", tp_pct))
-        if value is None
-    ]
-    if missing:
-        raise ValueError(
-            f"an order must carry both a stop loss and a take profit; missing: {', '.join(missing)}"
-        )
+    return resolve_protection(
+        policy=policy,
+        sl_pct=sl_pct,
+        tp_pct=tp_pct,
+        safety_net_pct=safety_net_pct,
+    )
 
 
 async def open_trade(
@@ -946,13 +991,17 @@ async def open_trade(
     (``_reconcile_open``): an entry that demonstrably landed is reported as
     filled — with a note saying so, never as a timeout failure.
 
-    An intent with no stop loss or no take profit is refused here, before any
-    account is touched. The view already requires both, so reaching this is a
-    caller building an illegal intent — and the failure has to be the whole
-    trade rather than a per-leg error, because "some accounts opened
-    unprotected" is the outcome the rule exists to prevent.
+    A ``PROTECTED`` intent with no stop loss or no take profit is refused here,
+    before any account is touched. The view already requires both, so reaching
+    this is a caller building an illegal intent — and the failure has to be the
+    whole trade rather than a per-leg error, because "some accounts opened
+    unprotected" is the outcome the rule exists to prevent. A
+    ``STRATEGY_MANAGED`` intent passes with whatever it carries, including
+    nothing (Q37).
     """
-    _require_protection(intent.sl_pct, intent.tp_pct)
+    # Through the intent, so the leverage-aware net check runs here too and an
+    # unreachable net is one refusal rather than one per account.
+    intent.protection()
     deadline = timeout if timeout is not None else settings.TRADING["FANOUT_TIMEOUT_SECONDS"]
     result = await fan_out(
         [(aid, _make_open(aid, adapter, intent)) for aid, adapter in accounts],
@@ -1052,6 +1101,8 @@ async def amend_sltp(
     sl_pct: Decimal | None,
     tp_pct: Decimal | None,
     admin_entry: Decimal,
+    exit_policy: str = ExitPolicy.PROTECTED,
+    safety_net_pct: Decimal | None = None,
     timeout: float | None = None,
 ) -> FanOutResult[SltpResult]:
     """Mid-trade SL/TP change (spec §4 — must land within the fan-out deadline).
@@ -1066,12 +1117,20 @@ async def amend_sltp(
     that is already live at leverage is a protection action, and the panel's
     own copy promises it keeps working while halted.
 
-    Both percentages are required, as they are on entry. ``apply_sltp``
-    replaces the resting protection wholesale, so an amend carrying only one
-    side would take the other side *off* the exchange — a "change my stop"
-    that quietly deletes the take profit.
+    Both percentages are required under ``PROTECTED``, as they are on entry.
+    ``apply_sltp`` replaces the resting protection wholesale, so an amend
+    carrying only one side would take the other side *off* the exchange — a
+    "change my stop" that quietly deletes the take profit.
+
+    Under ``STRATEGY_MANAGED`` (Q37) that wholesale replacement is the feature
+    rather than the hazard: a strategy that has moved to managing its own exit
+    says so by amending to a pair this platform does not hold, and the resting
+    orders go with it. The caller therefore sends the *whole* desired state
+    every time, never a delta — which is what ``translate.plan`` already does.
     """
-    _require_protection(sl_pct, tp_pct)
+    protection = _require_protection(
+        sl_pct, tp_pct, policy=exit_policy, safety_net_pct=safety_net_pct
+    )
 
     def make(account_id, adapter):
         async def op() -> SltpResult:
@@ -1092,8 +1151,8 @@ async def amend_sltp(
                 leverage=effective_leverage,
                 margin=position.size * position.entry_price / D(effective_leverage),
                 notional=position.size * position.entry_price,
-                sl_pct=sl_pct,
-                tp_pct=tp_pct,
+                sl_pct=protection.resting_sl,
+                tp_pct=protection.resting_tp,
                 price_tick=rules.price_tick,
             )
             return await _apply_and_verify(
@@ -1121,8 +1180,8 @@ async def amend_sltp(
             symbol=symbol,
             side=side,
             leverage=leverage,
-            sl_pct=sl_pct,
-            tp_pct=tp_pct,
+            sl_pct=protection.resting_sl,
+            tp_pct=protection.resting_tp,
             admin_entry=admin_entry,
             budget=budget,
             deadline=dl,

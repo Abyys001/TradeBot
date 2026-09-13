@@ -41,6 +41,7 @@ from apps.bots.models import ActionType, Bot, BotAction, BotRun
 from apps.exchanges.base import MarketType, OrderType
 from apps.exchanges.base import Side as ExchangeSide
 from apps.pine.intent import Side, StrategyIntent
+from apps.trading.protection import ExitPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,12 @@ class Action:
     #: True for the close half of a reversal, so the dispatcher knows it must
     #: confirm flat before the open that follows it.
     is_reversal_leg: bool = False
+    #: Q37. Carried on the action rather than read off the bot at dispatch time
+    #: because the action is what is written down *before* the fan-out: a policy
+    #: edited between the claim and the send would otherwise route under one
+    #: rule and be recorded under another.
+    exit_policy: str = ExitPolicy.PROTECTED
+    safety_net_pct: Decimal | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -72,6 +79,10 @@ class Action:
             "reason": self.reason,
             "trade_id": self.trade_id,
             "fraction": str(self.fraction) if self.fraction is not None else None,
+            "exit_policy": str(self.exit_policy),
+            "safety_net_pct": (
+                str(self.safety_net_pct) if self.safety_net_pct is not None else None
+            ),
         }
 
 
@@ -105,17 +116,31 @@ def plan(
     held: Held,
     default_sl: Decimal | None,
     default_tp: Decimal | None,
+    policy: str = ExitPolicy.PROTECTED,
+    safety_net: Decimal | None = None,
 ) -> list[Action]:
     """The diff, as a pure function. The table in ``bot-mode.md`` §5.1, in code.
 
     Pure so it can be tested exhaustively without a database, an exchange, or a
     clock — every row of that table is a two-line test.
+
+    **Q37 changes nothing above this line.** A strategy exit has always been an
+    intent with ``desired_side = None``, and has always become a ``CLOSE``
+    against whatever the exchange says is held — no PnL is read here, and there
+    is no branch that declines to close because a percentage was not reached.
+    What the policy changes is only what the resulting ``OPEN`` is allowed to
+    carry: under ``STRATEGY_MANAGED`` a blank ``wanted_sl``/``wanted_tp`` is a
+    routable order rather than a refusal, and the safety net rides along for
+    the executor to rest at the venue in a real stop's place.
     """
     # Q21: a percent `strategy.exit` in the script wins for this trade; the
     # bot's configured pair is the fallback, not the other way round.
     wanted_sl = intent.sl_pct if intent.sl_pct is not None else default_sl
     wanted_tp = intent.tp_pct if intent.tp_pct is not None else default_tp
     desired = intent.desired_side
+    # Under PROTECTED the net is not a thing that exists (``protection.resolve``
+    # drops it), so it is not carried into an action that will be recorded.
+    net = safety_net if str(policy) == ExitPolicy.STRATEGY_MANAGED else None
 
     if desired is None:
         if held.flat:
@@ -136,6 +161,8 @@ def plan(
                 sl_pct=wanted_sl,
                 tp_pct=wanted_tp,
                 reason=intent.reason or f"enter {desired.value}",
+                exit_policy=policy,
+                safety_net_pct=net,
             )
         ]
 
@@ -165,6 +192,8 @@ def plan(
                 tp_pct=wanted_tp,
                 reason=intent.reason or "sl/tp changed",
                 trade_id=held.trade_id,
+                exit_policy=policy,
+                safety_net_pct=net,
             )
         ]
 
@@ -183,18 +212,33 @@ def plan(
             sl_pct=wanted_sl,
             tp_pct=wanted_tp,
             reason=intent.reason or f"reverse to {desired.value}",
+            exit_policy=policy,
+            safety_net_pct=net,
         ),
     ]
 
 
-def idempotency_key(run_id: int, bar_time: int, action_type: str, ordinal: int = 0) -> str:
+def idempotency_key(
+    run_id: int,
+    bar_time: int,
+    action_type: str,
+    ordinal: int = 0,
+    scope: str = "",
+) -> str:
     """``(run, bar, action type)`` — the tuple ``bot-plan.md`` §7 names.
 
     ``ordinal`` separates the two halves of a reversal, which share the bar and
     would otherwise collide on the close and never place the open.
+
+    ``scope`` is Q37's addition and defaults to empty, which reproduces the old
+    key byte for byte — existing rows keep matching, so a restart mid-fan-out
+    is still caught for every bot that predates this. A webhook bot passes
+    ``"sig"`` and the ``SignalEvent`` id in place of a bar: its deliveries have
+    no bar time, and two of them in the same second must not collide into one.
     """
     suffix = f":{ordinal}" if ordinal else ""
-    return f"{run_id}:{bar_time}:{action_type}{suffix}"
+    prefix = f"{scope}:" if scope else ""
+    return f"{run_id}:{prefix}{bar_time}:{action_type}{suffix}"
 
 
 @sync_to_async
@@ -223,7 +267,9 @@ def read_held(run: BotRun) -> Held:
 
 
 @sync_to_async
-def claim(run: BotRun, bar_time: int, action: Action, ordinal: int) -> BotAction | None:
+def claim(
+    run: BotRun, bar_time: int, action: Action, ordinal: int, scope: str = ""
+) -> BotAction | None:
     """Write the action down *before* dispatching it.
 
     Returns ``None`` when the key already exists, which means this action was
@@ -231,7 +277,7 @@ def claim(run: BotRun, bar_time: int, action: Action, ordinal: int) -> BotAction
     unique constraint is doing the work; the ``get_or_create`` is only how the
     result is read back.
     """
-    key = idempotency_key(run.id, bar_time, action.type, ordinal)
+    key = idempotency_key(run.id, bar_time, action.type, ordinal, scope)
     row, created = BotAction.objects.get_or_create(
         idempotency_key=key,
         defaults={
@@ -279,7 +325,12 @@ def _link_trade(trade, run: BotRun) -> None:
 
 
 async def dispatch(
-    *, bot: Bot, run: BotRun, bar_time: int, actions: list[Action]
+    *,
+    bot: Bot,
+    run: BotRun,
+    bar_time: int,
+    actions: list[Action],
+    scope: str = "",
 ) -> list[dict]:
     """Run the plan through ``services.route_*``. One fan-out at a time.
 
@@ -292,7 +343,7 @@ async def dispatch(
 
     outcomes: list[dict] = []
     for ordinal, action in enumerate(actions):
-        row = await claim(run, bar_time, action, ordinal)
+        row = await claim(run, bar_time, action, ordinal, scope)
         if row is None:
             logger.info(
                 "bot %s: action %s at bar %s already recorded — not re-sending",
@@ -353,6 +404,8 @@ async def _route(*, bot: Bot, run: BotRun, action: Action, services) -> dict:
             leverage=bot.leverage,
             sl_pct=action.sl_pct,
             tp_pct=action.tp_pct,
+            exit_policy=action.exit_policy,
+            safety_net_pct=action.safety_net_pct,
             source="bot",
         )
         if trade is None:
@@ -374,7 +427,11 @@ async def _route(*, bot: Bot, run: BotRun, action: Action, services) -> dict:
         if trade is None:
             return {"ok": False, "error": "the trade to amend no longer exists"}
         result = await services.route_amend(
-            trade=trade, sl_pct=action.sl_pct, tp_pct=action.tp_pct
+            trade=trade,
+            sl_pct=action.sl_pct,
+            tp_pct=action.tp_pct,
+            exit_policy=action.exit_policy,
+            safety_net_pct=action.safety_net_pct,
         )
         return {
             "ok": any(leg.ok for leg in result.legs),

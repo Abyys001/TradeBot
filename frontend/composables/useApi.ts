@@ -204,6 +204,37 @@ export function useApi() {
     /** Every open trade at once — what the panel's close button sends. */
     closeAll: () => request<FanOutResult>('/trading/orders/close-all/', { method: 'POST' }),
 
+    // --- external signal sources (Q37) ---
+    signalSources: () => request<SignalSource[]>('/signals/sources/'),
+    /**
+     * The secret comes back **once**, in this response, and is never readable
+     * again. The panel shows it, the operator copies it into their sender, and
+     * after that only the fingerprint exists.
+     */
+    createSignalSource: (body: Record<string, unknown>) =>
+      request<SignalSource & { secret_shown_once: string }>('/signals/sources/', {
+        method: 'POST',
+        body,
+      }),
+    updateSignalSource: (id: number, body: Record<string, unknown>) =>
+      request<SignalSource>(`/signals/sources/${id}/`, { method: 'PATCH', body }),
+    deleteSignalSource: (id: number) =>
+      request<void>(`/signals/sources/${id}/`, { method: 'DELETE' }),
+    /** A new secret. The old one stops working the instant this returns. */
+    rotateSignalSecret: (id: number) =>
+      request<SignalSource & { secret_shown_once: string }>(
+        `/signals/sources/${id}/rotate/`,
+        { method: 'POST' },
+      ),
+    /** The delivery log, newest first. Capped server-side; no pagination. */
+    signalEvents: (params: { source?: number; bot?: number } = {}) => {
+      const search = new URLSearchParams()
+      if (params.source !== undefined) search.set('source', String(params.source))
+      if (params.bot !== undefined) search.set('bot', String(params.bot))
+      const suffix = search.toString() ? `?${search}` : ''
+      return request<SignalEvent[]>(`/signals/events/${suffix}`)
+    },
+
     // --- market data (spec §3) ---
     /**
      * OHLCV for the chart. `end` (UNIX seconds) asks for the window *before*
@@ -653,6 +684,18 @@ export interface PositionLeg {
   roe_pct: string | null
 }
 
+/**
+ * Q37. How a trade is allowed to end.
+ *
+ * `protected` is the rule as it always was: a stop and a target, both
+ * required, both resolved into trigger prices and resting at the exchange.
+ * `strategy_managed` says the exit arrives as a decision rather than a level
+ * — from a bot's script or an external strategy — so the percentages are
+ * optional and whatever is supplied is still sent. Absent on any row written
+ * before Q37, which is why every reader treats a missing value as `protected`.
+ */
+export type ExitPolicy = 'protected' | 'strategy_managed'
+
 export interface PositionSnapshot {
   trade: {
     id: number
@@ -663,6 +706,8 @@ export interface PositionSnapshot {
     sl_pct: string | null
     tp_pct: string | null
     sltp_basis: string
+    exit_policy: ExitPolicy
+    safety_net_pct: string | null
     admin_entry_price: string | null
     opened_at: string
   } | null
@@ -987,6 +1032,13 @@ export interface Trade {
   sl_pct: string | null
   tp_pct: string | null
   sltp_basis: string
+  /**
+   * Q37: what this trade was allowed to end by. Recorded per trade, not read
+   * off today's setting — a bot's policy can change tomorrow and the trade log
+   * has to keep describing what was actually true of each row.
+   */
+  exit_policy: ExitPolicy
+  safety_net_pct: string | null
   admin_entry_price: string | null
   status: string
   opened_at: string
@@ -1164,6 +1216,7 @@ export interface ReportLeg {
   sl_pct: string | null
   tp_pct: string | null
   sltp_basis: string
+  exit_policy?: ExitPolicy
   trade_status: string
   fanout_ms: number | null
   ok: boolean
@@ -1483,11 +1536,15 @@ export interface Strategy {
 
 export type BotState = 'draft' | 'paper' | 'live' | 'stopped'
 
+/** Where a bot's intents come from: a script here, or an external sender. */
+export type SignalSourceKind = 'pine' | 'webhook'
+
 export interface BotSummary {
   id: number
-  strategy_version: number
-  strategy_name: string
-  version: number
+  /** Null for a `webhook` bot — it pins no script, because it has none. */
+  strategy_version: number | null
+  strategy_name: string | null
+  version: number | null
   name: string
   symbol: string
   interval: string
@@ -1495,6 +1552,11 @@ export interface BotSummary {
   leverage: number
   sl_pct: string | null
   tp_pct: string | null
+  /** Q37: what is allowed to end this bot's trades. */
+  exit_policy: ExitPolicy
+  /** The disaster stop, under `strategy_managed` only. */
+  safety_net_pct: string | null
+  signal_source: SignalSourceKind
   input_values: Record<string, unknown>
   risk_config: Record<string, unknown>
   /**
@@ -1511,6 +1573,54 @@ export interface BotSummary {
   created_at: string
   updated_at: string
   latest_run: BotRun | null
+}
+
+/**
+ * One external strategy allowed to move this platform's positions (Q37).
+ *
+ * Bound to exactly one bot, which is what makes the endpoint safe to have:
+ * the bot carries the symbol, the market, the leverage, the exit policy, the
+ * risk gate and the stop button, and a source can name none of them.
+ */
+export interface SignalSource {
+  id: number
+  name: string
+  bot: number
+  bot_name: string
+  symbol: string
+  /** The public half — it appears in the URL. Not a secret. */
+  token: string
+  /** The path a sender posts to, relative to the panel's own host. */
+  endpoint: string
+  /** Whether a secret exists. The secret itself is never sent to the browser. */
+  secret_set: boolean
+  secret_fingerprint: string
+  enabled: boolean
+  require_signature: boolean
+  allowed_ips: string[]
+  replay_window_seconds: number
+  created_at: string
+  created_by: string
+  last_seen_at: string | null
+  last_accepted_at: string | null
+}
+
+export type SignalVerdict = 'accepted' | 'duplicate' | 'noop' | 'rejected'
+
+/** One delivery, kept forever — the refused ones included. */
+export interface SignalEvent {
+  id: number
+  source: number
+  received_at: string
+  remote_addr: string
+  signal_id: string
+  verb: string
+  verdict: SignalVerdict
+  code: string
+  detail: string
+  payload: Record<string, unknown>
+  actions: Record<string, unknown>[]
+  run: number | null
 }
 
 export interface BotRun {

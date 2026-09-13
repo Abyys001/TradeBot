@@ -145,12 +145,18 @@ def test_resume_all_only_picks_up_bots_whose_state_says_to_run():
 
 
 async def test_stop_all_is_callable_from_the_event_loop_too():
-    """`route_close_all` awaits it before it closes anything."""
-    await sync_to_async(running_bots)(2)
+    """`route_close_all` awaits it before it closes anything.
+
+    It reads the **database**, not this process's task map. Nothing is actually
+    running here, so no task is cancelled — and both bots are still stopped,
+    because `Bot.state` is the authority on whether a bot may trade and a task
+    living in another process (or, since Q37, a webhook bot that never had one)
+    would otherwise sail straight through the §7 halt.
+    """
+    bots = await sync_to_async(running_bots)(2)
     stopped = await supervisor.stop_all(reason=StopReason.HALT, detail="close-all")
-    # Nothing is actually running in this process, so no task is cancelled —
-    # what matters is that the call is awaitable and does not raise.
-    assert stopped == []
+    assert sorted(stopped) == sorted(bot.id for bot in bots)
+    assert await sync_to_async(open_runs)() == 0
 
 
 async def test_stopping_a_bot_that_is_not_running_is_safe():

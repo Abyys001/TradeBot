@@ -27,6 +27,13 @@ export const useOrderStore = defineStore('order', {
     slPct: null as number | null,
     tpPct: null as number | null,
     basis: 'price' as Basis,
+    exitPolicy: 'protected' as ExitPolicy,
+    /**
+     * The disaster stop, for `strategy_managed` only. Deliberately far out —
+     * the strategy's own exit should always reach the position first. It is
+     * what rests at the venue when this platform is not running to act.
+     */
+    safetyNetPct: null as number | null,
     entryPrice: null as number | null,
     liquidationPrice: null as number | null,
     lastEditedFrom: null as EditSource | null,
@@ -39,13 +46,53 @@ export const useOrderStore = defineStore('order', {
     // Liquidation distance depends on leverage alone: 1/leverage.
     liquidationDistancePct: (s) => 100 / s.leverage,
 
+    strategyManaged: (s) => s.exitPolicy === 'strategy_managed',
+
     /**
-     * Both halves of the protection are set. The server requires them on every
-     * open and every amend — they become real trigger prices sent to the
-     * exchange — so this is what the send and amend buttons gate on rather than
-     * letting the request come back a 400.
+     * This order may be sent as it stands.
+     *
+     * Under `protected` that means both halves are set: the server requires
+     * them on every open and every amend — they become real trigger prices sent
+     * to the exchange — so this is what the send and amend buttons gate on
+     * rather than letting the request come back a 400. Under
+     * `strategy_managed` (Q37) there is nothing to require: the exit is a
+     * decision the strategy has yet to make, and a blank box is that decision
+     * being deferred rather than a form half filled in.
      */
-    hasProtection: (s) => s.slPct !== null && s.tpPct !== null,
+    hasProtection(): boolean {
+      if (this.strategyManaged) return true
+      return this.slPct !== null && this.tpPct !== null
+    },
+
+    /**
+     * Nothing at all will rest at the exchange for this order.
+     *
+     * Not a blocker — it is a legal, deliberate state — but the one fact the
+     * ticket has to put in front of the admin before they press send, because
+     * the position is then protected by a *running process* rather than by the
+     * venue.
+     */
+    unprotected(): boolean {
+      if (!this.strategyManaged) return false
+      return this.slPct === null && this.tpPct === null && this.safetyNetPct === null
+    },
+
+    /** The stop that would actually rest at the venue: the net only fills a blank. */
+    restingSlPct(): number | null {
+      return this.slPct !== null ? this.slPct : this.safetyNetPct
+    },
+
+    /**
+     * A net past liquidation can never fire, so it is protection that is not
+     * there. The server refuses it with the same arithmetic; saying so here
+     * turns a 400 at send time into a number the admin can see is wrong.
+     */
+    safetyNetBeyondLiquidation(): boolean {
+      if (this.safetyNetPct === null || this.slPct !== null) return false
+      const move =
+        this.basis === 'margin' ? this.safetyNetPct / this.leverage : this.safetyNetPct
+      return move >= this.liquidationDistancePct
+    },
     isOpen: (s) => s.entryPrice !== null,
 
     /** The price move the typed percentage actually implies (Q5a). */
@@ -217,7 +264,8 @@ export const useOrderStore = defineStore('order', {
         this.side === sideOf(trade) &&
         this.basis === basisOf(trade) &&
         same(this.slPct, trade.sl_pct) &&
-        same(this.tpPct, trade.tp_pct)
+        same(this.tpPct, trade.tp_pct) &&
+        this.exitPolicy === policyOf(trade)
       )
     },
 
@@ -227,6 +275,15 @@ export const useOrderStore = defineStore('order', {
       this.basis = basisOf(trade)
       this.slPct = trade.sl_pct === null ? null : Number(trade.sl_pct)
       this.tpPct = trade.tp_pct === null ? null : Number(trade.tp_pct)
+      // Q37: the policy is part of the protection, and the server is the
+      // authority on it. Without this a strategy-managed position would be
+      // re-read into a ticket still set to `protected`, where two blank boxes
+      // read as an unfinished form and the amend button would refuse.
+      this.exitPolicy = policyOf(trade)
+      this.safetyNetPct =
+        trade.safety_net_pct === null || trade.safety_net_pct === undefined
+          ? null
+          : Number(trade.safety_net_pct)
       this.lastEditedFrom = null
     },
 
@@ -240,9 +297,27 @@ export const useOrderStore = defineStore('order', {
       this.hydratedTradeId = trade.id
     },
 
+    /**
+     * Switching policy clears what the other one cannot express, rather than
+     * leaving it set and ignored. A safety net left behind on a protected
+     * order reads on the panel as protection that exists and would be dropped
+     * by the server anyway.
+     */
+    setExitPolicy(policy: ExitPolicy) {
+      this.exitPolicy = policy
+      if (policy === 'protected') this.safetyNetPct = null
+      this.touch('ticket')
+    },
+
+    setSafetyNet(pct: number | null) {
+      this.safetyNetPct = pct === null || !(pct > 0) ? null : Math.min(pct, 100)
+      this.touch('ticket')
+    },
+
     reset() {
       this.slPct = null
       this.tpPct = null
+      this.safetyNetPct = null
       this.liquidationPrice = null
       this.lastEditedFrom = null
       this.lastEditedAt = null
@@ -266,6 +341,8 @@ type HydratableTrade = Pick<
   | 'sl_pct'
   | 'tp_pct'
   | 'sltp_basis'
+  | 'exit_policy'
+  | 'safety_net_pct'
   | 'admin_entry_price'
 >
 
@@ -278,6 +355,11 @@ function sideOf(trade: Pick<Trade, 'side'>): 'long' | 'short' {
 
 function basisOf(trade: Pick<Trade, 'sltp_basis'>): Basis {
   return trade.sltp_basis === 'margin' ? 'margin' : 'price'
+}
+
+/** Anything the server has not stamped is a trade from before Q37: protected. */
+function policyOf(trade: Pick<Trade, 'exit_policy'>): ExitPolicy {
+  return trade.exit_policy === 'strategy_managed' ? 'strategy_managed' : 'protected'
 }
 
 /** Chart drags produce long floats; four decimals is past any exchange's tick. */

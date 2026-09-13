@@ -380,6 +380,13 @@ const diagnostics = computed(() => [
          raises — one chat, off until a token is stored and that chat linked. -->
     <TelegramCard />
 
+    <!-- 4c. External strategies allowed to move positions (Q37). The only
+         unauthenticated write surface on the platform, so everything the
+         session normally provides is configured here instead. Each source is
+         off until it is switched on, and bound to one bot that owns the pair,
+         the leverage and the size. -->
+    <SignalsSignalSourcesCard />
+
     <UiCard :title="t('security.events.title')" :hint="t('security.events.hint')" flush>
       <template #actions>
         <UiBadge :tone="security.policy?.audit_log ? 'ok' : 'neutral'" dot>

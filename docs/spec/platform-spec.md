@@ -40,6 +40,29 @@ A main trading page, similar in layout to a standard exchange:
   trigger prices per account and are **sent to the exchange**: on the entry
   order where the venue accepts them, placed and read back immediately after
   the fill where it does not. They are never held only inside the platform.
+
+  > **Amended in use (see `docs/decisions.md` Q37).** "Both are required" is
+  > now one of two **exit policies** rather than the only behaviour, because a
+  > strategy that decides its own exits — a structure break, a trailing rule, a
+  > reversal, a target computed on the bar — cannot express that exit as a pair
+  > of percentages fixed at entry, and forcing it to declare one anyway put a
+  > stop nobody chose in front of the logic that was meant to close the trade.
+  >
+  > `protected` is the clause above, unchanged, and is the **default** for
+  > every order, every bot, and every row written before the amendment.
+  > `strategy_managed` makes both percentages optional and treats the
+  > strategy's own exit signal as the instruction that closes the position — at
+  > whatever the PnL is, whether or not any target was configured. What *is*
+  > supplied is still resolved into trigger prices and sent to the exchange;
+  > the difference is only that nothing is invented to fill a blank.
+  >
+  > What §3 was protecting is unchanged in both: the percentages are identical
+  > across every account (§4), nothing is ever held as an intention inside the
+  > platform, and an order under `protected` still cannot go out half-protected.
+  > What a `strategy_managed` position gives up is stated rather than hidden —
+  > its protection is a **running process**, so an optional `safety_net_pct`
+  > rests a disaster stop at the venue for when this platform is not there to
+  > act, and the panel says plainly when nothing rests at all.
 - **SL/TP must be editable from three separate places**:
   1. At initial order entry.
   2. Directly from the chart (e.g., drag or click to adjust the SL/TP line).

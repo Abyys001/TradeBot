@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from apps.bots.models import Bot, BotRun, BotState, Strategy, StrategyVersion
+from apps.bots.models import (
+    Bot,
+    BotRun,
+    BotState,
+    ExitPolicy,
+    SignalSourceKind,
+    Strategy,
+    StrategyVersion,
+)
 from tests import pine_corpus
 
 DEFAULT_SOURCE = (pine_corpus.ACCEPT / "01_sma_cross.pine").read_text()
@@ -30,10 +38,20 @@ def make_bot(
     tp_pct: str | None = None,
     risk_config: dict | None = None,
     inputs: dict | None = None,
+    exit_policy: str = ExitPolicy.PROTECTED,
+    safety_net_pct: str | None = None,
+    signal_source: str = SignalSourceKind.PINE,
 ) -> Bot:
+    webhook = signal_source == SignalSourceKind.WEBHOOK
     return Bot.objects.create(
-        strategy_version=make_version(source, name=f"{name} strategy"),
+        # A webhook bot pins no script — its signals arrive already decided.
+        strategy_version=(
+            None if webhook else make_version(source, name=f"{name} strategy")
+        ),
         name=name,
+        exit_policy=exit_policy,
+        safety_net_pct=Decimal(safety_net_pct) if safety_net_pct else None,
+        signal_source=signal_source,
         symbol=symbol,
         interval=interval,
         leverage=leverage,

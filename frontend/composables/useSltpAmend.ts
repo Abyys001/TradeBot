@@ -33,7 +33,12 @@ export function useSltpAmend() {
     while (dirty) {
       dirty = false
       try {
-        await trading.amend(order.slPct, order.tpPct)
+        await trading.amend(
+          order.slPct,
+          order.tpPct,
+          order.exitPolicy,
+          order.safetyNetPct,
+        )
         await positions.load()
       } catch {
         // The store holds the message and per-leg failures raise persistent

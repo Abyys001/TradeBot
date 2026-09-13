@@ -43,10 +43,19 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 #: needs *most* when they cannot get in — a phone on a different network, a
 #: position running at leverage — and a lock-out that also disables the brake is
 #: the failure this whole layer is designed around. It is still staff-only.
+#: The inbound signal endpoint (Q37) is exempt for a different reason from the
+#: halt's, and the difference matters. The panel allowlist exists to bound
+#: *where the admin's session can be used from*, and a webhook delivery carries
+#: no session — the caller is a strategy on a host this platform has never seen,
+#: which is precisely the address the allowlist is built to refuse. Leaving the
+#: hooks behind it would mean the allowlist silently switches the bot off. It
+#: keeps its own address control, per source and enforced in ``signals.views``,
+#: alongside a signature the panel allowlist cannot offer.
 ALLOWLIST_EXEMPT = (
     "/api/health/",
     "/api/security/csp/",
     "/api/trading/stop-all/",
+    "/api/signals/hooks/",
 )
 
 #: Never rate limited, whatever the switch says: these are the money path.
@@ -55,6 +64,13 @@ ROUTING_PREFIXES = (
     "/api/trading/balances/",
     "/api/trading/stop-all/",
     "/api/bots/",
+    # A signal is an order by the time it lands, and the admin-write limiter is
+    # keyed on the caller's address — which here is one sender posting for
+    # every account at once. Rate limiting it would drop exits, and a dropped
+    # exit is a position nobody closed. Volume is bounded where it should be:
+    # by the bot's own trade-rate auto-stop (Q25), which counts trades rather
+    # than requests and stops the bot instead of silently discarding one.
+    "/api/signals/hooks/",
 )
 
 

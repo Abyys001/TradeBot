@@ -48,6 +48,7 @@ from apps.exchanges.base import ExchangeAdapter, MarketType, OrderType, Side
 from apps.logging.utils import system_log
 from apps.trading import killswitch
 from apps.trading.models import Trade, TradeLeg, TradeReduction, TradeStatus
+from apps.trading.protection import ExitPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,9 @@ def _persist_open(
         leverage=intent.leverage,
         sl_pct=intent.sl_pct,
         tp_pct=intent.tp_pct,
+        # Q37: what was true of *this* trade, not what the bot is set to today.
+        exit_policy=str(intent.exit_policy),
+        safety_net_pct=intent.protection().safety_net_pct,
         sltp_basis=settings.TRADING["SLTP_BASIS"],
         status=TradeStatus.OPEN,
         fanout_ms=result.total_ms,
@@ -538,6 +542,8 @@ async def route_open(
     leverage: int,
     sl_pct: Decimal | None,
     tp_pct: Decimal | None,
+    exit_policy: str = ExitPolicy.PROTECTED,
+    safety_net_pct: Decimal | None = None,
     limit_price: Decimal | None = None,
     source: str = "manual",
 ) -> tuple[Trade | None, FanOutResult]:
@@ -577,6 +583,8 @@ async def route_open(
         leverage=leverage,
         sl_pct=sl_pct,
         tp_pct=tp_pct,
+        exit_policy=str(exit_policy),
+        safety_net_pct=safety_net_pct,
         limit_price=limit_price,
         reference_price=reference_price,
     )
@@ -602,6 +610,7 @@ async def route_open(
             "order_type": trade.order_type,
             "sl_pct": str(trade.sl_pct) if trade.sl_pct is not None else None,
             "tp_pct": str(trade.tp_pct) if trade.tp_pct is not None else None,
+            **intent.protection().as_dict(),
             "origin": "bot" if source == "bot" else "manual",
             "bot": None,
             "fanout_ms": result.total_ms,
@@ -752,8 +761,21 @@ class NoLegsToRoute(Exception):
 
 
 async def route_amend(
-    *, trade: Trade, sl_pct: Decimal | None, tp_pct: Decimal | None
+    *,
+    trade: Trade,
+    sl_pct: Decimal | None,
+    tp_pct: Decimal | None,
+    exit_policy: str | None = None,
+    safety_net_pct: Decimal | None = None,
 ) -> FanOutResult:
+    # Q37: an amend inherits the policy the trade was opened under unless the
+    # caller names one. A mid-trade switch is a real thing to want — "stop
+    # managing this by percentages, I will close it myself" — but it has to be
+    # said, because defaulting it either way would silently rewrite what the
+    # position is protected by.
+    policy = str(exit_policy) if exit_policy else trade.exit_policy
+    if safety_net_pct is None and policy == trade.exit_policy:
+        safety_net_pct = trade.safety_net_pct
     accounts = await eligible_accounts(trade)
     adapters = _adapters(accounts)
     if not adapters:
@@ -768,10 +790,12 @@ async def route_amend(
         leverage=trade.leverage,
         sl_pct=sl_pct,
         tp_pct=tp_pct,
+        exit_policy=policy,
+        safety_net_pct=safety_net_pct,
         admin_entry=trade.admin_entry_price or Decimal("0"),
     )
 
-    await _save_amend(trade, result, sl_pct, tp_pct)
+    await _save_amend(trade, result, sl_pct, tp_pct, policy, safety_net_pct)
     _log_fanout(
         code="trade_amended",
         message=(
@@ -789,6 +813,7 @@ async def route_amend(
             "order_type": trade.order_type,
             "sl_pct": str(sl_pct) if sl_pct is not None else None,
             "tp_pct": str(tp_pct) if tp_pct is not None else None,
+            "exit_policy": policy,
             "origin": "bot" if trade.bot_run_id else "manual",
             "bot": None,
             "fanout_ms": result.total_ms,
@@ -806,6 +831,8 @@ def _save_amend(
     result: FanOutResult,
     sl_pct: Decimal | None,
     tp_pct: Decimal | None,
+    exit_policy: str = ExitPolicy.PROTECTED,
+    safety_net_pct: Decimal | None = None,
 ) -> None:
     """Persist an amend. The trade carries the new percentages; each leg carries
     the prices the exchange actually holds, read back and verified per account
@@ -816,7 +843,9 @@ def _save_amend(
     """
     trade.sl_pct = sl_pct
     trade.tp_pct = tp_pct
-    trade.save(update_fields=["sl_pct", "tp_pct"])
+    trade.exit_policy = str(exit_policy)
+    trade.safety_net_pct = safety_net_pct if str(exit_policy) != ExitPolicy.PROTECTED else None
+    trade.save(update_fields=["sl_pct", "tp_pct", "exit_policy", "safety_net_pct"])
 
     legs = {leg.account_id: leg for leg in trade.legs.all()}
     updated = []

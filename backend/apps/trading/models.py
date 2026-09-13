@@ -51,6 +51,22 @@ class Trade(models.Model):
     # The basis in force when this trade was opened (Q5a). Recorded per trade so
     # history stays interpretable if the setting is ever changed.
     sltp_basis = models.CharField(max_length=10, default="price")
+    #: Q37: how this trade was allowed to end. ``protected`` is a stop and a
+    #: take profit resting at the venue; ``strategy_managed`` means the exit
+    #: arrived as a signal and the percentages above may legitimately be blank.
+    #:
+    #: On the trade and not only on the bot for the same reason ``sltp_basis``
+    #: is: a bot's policy can be changed tomorrow, and a trade log that read
+    #: today's rows against tomorrow's setting would say a position was
+    #: unprotected when it was not. Defaulted to ``protected`` so every row
+    #: written before Q37 says what was actually true of it.
+    exit_policy = models.CharField(max_length=20, default="protected")
+    #: The disaster stop that was resting instead of a real one, when there was
+    #: one. Null under ``protected``, and null under ``strategy_managed`` when
+    #: the operator accepted the exposure.
+    safety_net_pct = models.DecimalField(
+        max_digits=10, decimal_places=4, null=True, blank=True
+    )
     admin_entry_price = models.DecimalField(
         max_digits=24, decimal_places=8, null=True, blank=True
     )

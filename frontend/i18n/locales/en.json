@@ -50,7 +50,8 @@
     "change": "Change",
     "saving": "Saving…",
     "apply": "Apply",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "copy": "Copy"
   },
   "theme": {
     "toLight": "Switch to light",
@@ -171,7 +172,21 @@
     "tpPrice": "Target price",
     "amendsLive": "A trade is open: changing the stop or target here sends the amendment to every account at once.",
     "stopLoss": "Stop loss",
-    "takeProfit": "Take profit"
+    "takeProfit": "Take profit",
+    "exitPolicy": {
+      "label": "How this trade ends",
+      "protected": "Stop / target",
+      "managed": "Strategy decides",
+      "protectedHint": "A stop loss and a take profit rest at the exchange. Both are required.",
+      "managedHint": "The strategy closes this position when its own logic says so, at whatever the PnL is. A stop and a target are optional and still sent if you set them."
+    },
+    "safetyNet": {
+      "label": "Safety net %",
+      "placeholder": "Optional",
+      "hint": "A disaster stop, far enough out that the strategy always exits first. It rests at the exchange so something ends the position if this platform is not running.",
+      "beyondLiquidation": "A net this wide sits past liquidation at this leverage, so it could never fire. Use less than {pct}%, or lower the leverage."
+    },
+    "unprotected": "Nothing will rest at the exchange for this trade. It is closed by the strategy alone — if this platform stops running, the position stays open."
   },
   "position": {
     "entry": "Entry",
@@ -1484,7 +1499,11 @@
     "editVersionFixed": "Runs {name} v{n}. The version is what this bot is and cannot be changed — save a new version on the strategy and build a bot from it.",
     "noActionsEvaluated": "Nothing routed yet. {n} bar(s) evaluated so far — a bot that has looked at bars without trading is working, not stuck.",
     "editInputs": "Strategy inputs",
-    "inputEffect": "Effect"
+    "inputEffect": "Effect",
+    "exitPolicy": {
+      "protectedHint": "A stop loss and a take profit rest at the exchange on every entry. Both are required before this bot can start.",
+      "managedHint": "The script closes its own positions — strategy.close, a reversal, a target it computes. A stop and a target are optional; the script must have some exit."
+    }
   },
   "security": {
     "title": "Security",
@@ -1679,5 +1698,34 @@
     },
     "commandsHint": "From the linked chat: /status /positions /balance /bots /help",
     "updated": "Last changed by {user}, {when}"
+  },
+  "signals": {
+    "title": "External signal sources",
+    "hint": "Strategies outside this platform that may open and close positions, each one bound to a single bot.",
+    "status": {
+      "active": "{n} active",
+      "none": "None active"
+    },
+    "boundTo": "Sends to “{bot}” · {symbol}",
+    "signed": "Signed · {fp}",
+    "unsigned": "Unsigned",
+    "unsignedWarning": "This source is on and unsigned, so the URL above is the only thing between anyone who has seen it and this bot’s positions. A live bot requires a signature.",
+    "lastAccepted": "Last signal {when}",
+    "lastSeen": "Last contacted {when}",
+    "neverUsed": "Never used",
+    "rotate": "New secret",
+    "add": "Add a source",
+    "noWebhookBots": "No bot takes external signals yet. Set a bot’s signal source to “webhook” first — it is the bot that owns the pair, the leverage and the size, and a source cannot choose any of them.",
+    "empty": "No external strategy can reach this platform.",
+    "form": {
+      "name": "Name",
+      "bot": "Bot",
+      "pickBot": "Choose a bot"
+    },
+    "secret": {
+      "title": "Copy this secret now",
+      "help": "It is shown once and never again. Your sender signs each request with it. If you lose it, issue a new one — the URL stays the same.",
+      "saved": "Saved it"
+    }
   }
 }

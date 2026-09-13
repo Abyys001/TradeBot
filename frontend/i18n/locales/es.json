@@ -50,7 +50,8 @@
     "change": "Cambiar",
     "saving": "Guardando…",
     "apply": "Aplicar",
-    "refresh": "Actualizar"
+    "refresh": "Actualizar",
+    "copy": "Copiar"
   },
   "theme": {
     "toLight": "Cambiar a claro",
@@ -171,7 +172,21 @@
     "tpPrice": "Precio objetivo",
     "amendsLive": "Hay una operación abierta: cambiar aquí el stop o el objetivo envía la modificación a todas las cuentas a la vez.",
     "stopLoss": "Stop loss",
-    "takeProfit": "Take profit"
+    "takeProfit": "Take profit",
+    "exitPolicy": {
+      "label": "Cómo termina esta operación",
+      "protected": "Stop / objetivo",
+      "managed": "Decide la estrategia",
+      "protectedHint": "Un stop loss y un take profit quedan puestos en el exchange. Ambos son obligatorios.",
+      "managedHint": "La estrategia cierra esta posición cuando lo dice su propia lógica, con el resultado que sea. El stop y el objetivo son opcionales y se siguen enviando si los configuras."
+    },
+    "safetyNet": {
+      "label": "% de red de seguridad",
+      "placeholder": "Opcional",
+      "hint": "Un stop de emergencia, lo bastante lejos como para que la estrategia siempre salga antes. Queda puesto en el exchange para que algo cierre la posición si esta plataforma no está funcionando.",
+      "beyondLiquidation": "Una red así de amplia queda más allá de la liquidación con este apalancamiento, así que nunca se activaría. Usa menos de {pct}% o baja el apalancamiento."
+    },
+    "unprotected": "No quedará nada puesto en el exchange para esta operación. Solo la estrategia la cierra: si esta plataforma deja de funcionar, la posición sigue abierta."
   },
   "position": {
     "entry": "Entrada",
@@ -1484,7 +1499,11 @@
     "editVersionFixed": "Ejecuta {name} v{n}. La versión es la identidad de este bot y no se puede cambiar — guarda una versión nueva de la estrategia y crea un bot a partir de ella.",
     "noActionsEvaluated": "Todavía no se ha enviado nada. {n} vela(s) evaluadas hasta ahora — un bot que ha mirado velas sin operar funciona, no está atascado.",
     "editInputs": "Entradas de la estrategia",
-    "inputEffect": "Efecto"
+    "inputEffect": "Efecto",
+    "exitPolicy": {
+      "protectedHint": "En cada entrada quedan un stop loss y un take profit puestos en el exchange. Ambos son obligatorios antes de que este bot pueda arrancar.",
+      "managedHint": "El script cierra sus propias posiciones: strategy.close, un giro, un objetivo que calcula. El stop y el objetivo son opcionales; el script sí necesita alguna salida."
+    }
   },
   "security": {
     "title": "Seguridad",
@@ -1679,5 +1698,34 @@
     },
     "commandsHint": "Desde el chat vinculado: /status /positions /balance /bots /help",
     "updated": "Último cambio de {user}, {when}"
+  },
+  "signals": {
+    "title": "Fuentes de señales externas",
+    "hint": "Estrategias fuera de esta plataforma que pueden abrir y cerrar posiciones, cada una ligada a un solo bot.",
+    "status": {
+      "active": "{n} activas",
+      "none": "Ninguna activa"
+    },
+    "boundTo": "Envía a «{bot}» · {symbol}",
+    "signed": "Firmada · {fp}",
+    "unsigned": "Sin firma",
+    "unsignedWarning": "Esta fuente está activa y sin firma, así que la URL de arriba es lo único que separa a cualquiera que la haya visto de las posiciones de este bot. Un bot en vivo exige firma.",
+    "lastAccepted": "Última señal {when}",
+    "lastSeen": "Último contacto {when}",
+    "neverUsed": "Nunca usada",
+    "rotate": "Nuevo secreto",
+    "add": "Añadir una fuente",
+    "noWebhookBots": "Todavía ningún bot acepta señales externas. Pon primero la fuente de señales de un bot en «webhook»: el par, el apalancamiento y el tamaño son del bot, y una fuente no elige ninguno.",
+    "empty": "Ninguna estrategia externa llega a esta plataforma.",
+    "form": {
+      "name": "Nombre",
+      "bot": "Bot",
+      "pickBot": "Elige un bot"
+    },
+    "secret": {
+      "title": "Copia este secreto ahora",
+      "help": "Se muestra una vez y nunca más. Tu emisor firma cada petición con él. Si lo pierdes, emite uno nuevo: la URL no cambia.",
+      "saved": "Guardado"
+    }
   }
 }
