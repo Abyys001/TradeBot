@@ -278,10 +278,20 @@ def _num(raw: Any) -> str:
 
 
 def _signed(raw: Any) -> str:
-    """Money with its sign always shown — ``+12.34``, ``-3.1``, and never ``0``
-    dressed up as a gain."""
+    """Money with its sign shown — ``+12.34``, ``-3.1``.
+
+    Zero keeps no sign: a flat trade is not a small gain, and ``+0`` reads like
+    one at a glance, which is the glance this whole message is written for.
+    """
     text = _num(raw)
-    return text if text.startswith(("+", "-")) else f"+{text}"
+    if text.startswith("-"):
+        return text
+    try:
+        if Decimal(text) == 0:
+            return text
+    except InvalidOperation:
+        return text
+    return f"+{text}"
 
 
 def _total(legs: list[dict[str, Any]]) -> Decimal | None:
