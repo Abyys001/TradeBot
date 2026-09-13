@@ -126,6 +126,10 @@ async function act(action: 'paper' | 'live' | 'stop') {
       gate.value = e.data.gate
       tab.value = 'promotion'
       error.value = t('bots.gateUnmetHere')
+    } else if (e?.data?.code === 'unprotected') {
+      // Not a gate row and not waivable — the order itself cannot be sent
+      // without both halves, so the answer is the two fields, not this page.
+      error.value = t('bots.unprotectedHere')
     } else {
       error.value = errorMessage(e)
     }

@@ -693,6 +693,14 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
                 },
                 status=409,
             )
+        # Not a gate row, and deliberately not waivable: every order carries
+        # both a stop loss and a take profit (§4/§5), so a bot that can supply
+        # neither would have every entry refused inside the fan-out. Said here,
+        # in front of the button, rather than by a bot that goes live and stops
+        # itself a second later.
+        gap = await sync_to_async(supervisor.protection_gap)(bot)
+        if gap:
+            return JsonResponse({"detail": gap, "code": "unprotected"}, status=409)
 
     try:
         bot = await sync_to_async(lifecycle.transition)(bot, target)

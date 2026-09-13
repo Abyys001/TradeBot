@@ -1164,6 +1164,8 @@
     "gateBlocks": "La puerta de promoción aún no se cumple",
     "gateUnmet": "{name} no ha cumplido la puerta de promoción",
     "gateUnmetHere": "Este bot no ha cumplido la puerta de promoción. Cada fila pendiente está abajo.",
+    "unprotected": "{name} no tiene stop loss ni take profit que enviar con una orden — configura ambos en el bot primero",
+    "unprotectedHere": "Toda orden que envía esta plataforma lleva stop loss y take profit, y este bot no tiene ni un porcentaje de strategy.exit en el script ni los suyos propios. Configura SL % y TP % en el bot y luego ponlo en vivo.",
     "stoppedByHand": "detenido desde el panel",
     "noAutoResume": "Nada de esto se reanuda solo. Un bot que se detuvo a sí mismo lo reinicia una persona que ha leído por qué.",
     "lastBar": "Última vela",

@@ -1164,6 +1164,8 @@
     "gateBlocks": "The promotion gate is not met yet",
     "gateUnmet": "{name} has not met the promotion gate",
     "gateUnmetHere": "This bot has not met the promotion gate. Every unmet row is below.",
+    "unprotected": "{name} has no stop loss or take profit to send with an order — set both on the bot first",
+    "unprotectedHere": "Every order this platform sends carries both a stop loss and a take profit, and this bot has neither a strategy.exit percentage in the script nor its own. Set SL % and TP % on the bot, then go live.",
     "stoppedByHand": "stopped from the panel",
     "noAutoResume": "Nothing here resumes on its own. A bot that stopped itself is restarted by a person who has read why.",
     "lastBar": "Last bar",

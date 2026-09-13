@@ -1164,6 +1164,8 @@
     "gateBlocks": "Terfi kapısı henüz karşılanmadı",
     "gateUnmet": "{name} terfi kapısını karşılamadı",
     "gateUnmetHere": "Bu bot terfi kapısını karşılamadı. Karşılanmayan her satır aşağıda.",
+    "unprotected": "{name} emirle birlikte gönderilecek bir zarar durdur veya kâr al seviyesine sahip değil — önce ikisini de bota ayarlayın",
+    "unprotectedHere": "Bu platformun gönderdiği her emir hem zarar durdur hem kâr al taşır ve bu botun ne script'inde strategy.exit yüzdesi ne de kendi değerleri var. Bota SL % ve TP % ayarlayın, sonra canlıya geçin.",
     "stoppedByHand": "panelden durduruldu",
     "noAutoResume": "Buradaki hiçbir şey kendiliğinden devam etmez. Kendini durduran bir botu, nedenini okumuş bir kişi yeniden başlatır.",
     "lastBar": "Son mum",

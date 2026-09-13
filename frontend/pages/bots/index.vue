@@ -83,9 +83,15 @@ async function act(bot: BotSummary, action: 'paper' | 'live' | 'stop') {
   } catch (e: any) {
     // A 409 from the gate carries the whole gate; the detail page renders it,
     // so the list says which bot and sends the operator there rather than
-    // trying to explain nine rows in a toast.
+    // trying to explain nine rows in a toast. The other refusal in front of
+    // live is the one the gate cannot waive: nothing to protect the order with.
+    const code = e?.data?.code
     error.value =
-      e?.data?.code === 'gate_unmet' ? t('bots.gateUnmet', { name: bot.name }) : errorMessage(e)
+      code === 'gate_unmet'
+        ? t('bots.gateUnmet', { name: bot.name })
+        : code === 'unprotected'
+          ? t('bots.unprotected', { name: bot.name })
+          : errorMessage(e)
   } finally {
     busy.value = null
   }

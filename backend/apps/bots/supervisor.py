@@ -309,6 +309,22 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             "; ".join(str(e) for e in result.errors),
         )
 
+    gap = protection_gap(bot, program=result.program)
+    if gap and not bot.dry_run:
+        raise _AutoStop(StopReason.RISK_GATE, gap)
+    if gap:
+        # Paper routes nothing, so it is allowed to run — and this is the one
+        # moment the operator can act on it before promotion, rather than
+        # finding out from a live signal that was refused.
+        system_log(
+            "WARNING",
+            "BOT",
+            f"bot {bot.name} would not be able to route an entry: {gap}",
+            source="apps.bots.supervisor",
+            error_code="bot_unprotected",
+            context={"bot": bot.name, "bot_id": bot.id, "detail": gap},
+        )
+
     runtime = Runtime(
         result.program,
         symbol=bot.symbol,
@@ -664,16 +680,76 @@ def _record_outcomes(run: BotRun, outcomes: list[dict]) -> None:
 
 
 def _current_equity() -> Decimal | None:
-    from apps.accounts.models import ConnectedAccount
+    """Total balance across the live accounts — what the script reads as equity.
+
+    Keyed on ``status``: ``ConnectedAccount`` has no ``active`` field, so this
+    raised ``FieldError`` on the first bar of every live run and the supervisor
+    turned that into a ``script_error`` auto-stop — a bot blaming the
+    operator's script for something the script had no part in. The same filter
+    as ``riskgate._run_equity``, deliberately: the book a drawdown limit
+    measures and the book the script reads are one book.
+    """
+    from apps.accounts.models import AccountStatus, ConnectedAccount
 
     values = [
         Decimal(str(v))
-        for v in ConnectedAccount.objects.filter(active=True).values_list(
+        for v in ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE).values_list(
             "last_balance", flat=True
         )
         if v is not None
     ]
     return sum(values, Decimal("0")) if values else None
+
+
+def protection_gap(bot: Bot, *, program=None) -> str:
+    """Why an entry from this bot could never be routed, or ``""``.
+
+    Every order this platform sends carries both a stop loss and a take profit
+    — ``executor._require_protection``, spec §4/§5 — and there are exactly two
+    places the pair can come from: a percent ``strategy.exit`` in the script,
+    or the bot's own ``sl_pct``/``tp_pct`` (Q21, in that order of precedence).
+    A script that manages its stops with ``strategy.close`` on later bars
+    supplies neither, so a bot configured with blank percentages refuses
+    *every* entry it ever signals, one at a time, deep inside a fan-out that
+    never starts.
+
+    Checked once at start-up instead, for the reason the clock and the warm-up
+    are: a bot that cannot trade should say so to the person pressing the
+    button, not at three in the morning to nobody. The condition is read off
+    the script's own call sites — ``strategy.exit`` is the only call that can
+    carry ``loss_pct``/``profit_pct``, and the validator has already refused
+    one that carries neither.
+    """
+    from apps.pine import ast_nodes as ast
+
+    if program is None:
+        program = _validated(bot).program
+    if program is None:
+        # The script does not parse. That is the validator's refusal to make,
+        # with its own line numbers, not this one's.
+        return ""
+
+    exits = [
+        node
+        for node in ast.walk(program)
+        if isinstance(node, ast.Call) and ast.dotted_name(node.func) == "strategy.exit"
+    ]
+    named = {arg.name for node in exits for arg in node.args}
+    missing = [
+        label
+        for label, configured, from_script in (
+            ("stop loss (SL %)", bot.sl_pct, "loss_pct" in named),
+            ("take profit (TP %)", bot.tp_pct, "profit_pct" in named),
+        )
+        if configured is None and not from_script
+    ]
+    if not missing:
+        return ""
+    return (
+        f"this bot has no {' and no '.join(missing)}: the script never sets one and the "
+        f"bot's own percentages are blank, so every entry it signals would be refused "
+        f"— set them on the bot before starting it"
+    )
 
 
 def _symbol_info(bot: Bot) -> SymbolInfo:

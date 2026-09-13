@@ -573,7 +573,10 @@ def test_the_gate_no_longer_carries_the_two_drill_rows():
 def test_turning_the_gate_off_lets_a_bot_go_live_unmeasured():
     """The admin's decision, recorded on the bot — not a dialog nobody logged."""
     client = staff()
-    bot = make_bot(state=BotState.PAPER)
+    # With its SL/TP filled in: the gate is the admin's to switch off, and the
+    # one refusal underneath it that is not — a bot whose entries could carry
+    # no protection at all (§4/§5) — is not what this test is about.
+    bot = make_bot(state=BotState.PAPER, sl_pct="1", tp_pct="2")
     body = post(client, f"/api/bots/bots/{bot.id}/gate/", {"enforced": False}).json()
     assert body["gate"]["enforced"] is False
     assert body["gate"]["ready"] is True
@@ -865,3 +868,22 @@ def test_the_backtest_list_is_newest_first():
     _stored_run(version, symbol="NEWER")
     rows = staff().get("/api/bots/backtests/").json()
     assert [row["symbol"] for row in rows] == ["NEWER", "OLDER"]
+
+
+def test_going_live_with_nothing_to_protect_the_order_with_is_refused():
+    """§4/§5: every order carries both halves, so a bot that can supply neither
+    is refused in front of the button rather than by a fan-out at 03:00.
+
+    Under the gate, not through it: this one is not waivable, because the
+    refusal it prevents is the exchange's, not this platform's judgement.
+    """
+    client = staff()
+    bot = make_bot(state=BotState.PAPER)
+    post(client, f"/api/bots/bots/{bot.id}/gate/", {"enforced": False})
+
+    response = post(client, f"/api/bots/bots/{bot.id}/start/", {"state": "live"})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "unprotected"
+    bot.refresh_from_db()
+    assert bot.state == BotState.PAPER
