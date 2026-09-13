@@ -235,6 +235,15 @@ which forwards the HTTP request and drops the `Upgrade` handshake. That is what
 left the socket on "Connecting" with both latency readings blank. A handler is
 a different mechanism (nitro hands upgrades to the worker) and does carry it.
 
+And the socket only *stays* up while the Redis read outlives the blocking pop
+underneath it. An idle consumer parks in `channels_redis`' `BZPOPMIN` for
+`brpop_timeout` (5s); redis-py 8 made the async socket read timeout default to
+5s as well, so the two expired together, the client won, and every consumer
+died on a command that was working — the panel reconnecting every few seconds
+and logging a system error each time. `REDIS_SOCKET_TIMEOUT` (30s) is passed
+per host in `settings.channel_layer_config`, and `tests/test_channel_layer.py`
+keeps it above `brpop_timeout` from both sides.
+
 `NUXT_PUBLIC_WS_BASE` survives only as an escape hatch for putting Channels on
 a separate hostname, and `stores/live.ts` **ignores** it when it names a
 loopback the browser cannot reach or a `ws://` URL on an `https://` page — the

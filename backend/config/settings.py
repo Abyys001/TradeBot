@@ -156,15 +156,53 @@ DATABASES = {"default": database_config()}
 # Same reasoning as the database: tests must not need a Redis to be running,
 # and must never publish test events onto a real channel layer.
 REDIS_URL = "" if RUNNING_TESTS else os.getenv("REDIS_URL", "")
-if REDIS_URL:
-    CHANNEL_LAYERS = {
+
+#: How long a read from Redis may take before it is called a failure.
+#:
+#: **This must outlive the blocking command it is waiting on.** Every idle
+#: consumer sits in ``channels_redis``' ``BZPOPMIN``, which blocks server-side
+#: for ``RedisChannelLayer.brpop_timeout`` — five seconds. redis-py 8 changed
+#: the async socket read timeout default from "never" to *five seconds*, so the
+#: client's deadline and the server's block began expiring at the same instant
+#: and the client won: every idle ``receive()`` raised ``TimeoutError: Timeout
+#: reading from redis``, which killed the consumer and dropped the panel's
+#: WebSocket a few seconds after each connect, over and over. Nothing that
+#: rides that socket — bot state, per-leg results, failure notices, the two
+#: latency readings — arrived at all, and each drop was logged as a system
+#: error. Six idle receives out of six failed; it was not intermittent.
+#:
+#: Thirty seconds rather than "just over five": the margin is for a slow hop or
+#: a busy Redis, and a read that really has hung this long is a Redis that is
+#: gone, which is what this timeout is *for*. ``tests/test_channel_layer.py``
+#: pins it above ``brpop_timeout`` so a future bump of either cannot quietly
+#: put them back on top of each other.
+REDIS_SOCKET_TIMEOUT = float(os.getenv("REDIS_SOCKET_TIMEOUT", "30"))
+
+def channel_layer_config(redis_url: str) -> dict:
+    """The channel layer for this deployment: Redis when there is one, memory otherwise.
+
+    A function, like ``database_config``, so the Redis branch can be built and
+    checked without a Redis — the suite runs with ``REDIS_URL`` blanked, which
+    is exactly the branch that broke.
+
+    The host is a **dict**, not the bare URL string it used to be:
+    ``channels_redis`` hands a dict to ``ConnectionPool.from_url(address,
+    **rest)``, and that is the only way the read timeout above reaches the
+    connection. A bare string takes redis-py's default in silence.
+    """
+    if not redis_url:
+        return {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+    return {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {"hosts": [REDIS_URL]},
+            "CONFIG": {
+                "hosts": [{"address": redis_url, "socket_timeout": REDIS_SOCKET_TIMEOUT}]
+            },
         }
     }
-else:
-    CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
+
+
+CHANNEL_LAYERS = channel_layer_config(REDIS_URL)
 
 # Redis when there is one, per-process memory otherwise. The cache holds market
 # data (cheap to lose) and the spec §7 kill-switch flag (not cheap to lose) —
