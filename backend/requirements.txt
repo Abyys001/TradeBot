@@ -26,7 +26,7 @@ whitenoise==6.8.2
 # The downloadable per-account PDF statement (apps/accounts/statement.py).
 # Pure-python wheel, so it needs no system libraries in the image — which is
 # exactly why it is here rather than WeasyPrint.
-reportlab==4.2.5
+reportlab==5.0.1
 # Persian statements. ReportLab draws glyphs in the order it is given them, so
 # Arabic script needs two passes before it reaches the canvas: reshaping picks
 # the contextual (initial/medial/final) form of each letter, and the bidi
