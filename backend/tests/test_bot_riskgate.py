@@ -170,6 +170,36 @@ async def test_a_feed_one_bar_late_is_not_a_silent_feed():
     assert (await g.check_triggers(now=at(1700000000 + 900))).allowed
 
 
+async def test_a_feed_that_has_just_caught_up_is_not_a_silent_feed():
+    """The stop that fired on 2026-09-14 while the feed was handing over bars.
+
+    A stream that fell behind and then repaired delivers its backlog oldest
+    first, and this check runs on the first of those bars — when the run still
+    describes where the bot *was*. Measured against the run, a feed that was
+    current again read as three hours silent and the bot was stopped for having
+    no bars while being given four.
+    """
+    g = await gate(interval="30m")
+    g.run.last_bar_time = 1789407000
+    # The feed's newest bar is the one that has just arrived; the run is three
+    # hours behind it because those three hours are the backlog being replayed.
+    decision = await g.check_triggers(
+        now=at(1789416000 + 1805), feed_time=1789416000
+    )
+    assert decision.allowed and not decision.stop
+
+
+async def test_a_feed_serving_bars_the_market_has_left_behind_still_stops_the_bot():
+    """Proof of life is not proof of currency — the rule still has to bite."""
+    g = await gate(interval="30m")
+    g.run.last_bar_time = 1789407000
+    decision = await g.check_triggers(
+        now=at(1789407000 + 1800 * 20), feed_time=1789407000
+    )
+    assert decision.stop is True
+    assert decision.code == StopReason.NO_BARS
+
+
 async def test_a_run_that_has_seen_no_bar_yet_is_not_a_silent_feed():
     """Warm-up is not silence, and stopping during it would stop every start."""
     g = await gate(interval="15m")

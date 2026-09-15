@@ -237,43 +237,205 @@ def _fake_repair(candles):
 # `bars_evaluated = 0` while looking perfectly healthy.
 
 
+def now_bar(interval: str = "15m") -> tuple[int, int]:
+    """The bar open time that is forming *right now*, and the step.
+
+    Rollover is defined against the wall clock — a bar is finished when its own
+    window has closed — so these have to be real times rather than a convenient
+    small integer, or every one of them is already hours past.
+    """
+    import time
+
+    step = interval_seconds(interval)
+    now = int(time.time())
+    return now - now % step, step
+
+
+def no_catch_up(f: BarFeed) -> BarFeed:
+    """Silence the REST catch-up, which has its own tests below.
+
+    These fixtures park the feed one bar behind on purpose, which is exactly
+    the state the catch-up exists to notice.
+    """
+
+    async def _none(provider: str) -> list:
+        return []
+
+    f._catch_up = _none  # type: ignore[assignment]
+    return f
+
+
 async def test_a_later_bar_arriving_proves_the_one_before_it_finished():
     """The signal that does arrive, when the flag never does."""
-    f = feed()
-    f.last_bar_time = 900
-    # Updates to the bar that is still forming release nothing.
-    assert await f._rollover(candle(1800), "test") == []
-    assert await f._rollover(candle(1800, "101"), "test") == []
-    # The venue moves on. That is the proof the 1800 bar is finished — and it
-    # is the *last* state seen of it that is delivered, not the first.
-    released = await f._rollover(candle(2700), "test")
-    assert [item.bar.time for item in released] == [1800]
+    f = no_catch_up(feed())
+    current, step = now_bar()
+    previous = current - step
+    f.last_bar_time = previous - step
+
+    with override_settings(BOT=bot_settings_with(BAR_CONFIRM_LAG_MS=86_400_000)):
+        # Updates to the bar that is still forming release nothing, and neither
+        # does the clock while the confirmation lag has not passed.
+        assert await f._rollover(candle(previous), "test") == []
+        assert await f._rollover(candle(previous, "101"), "test") == []
+        assert await f._rollover(candle(current), "test") == []
+
+    # The venue has moved on and the lag has passed — and it is the *last*
+    # state seen of the previous bar that is delivered, not the first.
+    released = await f._rollover(candle(current, "102"), "test")
+    assert [item.bar.time for item in released] == [previous]
     assert released[0].bar.close == D("101")
 
 
 async def test_a_rolled_over_bar_waits_out_the_confirmation_lag_rather_than_being_dropped():
     """Q23 still decides when a finished bar may be *used*."""
-    import time
+    f = no_catch_up(feed())
+    current, step = now_bar()
+    previous = current - step
+    f.last_bar_time = previous - step
 
-    f = feed()
-    now = int(time.time())
-    current = now - now % 900
-    f.last_bar_time = current - 1800
-    # The previous bar has only just rolled over, so it is inside
-    # BAR_CONFIRM_LAG_MS and must not be delivered yet.
-    await f._rollover(candle(current - 900), "test")
     with override_settings(BOT=bot_settings_with(BAR_CONFIRM_LAG_MS=86_400_000)):
+        assert await f._rollover(candle(previous), "test") == []
         assert await f._rollover(candle(current), "test") == []
-        assert [row.time for row in f._finished] == [current - 900]
+        assert [row.time for row in f._finished] == [previous]
+
     # Held, not thrown away: the next update admits it once the lag has passed.
     released = await f._rollover(candle(current, "101"), "test")
-    assert [item.bar.time for item in released] == [current - 900]
+    assert [item.bar.time for item in released] == [previous]
 
 
 async def test_rollover_never_delivers_the_bar_that_is_still_forming():
-    f = feed()
-    f.last_bar_time = 900
-    await f._rollover(candle(1800), "test")
-    await f._rollover(candle(2700), "test")
-    # 2700 is the open bar now. Nothing has proved it finished.
-    assert f.last_bar_time == 1800
+    f = no_catch_up(feed())
+    current, step = now_bar()
+    previous = current - step
+    f.last_bar_time = previous - step
+    await f._rollover(candle(previous), "test")
+    await f._rollover(candle(current), "test")
+    # `current` is the open bar now. Nothing has proved it finished.
+    assert f.last_bar_time == previous
+
+
+# --- a stream that stays up and stops moving ---------------------------------
+#
+# The other half of the same lesson, and the one that stopped the bot on
+# 2026-09-14. Rollover is defined as "a later bar arrived". A Hyperliquid socket
+# on ZECUSDC 30m kept sending frames — the 90s idle timeout never fired, and the
+# venue only closed it with "Expired" two hours later — without a single frame
+# ever carrying a later bar. Nothing rolled over, so the bot evaluated nothing
+# from 17:30 onward, and the first thing to notice was Q25's no-bars auto-stop,
+# which stopped the bot rather than the stall.
+
+
+async def test_a_bar_whose_window_has_closed_is_released_without_a_later_one():
+    """The clock is the second signal, for when the venue never sends a third."""
+    f = no_catch_up(feed())
+    current, step = now_bar()
+    previous = current - step
+    f.last_bar_time = previous - step
+
+    # One frame, for a bar that has already closed, and never another for a
+    # later one. It is finished whatever the venue does next.
+    released = await f._rollover(candle(previous, "101"), "test")
+    assert [item.bar.time for item in released] == [previous]
+
+
+async def test_a_stream_republishing_one_bar_does_not_freeze_the_feed():
+    """Frames keep arriving, none of them later. The feed must still move."""
+    f = no_catch_up(feed())
+    current, step = now_bar()
+    previous = current - step
+    f.last_bar_time = previous - step
+
+    delivered = [item.bar.time for item in await f._rollover(candle(previous), "test")]
+    # The same bar, again and again. Delivered once, and never twice.
+    for _ in range(5):
+        delivered += [item.bar.time for item in await f._rollover(candle(previous), "test")]
+    assert delivered == [previous]
+
+
+async def test_a_closing_flag_inside_the_confirmation_lag_does_not_lose_the_bar(monkeypatch):
+    """The venue's own ``closed`` flag used to *discard* the bar it named.
+
+    ``_forming`` was cleared and the candle handed straight to ``_accept``,
+    which refuses a bar still inside ``BAR_CONFIRM_LAG_MS`` — so nothing held
+    it and nothing could roll it over afterwards. On an active pair the first
+    frame past ``T`` almost always lands inside that lag, which is where the
+    recurring "1 bar(s) missing — refetching" came from.
+    """
+    from apps.exchanges.public_stream import BarUpdate, StreamDown
+
+    f = no_catch_up(feed())
+    current, step = now_bar()
+    previous = current - step
+    f.last_bar_time = previous - step
+
+    frames = [
+        # Flagged closed by the venue, but only just — inside the lag, so
+        # `_accept` will not take it yet.
+        ("hyperliquid", BarUpdate(candle=candle(previous, "101"), closed=True)),
+        # ...and then the next bar, as the venue moves on and the lag passes.
+        ("hyperliquid", BarUpdate(candle=candle(current), closed=False)),
+    ]
+    lags = iter([False, True, True, True])
+
+    def confirmed(open_time, interval, now=None):
+        if open_time >= current:
+            return False
+        return next(lags, True)
+
+    async def fake_stream_bars(**kwargs):
+        for frame in frames:
+            yield frame
+
+    monkeypatch.setattr("apps.bots.feed.is_confirmed", confirmed)
+    out = [item.bar.time async for item in f._stream([], fake_stream_bars, StreamDown)]
+    assert out == [previous], "the flagged bar was dropped instead of held"
+
+
+async def test_a_feed_left_behind_the_market_catches_up_over_rest(monkeypatch):
+    """The safety net under the clock release, for a stream frozen *behind*.
+
+    Neither rollover nor the clock can reach a socket that never names a bar
+    later than one already delivered: there is nothing to promote. The wall
+    clock can see it, and the REST source the repair path already uses has the
+    bars.
+    """
+    f = feed("30m")
+    current, step = now_bar("30m")
+    f.last_bar_time = current - 5 * step
+
+    wanted = [current - 4 * step, current - 3 * step, current - 2 * step, current - step]
+    payload = {
+        "source": "hyperliquid",
+        "candles": [
+            {"t": t, "o": "100", "h": "101", "l": "99", "c": "100", "v": "5"}
+            for t in [*wanted, current]
+        ],
+    }
+    monkeypatch.setattr("apps.exchanges.marketdata.get_candles", lambda **kwargs: payload)
+
+    released = await f._catch_up("hyperliquid")
+    assert [item.bar.time for item in released] == wanted
+    assert f.last_bar_time == wanted[-1], "the bar still forming is not delivered"
+
+
+async def test_the_catch_up_leaves_a_stream_that_is_merely_between_bars_alone():
+    """It must never race the stream's own delivery."""
+    f = feed("30m")
+    current, step = now_bar("30m")
+    # One bar behind: the ordinary state between "a bar closed" and "it arrived".
+    f.last_bar_time = current - step
+    assert await f._catch_up("hyperliquid") == []
+
+
+async def test_a_failed_catch_up_fetch_is_not_a_gap(monkeypatch):
+    """One unreachable fetch is a retry, not a reason to stop a live bot."""
+    f = feed("30m")
+    current, step = now_bar("30m")
+    f.last_bar_time = current - 5 * step
+
+    def boom(**kwargs):
+        raise RuntimeError("no route to host")
+
+    monkeypatch.setattr("apps.exchanges.marketdata.get_candles", boom)
+    assert await f._catch_up("hyperliquid") == []
+    assert f.last_bar_time == current - 5 * step

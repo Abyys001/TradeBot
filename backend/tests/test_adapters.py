@@ -1915,6 +1915,74 @@ async def test_hyperliquid_sends_the_entry_and_its_protection_in_one_action():
         assert child["sz"] == entry["sz"]
 
 
+async def test_hyperliquid_sends_a_lone_entry_ungrouped_under_strategy_managed():
+    """Regression: every bot order was refused before it reached the book.
+
+    ``normalTpsl`` names a parent *with* children and Hyperliquid validates it
+    literally — a bundle carrying the grouping and no trigger order is refused
+    with "Unexpected number of trigger orders." That is precisely what Q37's
+    ``strategy_managed`` produces: no stop, no target, no safety net, because
+    the strategy's own exit is the exit. On 2026-09-14 all three accounts of a
+    live fan-out were rejected on it, identically, before anything was placed.
+    """
+    from apps.exchanges.base import MarketType, OrderType, Side
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.01"),
+        order_type=OrderType.LIMIT,
+        limit_price=D("60000"),
+        stop_loss=None,
+        take_profit=None,
+    )
+
+    requests, grouping = stub.bulk[0]
+    assert len(requests) == 1, "nothing but the entry was asked for"
+    assert grouping == "na", "a lone entry is an ordinary order, not a parent"
+
+
+async def test_hyperliquid_still_groups_an_entry_that_carries_one_side_only():
+    """``strategy_managed`` may still supply a stop — a safety net is one.
+
+    One child is a real parent-and-child bundle and must stay grouped, or the
+    net would rest at the venue untied to the entry that created it.
+    """
+    from apps.exchanges.base import MarketType, OrderType, Side
+    from apps.exchanges.hyperliquid import HyperliquidAdapter
+
+    adapter = HyperliquidAdapter(
+        agent_private_key="0x" + "11" * 32, account_address="0xabc", testnet=True
+    )
+    stub = _TpslSdk(_LONG_BTC)
+    adapter._exchange = stub
+    adapter._info = stub
+
+    await adapter.place_order(
+        symbol="BTCUSDT",
+        market=MarketType.FUTURES,
+        side=Side.LONG,
+        qty=D("0.01"),
+        order_type=OrderType.LIMIT,
+        limit_price=D("60000"),
+        stop_loss=D("54000"),
+        take_profit=None,
+    )
+
+    requests, grouping = stub.bulk[0]
+    assert grouping == "normalTpsl"
+    assert [r["order_type"]["trigger"]["tpsl"] for r in requests[1:]] == ["sl"]
+
+
 async def test_hyperliquid_reads_back_protection_in_the_shape_the_api_returns():
     """Regression: the read-back parsed a shape ``frontendOpenOrders`` never sends.
 

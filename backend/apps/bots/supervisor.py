@@ -427,7 +427,10 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
         run = await sync_to_async(_load_run)(run_id) or run
         gate.bot, gate.run = bot, run
 
-        triggers = await gate.check_triggers()
+        # The feed's own newest bar, not the run's: a stream that fell behind
+        # and caught up delivers its backlog oldest first, and the run is still
+        # describing where the bot *was* when this runs on the first of them.
+        triggers = await gate.check_triggers(feed_time=feed.last_bar_time)
         if triggers.stop:
             raise _AutoStop(triggers.code, triggers.reason)
 
@@ -671,7 +674,14 @@ def _persist_bar(run: BotRun, feed_bar, outcome, previous: dict | None) -> dict:
     run.bars_evaluated += 1
     if feed_bar.repaired:
         run.feed_gaps_repaired += 1
-    run.save(update_fields=["last_bar_time", "bars_evaluated", "feed_gaps_repaired"])
+    fields = ["last_bar_time", "bars_evaluated", "feed_gaps_repaired"]
+    # Which transport is actually in force. It was recorded once at warm-up,
+    # before ``__aiter__`` had chosen one, so every streamed run reported
+    # itself as polled — the blur the panel is meant not to do.
+    if run.feed_source != feed_bar.transport:
+        run.feed_source = feed_bar.transport
+        fields.append("feed_source")
+    run.save(update_fields=fields)
     retention.trim(run)
     return {"intent": intent, "plots": plots}
 

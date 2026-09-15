@@ -125,6 +125,14 @@ def is_confirmed(open_time: int, interval: str, *, now: float | None = None) -> 
     return moment >= open_time + interval_seconds(interval) + lag
 
 
+#: How long past a bar's own close the *next* bar may go undelivered before
+#: the stream is treated as frozen and the REST feed is asked instead. A whole
+#: further bar is already allowed on top of this, so on any timeframe this is
+#: slack beyond slack — it exists so the catch-up can never race a stream that
+#: is merely slow.
+STREAM_CATCHUP_GRACE = 60.0
+
+
 def warmup_bars_needed(lookback: int) -> int:
     """``max(indicator lookback) × multiplier``, floored at the minimum.
 
@@ -172,6 +180,9 @@ class BarFeed:
         #: enough on its own.
         self._forming: Candle | None = None
         self._finished: list[Candle] = []
+        #: When ``_catch_up`` last asked the REST feed, so a stream that has
+        #: frozen behind the market is not one fetch per frame.
+        self._catch_up_at = 0.0
 
     # --- history ------------------------------------------------------------
 
@@ -299,9 +310,19 @@ class BarFeed:
                 provider, bar_update = update
                 self.source = provider
                 if bar_update.closed:
-                    # The venue said so. Nothing left forming behind it.
+                    # The venue said so. Nothing left forming behind it — but
+                    # the bar may still be inside ``BAR_CONFIRM_LAG_MS``, and
+                    # ``_accept`` refuses one that is. Handing it straight to
+                    # ``_accept`` therefore *dropped* it: cleared from
+                    # ``_forming`` and refused by the gate, with nothing left
+                    # holding it. On an active pair the venue's first frame
+                    # past ``T`` almost always lands inside the two-second lag,
+                    # which is where the recurring "1 bar(s) missing —
+                    # refetching" came from. Queue it like any other finished
+                    # bar and let the release gate decide when it may be used.
                     self._forming = None
-                    for item in await self._accept(bar_update.candle, provider):
+                    self._finished.append(bar_update.candle)
+                    for item in await self._release(provider):
                         yield item
                     continue
                 for item in await self._rollover(bar_update.candle, provider):
@@ -358,6 +379,25 @@ class BarFeed:
             self._finished.append(self._forming)
         self._forming = candle
 
+        # **And rollover cannot be the only signal either.** A stream can stay
+        # connected, keep pushing frames, and still stop moving forward. On
+        # 2026-09-14 the Hyperliquid socket did exactly that on ZECUSDC 30m:
+        # frames kept arriving — the 90s idle timeout never fired, the venue
+        # only closed the socket with "Expired" two hours later — but no frame
+        # ever carried a *later* bar, so nothing was ever rolled over and the
+        # bot evaluated nothing from 17:30 until Q25's no-bars stop killed it.
+        # A bar whose own window has closed and been confirmed is finished
+        # whatever the venue does next, so the clock releases it here.
+        if self._forming is not None and is_confirmed(self._forming.time, self.interval):
+            self._finished.append(self._forming)
+            self._forming = None
+
+        out = await self._catch_up(provider)
+        out.extend(await self._release(provider))
+        return out
+
+    async def _release(self, provider: str) -> list[FeedBar]:
+        """Hand over every held bar Q23 now allows, oldest first."""
         ready = [row for row in self._finished if is_confirmed(row.time, self.interval)]
         if not ready:
             return []
@@ -366,6 +406,64 @@ class BarFeed:
         out: list[FeedBar] = []
         for row in sorted(ready, key=lambda item: item.time):
             out.extend(await self._accept(row, provider))
+        return out
+
+    async def _catch_up(self, provider: str) -> list[FeedBar]:
+        """Bars the market has finished and the stream never offered.
+
+        The safety net under ``_rollover``'s clock release, for the case that
+        release cannot reach: a socket that keeps re-sending a bar already
+        delivered, or simply never mentions the next one. Rollover is defined
+        as "a later bar arrived" and the clock release only promotes the bar
+        the venue last named, so neither notices a stream frozen *behind* the
+        market. The wall clock does, and the REST source the repair path
+        already uses has the bars.
+
+        Deliberately lazy: it does nothing until the bar after the last one
+        delivered has been closed for a whole further bar plus
+        ``STREAM_CATCHUP_GRACE``, so it can never race the stream's own
+        delivery, and it retries no faster than one fetch per
+        ``poll_seconds`` while a fetch keeps failing. Everything it fetches
+        goes through ``_accept``, so ordering, de-duplication and Q25's
+        unrepairable-gap stop are the same rules as every other path.
+        """
+        from apps.exchanges import marketdata
+
+        if self.last_bar_time is None:
+            return []
+        behind = self.last_bar_time + 2 * self.step + STREAM_CATCHUP_GRACE
+        now = time.time()
+        if now < behind or now - self._catch_up_at < self.poll_seconds:
+            return []
+        self._catch_up_at = now
+        missing = int((now - self.last_bar_time) // self.step)
+        logger.warning(
+            "bot feed %s %s: the stream is %d bar(s) behind the market — asking the "
+            "REST feed instead",
+            self.symbol,
+            self.interval,
+            missing,
+            extra={"category": "BOT"},
+        )
+        try:
+            payload = await sync_to_async(marketdata.get_candles)(
+                symbol=self.symbol,
+                interval=self.interval,
+                market=self.market,
+                limit=min(1000, missing + 10),
+            )
+        except Exception as exc:  # noqa: BLE001 - one failed fetch is not a gap
+            logger.info("bot feed %s: catch-up fetch failed (%s)", self.symbol, exc)
+            return []
+        candles = sorted(
+            (_candle_from(row) for row in payload.get("candles", [])),
+            key=lambda item: item.time,
+        )
+        out: list[FeedBar] = []
+        for candle in candles:
+            if not is_confirmed(candle.time, self.interval):
+                continue
+            out.extend(await self._accept(candle, payload.get("source") or provider))
         return out
 
     async def _accept(self, candle: Candle, provider: str) -> list[FeedBar]:

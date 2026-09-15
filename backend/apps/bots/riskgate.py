@@ -98,7 +98,7 @@ class RiskGate:
 
     # --- the Q25 triggers ---------------------------------------------------
 
-    async def check_triggers(self, *, now=None) -> Decision:
+    async def check_triggers(self, *, now=None, feed_time: int | None = None) -> Decision:
         """The four countable triggers. Feed gaps and script errors arrive as
         exceptions and stop the bot at their raise site; state disagreement is
         checked by ``recovery`` after its second pass."""
@@ -135,7 +135,7 @@ class RiskGate:
                     code=StopReason.TRADE_RATE,
                 )
 
-        stale = await self._no_bars_for(moment)
+        stale = await self._no_bars_for(moment, feed_time)
         if stale is not None:
             return stale
 
@@ -150,27 +150,39 @@ class RiskGate:
             return ZERO
         return (peak - equity) / peak * HUNDRED
 
-    async def _no_bars_for(self, moment) -> Decision | None:
+    async def _no_bars_for(self, moment, feed_time: int | None = None) -> Decision | None:
         """A feed that has gone quiet is not a feed that is working slowly.
 
-        Measured from the last bar the bot *evaluated*, not from the last poll:
-        a poll that keeps returning the same stale bar looks healthy from the
-        socket's side and is exactly the silence this catches.
+        Measured from the newest bar the **feed** has seen, not the last one
+        the bot *evaluated*. The two are the same on a healthy feed and they
+        part company in exactly the case this check must not punish: a stream
+        that fell behind and then caught up hands over its backlog oldest
+        first, and this runs on the first of those bars. Reading the run's
+        ``last_bar_time`` there measures how far behind the bot *was* — so a
+        feed that had just repaired four bars and was current again stopped
+        the bot on 2026-09-14 for having no bars, while handing it one.
+
+        Note what this can and cannot see. It runs once per delivered bar, so
+        it is proof-of-life reasoning: it fires when the feed is *serving*
+        while the market has moved hours past it. A feed delivering nothing at
+        all never reaches here — that is the stream's own idle timeout, the
+        catch-up in ``feed._catch_up`` and Q25's unrepairable-gap stop.
         """
         multiple = int(limit_for(self.bot, "NO_BAR_TIMEOUT_MULTIPLE"))
-        if not multiple or self.run.last_bar_time is None:
+        newest = feed_time if feed_time is not None else self.run.last_bar_time
+        if not multiple or newest is None:
             return None
         from apps.bots.feed import interval_seconds
 
         step = interval_seconds(self.bot.interval)
-        deadline = self.run.last_bar_time + step * (multiple + 1)
+        deadline = newest + step * (multiple + 1)
         if moment.timestamp() > deadline:
             return Decision(
                 allowed=False,
                 stop=True,
                 reason=(
                     f"no confirmed bar for more than {multiple}× the {self.bot.interval} "
-                    f"timeframe — the last one was at {self.run.last_bar_time}"
+                    f"timeframe — the last one was at {newest}"
                 ),
                 code=StopReason.NO_BARS,
             )

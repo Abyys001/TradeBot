@@ -532,6 +532,17 @@ is restarted by a person who has read why.
 The two that are not numbers are not numbers on purpose: a setting there would be
 a setting for how much silent disagreement with the market is acceptable.
 
+**"No confirmed bar" is measured against the feed, not against the run.** The
+check only ever runs when a bar is delivered, so the run's own `last_bar_time`
+describes where the bot *was*, not where the market is — and a stream that fell
+behind and then repaired hands its backlog over oldest first. Measured against
+the run, a feed that was current again read as hours silent: on 2026-09-14 a bot
+was stopped for having no bars at the moment it was handed four. It is measured
+against the newest bar the **feed** has seen, which is proof-of-life reasoning
+and says so: a feed delivering nothing at all never reaches this check, and is
+caught instead by the stream's idle timeout, the REST catch-up below, and the
+unrepairable-gap stop.
+
 The **§7 halt is the exception that is not a stop** for the bot's own gate —
 under it a bot pauses and resumes when the halt clears. But turning the halt on,
 or pressing close-all, **stops every running bot** (Q22): a halt that flattens
@@ -624,6 +635,19 @@ bar. A disagreement is retried once and then stops the bot.
 | Live disagrees with the backtest | the intent digest on the run against the one on the report; `BotRun.divergences` |
 | A signal never fires | check the upload warnings for `ta_not_hoisted`, and `Runtime.advance_failures` on the run |
 | The panel says "no price feed" | the bot's feed is the same public one the chart uses — `MARKET_DATA_PIN`, and `docs/decisions.md` Q13 |
+| Bars stop arriving while the socket looks healthy | `apps/bots/feed.py` — the log line "the stream is N bar(s) behind the market"; the venue can keep frames flowing without ever naming a later bar |
+| Every leg of a bot order is refused identically | the adapter, not the fan-out — a rejection that hits all N accounts the same way is one request shape, not N exchanges |
+
+**A stream that stays up and stops moving.** Three things now have to fail
+before a bot goes blind, because on 2026-09-14 one of them was the only one:
+rollover (a later bar arrived), the clock (a bar whose own window has closed is
+finished whatever the venue does next), and the REST catch-up (if the bar after
+the last one delivered has been closed for a whole further bar plus
+`STREAM_CATCHUP_GRACE`, the bars are fetched rather than waited for). The
+Hyperliquid socket on ZECUSDC 30m kept sending frames for two hours — the 90s
+idle timeout never fired, the venue only closed it with "Expired" afterwards —
+without one of them carrying a later bar, and rollover on its own had nothing to
+promote.
 
 ### Watching one bot
 

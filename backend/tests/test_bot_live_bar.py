@@ -79,6 +79,10 @@ class ScriptedFeed:
         self.source = "scripted"
         self.gaps = 0
         self.gaps_repaired = 0
+        #: The newest bar the feed has seen, which the risk gate measures
+        #: staleness against. A scripted feed has no clock to be stale by, so
+        #: it reports none and the gate abstains rather than guessing.
+        self.last_bar_time = None
 
     async def check_clock(self) -> None:
         return None

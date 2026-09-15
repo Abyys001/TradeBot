@@ -460,7 +460,15 @@ class HyperliquidAdapter(ExchangeAdapter):
             take_profit=take_profit,
         )
 
-        result = await self._call("bulk_orders", [entry, *children], None, "normalTpsl")
+        # ``normalTpsl`` describes a parent *with* children, and Hyperliquid
+        # validates that literally: a bundle carrying the grouping and no
+        # trigger order at all is refused with "Unexpected number of trigger
+        # orders." before anything is placed. That is exactly the shape Q37's
+        # ``strategy_managed`` produces — no stop, no target, no safety net,
+        # because the strategy's own exit is the exit — so every leg of every
+        # bot order was rejected. A lone entry is an ordinary ungrouped order.
+        grouping = "normalTpsl" if children else "na"
+        result = await self._call("bulk_orders", [entry, *children], None, grouping)
 
         statuses = self._statuses(result)
         # One status per request, in order: the parent first, then the children.
