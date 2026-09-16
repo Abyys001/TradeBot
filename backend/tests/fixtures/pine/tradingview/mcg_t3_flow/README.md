@@ -23,13 +23,15 @@ Exported by the admin on 2026-09-12 from the Strategy Tester.
 One row per TradingView trade — each TP1/TP2/TP3 slice is its own row. Times
 are the fill bar's **open**, UTC. Row 60 is still open.
 
-The admin's original is `docs/ScreenShots/trades_1_to_60.csv`. Its "Duration"
-column is the quantity (qty × entry = the "Position Size" beside it), and it
-rounds that to two decimals. **Twelve rows had their exit columns shifted one
-row down** (rows 1, 32–33, 44–47, 56–60): row 32 claims a short opened and
-closed at 571.0 on the same bar, for +1106.27. They were rebuilt from the
-columns that are internally consistent — side, entry, quantity and PnL — using
-the 0.05% commission on both sides:
+The admin's original is `list_of_trades.tradingview.csv`, beside this file. It
+was kept in `docs/ScreenShots/`, a folder the admin clears, which is the reason
+there is a copy here: a fixture whose provenance lives somewhere else is a
+fixture that loses it. Its "Duration" column is the quantity (qty × entry = the
+"Position Size" beside it), and it rounds that to two decimals. **Twelve rows
+had their exit columns shifted one row down** (rows 1, 32–33, 44–47, 56–60):
+row 32 claims a short opened and closed at 571.0 on the same bar, for
++1106.27. They were rebuilt from the columns that are internally consistent —
+side, entry, quantity and PnL — using the 0.05% commission on both sides:
 
     exit = (pnl / qty + s·entry + c·entry) / (s − c)      s = ±1, c = 0.0005
 

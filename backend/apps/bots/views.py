@@ -857,6 +857,14 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"detail": "bad strategy inputs", "inputs": input_errors}, status=400)
     payload = {**payload, "inputs": values}
 
+    # The chart's tick, when the operator is lining this replay up with a
+    # TradingView run. Checked here rather than in the worker: a job that fails
+    # forty seconds later reads as the download failing, not as a typo.
+    try:
+        tick = jobs.chart_tick(payload)
+    except (ValueError, InvalidOperation) as exc:
+        return JsonResponse({"detail": f"bad chart tick: {exc}"}, status=400)
+
     user = await request.auser()
     if not payload.get("wait"):
         job = await sync_to_async(jobs.start)(version, payload, actor=user.get_username())
@@ -875,6 +883,8 @@ async def run_backtest(request: HttpRequest) -> JsonResponse:
             tp_pct=_decimal(payload.get("tp_pct")),
             inputs=payload.get("inputs") or {},
             property_overrides=overrides,
+            mintick=tick,
+            price_tick=tick,
         )
     except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
         return JsonResponse({"detail": f"bad request: {exc}"}, status=400)

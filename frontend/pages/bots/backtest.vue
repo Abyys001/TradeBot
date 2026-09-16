@@ -83,6 +83,9 @@ const form = reactive({
   symbol: 'BTCUSDT',
   interval: '1h',
   market: 'futures',
+  // Blank means the venue's own tick. Only a replay being lined up against a
+  // TradingView run needs the chart's instead — see `bots.chartTickNote`.
+  chart_tick: '',
   leverage: 1,
   sl_pct: '',
   tp_pct: '',
@@ -276,6 +279,7 @@ async function run() {
       symbol: form.symbol.trim().toUpperCase(),
       interval: form.interval,
       market: form.market,
+      chart_tick: form.chart_tick.trim() || null,
       leverage: form.leverage,
       sl_pct: form.sl_pct || null,
       tp_pct: form.tp_pct || null,
@@ -349,6 +353,7 @@ async function openStored(runId: number, row: BacktestRun | null = null) {
     form.symbol = stored.symbol
     form.interval = stored.interval
     form.market = stored.market
+    form.chart_tick = (stored.assumptions as any)?.chart_tick ?? ''
     form.from = new Date(stored.from_time * 1000).toISOString().slice(0, 10)
     form.to = new Date(stored.to_time * 1000).toISOString().slice(0, 10)
     form.strategy_version = stored.strategy_version
@@ -518,6 +523,19 @@ onMounted(async () => {
               </p>
               <p class="text-tick text-ink-faint leading-relaxed mt-2">
                 {{ t('bots.historyNote') }}
+              </p>
+
+              <label class="block space-y-1.5 mt-3 max-w-xs">
+                <span class="label">{{ t('bots.chartTick') }}</span>
+                <input
+                  v-model="form.chart_tick"
+                  class="field num"
+                  inputmode="decimal"
+                  placeholder="—"
+                />
+              </label>
+              <p class="text-tick text-ink-faint leading-relaxed mt-2">
+                {{ t('bots.chartTickNote') }}
               </p>
             </div>
 

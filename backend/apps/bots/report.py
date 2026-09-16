@@ -84,8 +84,12 @@ class Assumptions:
 
     def lines(self) -> list[str]:
         """The header every rendering of this report starts with."""
+        # The tick is named, not just counted: TradingView counts slippage in
+        # the *chart's* mintick and this counts it in the venue's, so "2 ticks"
+        # alone is not enough to tell whether a run matches the one it is being
+        # compared against.
         slippage = (
-            f"{self.slippage_ticks} tick(s)"
+            f"{self.slippage_ticks} tick(s) of {self.mintick}"
             if self.slippage_ticks is not None
             else f"{self.slippage_bps} bps"
         )

@@ -1293,6 +1293,8 @@
     "noHistory": "No backtests yet",
     "noHistoryBody": "Run one above and it is stored here, numbers and all, exactly as it was read.",
     "historyNote": "History this window needs but the archive does not hold is downloaded and stored on the first run. A venue that cannot go back this far is reported above the numbers, never refused.",
+    "chartTick": "TradingView chart tick",
+    "chartTickNote": "Leave blank and the venue's own tick is used, which is right unless this replay is being compared with a TradingView run. TradingView counts slippage in the chart's tick and rounds its bars to it, and the two are rarely the same number — 0.0001 for the Hyperliquid ZEC perpetual against 0.01 at the venue.",
     "replayingNote": "First run on a new pair also downloads its history.",
     "viewingStored": "Stored run · {name}",
     "props": {

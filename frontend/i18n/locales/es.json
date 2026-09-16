@@ -1293,6 +1293,8 @@
     "noHistory": "Aún no hay backtests",
     "noHistoryBody": "Ejecuta uno arriba y se guardará aquí, con todos sus números, tal como se leyó.",
     "historyNote": "El historial que esta ventana necesita y el archivo no tiene se descarga y se guarda en la primera ejecución. Un mercado que no llega tan atrás se informa sobre los números, nunca se rechaza.",
+    "chartTick": "Tick del gráfico de TradingView",
+    "chartTickNote": "Déjalo vacío y se usa el tick del propio mercado, que es lo correcto salvo que esta repetición se compare con una ejecución de TradingView. TradingView cuenta el deslizamiento en el tick del gráfico y redondea sus velas a él, y rara vez son el mismo número: 0,0001 para el perpetuo ZEC de Hyperliquid frente a 0,01 en el mercado.",
     "replayingNote": "La primera ejecución sobre un par nuevo también descarga su historial.",
     "viewingStored": "Ejecución guardada · {name}",
     "props": {

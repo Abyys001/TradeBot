@@ -120,8 +120,15 @@ with the skipped account raising a persistent notification.
   share any misreading of them. `backend/tests/fixtures/pine/golden/README.md`
   holds the file format, and the test goes live the moment an export is committed.
 - **Bots signal from the instrument they trade** (Q35): on the target venue,
-  the Hyperliquid perpetual. The TradingView parity test is on a spot chart and
-  proves the engine; a strategy built on spot is re-run on the perp before live.
+  the Hyperliquid perpetual — and the engine is now checked against a
+  TradingView run on **that** instrument, not only on the spot chart beside it
+  (`tests/test_tradingview_parity_perp.py`: ZEC perp 30m, 100 USDC compounding
+  at 100% of equity with 2 ticks of slippage, every trade on the bar, at the
+  price, to the lot and to the cent). What is *not* checked is most of the
+  year: Hyperliquid sells the latest 5000 bars, so 60 of the 86 trades in the
+  admin's 365-day export predate any bar the venue will still serve.
+  `manage.py import_tradingview` turns the next export into a fixture and
+  archives the bars on the way past, so the gap closes rather than repeats.
 
 Every policy question is a **setting with all branches built**, so changing an
 answer is a `.env` change rather than a rewrite. `/risk` in the panel answers Q5a from

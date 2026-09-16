@@ -365,3 +365,55 @@ def test_a_published_strategy_produces_a_panel_somebody_could_use():
     assert fields["mcgLength"].category == "logic"
     # And nothing in a thirty-one input script reads as dead.
     assert all(row.used for row in panel.fields)
+
+
+def test_every_default_in_the_published_strategy_survives_the_parser():
+    """All thirty-two, transcribed from the source rather than from the panel.
+
+    The parity tests run this script on its defaults, so a default read wrongly
+    is a backtest that quietly answers a different question — and the operator
+    cannot see it, because the form they check it against is drawn from the same
+    misreading. The list is the script's own, `input.*` call by call.
+    """
+    from tests import pine_corpus
+
+    result = validate((pine_corpus.ACCEPT / "27_published_strategy.pine").read_text())
+    assert result.ok, [e.as_dict() for e in result.errors]
+    defaults = {row.name: row.default for row in result.input_schema.fields}
+    assert defaults == {
+        # timestamp("01 Jan 2026 00:00 +1100") in milliseconds, as Pine counts.
+        "startTime": 1767186000000,
+        "engineMode": "McGinley Only",
+        "sourcePrice": "close",
+        "mcgLength": 65,
+        "t3Length": 14,
+        "t3Volume": 0.7,
+        "trailAtrLen": 28,
+        "trailAtrMult": 1.2,
+        "useTargets": True,
+        "targetMult": 1.0,
+        "targetMode": "Flow Trail Based",
+        "tpExitMode": "Scale Out TP1/TP2/TP3",
+        "tp1Percent": 30,
+        "tp2Percent": 30,
+        "tp3Percent": 40,
+        "tp1RR": 1.0,
+        "tp2RR": 2.0,
+        "tp3RR": 3.0,
+        "stopMode": "Visual Only",
+        "showTrail": True,
+        "showCloud": True,
+        "showComponents": False,
+        "showLevels": True,
+        "showSignals": True,
+        "showFollowUps": True,
+        "showPulse": True,
+        "colorCandles": False,
+        "showDash": True,
+        "bullColor": "#00E5A8",
+        "bearColor": "#FF3D71",
+        "flatColor": "#B8B8B8",
+        # A named constant, not a hex literal: the panel prints it as it is
+        # written rather than inventing a swatch for it.
+        "stopColor": "color.orange",
+    }

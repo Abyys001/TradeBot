@@ -27,7 +27,10 @@ only allowed out loud.
 in a direction already held needs the multi-lot position model that
 ``docs/decisions.md`` Q33 carries, and simulating one in the backtest alone would
 produce a curve live cannot reproduce. So it is reported and dropped, which is
-the same treatment ``strategy.entry(qty=)`` gets and for the same reason.
+the same treatment ``strategy.entry(qty=)`` gets and for the same reason. Note
+that TradingView's number is the *total* entries allowed in one direction — 0
+and 1 both mean one — so a reader adding the model later must not read it as a
+count of additional ones.
 
 **Two of them cannot be honoured at all here** and say so rather than being
 accepted into silence: ``calc_on_every_tick`` needs tick data the platform
@@ -288,11 +291,6 @@ class StrategyProperties:
             "declared": sorted(self.declared),
             "overridden": sorted(self.overridden),
         }
-
-    @property
-    def max_entries(self) -> int:
-        """Entries allowed in one direction. ``pyramiding`` counts *additional* ones."""
-        return max(1, self.pyramiding + 1)
 
     def live_departures(self) -> list[str]:
         """What this set would simulate that the live platform does not do.

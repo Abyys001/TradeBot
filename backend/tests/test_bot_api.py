@@ -8,6 +8,7 @@ cannot afford a worker thread).
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth.models import User
@@ -21,6 +22,7 @@ pytestmark = pytest.mark.django_db
 
 GOOD = (pine_corpus.ACCEPT / "01_sma_cross.pine").read_text()
 BAD = '//@version=5\nstrategy("x")\na = array.new_float(0)\n'
+D = Decimal
 
 
 def staff() -> Client:
@@ -887,3 +889,72 @@ def test_going_live_with_nothing_to_protect_the_order_with_is_refused():
     assert response.json()["code"] == "unprotected"
     bot.refresh_from_db()
     assert bot.state == BotState.PAPER
+
+
+def test_a_chart_tick_that_is_not_a_price_tick_is_refused_before_a_job_starts():
+    """The tick is checked at the request, not in the worker.
+
+    A replay downloads before it replays; a typo caught there arrives as a job
+    that failed a minute later, which reads as the venue being down.
+    """
+    version = _version("tickless")
+    response = staff().post(
+        "/api/bots/backtest/",
+        data=json.dumps(
+            {
+                "strategy_version": version.id,
+                "symbol": "BTCUSDT",
+                "interval": "1h",
+                "from_time": 1_000,
+                "to_time": 2_000,
+                "chart_tick": "0",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert response.status_code == 400
+    assert "chart tick" in response.json()["detail"]
+
+
+def test_a_stored_run_keeps_which_tick_the_operator_chose_not_only_the_one_used():
+    """`mintick` holds a tick either way — the listing's when nobody chose one.
+
+    Reopening a run repopulates the form from this, so the difference between
+    "the operator asked for 0.0001" and "the listing said 0.01" has to survive
+    the round trip, or re-running a reopened report quietly changes it.
+    """
+    from apps.bots import jobs
+
+    version = _version("ticked")
+    report = _report_for(version)
+    with_tick = jobs.store(version, report, {"chart_tick": "0.0001"}, "boss")
+    without = jobs.store(version, report, {}, "boss")
+    assert with_tick.assumptions["chart_tick"] == "0.0001"
+    assert without.assumptions["chart_tick"] is None
+
+
+def _report_for(version):
+    from apps.bots import backtest
+    from apps.exchanges.base import MarketType
+    from apps.pine.bar import Bar
+
+    bars = [
+        Bar(
+            time=1_000 + index * 900,
+            open=D("100"),
+            high=D("101"),
+            low=D("99"),
+            close=D("100"),
+            volume=D("1"),
+        )
+        for index in range(30)
+    ]
+    return backtest.run(
+        source=version.source,
+        symbol="BTCUSDT",
+        interval="15m",
+        market=MarketType.FUTURES,
+        from_time=bars[0].time,
+        to_time=bars[-1].time,
+        bars=bars,
+    )

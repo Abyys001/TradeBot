@@ -357,20 +357,62 @@ number people act on.
 | A bar that touches both the stop and the target | assumed **stopped out** |
 | Warm-up | `max(indicator lookback) × BOT_WARMUP_MULTIPLIER`, and a window with too little of it says so |
 
-Checked against a real Strategy Tester run, not only against the docs:
-`tests/test_tradingview_parity.py` replays the admin's McG T3 Flow export on
-Hyperliquid spot UZEC/USDC 30m and matches all 21 trades in its window on the
-bar and at the price, and to the cent from the second campaign. Prices there
-are rounded to TradingView's chart tick (`backtest.run(price_tick =)`), which is
-coarser than the venue's for that pair — a replay argument for lining up with
-a TradingView chart, not a panel setting.
+Checked against real Strategy Tester runs, not only against the docs. Two of
+them, on the same script and two different charts:
 
-That run proves the engine, not the market. **A bot reads its signal from the
+| Test | Chart | Properties it exercises | Result |
+|---|---|---|---|
+| `tests/test_tradingview_parity.py` | Hyperliquid **spot** UZEC/USDC 30m | 100,000 capital, 30% of equity, no slippage | all 21 trades in its window on the bar and at the price; to the cent from the second campaign |
+| `tests/test_tradingview_parity_perp.py` | Hyperliquid **perpetual** ZEC/USDC 30m | **100** of capital, **100% of equity**, **2 ticks of slippage** | all 21 closed trades *and* the one still open: bar, price, quantity to the lot, PnL to the cent, and the cumulative curve TradingView's Key stats show |
+
+The second is the harder claim: at 100% of equity compounding from a hundred
+dollars, a cent of sizing error in June is a dollar in September, so the sizes
+agreeing three months later is the whole equity curve agreeing.
+
+Both runs pass **the chart's own tick**, and for two different reasons that
+turn out to be one setting: TradingView rounds its bars to that tick (0.1 on
+the UZEC spot chart, ten times coarser than the venue) *and* counts slippage in
+it (0.0001 on the ZEC perp, a hundred times finer than the venue's 0.01 at this
+price). Neither number is the one an exchange listing reports, so the backtest
+form takes it — **Window → TradingView chart tick**, blank meaning the venue's,
+which is the right default for a run that is not being compared with anything.
+It is stored with the run as the operator typed it, so reopening a report and
+re-running it does not silently change which tick it used, and the report's
+header prints the tick beside the slippage count rather than "2 tick(s)" alone.
+
+Neither run is the whole story, and the fixtures' own READMEs say what is
+missing: Hyperliquid sells the latest 5000 bars, so 60 of the 86 trades in the
+admin's 365-day export are older than any bar the venue will still serve, and
+**ten months of this strategy's signals have never been compared against
+anything**. The archive is what closes that over time; a TradingView chart-data
+export closes it today.
+
+### Importing a run
+
+```bash
+python manage.py import_tradingview <list-of-trades.csv>     --symbol ZECUSDC --interval 30m --into <fixture dir>
+```
+
+A List of Trades export is stamped in the chart's timezone and never says which
+one, so the importer **derives** it: the script fills on the bar's close, so the
+right offset is the one at which every exported price *is* a close, and it
+refuses rather than guesses when none or two of them fit. Bars come down through
+`backtest.load_bars`, so they land in the archive on the way past and the next
+import reaches further back than this one.
+
+These runs prove the engine, not the market. **A bot reads its signal from the
 instrument it trades** — on the target venue, the Hyperliquid perpetual — never
 from a spot chart beside it (Q35): signals on one series and fills on another
 put every stop and target on a price the position does not have. A strategy
 built on a spot chart is re-run on TradingView's perp (`ZECUSDC.P` for this
 one) and reviewed as the new result it is before it goes live.
+
+**Starting a bot mid-trend is not starting TradingView's position.** The
+Strategy Tester has been in the trade since the signal that opened it; a bot
+started now is flat, and what it does next is whatever the script does when it
+is flat — for this one, take the next repeat of a signal TradingView ignored
+because it was already long. The trades after that reversal agree; the first one
+is the bot's own. Start on a reversal, or expect the first campaign to differ.
 
 ### The Properties tab
 

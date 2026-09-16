@@ -105,6 +105,12 @@ def _execute(job_id: int) -> None:
         return
 
     try:
+        tick = chart_tick(payload)
+    except (ValueError, InvalidOperation) as exc:
+        _fail(job_id, f"bad request: {exc}")
+        return
+
+    try:
         report = backtest.run(
             source=job.strategy_version.source,
             symbol=str(payload.get("symbol", "")).upper(),
@@ -117,6 +123,8 @@ def _execute(job_id: int) -> None:
             tp_pct=_decimal(payload.get("tp_pct")),
             inputs=payload.get("inputs") or {},
             property_overrides=overrides,
+            mintick=tick,
+            price_tick=tick,
             progress=reporter,
         )
     except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
@@ -163,6 +171,10 @@ def store(version: StrategyVersion, report, payload: dict, actor: str) -> Backte
             **data["assumptions"],
             "lines": report.assumptions.lines(),
             "data_source": data["data_source"],
+            # What the *operator* asked for, which `mintick` cannot say: it
+            # holds a tick either way, and a run reopened and re-run has to
+            # keep reading the listing if that is what this one did.
+            "chart_tick": str(payload["chart_tick"]) if payload.get("chart_tick") else None,
         },
         equity_curve=data["equity_curve"],
         trade_log=data["trades"],
@@ -211,3 +223,24 @@ def _fail(job_id: int, message: str) -> None:
 
 def _decimal(value):
     return None if value in (None, "") else Decimal(str(value))
+
+
+def chart_tick(payload: dict) -> Decimal | None:
+    """TradingView's own tick for the charted symbol, when the operator gave one.
+
+    A replay meant to line up with a TradingView run needs the *chart's* tick,
+    not the venue's: `slippage` is counted in it, and TradingView's bars are
+    rounded to it. The two are rarely the same number — Hyperliquid quotes ZEC
+    to five significant figures where TradingView's mintick is 0.0001, which is
+    a hundred times finer, and UZEC/USDC is 0.1 on the chart against 0.01 at the
+    venue, which is ten times coarser. Left out, the listing decides, which is
+    the right default for a run that is not being compared to anything.
+    """
+    tick = _decimal(payload.get("chart_tick"))
+    if tick is None:
+        return None
+    # `is_finite` first: NaN compares false against every bound, so a range
+    # check alone would let "nan" through and quantize every bar to NaN.
+    if not tick.is_finite() or tick <= 0 or tick > 100:
+        raise ValueError(f"chart tick {tick} is not a price tick")
+    return tick

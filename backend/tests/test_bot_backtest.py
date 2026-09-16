@@ -809,3 +809,45 @@ def test_a_commission_override_changes_what_the_trade_costs():
     cheap = go(PROPS, _flat_bars(), property_overrides={"commission_value": D("0")})
     dear = go(PROPS, _flat_bars(), property_overrides={"commission_value": D("1")})
     assert dear.assumptions.fee_bps > cheap.assumptions.fee_bps
+
+
+# --- the chart's tick, when a replay is being lined up with TradingView ------
+
+
+def test_the_chart_tick_names_itself_in_the_header_rather_than_counting_alone():
+    """A count of ticks is not a distance until the tick itself is named.
+
+    TradingView counts slippage in the chart's mintick and the platform counts
+    it in the venue's, so a header that prints only the count cannot say whether
+    two runs are comparable.
+    """
+    source = PERCENT_OF_EQUITY.replace(
+        "commission_value=0.05", "commission_value=0.05,\n     slippage=2"
+    )
+    report = go(source, pine_corpus.trending(40), mintick=D("0.0001"))
+    assert any("2 tick(s) of 0.0001" in line for line in report.assumptions.lines())
+
+
+@pytest.mark.parametrize("value", ["0", "-0.01", "nan", "1000", "banana"])
+def test_a_chart_tick_that_is_not_a_price_tick_is_refused(value):
+    """Refused, and by this function — the endpoint calls it before it starts a
+    job, so a typo is a 400 rather than a run that fails a minute later while
+    the operator reads it as the download breaking. ``nan`` is in the list
+    because it compares false against every bound and would otherwise quantize
+    every bar to NaN."""
+    from decimal import InvalidOperation
+
+    from apps.bots import jobs
+
+    with pytest.raises((ValueError, InvalidOperation)):
+        jobs.chart_tick({"chart_tick": value})
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [({}, None), ({"chart_tick": ""}, None), ({"chart_tick": "0.0001"}, D("0.0001"))],
+)
+def test_a_blank_chart_tick_leaves_the_venues_own_tick_in_force(payload, expected):
+    from apps.bots import jobs
+
+    assert jobs.chart_tick(payload) == expected
