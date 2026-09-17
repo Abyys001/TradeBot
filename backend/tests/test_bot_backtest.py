@@ -543,14 +543,14 @@ def test_process_orders_on_close_fills_at_the_signal_bars_close():
 
 def test_max_lines_count_is_not_a_lookback():
     """A drawing budget in `strategy()` tripled the warm-up to 1500 bars."""
-    from apps.bots.backtest import _longest_lookback
+    from apps.bots.feed import longest_lookback
     from apps.pine.validate import validate
 
     source = """//@version=5
 strategy("x", max_lines_count=500, max_labels_count=500)
 plot(ta.sma(close, 20))
 """
-    assert _longest_lookback(validate(source)) == 20
+    assert longest_lookback(validate(source)) == 20
 
 
 # --- history the archive does not hold --------------------------------------
@@ -587,35 +587,6 @@ class _Source:
         self.calls += 1
         rows = [c for c in self.all if end is None or c.time <= end]
         return rows[-min(limit, self.page_limit):]
-
-
-@pytest.fixture
-def archive(monkeypatch):
-    """A candle archive in memory, with the source that fills it."""
-    from apps.exchanges import candlestore
-
-    stored: dict[int, object] = {}
-
-    def read_window(*, symbol, interval, market, limit, end=None, exchange=""):
-        rows = sorted(
-            (c for c in stored.values() if end is None or c.time <= end),
-            key=lambda c: c.time,
-        )
-        return (rows[-limit:], "test") if rows else ([], "test")
-
-    def write_candles(exchange, symbol, market, interval, candles):
-        written = 0
-        for candle in candles:
-            if candle.time not in stored:
-                stored[candle.time] = candle
-                written += 1
-        return written
-
-    monkeypatch.setattr(candlestore, "read_window", read_window)
-    monkeypatch.setattr("apps.exchanges.catalogue.write_candles", write_candles)
-    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "binance")
-    monkeypatch.setattr("apps.exchanges.catalogue.REQUEST_PAUSE", 0)
-    return stored
 
 
 def _serve(monkeypatch, source):

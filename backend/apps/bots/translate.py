@@ -267,6 +267,23 @@ def read_held(run: BotRun) -> Held:
 
 
 @sync_to_async
+def held_trade(run: BotRun):
+    """The ``Trade`` row this run still has open, whole.
+
+    ``read_held`` answers the translator's question — side, percentages,
+    fraction — and deliberately drops everything else. The exit guard needs the
+    rest of the row: the safety net, the leverage, and the Q5a basis the trade
+    was opened under, none of which can be re-derived from today's settings
+    without risking a level nobody put there.
+    """
+    from apps.trading.models import Trade, TradeStatus
+
+    return (
+        Trade.objects.filter(bot_run=run, status=TradeStatus.OPEN).order_by("-id").first()
+    )
+
+
+@sync_to_async
 def claim(
     run: BotRun, bar_time: int, action: Action, ordinal: int, scope: str = ""
 ) -> BotAction | None:

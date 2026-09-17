@@ -83,7 +83,11 @@ def test_properties_returns_the_resolved_set_and_the_form():
 
     assert body["bot"] == bot.id
     # Every field concrete: the panel never has to ask a second time.
-    assert body["resolved"]["initial_capital"] == "10000"
+    # A hundred, not TradingView's million and not the old ten thousand: this
+    # is `BOT["BACKTEST_INITIAL_CAPITAL"]`, the same first layer the backtest
+    # resolves against, so the form cannot show a starting capital the report
+    # did not use. `apps/bots/config.platform_properties` is the one site.
+    assert body["resolved"]["initial_capital"] == "100"
     assert body["resolved"]["currency"] == "USDT"
     assert body["resolved"]["default_qty_type"] == "platform"
 

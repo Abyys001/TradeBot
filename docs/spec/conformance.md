@@ -145,6 +145,12 @@ operator's version.
 | A bot is a signal source, not a second execution path — everything below `route_*` is reused | `apps/bots/translate.py:dispatch` | `test_the_backtest_and_a_bare_runtime_agree_on_the_same_bars` | ✅ |
 | The backtest predicts the live loop, provably | `apps/bots/divergence.py` | `tests/test_bot_divergence.py` — the digest is over decisions, not fills | ⚠️ pinned in test; **no live soak has run yet** |
 | `paper → live` is gated on measurements, not a dialog | `apps/bots/gate.py`, `apps/bots/views.py:start_bot` | `test_going_live_without_the_gate_is_refused_with_the_gate_attached` | ⚠️ the gate is built; **no bot has met it** |
+| **Q38** the live loop and the backtest converge indicators on the same number of bars, from one function | `apps/bots/feed.py:strategy_warmup`, read by `supervisor._run_bot` and `backtest.run` | `tests/test_bot_warmup_parity.py` — including a 200-bar replay where the old live warm-up disagrees with the converged one on 131 bars | ✅ the live bug it fixes was seen in production |
+| **Q38** a stop or target reached while the venue has not acted is closed by the platform, on the one order path | `apps/bots/exitguard.py`, `supervisor._exit_guard` | `tests/test_bot_exit_guard.py` (decision), `tests/test_bot_exit_guard_live.py` (through the loop to a closed trade on every account) | ✅ `BOT_EXIT_GUARD`, on by default |
+| **Q38** an inbound exit signal closes the position on every connected account | `apps/signals/service.py` → `translate.plan` → `route_close` | `test_an_exit_closes_the_position_on_every_connected_account` | ✅ |
+| **Q38** identical backtest settings replay identical bars and produce an identical report | `backtest.last_closed_bar`, `backtest._covers`, `trading.SeriesFloor` | `tests/test_backtest_determinism.py` — one case per cause | ✅ |
+| **Q38** bars a venue will not sell any more can still reach the archive | `apps/bots/tvimport.py:parse_candles`, `manage.py import_candles` | `tests/test_candle_import.py` — copies, refuses an off-grid bar, stores a re-import once | ✅ the export itself is the human's to produce |
+| The engine reproduces TradingView from **every** reversal in the fixture's window, not only the one it starts on | `apps/bots/backtest.py` | `test_the_parity_holds_from_every_reversal_in_the_window_not_just_the_first` — six nested windows, six starting balances | ✅ the check against fitting one dataset |
 
 ### Bot mode: what is genuinely not done
 

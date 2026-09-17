@@ -31,7 +31,7 @@ from rest_framework.response import Response
 
 from apps.accounts.visibility import _filtered  # read surface only — see apps/bots/__init__.py
 from apps.bots import drills, gate, jobs, lifecycle, narrate
-from apps.bots.config import limits
+from apps.bots.config import limits, platform_properties
 from apps.bots.models import (
     BacktestJob,
     BacktestRun,
@@ -459,7 +459,9 @@ class BotViewSet(viewsets.ModelViewSet):
         )
         overrides, _ = props.validate_overrides(bot.property_overrides or {})
 
-        resolved = props.resolve(declared=declared, overrides=overrides)
+        resolved = props.resolve(
+            platform=platform_properties(), declared=declared, overrides=overrides
+        )
         return Response(
             {
                 "bot": bot.id,
@@ -937,7 +939,9 @@ def version_properties(request: Request, pk: int) -> Response:
     # field read "from the script".
     declared_keys = set(declared_raw.get("declared") or ())
     declared, _ = props.validate_overrides({key: declared_raw.get(key) for key in declared_keys})
-    resolved = props.resolve(declared=declared, overrides={})
+    resolved = props.resolve(
+        platform=platform_properties(), declared=declared, overrides={}
+    )
     return Response(
         {
             "strategy_version": version.id,
@@ -1084,7 +1088,7 @@ def _chart_payload(bot: Bot, *, interval: str, limit: int) -> dict:
       over that timeframe *for display only*. ``replayed`` is true, and nothing
       about the bot, its run, its position or its interval is touched.
     """
-    from apps.bots.feed import interval_seconds, to_bar, warmup_bars_needed
+    from apps.bots.feed import interval_seconds, to_bar
     from apps.exchanges import candlestore, marketdata
     from apps.exchanges.base import MarketType
 
@@ -1118,7 +1122,7 @@ def _chart_payload(bot: Bot, *, interval: str, limit: int) -> dict:
             }
 
     # Nothing recorded at this interval — replay it, and say so.
-    warmup = warmup_bars_needed(_longest_lookback_of(bot))
+    warmup = _warmup_of(bot)
     stored = candlestore.read_window(
         symbol=bot.symbol,
         interval=interval,
@@ -1163,10 +1167,17 @@ def _chart_payload(bot: Bot, *, interval: str, limit: int) -> dict:
     }
 
 
-def _longest_lookback_of(bot: Bot) -> int:
-    from apps.bots.backtest import _longest_lookback
+def _warmup_of(bot: Bot) -> int:
+    """The same warm-up the live loop and the backtest use, for this bot.
 
-    return _longest_lookback(validate(bot.strategy_version.source, limits=limits()))
+    Drawn from ``feed.strategy_warmup`` rather than re-derived, so the chart
+    tab cannot show a series converged differently from the one the bot traded.
+    """
+    from apps.bots.feed import strategy_warmup
+
+    return strategy_warmup(
+        validate(bot.strategy_version.source, limits=limits()), bot.input_values or {}
+    )
 
 
 def _replay_for_display(bot: Bot, bars, interval: str, warmup: int) -> list[tuple]:

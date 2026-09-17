@@ -230,6 +230,47 @@ class ExchangeSymbol(models.Model):
         return f"{self.exchange}:{self.symbol}"
 
 
+class SeriesFloor(models.Model):
+    """How far back a venue will actually sell one series, once proved.
+
+    Hyperliquid serves the latest ~5000 bars and then stops; every venue has
+    some such limit and none of them announces it. Without this row the
+    platform could not tell "the archive is missing the start of the window"
+    from "the start of the window does not exist anywhere", so a backtest whose
+    range reached further back than the venue goes re-downloaded the entire
+    series on **every run** — and, because that download stops on a wall-clock
+    budget, came back with a different number of bars each time. Two runs of
+    identical settings then produced different reports, which is the bug this
+    table closes.
+
+    Written only when a page-back walk *terminated of its own accord* — the
+    venue returned nothing, or returned the same oldest bar twice. A walk that
+    ran out of budget has proved nothing and writes nothing.
+    """
+
+    exchange = models.CharField(max_length=20)
+    symbol = models.CharField(max_length=32)
+    market = models.CharField(max_length=10)
+    interval = models.CharField(max_length=6)
+    #: The oldest bar open time this venue served for the series.
+    earliest = models.BigIntegerField()
+    #: When that was proved. The floor of a rolling window *rises*, so a stale
+    #: row is a floor that is too low — which costs a download, never a wrong
+    #: answer.
+    proved_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exchange", "market", "symbol", "interval"],
+                name="unique_series_floor",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.exchange}:{self.symbol} {self.interval} from {self.earliest}"
+
+
 class StoredCandle(models.Model):
     """One closed bar, kept forever. The chart's scrollback is this table.
 

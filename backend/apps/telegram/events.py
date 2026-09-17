@@ -77,6 +77,11 @@ EVENTS: dict[str, Event] = {
     "bot_promoted": Event(Group.BOTS),
     "bot_stopped": Event(Group.BOTS),
     "bot_paused": Event(Group.BOTS),
+    # The platform closing a position because a stop or target was reached
+    # and the venue had not acted on it (`apps/bots/exitguard.py`). RISK,
+    # not BOTS: it is the operator being told that something resting at the
+    # exchange did not do its job, which is worth a phone buzzing.
+    "bot_exit_guard": Event(Group.RISK),
     "bot_gate_changed": Event(Group.ADMIN),
     "bot_deleted": Event(Group.ADMIN),
     # The Q25 auto-stops, logged by ``supervisor._announce_stop`` with the

@@ -33,22 +33,27 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 
-from apps.bots.config import decimal_setting, limits
+from apps.bots.config import decimal_setting, limits, platform_properties
 from apps.bots.divergence import digest_intents
-from apps.bots.feed import interval_seconds, to_bar, untraded, warmup_bars_needed
+from apps.bots.feed import (
+    interval_seconds,
+    strategy_warmup,
+    to_bar,
+    untraded,
+)
 from apps.bots.report import Assumptions, ClosedTrade, Report, compute_metrics
 from apps.exchanges.base import MarketType
 from apps.pine import properties as props_module
 from apps.pine.bar import Bar
 from apps.pine.errors import PineRuntimeError
 from apps.pine.intent import Side
-from apps.pine.properties import CommissionType, QtyType, StrategyProperties
+from apps.pine.properties import CommissionType, QtyType
 from apps.pine.runtime import Runtime
 from apps.pine.symbol import SymbolInfo, TimeframeInfo
 from apps.pine.validate import validate
@@ -127,6 +132,12 @@ class HistoryWindow:
     #: this non-zero is the cache hit the second run of a pair gets, and the
     #: panel says so rather than leaving the operator to infer it from speed.
     from_archive: int = 0
+    #: The last bar time this window actually covers. A request that ends
+    #: "today, 23:59" ends in the future, and a window whose end keeps moving
+    #: is a backtest whose answer keeps moving: the same settings, run twice an
+    #: hour apart, replayed different bars. So the end is pulled back to the
+    #: newest **closed** bar and the report says which window it described.
+    covers_to: int = 0
 
 
 def _download_window(
@@ -136,9 +147,10 @@ def _download_window(
     interval: str,
     market: MarketType,
     since: int,
+    until: int | None = None,
     progress: Progress = _noop_progress,
 ) -> int:
-    """Page back to ``since`` from now, writing every page to the archive.
+    """Page back to ``since`` from ``until``, writing every page to the archive.
 
     Deliberately not ``catalogue.backfill_series``: that one is expressed in
     whole days from now and runs on a worker for the chart. A backtest asks for
@@ -153,14 +165,23 @@ def _download_window(
     page = max(1, source.page_limit)
     started = time.monotonic()
     deadline = started + DOWNLOAD_BUDGET_SECONDS
-    end: int | None = None
+    # **From the end of the window, not from now.** A backtest of last spring
+    # used to spend its whole budget paging back through this week before it
+    # reached a single bar it was going to replay, and then stopped on the
+    # clock — so the run was short of exactly the history it asked for, and the
+    # next run, resuming from a deeper archive, replayed a different series.
+    end: int | None = until
     written = 0
     pages = 0
+    #: The oldest bar the venue would serve, when the walk ended because the
+    #: venue ran out rather than because the clock did.
+    floor: int | None = None
     # Progress is measured against *time already walked back*, not pages: pages
     # are a venue's own quirk (500 here, 1000 there) and a bar counter would run
     # backwards on a pair with gaps. The span from `since` to now is fixed and
     # known before the first request, which is what a progress bar needs.
-    span = max(1, int(time.time()) - since)
+    head = until if until is not None else int(time.time())
+    span = max(1, head - since)
 
     progress("downloading", 0.0, {"exchange": exchange, "pages": 0, "bars": 0})
 
@@ -169,13 +190,15 @@ def _download_window(
             source, symbol=symbol, interval=interval, market=market, limit=page, end=end
         )
         if not candles:
+            # Nothing at all older than `end`: this venue's history stops here.
+            floor = end + 1 if end is not None else None
             break
         written += catalogue.write_candles(exchange, symbol, market, interval, candles)
         pages += 1
         oldest = min(candle.time for candle in candles)
         progress(
             "downloading",
-            min(1.0, max(0.0, (int(time.time()) - oldest) / span)),
+            min(1.0, max(0.0, (head - oldest) / span)),
             {
                 "exchange": exchange,
                 "pages": pages,
@@ -189,14 +212,35 @@ def _download_window(
             },
         )
         if end is not None and oldest >= end:
+            floor = oldest
             break  # the venue is not paging any further back
         if oldest <= since:
             break
         end = oldest - 1
         time.sleep(catalogue.REQUEST_PAUSE)
 
+    if floor is not None:
+        # Proved, not guessed: the walk stopped because the venue stopped, not
+        # because the budget did. Remembering it is what stops the *next* run
+        # of the same window re-walking the whole series — and a download that
+        # re-runs under a clock is a backtest whose inputs move between runs.
+        catalogue_floor(exchange, symbol, market, interval, floor)
     progress("downloading", 1.0, {"exchange": exchange, "pages": pages, "bars": written})
     return written
+
+
+def catalogue_floor(
+    exchange: str, symbol: str, market: MarketType, interval: str, earliest: int
+) -> None:
+    from apps.exchanges import candlestore
+
+    candlestore.record_series_floor(
+        exchange=exchange,
+        symbol=symbol,
+        market=market,
+        interval=interval,
+        earliest=earliest,
+    )
 
 
 def load_bars(
@@ -228,6 +272,13 @@ def load_bars(
     symbol = symbol.upper()
     exchange = marketdata.pinned_provider() or _first_provider()
     notes: list[str] = []
+    # The newest bar that has actually closed. A panel request ends at "today,
+    # 23:59", which is in the future for most of the day: left alone, the
+    # window's end moved every time it was run, no archive could ever cover it,
+    # and every run re-downloaded and replayed a different series. Two runs of
+    # identical settings then disagreed — which is not a rounding difference,
+    # it is a different backtest.
+    to_time = min(to_time, last_closed_bar(step))
 
     def archived() -> list:
         stored = candlestore.read_window(
@@ -241,11 +292,15 @@ def load_bars(
         rows = list(stored[0]) if stored else []
         return [c for c in rows if wanted_from <= c.time <= to_time]
 
+    floor = candlestore.series_floor(
+        exchange=exchange, symbol=symbol, market=market, interval=interval
+    ) if exchange else None
+
     candles = archived()
     from_archive = len(candles)
     downloaded = 0
 
-    if _covers(candles, wanted_from=wanted_from, to_time=to_time, step=step):
+    if _covers(candles, wanted_from=wanted_from, to_time=to_time, step=step, floor=floor):
         # Nothing to fetch. Said explicitly so the panel can show "served from
         # the archive" instead of a progress bar that flashes past.
         progress("downloading", 1.0, {"cached": True, "bars": from_archive})
@@ -262,6 +317,7 @@ def load_bars(
                 interval=interval,
                 market=market,
                 since=wanted_from,
+                until=to_time,
                 progress=progress,
             )
         except Exception as exc:  # noqa: BLE001 - reported, never a silent empty series
@@ -297,24 +353,46 @@ def load_bars(
         downloaded=downloaded,
         notes=notes,
         from_archive=from_archive,
+        covers_to=to_time,
     )
 
 
-def _covers(candles: list, *, wanted_from: int, to_time: int, step: int) -> bool:
+def last_closed_bar(step: int, *, now: int | None = None) -> int:
+    """The open time of the newest bar whose interval has fully elapsed.
+
+    On the grid, so the answer does not depend on the second it was asked in —
+    which is the whole point: a window that ends on a bar boundary is a window
+    two runs can agree about.
+    """
+    moment = int(time.time()) if now is None else now
+    return (moment // step) * step - step
+
+
+def _covers(
+    candles: list, *, wanted_from: int, to_time: int, step: int, floor: int | None = None
+) -> bool:
     """True when the archive already holds this window densely enough.
 
     Both ends matter: a pair downloaded a month ago has the start of the window
     and none of the end, and a run that only checked the count would replay it
     and stop early without saying so.
+
+    ``floor`` is the oldest bar the venue has been **proved** to serve
+    (``candlestore.series_floor``). A window that reaches further back than
+    that can never be filled in, so demanding it is demanding a download that
+    is guaranteed to return nothing — which is what made every backtest of a
+    long window re-walk the whole series, on a clock, and come back with a
+    different number of bars each time.
     """
     if not candles:
         return False
-    expected = max(1, (to_time - wanted_from) // step)
+    oldest = min(candle.time for candle in candles)
+    newest = max(candle.time for candle in candles)
+    start = wanted_from if floor is None else max(wanted_from, floor)
+    expected = max(1, (to_time - start) // step)
     if Decimal(len(candles)) < COVERAGE_RATIO * Decimal(expected):
         return False
-    newest = max(candle.time for candle in candles)
-    oldest = min(candle.time for candle in candles)
-    return oldest <= wanted_from + step and newest >= to_time - 2 * step
+    return oldest <= start + step and newest >= to_time - 2 * step
 
 
 def _first_provider() -> str:
@@ -341,7 +419,7 @@ def run(
     sl_pct: Decimal | None = None,
     tp_pct: Decimal | None = None,
     inputs: dict | None = None,
-    initial_equity: Decimal = Decimal("10000"),
+    initial_equity: Decimal | None = None,
     bars: list[Bar] | None = None,
     property_overrides: dict | None = None,
     mintick: Decimal | None = None,
@@ -362,9 +440,10 @@ def run(
         raise BacktestError("; ".join(str(e) for e in result.errors))
     progress("validating", 1.0, {})
 
-    warmup = warmup_bars_needed(_longest_lookback(result))
+    warmup = strategy_warmup(result, inputs or {})
     history_notes: list[str] = []
     data_source: dict = {"downloaded": 0, "from_archive": len(bars or ())}
+    requested_to = to_time
     if bars is not None:
         series = bars
     else:
@@ -378,11 +457,23 @@ def run(
             progress=progress,
         )
         series, history_notes = window.bars, window.notes
+        to_time = window.covers_to
         data_source = {
             "downloaded": window.downloaded,
             "from_archive": window.from_archive,
             "total": len(window.bars),
+            # The window the report actually describes, which is not always the
+            # one that was asked for — see `HistoryWindow.covers_to`.
+            "requested_to": requested_to,
+            "covers_to": to_time,
         }
+        if requested_to > to_time:
+            history_notes.append(
+                f"the last bar of this window closed at {utc_text(to_time)}, so the "
+                f"report ends there rather than at {utc_text(requested_to)} — a window "
+                f"ending in the future would describe a different set of bars every "
+                f"time it was run"
+            )
     series = [_quantize(bar, price_tick) for bar in series if not untraded(bar)]
     if not series:
         raise BacktestError(
@@ -392,12 +483,11 @@ def run(
     # Platform default → what `strategy()` declared → what the panel overrode.
     # `properties.resolve` is the only place that order exists, so the header on
     # the report and the form that produced it cannot disagree about which won.
-    platform_fee_bps = decimal_setting("BACKTEST_FEE_BPS")
+    platform = platform_properties()
+    if initial_equity is not None:
+        platform = replace(platform, initial_capital=initial_equity)
     resolved = props_module.resolve(
-        platform=StrategyProperties(
-            initial_capital=initial_equity,
-            commission_value=platform_fee_bps / Decimal(100),
-        ),
+        platform=platform,
         declared={
             key: getattr(result.properties, key) for key in result.properties.declared
         },
@@ -572,43 +662,6 @@ def _quantize(bar: Bar, tick: Decimal | None) -> Bar:
         close=bar.close.quantize(tick, ROUND_HALF_UP),
         volume=bar.volume,
     )
-
-
-def _longest_lookback(result) -> int:
-    """The largest constant length any ``ta.*`` call asks for.
-
-    An over-estimate is cheap (a few hundred extra warm-up bars) and an
-    under-estimate is an indicator that trades before it has converged, so this
-    leans high deliberately: it takes the largest literal in the script rather
-    than trying to trace which argument is a length.
-    """
-    from apps.pine import ast_nodes as ast
-
-    longest = 0
-    if result.program is None:
-        return longest
-    # `strategy(max_lines_count = 500)` is a drawing budget, not a lookback. Read
-    # as one it tripled the warm-up to 1500 bars — a month of 30m history spent
-    # before the first trade, on a venue that only keeps 5000 bars at all.
-    declaration = {
-        id(child)
-        for node in ast.walk(result.program)
-        if isinstance(node, ast.Call)
-        and ast.dotted_name(node.func) in ("strategy", "indicator", "study")
-        for child in ast.walk(node)
-    }
-    for node in ast.walk(result.program):
-        if isinstance(node, ast.NumberLit) and id(node) not in declaration:
-            try:
-                value = int(Decimal(node.value))
-            except (ValueError, ArithmeticError):
-                continue
-            # A price or a percentage is not a lookback. Anything past a few
-            # hundred bars is one of those, and warm-up is already floored at
-            # WARMUP_MIN_BARS, so ignoring them costs nothing.
-            if 0 < value <= 500:
-                longest = max(longest, value)
-    return longest
 
 
 class _Engine:

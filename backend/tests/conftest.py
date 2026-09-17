@@ -77,6 +77,56 @@ def _detach_log_writer():
         root.addHandler(handler)
 
 
+@pytest.fixture
+def archive(monkeypatch):
+    """A candle archive in memory, with the source that fills it.
+
+    Here rather than in one test module because two of them now need it: the
+    history tests in ``test_bot_backtest.py`` and the determinism tests in
+    ``test_backtest_determinism.py``, which are about the same machinery seen
+    from opposite ends — "does the download fill the window" and "does the same
+    window come back the same twice".
+    """
+    from apps.exchanges import candlestore
+
+    stored: dict[int, object] = {}
+
+    def read_window(*, symbol, interval, market, limit, end=None, exchange=""):
+        rows = sorted(
+            (c for c in stored.values() if end is None or c.time <= end),
+            key=lambda c: c.time,
+        )
+        return (rows[-limit:], "test") if rows else ([], "test")
+
+    def write_candles(exchange, symbol, market, interval, candles):
+        written = 0
+        for candle in candles:
+            if candle.time not in stored:
+                stored[candle.time] = candle
+                written += 1
+        return written
+
+    # The proved history floor, in memory. A real one is a row in `trading`;
+    # what matters to these tests is only that a floor written by one run is
+    # read by the next, which is the whole mechanism.
+    floors: dict[tuple, int] = {}
+
+    def series_floor(*, exchange, symbol, market, interval):
+        return floors.get((exchange, symbol, market.value, interval))
+
+    def record_series_floor(*, exchange, symbol, market, interval, earliest):
+        key = (exchange, symbol, market.value, interval)
+        floors[key] = min(earliest, floors.get(key, earliest))
+
+    monkeypatch.setattr(candlestore, "read_window", read_window)
+    monkeypatch.setattr(candlestore, "series_floor", series_floor)
+    monkeypatch.setattr(candlestore, "record_series_floor", record_series_floor)
+    monkeypatch.setattr("apps.exchanges.catalogue.write_candles", write_candles)
+    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "binance")
+    monkeypatch.setattr("apps.exchanges.catalogue.REQUEST_PAUSE", 0)
+    return stored
+
+
 def ledger_settings(**overrides) -> dict:
     """``settings.LEDGER`` with a few keys changed, and the rest real.
 

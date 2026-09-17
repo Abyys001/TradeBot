@@ -1295,6 +1295,8 @@
     "historyNote": "Bu aralığın ihtiyaç duyduğu ama arşivde olmayan geçmiş, ilk çalıştırmada indirilir ve saklanır. Bu kadar geriye gidemeyen bir borsa sayıların üstünde bildirilir, reddedilmez.",
     "chartTick": "TradingView grafik tick'i",
     "chartTickNote": "Boş bırakın, borsanın kendi tick'i kullanılır; bu tekrar bir TradingView çalıştırmasıyla karşılaştırılmadıkça doğrusu budur. TradingView kaymayı grafiğin tick'iyle sayar ve mumlarını ona yuvarlar, ve iki sayı nadiren aynıdır — Hyperliquid ZEC vadeli işleminde 0,0001, borsada 0,01.",
+    "initialCapital": "Başlangıç sermayesi",
+    "initialCapitalNote": "Tekrar oynatmanın başladığı tutar. Varsayılan 100 $ — gerçek bir bağlı hesabın büyüklüğü, böylece “getiri %” gerçekten var olan bir sayının yüzdesi olur. Betiğin kendi initial_capital değeri buradakiyle değiştirilir.",
     "replayingNote": "Yeni bir paritedeki ilk çalıştırma geçmişini de indirir.",
     "viewingStored": "Kayıtlı çalıştırma · {name}",
     "props": {

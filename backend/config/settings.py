@@ -372,6 +372,18 @@ BOT = {
     # replayed with none, so the report and the Strategy Tester can agree.
     "BACKTEST_SLIPPAGE_BPS": os.getenv("BOT_BACKTEST_SLIPPAGE_BPS", "0"),
     "BACKTEST_FEE_BPS": os.getenv("BOT_BACKTEST_FEE_BPS", "5"),
+    # What a report starts with when neither the script nor the panel says.
+    # A hundred, not ten thousand: the accounts this platform actually fans out
+    # to are that size, and a return quoted off a notional account nobody holds
+    # is a percentage of the wrong number. The panel's own field defaults here
+    # too, and either can be changed per run.
+    "BACKTEST_INITIAL_CAPITAL": os.getenv("BOT_BACKTEST_INITIAL_CAPITAL", "100"),
+    # --- The platform's own exit (`apps/bots/exitguard.py`). A stop or target
+    # that was sent to the venue and is no longer there looks exactly like one
+    # that is quietly waiting, so the level is watched from here as well and a
+    # breach closes the position through the ordinary order path. On by
+    # default: an unenforced stop is not a stop.
+    "EXIT_GUARD": env_bool("BOT_EXIT_GUARD", True),
     # --- Phase 5: the risk gate.
     # The intent's bar close against the live ticker. Further apart than this
     # and something is wrong with the feed or the symbol mapping, not the market.

@@ -87,8 +87,8 @@ class ScriptedFeed:
     async def check_clock(self) -> None:
         return None
 
-    async def warmup(self, *, lookback: int) -> list[Bar]:
-        return [_bar(i, green=False) for i in range(lookback + 10)]
+    async def warmup(self, *, lookback: int | None = None, bars: int | None = None) -> list[Bar]:
+        return [_bar(i, green=False) for i in range((bars if bars is not None else lookback) + 10)]
 
     async def __aiter__(self):
         yield FeedBar(bar=_bar(1_000, green=True), source="scripted", transport="poll")

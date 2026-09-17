@@ -439,3 +439,87 @@ async def test_a_failed_catch_up_fetch_is_not_a_gap(monkeypatch):
     monkeypatch.setattr("apps.exchanges.marketdata.get_candles", boom)
     assert await f._catch_up("hyperliquid") == []
     assert f.last_bar_time == current - 5 * step
+
+
+# --- the archive ------------------------------------------------------------
+#
+# The platform's rule is that every closed bar it sees is kept
+# (`apps/exchanges/candlestore.py`). This feed was the one path that read bars
+# and threw them away, so the archive had holes in it exactly where a bot had
+# been running — a panel nobody has open is not archiving either, and the hole
+# that made Q38 harder to diagnose was fourteen hours wide.
+
+
+@pytest.mark.django_db
+async def test_every_bar_the_feed_admits_is_archived(monkeypatch):
+    from apps.exchanges import candlestore
+
+    written: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        candlestore,
+        "persist_quietly",
+        lambda **kw: written.extend((kw["exchange"], c.time) for c in kw["candles"]),
+    )
+    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "hyperliquid")
+
+    f = feed()
+    f.last_bar_time = 900
+    await f._accept(candle(1800), "test")
+
+    assert written == [("hyperliquid", 1800)]
+
+
+@pytest.mark.django_db
+async def test_a_repaired_bar_is_archived_too(monkeypatch):
+    """It is as real as any other — the gap is in the delivery, not the market."""
+    from apps.exchanges import candlestore
+
+    written: list[int] = []
+    monkeypatch.setattr(
+        candlestore,
+        "persist_quietly",
+        lambda **kw: written.extend(c.time for c in kw["candles"]),
+    )
+    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "hyperliquid")
+
+    f = feed()
+    f.last_bar_time = 900
+    f._repair = _fake_repair([candle(1800)])
+    await f._accept(candle(2700), "test")
+
+    assert sorted(written) == [1800, 2700]
+
+
+@pytest.mark.django_db
+async def test_a_failed_archive_write_never_costs_a_bar(monkeypatch):
+    """The archive is a side effect of running; a database that will not take
+    the write degrades to "no history recorded", never to a bot that is blind."""
+    from apps.exchanges import candlestore
+
+    def boom(**_):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(candlestore, "persist", boom)
+    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "hyperliquid")
+
+    f = feed()
+    f.last_bar_time = 900
+    accepted = await f._accept(candle(1800), "test")
+
+    assert [item.bar.time for item in accepted] == [1800]
+
+
+@pytest.mark.django_db
+def test_a_bar_with_no_venue_to_attribute_it_to_is_dropped_rather_than_mislabelled(
+    monkeypatch,
+):
+    """`marketdata.get_candles` refuses another exchange's bars under a pinned
+    badge, so a row stored with the wrong provenance is one that can never be
+    read back."""
+    from apps.exchanges import candlestore
+
+    monkeypatch.setattr(candlestore, "persist_quietly", lambda **_: 1 / 0)
+    monkeypatch.setattr("apps.exchanges.marketdata.pinned_provider", lambda: "")
+
+    f = feed()
+    assert f._archive([candle(1800)]) == 0

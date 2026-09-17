@@ -241,6 +241,36 @@ Leaving it blank is allowed and is an accepted risk, not a hidden one: the
 ticket, the positions panel and the trade log all say when nothing rests at the
 exchange for a position.
 
+### The exit the platform takes itself (Q38)
+
+A stop and a target are orders sent to somebody else's matching engine. An order
+that was rejected, silently dropped, cancelled by the venue, emulated by an
+adapter that never re-armed it, or lost with the position when a failed leg was
+re-read looks **exactly** like one that is quietly waiting — there is no
+callback that says "your stop is gone". So the platform watches the level from
+its own side as well.
+
+On every confirmed bar, before the script is asked anything, the held trade's
+stop and target are resolved from the percentages recorded *with that trade* and
+compared against the bar's range. A level reached while the position is still
+open is an **exit signal** of the platform's own, and it goes out as an ordinary
+`CLOSE` on the one order path — the same `translate` → fan-out → `route_close`
+every other exit takes, reaching every connected account.
+
+- It is the **backtest's rule**, not a second one: the same comparison the
+  replay makes on the same bar, stop first when one bar touches both. Switching
+  it on moves live towards the report, never away from it.
+- It **cannot invent a level**. Side, entry price, `sl_pct`/`tp_pct`,
+  `safety_net_pct`, leverage and the Q5a basis all come off the `Trade` row. A
+  strategy-managed trade with nothing recorded gets nothing enforced and is
+  still reported as unprotected.
+- It is not a tick-accurate fill. A 30m bar is seen once, at its close, so the
+  guard names the level and the fan-out fills at market; the difference is
+  slippage and is recorded like any other.
+- One verb, one direction: out. It never opens, amends or reverses.
+- `BOT_EXIT_GUARD=false` turns it off. On by default — an unenforced stop is not
+  a stop.
+
 ### What the start button checks
 
 The question changes with the policy, because the failure does:
@@ -353,9 +383,10 @@ number people act on.
 | Order size | `strategy(default_qty_type =, default_qty_value =)` when the script declares one — and the header then says so, because live sizes every account at 99% of its own balance instead (§5). `percent_of_equity` buys the position *and* its percentage commission, and is sized on the equity the order was placed against (a reversed leg still marked, its exit fee unpaid) — TradingView's rule |
 | Lot | every order, scale-outs included, rounded **down** to the venue's lot (`syminfo.mincontract` on TradingView) |
 | Bars | a flat zero-volume candle — a venue's filler for a slot in which nothing traded — is dropped, in backtest and live alike: TradingView draws no bar there, and one kept shifts every `x[n]` by a bar |
-| Initial capital | `strategy(initial_capital =)` when the script declares one |
+| Initial capital | the form's own field, **$100** by default (`BOT_BACKTEST_INITIAL_CAPITAL`), which overrides `strategy(initial_capital =)`. TradingView defaults to a million and this used to default to ten thousand; the accounts the platform fans out to are two figures, and a return quoted off a notional account nobody holds is a percentage of the wrong number |
 | A bar that touches both the stop and the target | assumed **stopped out** |
-| Warm-up | `max(indicator lookback) × BOT_WARMUP_MULTIPLIER`, and a window with too little of it says so |
+| Warm-up | `feed.strategy_warmup` — `max(indicator lookback) × BOT_WARMUP_MULTIPLIER`, floored at `BOT_WARMUP_MIN_BARS`, reading the bot's configured inputs as well as the script's literals. **The live loop calls the same function** (Q38); when it did not, a bot traded a strategy its own report had never described. A window with too little warm-up says so |
+| Window end | pulled back to the last **closed** bar. A request ending "today 23:59" ends in the future, and a window whose end keeps moving is a report whose answer keeps moving — the report names the window it actually covered |
 
 Checked against real Strategy Tester runs, not only against the docs. Two of
 them, on the same script and two different charts:
@@ -400,6 +431,26 @@ refuses rather than guesses when none or two of them fit. Bars come down through
 `backtest.load_bars`, so they land in the archive on the way past and the next
 import reaches further back than this one.
 
+### Importing bars a venue will not sell
+
+```bash
+python manage.py import_candles <chart-data.csv> \
+    --symbol ZECUSDC --interval 30m --exchange hyperliquid
+```
+
+TradingView's **Export chart data** writes the OHLCV it drew, and this reads it
+straight into the archive. It is the only way to get the bars Hyperliquid has
+stopped serving — the 104-day ceiling at 30m is why most of the admin's
+TradingView year is unverified rather than verified-correct — and the window a
+parity run can cover grows by exactly what is exported.
+
+It copies and interprets nothing: no resampling, no gap filling, no rounding to
+anybody's tick, plot columns ignored rather than read as prices, a bar already
+stored left alone, and a bar that is **off the interval's grid refused** rather
+than stored beside the real one. Pass `--tz` when the file is stamped in chart
+time; with no zone in the file the importer reads UTC, which is a decision, not
+a default. `--dry-run` reads and reports without writing.
+
 These runs prove the engine, not the market. **A bot reads its signal from the
 instrument it trades** — on the target venue, the Hyperliquid perpetual — never
 from a spot chart beside it (Q35): signals on one series and fills on another
@@ -432,8 +483,10 @@ platform default  ──▶  what strategy() declared  ──▶  what this tab 
 ```
 
 Every row says which of the three won it, because "the author chose 25,000" and
-"nobody chose anything, so it is 10,000" are the same number in a bare input and
-mean opposite things. Clearing a field hands it back one step, rather than
+"nobody chose anything, so it is 100" are the same number in a bare input and
+mean opposite things. `apps/bots/config.platform_properties` builds that first
+layer for both this form and the report, so the two cannot show different
+starting capitals for the same run. Clearing a field hands it back one step, rather than
 pinning it to a default — so a later version of the script that *does* declare
 it starts winning without the tab having to be re-saved.
 
@@ -679,6 +732,9 @@ bar. A disagreement is retried once and then stops the bot.
 | The panel says "no price feed" | the bot's feed is the same public one the chart uses — `MARKET_DATA_PIN`, and `docs/decisions.md` Q13 |
 | Bars stop arriving while the socket looks healthy | `apps/bots/feed.py` — the log line "the stream is N bar(s) behind the market"; the venue can keep frames flowing without ever naming a later bar |
 | Every leg of a bot order is refused identically | the adapter, not the fan-out — a rejection that hits all N accounts the same way is one request shape, not N exchanges |
+| A position stayed open through a signal the backtest acts on | warm-up first (Q38). `BotRun.warmup_bars` against `feed.strategy_warmup` for that script, and the bar's `intent` in `BotBar` against the same window replayed in a backtest — an indicator that has not converged is a different indicator, and nothing about it errors |
+| The platform closed a position on its own | the `bot_exit_guard` log line and the `BotAction` with reason `exit signal: …` — a stop or a target was reached and what was sent to the venue had not acted on it |
+| Two identical backtests disagree | the report's own window (`data_source.requested_to` against `covers_to`) and `data_source.downloaded`. A run that downloaded is a run whose inputs may have grown since the last one |
 
 **A stream that stays up and stops moving.** Three things now have to fail
 before a bot goes blind, because on 2026-09-14 one of them was the only one:
@@ -751,6 +807,8 @@ deliberately have no number.
 | `WARMUP_MULTIPLIER` `WARMUP_MIN_BARS` | how much history converges an indicator |
 | `MAX_CLOCK_SKEW_MS` | a fast clock confirms bars that have not closed |
 | `BACKTEST_SLIPPAGE_BPS` `BACKTEST_FEE_BPS` | the fill model, printed on every report |
+| `BACKTEST_INITIAL_CAPITAL` | what a replay starts with when neither the script nor the form says — $100 |
+| `EXIT_GUARD` | whether the platform enforces a trade's own stop and target from this side (Q38) |
 | `MAX_PRICE_DRIFT_PCT` | a stale feed or a mis-mapped symbol, caught with one number |
 | `MAX_ACCOUNTS` | the canary cap on how wide a bot may fan out |
 | `MAX_CONSECUTIVE_LOSSES` `MAX_DRAWDOWN_PCT` `MAX_TRADES_PER_HOUR` `NO_BAR_TIMEOUT_MULTIPLE` | the four countable Q25 triggers |

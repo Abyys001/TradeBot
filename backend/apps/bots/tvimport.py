@@ -131,6 +131,121 @@ def parse(text: str) -> list[Trade]:
     return out
 
 
+@dataclass(frozen=True, slots=True)
+class CandleRow:
+    """One bar out of a chart-data export. UTC seconds, Decimal prices."""
+
+    time: int
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+
+
+#: What TradingView's "Export chart data" calls its columns, and the spellings
+#: every other exporter uses. Matched case-insensitively, so a file that says
+#: ``Open`` and one that says ``open`` are the same file.
+_CANDLE_COLUMNS = {
+    "time": ("time", "date", "datetime", "timestamp", "date and time", "open time"),
+    "open": ("open",),
+    "high": ("high",),
+    "low": ("low",),
+    "close": ("close", "price"),
+    "volume": ("volume", "vol"),
+}
+
+#: The timestamp formats seen in the wild. TradingView writes ISO 8601 with an
+#: offset; a re-saved spreadsheet often drops the ``T`` or the zone.
+_TIME_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S%z",
+    "%Y-%m-%dT%H:%M:%SZ",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S%z",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+)
+
+
+def _candle_time(text: str) -> int:
+    """A bar's open time as UTC seconds, from a stamp or an epoch.
+
+    A stamp with no zone is read as UTC rather than as local time. That is a
+    decision and not a default: a bar read an hour out lines up with the wrong
+    candle everywhere, and the engine takes the blame — so the importer's
+    contract is "UTC, or say so in the file", and ``--tz`` shifts a chart-clock
+    export on the way past.
+    """
+    text = text.strip()
+    if not text:
+        raise TradingViewImportError("a row has no timestamp")
+    if text.lstrip("-").isdigit():
+        value = int(text)
+        # Milliseconds, as TradingView's own JSON and most exchanges use.
+        return value // 1000 if value > 10_000_000_000 else value
+    normalised = text.replace("Z", "+0000").replace("z", "+0000")
+    # ``%z`` in 3.11 accepts ``+03:30``; older-style ``+0330`` is accepted too,
+    # so both spellings of the same offset land on the same second.
+    for fmt in _TIME_FORMATS:
+        try:
+            when = datetime.strptime(normalised, fmt)
+        except ValueError:
+            continue
+        return int((when if when.tzinfo else when.replace(tzinfo=UTC)).timestamp())
+    raise TradingViewImportError(f"cannot read {text!r} as a date")
+
+
+def parse_candles(text: str, *, offset: int = 0) -> list[CandleRow]:
+    """A chart-data export as bars, oldest first, de-duplicated.
+
+    **Why this exists.** Hyperliquid sells the latest 5000 bars and no more —
+    104 days at 30m — so most of a year-long TradingView run happened on bars
+    the venue will never serve again, and nothing this platform can write will
+    fetch them. They are not lost, though: the chart they were exported from
+    still has them, and this is the door they come back in through. Every bar
+    it reads goes into the archive, which keeps them for good, so the window a
+    parity run can cover grows by exactly what the operator exports.
+
+    It **interprets nothing**. Prices are copied as written, into ``Decimal``,
+    and any column that is not OHLCV — a plotted series, an indicator — is
+    ignored rather than rounded, renamed or averaged.
+
+    ``offset`` moves a chart-clock export to UTC, in seconds, the same
+    correction ``shift`` makes for a trade list.
+    """
+    rows = list(csv.DictReader(io.StringIO(text.lstrip("\ufeff"))))
+    if not rows:
+        raise TradingViewImportError("the export has no rows")
+
+    lookup = {name.strip().lower(): name for name in rows[0]}
+    column: dict[str, str] = {}
+    for key, spellings in _CANDLE_COLUMNS.items():
+        match = next((lookup[s] for s in spellings if s in lookup), "")
+        if not match and key != "volume":
+            raise TradingViewImportError(
+                f"no {key!r} column — this is not a chart-data export "
+                f"(found {', '.join(sorted(lookup)) or 'nothing'})"
+            )
+        column[key] = match
+
+    by_time: dict[int, CandleRow] = {}
+    for row in rows:
+        when = _candle_time(row[column["time"]]) + offset
+        raw_volume = row.get(column["volume"], "") if column["volume"] else ""
+        by_time[when] = CandleRow(
+            time=when,
+            open=_decimal(row[column["open"]]),
+            high=_decimal(row[column["high"]]),
+            low=_decimal(row[column["low"]]),
+            close=_decimal(row[column["close"]]),
+            # A chart-data export of an index has no volume column at all, and
+            # a bar with no volume is still a bar. Zero, never invented.
+            volume=_decimal(raw_volume) if raw_volume.strip() else Decimal(0),
+        )
+    return [by_time[key] for key in sorted(by_time)]
+
+
 def shift(trades: list[Trade], offset: int) -> list[Trade]:
     """The same trades with their timestamps moved from chart clock to UTC."""
     return [

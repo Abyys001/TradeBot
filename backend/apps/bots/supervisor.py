@@ -36,11 +36,19 @@ from asgiref.sync import ThreadSensitiveContext, sync_to_async
 from channels.layers import get_channel_layer
 from django.utils import timezone
 
+from apps.bots import exitguard, retention, translate
 from apps.bots import recovery as recovery_module
-from apps.bots import retention, translate
 from apps.bots.config import limits
-from apps.bots.feed import BarFeed, ClockSkew, FeedGap, NotEnoughHistory
-from apps.bots.models import Bot, BotAction, BotBar, BotRun, BotState, StopReason
+from apps.bots.feed import BarFeed, ClockSkew, FeedGap, NotEnoughHistory, strategy_warmup
+from apps.bots.models import (
+    ActionType,
+    Bot,
+    BotAction,
+    BotBar,
+    BotRun,
+    BotState,
+    StopReason,
+)
 from apps.bots.riskgate import RiskGate
 from apps.exchanges.base import MarketType
 from apps.logging.utils import system_log
@@ -377,8 +385,17 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
     # --- refuse to start rather than start wrong ---------------------------
     try:
         await feed.check_clock()
-        lookback = max(20, result.ta_call_sites * 10)
-        warmup = await feed.warmup(lookback=lookback)
+        # **The same number the backtest uses**, from the same function, on the
+        # same inputs. This used to be `max(20, ta_call_sites * 10)` — the
+        # *count* of `ta.*` call sites rather than the periods they are called
+        # with — which warmed a script whose longest period is `ta.atr(200)` on
+        # 300 bars where its own backtest used 600. An indicator that has not
+        # converged is a different indicator, so the live bot was trading a
+        # strategy nothing had ever reported on: it entered on bars the
+        # backtest is flat through, and the reversal that should have closed
+        # the position never fired. `tests/test_bot_warmup_parity.py` pins the
+        # two together.
+        warmup = await feed.warmup(bars=strategy_warmup(result, bot.input_values or {}))
     except (ClockSkew, NotEnoughHistory) as exc:
         raise _AutoStop(StopReason.FEED_GAP, str(exc)) from exc
 
@@ -466,6 +483,20 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
         if before.allowed:
             await _reconcile()
         held = await translate.read_held(run)
+
+        # The platform's own exit, before the script is asked anything. A stop
+        # or a target that was sent to the venue and is no longer there looks
+        # exactly like one that is quietly waiting, so the level is checked
+        # here too and a breach is closed from this side — the same comparison
+        # the backtest makes on the same bar, so switching it on moves live
+        # towards the report rather than away from it. `exitguard.py` has the
+        # whole argument. It runs before `sync_position` so that, when it does
+        # fire, the script sees the bar flat, exactly as the backtest's engine
+        # does after `_check_exits`.
+        if before.allowed and not bot.dry_run and not held.flat:
+            if await _exit_guard(bot, run, feed_bar):
+                held = await translate.read_held(run)
+
         equity, performance = await sync_to_async(_run_state)(run)
         runtime.sync_position(
             size_sign=0 if held.flat else (1 if held.side is Side.LONG else -1),
@@ -557,6 +588,61 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             "bot_action",
             {"bot_id": bot.id, "run_id": run.id, "dry_run": False, "actions": outcomes},
         )
+
+
+async def _exit_guard(bot: Bot, run: BotRun, feed_bar) -> bool:
+    """Close the run's open trade when this bar reached its stop or target.
+
+    Returns whether anything was routed. Idempotent through the same
+    ``BotAction`` unique key every other action uses, under its own scope, so a
+    restart in the middle of the fan-out cannot send it twice and a bar-driven
+    close on the same bar cannot collide with it.
+    """
+    trade = await translate.held_trade(run)
+    breach = exitguard.for_trade(trade, feed_bar.bar)
+    if breach is None:
+        return False
+
+    # No gate call here, and that is not an omission. ``RiskGate.check_action``
+    # allows every close by construction — "an amend or a close reduces or
+    # protects exposure", and refusing one over a price check would leave a
+    # position unprotected to defend against a stale feed. The two checks that
+    # *can* refuse an exit — the halt and the bot's trading window — are
+    # ``before_bar``'s, and the caller has already run them: this function is
+    # only reached inside ``if before.allowed``.
+    action = translate.Action(
+        type=ActionType.CLOSE,
+        reason=breach.reason,
+        trade_id=trade.id,
+    )
+
+    system_log(
+        "WARNING",
+        "BOT",
+        f"bot {bot.name}: {breach.kind} at {breach.level} was reached and the position "
+        f"was still open — closing it from here",
+        source="apps.bots.exitguard",
+        error_code="bot_exit_guard",
+        context={
+            "bot": bot.name,
+            "bot_id": bot.id,
+            "run_id": run.id,
+            "kind": breach.kind,
+            "level": str(breach.level),
+            "reached": str(breach.reached),
+            "bar_time": feed_bar.bar.time,
+            "trade_id": trade.id,
+        },
+    )
+    outcomes = await translate.dispatch(
+        bot=bot, run=run, bar_time=feed_bar.bar.time, actions=[action], scope=exitguard.SCOPE
+    )
+    await sync_to_async(_record_outcomes)(run, outcomes)
+    await _broadcast(
+        "bot_action",
+        {"bot_id": bot.id, "run_id": run.id, "dry_run": False, "actions": outcomes},
+    )
+    return bool(outcomes)
 
 
 # --- the pieces that touch the database -------------------------------------

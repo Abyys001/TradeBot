@@ -179,6 +179,52 @@ def oldest_stored(*, symbol: str, interval: str, market: MarketType) -> int | No
     )
 
 
+def series_floor(
+    *, exchange: str, symbol: str, market: MarketType, interval: str
+) -> int | None:
+    """The oldest bar this venue has been proved to serve, or None.
+
+    See ``trading.models.SeriesFloor`` for why the archive needs to remember
+    this: without it a window reaching past the venue's own history is
+    re-downloaded on every backtest, and a budgeted download that is re-run is
+    a backtest whose inputs change under it.
+    """
+    from apps.trading.models import SeriesFloor
+
+    return (
+        SeriesFloor.objects.filter(
+            exchange=exchange, symbol=symbol, market=market.value, interval=interval
+        )
+        .values_list("earliest", flat=True)
+        .first()
+    )
+
+
+def record_series_floor(
+    *, exchange: str, symbol: str, market: MarketType, interval: str, earliest: int
+) -> None:
+    """Remember that ``exchange`` would page no further back than ``earliest``.
+
+    Only ever *lowered*: a later walk that stopped sooner (a shorter budget, a
+    venue having a bad minute) must not raise the floor and make the platform
+    claim history it has not seen. A genuinely rising floor — a rolling window
+    dropping its oldest bars — costs one wasted download and no wrong answer,
+    which is the right way round.
+    """
+    from apps.trading.models import SeriesFloor
+
+    row, created = SeriesFloor.objects.get_or_create(
+        exchange=exchange,
+        symbol=symbol,
+        market=market.value,
+        interval=interval,
+        defaults={"earliest": earliest},
+    )
+    if not created and earliest < row.earliest:
+        row.earliest = earliest
+        row.save(update_fields=["earliest", "proved_at"])
+
+
 def read_window(
     *,
     symbol: str,

@@ -86,6 +86,12 @@ const form = reactive({
   // Blank means the venue's own tick. Only a replay being lined up against a
   // TradingView run needs the chart's instead — see `bots.chartTickNote`.
   chart_tick: '',
+  // What the replay starts with. A hundred dollars, because that is the size
+  // of the accounts this platform actually fans out to — a return quoted off a
+  // notional account nobody holds is a percentage of the wrong number. It is
+  // an ordinary Properties override underneath, so the Properties dialog shows
+  // it winning the field and a stored run reopens on the figure it used.
+  initial_capital: '100',
   leverage: 1,
   sl_pct: '',
   tp_pct: '',
@@ -183,6 +189,38 @@ const capital = computed(() => {
   return { started, ended, delta: ended - started }
 })
 
+/**
+ * The Properties the run is posted with: the dialog's overrides, plus the
+ * starting capital the form carries in its own field.
+ *
+ * One object rather than two arguments, because the server merges exactly one
+ * override set and a second channel for the same key is how the header and the
+ * form that produced it come to disagree about which of the three won it.
+ */
+const propertiesForRun = computed(() => {
+  const capital = form.initial_capital.trim()
+  return capital
+    ? { ...propertyOverrides.value, initial_capital: capital }
+    : { ...propertyOverrides.value }
+})
+
+/**
+ * The dialog and the form field are **one** value, not two.
+ *
+ * Starting capital is on the form because it is the first thing anyone changes
+ * and it should not be behind a dialog; it is also an ordinary Properties
+ * override, so the dialog shows it winning the field. Two inputs for one number
+ * is how a form comes to disagree with the report it produced, so the dialog's
+ * answer is lifted into the field and the field is what is posted.
+ */
+function applyProperties(next: Record<string, unknown>) {
+  const capital = next.initial_capital
+  if (capital !== undefined && capital !== null && capital !== '') {
+    form.initial_capital = String(capital)
+  }
+  propertyOverrides.value = next
+}
+
 /** Where the bars came from. `downloaded: 0` is the cache hit worth naming. */
 const dataSource = computed(() => result.value?.data_source ?? null)
 
@@ -194,6 +232,12 @@ function day(seconds: number): string {
 /** A stored row's headline PnL, for the history strip. Never recomputed here. */
 function rowPnl(row: BacktestRun): number | null {
   const value = row.metrics?.net_pnl
+  return value === null || value === undefined ? null : Number(value)
+}
+
+/** The same row's return, which is the figure a stored run is compared on. */
+function rowReturn(row: BacktestRun): number | null {
+  const value = row.metrics?.return_pct
   return value === null || value === undefined ? null : Number(value)
 }
 
@@ -285,7 +329,7 @@ async function run() {
       tp_pct: form.tp_pct || null,
       from_time: fromSeconds.value,
       to_time: toSeconds.value,
-      property_overrides: propertyOverrides.value,
+      property_overrides: propertiesForRun.value,
       inputs: inputValues.value,
     })
     job.value = started
@@ -354,6 +398,7 @@ async function openStored(runId: number, row: BacktestRun | null = null) {
     form.interval = stored.interval
     form.market = stored.market
     form.chart_tick = (stored.assumptions as any)?.chart_tick ?? ''
+    form.initial_capital = String((stored.assumptions as any)?.initial_equity ?? '')
     form.from = new Date(stored.from_time * 1000).toISOString().slice(0, 10)
     form.to = new Date(stored.to_time * 1000).toISOString().slice(0, 10)
     form.strategy_version = stored.strategy_version
@@ -541,7 +586,16 @@ onMounted(async () => {
 
             <div>
               <p class="label mb-2">{{ t('bots.execution') }}</p>
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <label class="block space-y-1.5">
+                  <span class="label">{{ t('bots.initialCapital') }}</span>
+                  <input
+                    v-model="form.initial_capital"
+                    class="field num"
+                    inputmode="decimal"
+                    placeholder="100"
+                  />
+                </label>
                 <label class="block space-y-1.5">
                   <span class="label">{{ t('bots.market') }}</span>
                   <select v-model="form.market" class="field">
@@ -568,6 +622,9 @@ onMounted(async () => {
                   <input v-model="form.tp_pct" class="field" placeholder="—" />
                 </label>
               </div>
+              <p class="text-tick text-ink-faint leading-relaxed mt-2">
+                {{ t('bots.initialCapitalNote') }}
+              </p>
             </div>
 
             <!-- The Properties tab, in front of the run rather than after it.
@@ -651,12 +708,21 @@ onMounted(async () => {
           <!-- Capital first: "return %" is a ratio, and the two numbers it is a
                ratio *of* are what an operator actually reports to a partner. -->
           <UiCard v-if="capital" :title="t('bots.capital')" :hint="t('bots.capitalHint')">
-            <div class="grid grid-cols-3 gap-3">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <UiStat :label="t('bots.startingCapital')" :value="money(capital.started)" />
               <UiStat :label="t('bots.endingCapital')" :value="money(capital.ended)" />
               <UiStat
                 :label="t('bots.metric.net_pnl')"
                 :value="money(capital.delta)"
+                :tone="capital.delta > 0 ? 'long' : capital.delta < 0 ? 'short' : 'default'"
+              />
+              <!-- The profit as a percentage, beside the two numbers it is a
+                   percentage of. It is in the headline grid below as well, but
+                   this is where it is actually read: a rate on its own invites
+                   the reader to apply it to a figure that is not on the page. -->
+              <UiStat
+                :label="t('bots.metric.return_pct')"
+                :value="metric('return_pct')"
                 :tone="capital.delta > 0 ? 'long' : capital.delta < 0 ? 'short' : 'default'"
               />
             </div>
@@ -797,6 +863,9 @@ onMounted(async () => {
                   :class="rowPnl(row)! >= 0 ? 'text-long' : 'text-short'"
                 >
                   {{ money(rowPnl(row)!) }}
+                  <span v-if="rowReturn(row) !== null" class="text-ink-faint">
+                    ({{ rowReturn(row)!.toFixed(2) }}%)
+                  </span>
                 </span>
               </span>
               <span class="block text-tick text-ink-faint num mt-1 truncate">
@@ -825,7 +894,7 @@ onMounted(async () => {
       v-model="showProperties"
       :version-id="form.strategy_version"
       :overrides="propertyOverrides"
-      @apply="(next) => (propertyOverrides = next)"
+      @apply="applyProperties"
     />
 
     <BotsInputsDialog

@@ -206,3 +206,99 @@ def test_the_equity_curve_arrives_where_tradingviews_did(replay):
     printed = sum(D(row["pnl_usdc"]) for row in closed)
     assert printed == D("145.80")  # 215.51 - 69.71, off its own cumulative column
     assert abs(booked - printed) <= D("0.01") * len(closed)
+
+
+def _replay_from(start: int):
+    """The same replay, begun on a different one of TradingView's reversal bars.
+
+    Everything that makes the run reproducible is a function of ``start``: the
+    equity TradingView had by then, and the trades of its list that come after
+    it. Nothing else is tuned.
+    """
+    tv = _tradingview()
+    equity = INITIAL_CAPITAL + sum(
+        D(row["pnl_usdc"])
+        for row in tv
+        if row["exit_time_utc"] and utc(row["exit_time_utc"]) <= start
+    )
+    bars = _bars()
+    report = backtest.run(
+        source=SOURCE,
+        symbol="ZECUSDC",
+        interval="30m",
+        from_time=start,
+        to_time=bars[-1].time,
+        bars=bars,
+        mintick=MINTICK,
+        price_tick=MINTICK,
+        qty_step=D("0.0001"),
+        property_overrides={
+            "initial_capital": equity,
+            "default_qty_value": D(100),
+            "pyramiding": 1,
+            "slippage": 2,
+        },
+    )
+    theirs = [
+        row
+        for row in tv
+        if utc(row["entry_time_utc"]) >= start and row["exit_time_utc"]
+    ]
+    # How much cent-rounding the starting equity itself carries. TradingView
+    # prints each trade's PnL to the cent, so a seed built by summing `closed`
+    # of them is out by at most half a cent each — and at 100% of equity that
+    # error is multiplied into every position size after it. It is the
+    # fixture's own arithmetic, not the engine's, and it is the reason the
+    # tolerance below is derived rather than chosen.
+    closed = sum(
+        1 for row in tv if row["exit_time_utc"] and utc(row["exit_time_utc"]) <= start
+    )
+    seed_error = D(closed) * D("0.005") / equity
+    return report.trades, theirs, seed_error
+
+
+#: Every bar in this fixture's window on which TradingView both closed a
+#: campaign and opened one, far enough in that the warm-up fits. These are the
+#: only bars an engine that starts flat *can* start on and be in TradingView's
+#: position — the script's entry is guarded by `strategy.position_size <= 0`,
+#: so anywhere else it opens a campaign of its own (the fixture README).
+REVERSALS = (
+    "2026-06-19 04:00",
+    "2026-07-02 00:30",
+    "2026-07-22 04:30",
+    "2026-08-03 03:30",
+    "2026-08-11 06:30",
+    "2026-08-17 15:30",
+)
+
+
+@pytest.mark.parametrize("when", REVERSALS)
+def test_the_parity_holds_from_every_reversal_in_the_window_not_just_the_first(when):
+    """The claim above, six times over, from six different starting equities.
+
+    One agreeing window can be a coincidence of where it was cut. Six nested
+    ones cannot: each begins on a different bar, sizes from a different
+    balance, and compounds forward at 100% of equity — so a rule that had been
+    bent to fit the first would come apart in the others. This is the check
+    against fitting the engine to one dataset rather than getting it right.
+    """
+    ours, theirs, seed_error = _replay_from(utc(when))
+    assert theirs, when
+    for mine, row in zip(ours, theirs, strict=False):
+        where = f"from {when}, trade {row['trade']} ({row['signal']})"
+        # Bars, sides and prices are exact from every start. They are decided
+        # by the script and the bars, and nothing about where the replay began
+        # can move them by a tick.
+        assert mine.side == row["side"], where
+        assert mine.entry_time == utc(row["entry_time_utc"]), where
+        assert mine.entry_price == D(row["entry_price"]), where
+        assert mine.exit_time == utc(row["exit_time_utc"]), where
+        assert mine.exit_price == D(row["exit_price"]), where
+        assert abs(mine.qty - D(row["qty"])) <= D("0.0001"), where
+        # Money is exact to the cent plus whatever the *seed* was already out
+        # by. Starting sixty trades into TradingView's list means starting on a
+        # balance summed from sixty cent-rounded figures, and at 100% of equity
+        # that rounding rides forward into every size. The first start — the
+        # one `test_every_slice_books_tradingviews_pnl_to_the_cent` uses — is
+        # held to the flat cent and meets it.
+        assert abs(mine.pnl - D(row["pnl_usdc"])) <= D("0.01") + abs(mine.pnl) * seed_error, where

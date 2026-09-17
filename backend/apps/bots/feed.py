@@ -145,6 +145,80 @@ def warmup_bars_needed(lookback: int) -> int:
     return max(values["WARMUP_MIN_BARS"], lookback * values["WARMUP_MULTIPLIER"])
 
 
+#: A length past this many bars is a price, a percentage or a drawing budget
+#: rather than an indicator period. Warm-up is floored at ``WARMUP_MIN_BARS``
+#: anyway, so ignoring them costs nothing and reading them costs a month of
+#: history on a venue that only keeps five thousand bars.
+MAX_CREDIBLE_LOOKBACK = 500
+
+
+def longest_lookback(result, inputs: dict | None = None) -> int:
+    """The largest constant length any ``ta.*`` call in this script can ask for.
+
+    **The single definition, read by the backtest and by the live loop.** It
+    used to exist only in ``apps.bots.backtest``; the supervisor guessed
+    instead, from the *number* of ``ta.*`` call sites rather than the lengths
+    they were called with. The two answers were not close — a script whose
+    longest period is ``ta.atr(200)`` warmed up on 600 bars in a backtest and
+    on 300 live — and an indicator that has not converged is a different
+    indicator, so the bot traded a strategy the report had never described. A
+    live entry that the backtest exits two bars later, and a reversal that
+    never fires at all, both come out of exactly that gap.
+
+    An over-estimate is cheap (a few hundred extra warm-up bars) and an
+    under-estimate is the above, so this leans high deliberately: it takes the
+    largest literal in the script rather than trying to trace which argument is
+    a length.
+
+    ``inputs`` is the bot's configured input values. A length the operator
+    *raised* — ``McGinley Length`` from 65 to 400 — never appears as a literal
+    anywhere in the source, so a reading that only walked the AST would warm up
+    for the default and converge nothing.
+    """
+    from apps.pine import ast_nodes as ast
+
+    longest = 0
+    program = getattr(result, "program", None)
+    if program is None:
+        return longest
+    # `strategy(max_lines_count = 500)` is a drawing budget, not a lookback. Read
+    # as one it tripled the warm-up to 1500 bars — a month of 30m history spent
+    # before the first trade, on a venue that only keeps 5000 bars at all.
+    declaration = {
+        id(child)
+        for node in ast.walk(program)
+        if isinstance(node, ast.Call)
+        and ast.dotted_name(node.func) in ("strategy", "indicator", "study")
+        for child in ast.walk(node)
+    }
+    for node in ast.walk(program):
+        if isinstance(node, ast.NumberLit) and id(node) not in declaration:
+            longest = max(longest, _as_lookback(node.value))
+    for value in (inputs or {}).values():
+        longest = max(longest, _as_lookback(value))
+    return longest
+
+
+def _as_lookback(value) -> int:
+    """A literal read as a period, or 0 when it cannot be one."""
+    from decimal import Decimal
+
+    try:
+        number = int(Decimal(str(value)))
+    except (ValueError, ArithmeticError, TypeError):
+        return 0
+    return number if 0 < number <= MAX_CREDIBLE_LOOKBACK else 0
+
+
+def strategy_warmup(result, inputs: dict | None = None) -> int:
+    """How many bars this script has to see before its first tradable bar.
+
+    The backtest and the supervisor both call this and nothing else, which is
+    the whole point: the two must not be able to disagree about it.
+    """
+    return warmup_bars_needed(longest_lookback(result, inputs))
+
+
 class BarFeed:
     """``async for bar in BarFeed(...)`` — closed bars, once each, in order.
 
@@ -186,9 +260,19 @@ class BarFeed:
 
     # --- history ------------------------------------------------------------
 
-    async def warmup(self, *, lookback: int) -> list[Bar]:
-        """Bars to converge the indicators on, oldest first. Never trades."""
-        need = warmup_bars_needed(lookback)
+    async def warmup(self, *, lookback: int | None = None, bars: int | None = None) -> list[Bar]:
+        """Bars to converge the indicators on, oldest first. Never trades.
+
+        ``bars`` is an exact count — what ``strategy_warmup`` already worked
+        out from the script — and is how the supervisor asks. ``lookback`` is
+        the older shape, a period this multiplies out itself. Exactly one of
+        the two, because "300" meaning a period on one call and a bar count on
+        the next is how the live loop came to warm up on half the history its
+        own backtest used.
+        """
+        if (bars is None) == (lookback is None):
+            raise TypeError("warmup() takes exactly one of bars= or lookback=")
+        need = bars if bars is not None else warmup_bars_needed(lookback)
         candles, source = await sync_to_async(self._read_history)(need)
         if len(candles) < need:
             raise NotEnoughHistory(len(candles), need)
@@ -237,11 +321,43 @@ class BarFeed:
             logger.info("bot feed warm-up: live history unavailable (%s)", exc)
 
         merged = candlestore.merge(list(archived), live)
+        # Everything the venue just served that the archive did not already
+        # hold. The platform's rule is that every closed bar it sees is kept
+        # (`apps/exchanges/candlestore.py`), and until now the bot's own feed
+        # was the one place that read bars and threw them away — which left
+        # holes exactly where a bot had been running, since a panel nobody has
+        # open is not archiving either.
+        self._archive(live, source=source)
         # An unfinished bar at the head is exactly what Q23 excludes.
         closed = [
             c for c in merged if is_confirmed(c.time, self.interval) and not untraded(c)
         ]
         return closed[-need:] if len(closed) > need else closed, source or "archive"
+
+    def _archive(self, candles: list[Candle], *, source: str = "") -> int:
+        """Write bars this feed saw into the archive. Never raises, never blocks a bar.
+
+        ``source`` is the venue the caller has in hand — during warm-up that is
+        a local, because ``self.source`` is not set until the read returns. A
+        pinned feed answers for everything else, and without either the bars are
+        dropped rather than stored with no provenance: ``marketdata.get_candles``
+        refuses another exchange's bars under a pinned badge, so a mislabelled
+        row would be a bar that can never be read back.
+        """
+        if not candles:
+            return 0
+        from apps.exchanges import candlestore, marketdata
+
+        exchange = marketdata.pinned_provider() or source or self.source
+        if not exchange:
+            return 0
+        return candlestore.persist_quietly(
+            exchange=exchange,
+            symbol=self.symbol,
+            market=self.market,
+            interval=self.interval,
+            candles=candles,
+        )
 
     # --- the clock ----------------------------------------------------------
 
@@ -493,11 +609,19 @@ class BarFeed:
                     )
                     for item in repaired
                 )
+                await sync_to_async(self._archive)(list(repaired))
                 self.last_bar_time = repaired[-1].time if repaired else self.last_bar_time
 
         self.last_bar_time = candle.time
         if not untraded(candle):
             out.append(FeedBar(bar=to_bar(candle), source=provider, transport=self.transport))
+        # Every confirmed bar this feed admits, including the repaired ones,
+        # goes into the archive on its way past. `_accept` is the single funnel
+        # — stream, poll, catch-up and repair all come through here — so one
+        # write here is the whole rule rather than four that have to agree.
+        # This is also what makes the *next* backtest deeper than this one:
+        # the venue serves 5000 bars and forgets, and the archive does not.
+        await sync_to_async(self._archive)([candle])
         return out
 
     async def _repair(self, first_missing: int, up_to: int) -> list[Candle]:

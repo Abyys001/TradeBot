@@ -1298,3 +1298,102 @@ look like a dead end.
 - **The create-bot form can set the policy up front**, which it could not — so
   every new bot was born `protected` and the only way to change it was a dialog
   on another page.
+
+---
+
+## Q38. A bot held a position the backtest would have closed ✅ One warm-up, and an exit of our own
+
+Reported from live use on 2026-09-17, in the admin's words: *"the bot entered a
+trade, but the trade was not closed and I do not know why."* Nothing had
+errored. The run was healthy, every bar was recorded, the risk gate had not
+fired, and the position sat open for thirty-three bars until the §7 halt was
+pressed.
+
+**What it actually was.** The supervisor and the backtest were warming the same
+script on different amounts of history. The backtest used
+`warmup_bars_needed(longest_lookback(result))` — three times the longest period
+any `ta.*` call is made with. The supervisor used `max(20, ta_call_sites * 10)`
+— the *count* of `ta.*` call sites, times ten. For the admin's strategy, whose
+deepest indicator is `ta.atr(200)`, that is **600 bars against 300**. An `rma`
+seeded three hundred bars ago is not the same number as one seeded six hundred
+bars ago, so the live bot was evaluating a strategy that had never been
+backtested. Replayed over the venue's own ZEC perpetual bars, the two disagree
+on **131 of 200 consecutive bars**: the converged run scales 30% off at TP1 and
+the unconverged one never does, and the reversal that should have closed the
+position fires on a different bar or not at all.
+
+- **There is now one function**, `apps/bots/feed.strategy_warmup`, and both
+  drivers call it and nothing else. `tests/test_bot_warmup_parity.py` asserts
+  that by reading the two call sites, so a future divergence fails a test
+  rather than a book.
+- **It reads the bot's configured inputs too.** A period the operator raised —
+  `McGinley Length` from 65 to 400 — appears in no literal anywhere in the
+  source, so a warm-up derived from the AST alone would converge nothing and
+  leave no sign of it.
+- **Every bar the bot's own feed sees is archived** (`BarFeed._archive`). It was
+  the one path in the platform that read bars and threw them away, which left
+  holes in the archive exactly where a bot had been running — a panel nobody has
+  open is not archiving either. The gap that made this diagnosis harder was
+  fourteen hours wide.
+
+**And the exit the platform takes itself.** The second half of the report was
+that a stop or a target may not fire — so the platform must be able to raise its
+own exit rather than trust what it sent to a venue. It cannot know: there is no
+callback saying "your stop is gone", and an order that was rejected, dropped,
+cancelled or lost with a re-read leg looks exactly like one quietly waiting.
+
+`apps/bots/exitguard.py` watches the level from this side. On every confirmed
+bar, before the script is asked anything, the held trade's own stop and target
+are resolved from the percentages recorded *with that trade* and compared
+against the bar's range; a level that was reached while the position is still
+open becomes an ordinary `CLOSE` on the one order path, reaching every
+connected account exactly as any other close does.
+
+- **It is the backtest's rule, not a second one.** `_check_exits` already closes
+  a simulated position on the bar whose range reaches its level, stop first when
+  one bar touches both. The guard makes the same comparison through the same
+  `sltp.resolve`, so switching it on moves live *towards* the report.
+- **It cannot invent a level.** Everything comes off the `Trade` row — side,
+  admin entry price, `sl_pct`/`tp_pct`, `safety_net_pct`, leverage and the Q5a
+  basis that was in force. A strategy-managed trade with nothing recorded gets
+  nothing enforced, and is still reported as unprotected rather than quietly
+  given a stop nobody chose.
+- **One verb, one direction: out.** It never opens, amends or reverses.
+- `BOT_EXIT_GUARD` turns it off. On by default, because an unenforced stop is
+  not a stop.
+
+**The backtest, in the same report.** *"Two backtests with exactly the same
+settings sometimes produce different results."* Three causes, none of them in
+the replay — which has always been a pure function of its bars, and says so
+through `intent_digest`:
+
+1. the window's end came off the date picker as "today, 23:59", which is in the
+   future for most of the day, so no archive could ever cover it and every run
+   re-downloaded;
+2. the download paged back from *now* rather than from the end of the window,
+   spending its budget on this week before reaching a bar it would replay;
+3. it stopped on a ninety-second wall clock, so a window reaching further back
+   than the venue serves was re-walked every run and came back short by a
+   different amount each time.
+
+The window is now pulled back to the last closed bar and the report says so; the
+walk starts at that end; and a venue's proved history floor is remembered
+(`trading.SeriesFloor`) so a window reaching past it counts as covered instead
+of being re-walked forever. `tests/test_backtest_determinism.py` is one test per
+cause.
+
+**Starting capital is a hundred dollars.** `BOT_BACKTEST_INITIAL_CAPITAL`, and a
+field on the backtest form. TradingView defaults to a million and this platform
+used to default to ten thousand; the accounts it actually fans out to are two
+figures, and a return quoted off a notional account nobody holds is a percentage
+of the wrong number. `apps/bots/config.platform_properties` is the one place the
+first layer of `properties.resolve` is built, so the form and the report can no
+longer show different starting capitals for the same run.
+
+**And the bars a venue will not sell.** `manage.py import_candles` reads a
+TradingView **Export chart data** CSV straight into the archive. Hyperliquid
+serves the latest 5000 bars — 104 days at 30m — so 60 of the 86 trades in the
+admin's TradingView year happened on bars nothing can fetch. They are not lost;
+the chart still has them. The importer copies: no resampling, no gap filling, no
+rounding to anybody's tick, and a bar off the interval's grid is refused rather
+than stored beside the real one.

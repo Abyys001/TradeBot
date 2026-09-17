@@ -1295,6 +1295,8 @@
     "historyNote": "Historie, die dieses Fenster braucht und das Archiv nicht hat, wird beim ersten Lauf geladen und gespeichert. Eine Börse, die nicht so weit zurückreicht, wird über den Zahlen gemeldet, nicht abgewiesen.",
     "chartTick": "TradingView-Chart-Tick",
     "chartTickNote": "Leer lassen, dann gilt der Tick der Börse — richtig, solange dieser Lauf nicht mit einem TradingView-Lauf verglichen wird. TradingView rechnet Slippage im Chart-Tick und rundet seine Kerzen darauf, und beide Zahlen stimmen selten überein: 0,0001 für den Hyperliquid-ZEC-Perpetual gegenüber 0,01 an der Börse.",
+    "initialCapital": "Startkapital",
+    "initialCapitalNote": "Womit die Wiedergabe beginnt. Standardmäßig 100 $ — die Größe eines echten verbundenen Kontos, damit „Rendite %“ ein Prozentsatz einer real existierenden Zahl ist. Das initial_capital des Skripts wird durch diesen Wert überschrieben.",
     "replayingNote": "Der erste Lauf auf einem neuen Paar lädt auch dessen Historie.",
     "viewingStored": "Gespeicherter Lauf · {name}",
     "props": {

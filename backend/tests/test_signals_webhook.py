@@ -259,6 +259,32 @@ def test_an_exit_closes_the_position_with_no_percentages_anywhere():
     assert trade.status == TradeStatus.CLOSED
 
 
+def test_an_exit_closes_the_position_on_every_connected_account():
+    """§4: an exit fans out exactly as the entry did.
+
+    "Close this" reaching two of three accounts is worse than it not arriving
+    at all — one partner is left holding a position nobody is managing. The
+    close goes through the same ``fan_out`` the open did, so the legs on the
+    way out are the legs that went in, and this is what says so.
+    """
+    account("partner-a")
+    account("partner-b")
+    account("not-opted-in").__class__.objects.filter(label="not-opted-in").update(
+        bot_trading_enabled=False
+    )
+    src = source()
+    post(src, buy())
+    trade = Trade.objects.get()
+    assert sorted(leg.account.label for leg in trade.legs.all()) == ["partner-a", "partner-b"]
+
+    post(src, {"action": "EXIT_BUY", "symbol": "BTCUSDT", "id": "sig-2"})
+
+    trade.refresh_from_db()
+    assert trade.status == TradeStatus.CLOSED
+    assert sorted(leg.account.label for leg in trade.legs.all()) == ["partner-a", "partner-b"]
+    assert all(leg.exit_price is not None for leg in trade.legs.all())
+
+
 def test_an_exit_for_the_side_that_is_not_held_is_a_no_op_not_a_flatten():
     """A stale duplicate from a retrying sender must not close the other side."""
     account()

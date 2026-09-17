@@ -60,6 +60,10 @@ TITLES: dict[str, tuple[str, str]] = {
     "bot_promoted": ("Bot promoted to LIVE", "ربات به حالت واقعی (LIVE) رفت"),
     "bot_stopped": ("Bot stopped", "ربات متوقف شد"),
     "bot_paused": ("Bot paused by the risk gate", "ربات توسط کنترل ریسک موقتاً متوقف شد"),
+    "bot_exit_guard": (
+        "Position closed by the platform — its level was reached",
+        "پلتفرم موقعیت را بست — سطح تعیین‌شده لمس شد",
+    ),
     "bot_gate_changed": ("Promotion gate changed", "دروازه ارتقا تغییر کرد"),
     "bot_deleted": ("Bot deleted", "ربات حذف شد"),
     "consecutive_losses": ("Bot auto-stopped: losing streak", "توقف خودکار ربات: ضررهای پیاپی"),

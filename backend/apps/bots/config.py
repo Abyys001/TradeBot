@@ -38,3 +38,20 @@ def decimal_setting(key: str) -> Decimal:
     between the environment and the arithmetic.
     """
     return Decimal(str(settings.BOT[key]))
+
+
+def platform_properties():
+    """The first of ``properties.resolve``'s three layers, from settings.
+
+    **One construction site.** The backtest builds this layer and so does the
+    panel's Properties form; when they were two expressions the form showed a
+    starting capital of 10,000 beside a report that had used something else,
+    and "which of the three won this field" — the whole question that tab
+    exists to answer — was being answered against the wrong first layer.
+    """
+    from apps.pine.properties import StrategyProperties
+
+    return StrategyProperties(
+        initial_capital=decimal_setting("BACKTEST_INITIAL_CAPITAL"),
+        commission_value=decimal_setting("BACKTEST_FEE_BPS") / Decimal(100),
+    )
