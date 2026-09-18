@@ -182,6 +182,13 @@ class Report:
     #: second run of a pair downloads nothing, and the panel says so rather
     #: than leaving the operator to infer a cache hit from how fast it was.
     data_source: dict = field(default_factory=dict)
+    #: ``(bar time, intent-as-dict)`` for every bar the replay actually
+    #: evaluated, filled only when ``run(trace=True)`` asked for it. The chart
+    #: tab draws the script's own plotted series off this, which is how the
+    #: lines under the markers and the markers themselves come from one replay
+    #: rather than two that could disagree. It never reaches ``as_dict``: a
+    #: stored report carrying a value per series per bar is a different object.
+    bar_trace: list[tuple[int, dict]] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {

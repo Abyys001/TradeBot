@@ -1381,10 +1381,8 @@
     "noJournalBody": "Bot mumları değerlendirdikçe günlük dolar. Botu kâğıt moduna alın; ilk kayıt bir sonraki kapanan mumda düşer.",
     "showQuietBars": "Sessiz mumları göster ({n})",
     "autoRefresh": "Otomatik yenile",
-    "chartRecorded": "Kaydedilmiş",
-    "chartRecordedHint": "Bunlar botun gerçekten gördüğü mumlarda gerçekten kaydettiği değerlerdir. Buradaki hiçbir şey yeniden hesaplanmaz.",
     "chartReplayed": "Gösterim için tekrarlandı",
-    "chartReplayedHint": "Bot bu zaman diliminde çalışmıyor; strateji yalnızca bunu çizmek için bunun üzerinde tekrarlandı. Çalışan botla ilgili hiçbir şey değişmedi.",
+    "chartReplayedHint": "Bot bu zaman diliminde çalışmıyor; strateji yalnızca bunu çizmek için üzerinde yeniden oynatıldı. Çalışan botta hiçbir şey değişmedi.",
     "chartNoHistory": "Bu zaman diliminde saklanmış mum yok",
     "chartNoHistoryBody": "Platform çalıştıkça arşiv dolar. Botun kendi zaman dilimini seçin ya da indirmek için bu paritede bir backtest çalıştırın.",
     "capital": "Sermaye",
@@ -1508,6 +1506,23 @@
       "protectedHint": "Her girişte borsada bir zarar durdur ve bir kâr al emri bekler. Bu bot başlayabilmeden önce ikisi de zorunludur.",
       "managedHint": "Betik kendi pozisyonlarını kapatır — strategy.close, bir dönüş, kendi hesapladığı bir hedef. Stop ve hedef isteğe bağlıdır; ama betiğin bir çıkışı olmalı.",
       "switchAndStart": "Stratejinin kendi işlemlerini kapatmasına izin ver ve başlat"
+    },
+    "chartHistoryHint": "Borsanın gerçek mumları, bu stratejiyle yeniden oynatıldı: oklar nereye girip nereden çıkacağını gösterir. Daha fazla geçmiş için sola sürükleyin. Halka işaretleri botun gerçekten gönderdiği emirlerdir — yanında halka olmayan bir giriş hiç gönderilmedi.",
+    "chartFeed": "{venue}",
+    "chartTrades": "{bars} mumda {n} işlem",
+    "chartUnrouted": "{n} alınmadı",
+    "chartPaging": "daha eski mumlar yükleniyor…",
+    "chartOldest": "bu borsanın geçmişinin başı",
+    "chartTradeList": "Bu penceredeki işlemler",
+    "chartInvalid": "Bu sürüm artık doğrulanmıyor",
+    "chartInvalidBody": "Strateji yeniden oynatılamıyor, dolayısıyla çizilecek bir şey yok. Hatalar için Kaynak sekmesini açın.",
+    "chartMark": {
+      "entry": {
+        "long": "Long",
+        "short": "Short",
+        "flat": "Giriş"
+      },
+      "exit": "Çıkış"
     }
   },
   "security": {

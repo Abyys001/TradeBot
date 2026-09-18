@@ -40,6 +40,7 @@ import {
   type SeriesMarker,
   type Time,
 } from 'lightweight-charts'
+import { ukChartLocalization } from '~/utils/clock'
 
 export type Bar = { time: Time; open: number; high: number; low: number; close: number }
 /** Every line the admin can grab. `entry` is draggable only for a limit order. */
@@ -232,6 +233,7 @@ export class LightweightChartAdapter implements ChartAdapter {
   async mount(el: HTMLElement) {
     this.el = el
     this.colors = palette()
+    const uk = ukChartLocalization()
     this.chart = createChart(el, {
       layout: { background: { color: 'transparent' }, textColor: this.colors.text, fontSize: 11 },
       grid: {
@@ -239,7 +241,11 @@ export class LightweightChartAdapter implements ChartAdapter {
         horzLines: { color: this.colors.grid },
       },
       rightPriceScale: { borderColor: this.colors.grid },
-      timeScale: { borderColor: this.colors.grid, timeVisible: true },
+      // The axis and the crosshair read in UK time — the same clock the trade
+      // log, the journal and TradingView itself are on. Labels only: every
+      // timestamp in this chart stays the real epoch second the server sent.
+      localization: uk.localization,
+      timeScale: { borderColor: this.colors.grid, ...uk.timeScale },
       crosshair: { mode: 0 },
       autoSize: true,
       // Touch: let a vertical swipe scroll the page instead of the chart

@@ -425,6 +425,7 @@ def run(
     mintick: Decimal | None = None,
     qty_step: Decimal | None = None,
     price_tick: Decimal | None = None,
+    trace: bool = False,
     progress: Progress = _noop_progress,
 ) -> Report:
     """Validate, replay, and report. ``bars`` is for tests and the divergence check.
@@ -433,6 +434,11 @@ def run(
     than the venue does — UZEC/USDC is 0.1 there and 0.01 on Hyperliquid — and
     rounds every price half-up to it, as TradingView's bars are. Signals do not
     move with it; fill prices, and so every PnL figure, do.
+
+    ``trace`` fills ``Report.bar_trace`` with what the script plotted on every
+    evaluated bar. The chart tab asks for it so the lines it draws and the
+    entry/exit marks on top of them come out of **one** replay — two replays of
+    the same window is two opinions about where a trade happened.
     """
     progress("validating", 0.0, {})
     result = validate(source, limits=limits())
@@ -476,9 +482,7 @@ def run(
             )
     series = [_quantize(bar, price_tick) for bar in series if not untraded(bar)]
     if not series:
-        raise BacktestError(
-            f"no bars for {symbol} {interval} between {from_time} and {to_time}"
-        )
+        raise BacktestError(f"no bars for {symbol} {interval} between {from_time} and {to_time}")
 
     # Platform default → what `strategy()` declared → what the panel overrode.
     # `properties.resolve` is the only place that order exists, so the header on
@@ -488,16 +492,16 @@ def run(
         platform = replace(platform, initial_capital=initial_equity)
     resolved = props_module.resolve(
         platform=platform,
-        declared={
-            key: getattr(result.properties, key) for key in result.properties.declared
-        },
+        declared={key: getattr(result.properties, key) for key in result.properties.declared},
         overrides=property_overrides or {},
     )
     # The tick is part of the market data, so a caller who supplies its own
     # bars supplies its own tick: `bars=` is the divergence harness and the
     # test suite, neither of which has an exchange listing to read.
-    tick = mintick if mintick is not None else (
-        _mintick_for(symbol, market) if bars is None else Decimal("0.01")
+    tick = (
+        mintick
+        if mintick is not None
+        else (_mintick_for(symbol, market) if bars is None else Decimal("0.01"))
     )
     if qty_step is None and bars is None:
         qty_step = _qty_step_for(symbol, market)
@@ -616,6 +620,18 @@ def run(
         initial_equity=resolved.initial_capital,
     )
     report.data_source = data_source
+    if trace:
+        # `engine.intents` holds exactly one entry per non-warm-up bar, in
+        # order, so the bar times are the evaluated slice of the series. Built
+        # here rather than inside `step` so a replay nobody is drawing pays
+        # nothing for it.
+        report.bar_trace = list(
+            zip(
+                [bar.time for bar in series if bar.time >= from_time],
+                (intent.as_dict() for intent in engine.intents),
+                strict=False,
+            )
+        )
     progress("finishing", 1.0, {"trades": len(engine.trades)})
     return report
 
@@ -681,8 +697,11 @@ class _Engine:
         self.bot_tp = tp_pct
         self.equity = assumptions.initial_equity
         self.position: _Position | None = None
+        #: ``(side, sl, tp, reason, exit_reason, span)``. Two labels, not one:
+        #: a reversal bar closes one trade and opens another, and TradingView
+        #: prints a different Signal against each.
         self.pending: (
-            tuple[Side | None, Decimal | None, Decimal | None, str, dict | None] | None
+            tuple[Side | None, Decimal | None, Decimal | None, str, str, dict | None] | None
         ) = None
         #: The scale-outs a bar asked for — ``(fraction left, reason)`` each, in
         #: order — filling under the same rule as an entry.
@@ -710,8 +729,7 @@ class _Engine:
         # 3. The strategy sees the bar, told what is actually held.
         self.runtime.sync_position(
             size_sign=(
-                0 if self.position is None
-                else (1 if self.position.side is Side.LONG else -1)
+                0 if self.position is None else (1 if self.position.side is Side.LONG else -1)
             ),
             avg_price=self.position.entry_price if self.position else None,
             equity=self.equity,
@@ -742,6 +760,7 @@ class _Engine:
                 intent.sl_pct if intent.sl_pct is not None else self.bot_sl,
                 intent.tp_pct if intent.tp_pct is not None else self.bot_tp,
                 intent.reason,
+                intent.exit_reason,
                 intent.source_span.as_dict() if intent.source_span else None,
             )
         elif self.position is not None and intent.position_fraction < self.position.fraction:
@@ -787,7 +806,7 @@ class _Engine:
     # --- fills --------------------------------------------------------------
 
     def _execute(self, pending, bar: Bar, basis: Decimal) -> None:
-        side, sl_pct, tp_pct, reason, span = pending
+        side, sl_pct, tp_pct, reason, exit_reason, span = pending
 
         # Sized on the equity the order was *placed* against: the position being
         # reversed still open and marked at this price, its exit fee not yet
@@ -798,7 +817,10 @@ class _Engine:
         if self.position is not None:
             # A reversal closes first and then opens, in that order, never both
             # at once — the same rule Phase 5 enforces against a live venue.
-            self._close(bar, self._slipped(basis, closing=True), "signal")
+            # The script's own word for this exit when it gave one — that is
+            # what TradingView's Signal column carries — and "signal" only when
+            # the close came from a bare side change with nothing to quote.
+            self._close(bar, self._slipped(basis, closing=True), exit_reason or "signal")
         if side is None:
             return
 
@@ -849,9 +871,7 @@ class _Engine:
         net = self.equity - self.a.initial_equity
         open_profit = self._mark_to_market(bar) - self.equity
         peak = max((value for _, value in self.curve), default=self.a.initial_equity)
-        drawdown = max(
-            (peak_so_far - value for peak_so_far, value in self._peaks()), default=ZERO
-        )
+        drawdown = max((peak_so_far - value for peak_so_far, value in self._peaks()), default=ZERO)
         return {
             "closedtrades": Decimal(len(self.trades)),
             "wintrades": Decimal(len(wins)),
@@ -874,9 +894,7 @@ class _Engine:
             "avg_trade_percent": (
                 net / Decimal(len(self.trades)) / capital * Decimal(100) if self.trades else ZERO
             ),
-            "avg_winning_trade": (
-                gross_profit / Decimal(len(wins)) if wins else ZERO
-            ),
+            "avg_winning_trade": (gross_profit / Decimal(len(wins)) if wins else ZERO),
             "avg_losing_trade": (gross_loss / Decimal(len(losses)) if losses else ZERO),
             "account_currency": "USDT",
         }

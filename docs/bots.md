@@ -749,15 +749,16 @@ promote.
 
 ### Watching one bot
 
-A bot's page carries four read-only tabs that are all *projections* — nothing
+A bot's page carries five read-only tabs that are all *projections* — nothing
 below stores anything, and nothing is allowed to invent a number the bot did not
 record.
 
 | Tab | Endpoint | What it is |
 |---|---|---|
 | Log | `GET …/journal/` | `apps/bots/narrate.py` over the run's stored bars and actions |
-| Chart | `GET …/chart/?interval=` | the recorded bars with the script's own plotted series and its signals as markers |
+| Chart | `GET …/chart/?interval=&before=` | `apps/bots/chart.py` — the venue's own bars for that window, replayed |
 | Logic | `GET …/logic/` | `apps/pine/explain.py` over the version's own source |
+| Activity | `GET …/actions/` | every routed order, across every run, with the accounts each leg reached |
 | Routing | `GET …/accounts/` | which connected accounts have `bot_trading_enabled` |
 
 **The log records the quiet bars too.** "No bars recorded yet" on a running bot
@@ -780,9 +781,28 @@ the AST and slices the operator's own source back out by span, so the condition
 under a trigger is what was written rather than a paraphrase of it, and a
 one-level alias (`longCond = …`) is expanded once.
 
-The Chart tab's timeframe selector **re-replays for display only**. Picking an
-interval the bot does not run on replays the strategy over the archive purely to
-draw it, says so on the badge, and touches nothing about the running bot.
+**The chart is a visual backtest, not a log of the bot's uptime (Q39).** Every
+page is one `backtest.run` over the pinned venue's own bars for that window, so
+the arrows are where this strategy *would* have entered and exited — at the fill
+model's own price, whether or not a bot was running then. What the bot really
+routed is drawn beside them as separate ring marks, read across every run rather
+than the latest, and `summary.unrouted` counts the entries nothing was sent for.
+That number is the answer to "TradingView traded overnight and we did not":
+either the replay found nothing either (the strategy, or its inputs, differ) or
+it found trades with no ring beside them (the order path, the gate, or the
+accounts' `bot_trading_enabled`).
+
+Dragging the chart left asks for the page before the one on screen
+(`before=<oldest bar>`); each page carries its own warm-up bars ahead of the
+window, so an older page's indicators are converged the way the newest page's
+are. The scrollback ends on `note: "no_history"` — the venue's own floor — and
+the panel stops asking. The last bar ticks from the same public stream the
+trading chart uses, and every timestamp on the page is **UK time**
+(`frontend/utils/clock.ts`), the zone the admin's TradingView is set to.
+
+The timeframe selector **re-replays for display only**. Picking an interval the
+bot does not run on replays the strategy over that timeframe purely to draw it,
+says so on the badge, and touches nothing about the running bot.
 
 ### What is kept (Q26)
 

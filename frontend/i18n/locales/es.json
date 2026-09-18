@@ -1381,10 +1381,8 @@
     "noJournalBody": "El registro se llena a medida que el bot evalúa velas. Arránquelo en papel y la primera entrada llega con la siguiente vela cerrada.",
     "showQuietBars": "Mostrar velas tranquilas ({n})",
     "autoRefresh": "Actualización automática",
-    "chartRecorded": "Registrado",
-    "chartRecordedHint": "Estos son los valores que el bot registró realmente en las velas que realmente vio. Aquí no se recalcula nada.",
     "chartReplayed": "Repetido para mostrarlo",
-    "chartReplayedHint": "El bot no corre en este marco temporal, así que la estrategia se repitió sobre él solo para dibujar esto. Nada del bot en marcha ha cambiado.",
+    "chartReplayedHint": "El bot no opera en esta temporalidad, así que la estrategia se reprodujo sobre ella solo para dibujar esto. Nada del bot en marcha ha cambiado.",
     "chartNoHistory": "No hay velas guardadas en este marco temporal",
     "chartNoHistoryBody": "El archivo se llena mientras la plataforma funciona. Elija el marco temporal propio del bot, o ejecute un backtest en este par para descargarlo.",
     "capital": "Capital",
@@ -1508,6 +1506,23 @@
       "protectedHint": "En cada entrada quedan un stop loss y un take profit puestos en el exchange. Ambos son obligatorios antes de que este bot pueda arrancar.",
       "managedHint": "El script cierra sus propias posiciones: strategy.close, un giro, un objetivo que calcula. El stop y el objetivo son opcionales; el script sí necesita alguna salida.",
       "switchAndStart": "Dejar que la estrategia cierre sus operaciones y arrancar"
+    },
+    "chartHistoryHint": "Velas reales del exchange, reproducidas con esta estrategia: las flechas marcan dónde habría entrado y salido. Arrastra a la izquierda para más historial. Las marcas circulares son órdenes que el bot envió de verdad; una entrada sin círculo nunca se envió.",
+    "chartFeed": "{venue}",
+    "chartTrades": "{n} operaciones en {bars} velas",
+    "chartUnrouted": "{n} no tomadas",
+    "chartPaging": "cargando velas anteriores…",
+    "chartOldest": "inicio del historial de este exchange",
+    "chartTradeList": "Operaciones de esta ventana",
+    "chartInvalid": "Esta versión ya no valida",
+    "chartInvalidBody": "La estrategia no se puede reproducir, así que no hay nada que dibujar. Abre la pestaña Código para ver los errores.",
+    "chartMark": {
+      "entry": {
+        "long": "Largo",
+        "short": "Corto",
+        "flat": "Entrada"
+      },
+      "exit": "Salida"
     }
   },
   "security": {

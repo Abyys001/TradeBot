@@ -280,6 +280,60 @@ def test_runs_bars_and_actions_are_empty_rather_than_404_for_a_new_bot():
         assert client.get(f"/api/bots/bots/{bot.id}/{suffix}/").json() == []
 
 
+def test_the_activity_log_spans_every_run_not_only_the_latest():
+    """A bot restarted this morning did not stop having traded last night.
+
+    The log used to read the newest `BotRun` only, so a restart emptied the
+    Activity tab of a bot that had been working for days — which is exactly the
+    "it never took any trades" picture it exists to disprove.
+    """
+    from apps.bots.models import ActionType, BotAction
+
+    bot = make_bot()
+    old_run, new_run = make_run(bot), make_run(bot)
+    for index, run in enumerate((old_run, new_run)):
+        BotAction.objects.create(
+            run=run,
+            bar_time=1_700_000_000 + index,
+            action_type=ActionType.OPEN,
+            idempotency_key=f"key-{index}",
+            intent={"side": "long"},
+            ok=True,
+        )
+
+    rows = staff().get(f"/api/bots/bots/{bot.id}/actions/").json()
+    assert len(rows) == 2
+    # Newest first: an operator opens this tab for what just happened.
+    assert rows[0]["bar_time"] > rows[1]["bar_time"]
+
+
+def test_the_journal_spans_earlier_runs_not_only_the_newest():
+    """A run started seconds ago has nothing to say; the bot does.
+
+    Showing the new run's one `started` line as the bot's whole history is how
+    this tab came to read as a bot doing nothing after every restart.
+    """
+    from apps.bots.models import BotBar
+
+    bot = make_bot()
+    worked = make_run(bot)
+    BotBar.objects.create(
+        run=worked,
+        bar_time=1_700_000_000,
+        open=D("100"),
+        high=D("101"),
+        low=D("99"),
+        close=D("100"),
+        intent={"side": None, "reason": "flat"},
+    )
+    make_run(bot)  # just started, no bars yet
+
+    body = staff().get(f"/api/bots/bots/{bot.id}/journal/").json()
+    # The header is the run going now; the lines reach back past it.
+    assert body["run"]["id"] != worked.id
+    assert any(event["kind"] == "bar" for event in body["events"])
+
+
 def test_the_bars_endpoint_caps_what_it_returns():
     bot = make_bot()
     make_run(bot)

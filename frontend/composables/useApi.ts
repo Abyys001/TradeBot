@@ -449,13 +449,20 @@ export function useApi() {
     /** What makes this strategy trade, read back out of its own source. */
     botLogic: (id: number) => request<BotLogic>(`/bots/bots/${id}/logic/`),
     /**
-     * Candles, the script's plotted series and where it acted. An `interval`
-     * other than the bot's own is **replayed for display** — it never touches
-     * the running bot.
+     * One page of the bot's chart: the venue's own candles, the script's
+     * plotted series, and where the strategy **would** have traded over that
+     * window — plus what the bot really routed, drawn separately.
+     *
+     * `before` is the oldest bar already on screen, which is what makes
+     * dragging the chart back a request for the page before this one. An
+     * `interval` other than the bot's own replays that timeframe for display
+     * and never touches the running bot.
      */
-    botChart: (id: number, interval?: string, limit = 400) =>
+    botChart: (id: number, interval?: string, limit = 400, before?: number) =>
       request<BotChart>(
-        `/bots/bots/${id}/chart/?limit=${limit}${interval ? `&interval=${interval}` : ''}`,
+        `/bots/bots/${id}/chart/?limit=${limit}` +
+          `${interval ? `&interval=${interval}` : ''}` +
+          `${before ? `&before=${before}` : ''}`,
       ),
     /** Which connected accounts this bot would actually reach. */
     botAccounts: (id: number) =>
@@ -1774,20 +1781,58 @@ export interface ChartSeries {
 export interface ChartMarker {
   time: number
   side: string | null
-  kind: string
+  /**
+   * `signal` — the strategy wanted this side on this bar.
+   * `entry` / `exit` — the replay's own fills, at the fill model's price.
+   * `action` — what the running bot actually routed.
+   */
+  kind: 'signal' | 'entry' | 'exit' | 'action'
   reason: string
+  price: string | null
   ok?: boolean
+  pnl?: string
+  trade?: number
+  action_type?: string
+}
+
+/** One closed trade of the window's replay — TradingView's List of Trades. */
+export interface ChartTrade {
+  side: string
+  entry_time: number
+  entry_price: string
+  exit_time: number
+  exit_price: string
+  qty: string
+  pnl: string
+  fees: string
+  bars_held: number
+  exit_reason: string
+  entry_reason: string
 }
 
 export interface BotChart {
   interval: string
-  /** True when the series were replayed for display rather than recorded live. */
-  replayed: boolean
   symbol: string
+  market: string
+  /** The venue every bar and every tick on this chart came from. */
+  source: string
+  from_time: number
+  to_time: number
   candles: { time: number; open: string; high: string; low: string; close: string; volume: string }[]
   series: ChartSeries[]
   markers: ChartMarker[]
-  /** `no_history` when the archive holds no bars at this timeframe yet. */
+  trades: ChartTrade[]
+  summary: {
+    bars?: number
+    trades?: number
+    wins?: number
+    net_profit?: string
+    actions?: number
+    /** Replayed entries with no routed action beside them — the discrepancy. */
+    unrouted?: number
+  }
+  warnings: string[]
+  /** `no_history` at the end of the scrollback; `invalid_strategy` if it no longer parses. */
   note: string
 }
 

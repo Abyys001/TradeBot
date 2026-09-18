@@ -28,6 +28,12 @@ let retries = 0
 let intentionalClose = false
 /** Set when a ping goes out, cleared by its pong. Module-level: not state. */
 let pingSentAt: number | null = null
+/**
+ * Extra readers of the pushed bars — see `onBar`. A `Set` and not state: these
+ * are closures over component-local series, and Pinia would deep-reactive them
+ * for no reason on every frame.
+ */
+const barListeners = new Set<(payload: any) => void>()
 
 export const useLiveStore = defineStore('live', {
   state: () => ({
@@ -294,6 +300,24 @@ export const useLiveStore = defineStore('live', {
       return true
     },
 
+    /**
+     * Watch the pushed bars directly, without going through the market store.
+     *
+     * The market store is the *trading* chart's series — one symbol, cookie
+     * persisted, the admin's own view. A second chart elsewhere in the panel
+     * (a bot's, on its own pair) needs the same stream and must not move that
+     * view to get it, so it takes the frames raw and keeps its own series.
+     *
+     * Returns the unsubscribe. The caller filters: a listener is handed every
+     * bar the socket carries, including one for a pair it did not ask about,
+     * because the engine holds one subscription per consumer and whoever
+     * subscribed last owns it.
+     */
+    onBar(listener: (payload: any) => void): () => void {
+      barListeners.add(listener)
+      return () => barListeners.delete(listener)
+    },
+
     unsubscribeMarket() {
       if (!socket || socket.readyState !== WebSocket.OPEN) return
       socket.send(JSON.stringify({ type: 'unsubscribe_market' }))
@@ -313,6 +337,7 @@ export const useLiveStore = defineStore('live', {
       }
       if (payload.type === 'market_bar') {
         useMarketStore().applyBar(payload)
+        for (const listener of barListeners) listener(payload)
         return
       }
       if (payload.type === 'market_stream_up') {

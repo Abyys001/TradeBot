@@ -30,13 +30,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from apps.accounts.visibility import _filtered  # read surface only — see apps/bots/__init__.py
-from apps.bots import drills, gate, jobs, lifecycle, narrate
+from apps.bots import chart, drills, gate, jobs, lifecycle, narrate
 from apps.bots.config import limits, platform_properties
 from apps.bots.models import (
     BacktestJob,
     BacktestRun,
     Bot,
     BotAction,
+    BotBar,
     BotRun,
     BotState,
     ExitPolicy,
@@ -239,20 +240,29 @@ class BotViewSet(viewsets.ModelViewSet):
     def actions(self, request: Request, pk=None) -> Response:
         """The action log, with fan-out legs. The one bot surface naming accounts.
 
+        Every run's actions, newest first — not just the latest run's. A bot
+        restarted this morning did not stop having traded last night, and an
+        activity log that began at the restart was the reason this tab read
+        empty on a bot that had been trading for days.
+
         Also carries the price each decision was made at, looked up once for the
         whole page. A dry run has no fills to read a price back out of, so
         without this the paper log could say when a bot went long but never at
         what — which is most of what a paper run is for.
         """
         bot = self.get_object()
-        run = bot.runs.order_by("-started_at").first()
-        if run is None:
+        limit = min(int(request.query_params.get("limit", 200)), 1000)
+        rows = list(
+            BotAction.objects.filter(run__bot=bot)
+            .select_related("trade")
+            .order_by("-bar_time", "-id")[:limit]
+        )
+        if not rows:
             return Response([])
-        rows = list(BotAction.objects.filter(run=run).select_related("trade")[:200])
         prices = dict(
-            run.bars.filter(bar_time__in=[row.bar_time for row in rows]).values_list(
-                "bar_time", "close"
-            )
+            BotBar.objects.filter(
+                run__bot=bot, bar_time__in=[row.bar_time for row in rows]
+            ).values_list("bar_time", "close")
         )
         return Response(
             BotActionSerializer(
@@ -277,13 +287,14 @@ class BotViewSet(viewsets.ModelViewSet):
         through i18n, which is the only way this reads in six languages.
         """
         bot = self.get_object()
-        run = bot.runs.order_by("-started_at").first()
+        limit = min(int(request.query_params.get("limit", 300)), 1000)
+        # Across runs, newest first. A restart is not the start of the bot's
+        # history, and reading only the newest run is what made this tab show a
+        # single "started" line on a bot that had been evaluating for days.
+        run, events = narrate.journal_for_bot(bot, limit=limit)
         if run is None:
             return Response({"events": [], "run": None})
-        limit = min(int(request.query_params.get("limit", 300)), 1000)
-        return Response(
-            {"run": BotRunSerializer(run).data, "events": narrate.journal(run, limit=limit)}
-        )
+        return Response({"run": BotRunSerializer(run).data, "events": events})
 
     @action(detail=True, methods=["get"])
     def logic(self, request: Request, pk=None) -> Response:
@@ -306,23 +317,28 @@ class BotViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def chart(self, request: Request, pk=None) -> Response:
-        """Candles, the script's own plotted series, and where it acted.
+        """The chart, as a visual backtest of real history — see ``chart.py``.
 
-        Two sources, and the difference is the point. At the bot's **own**
-        interval the series are the values the runtime actually recorded, bar by
-        bar (``BotBar.plots``) — what the bot really saw. At any other interval
-        there is no such record, so the strategy is **replayed** over that
-        timeframe purely to draw it, and the payload says ``replayed: true``.
+        Every page is a replay of the venue's own bars over that window, so the
+        entry and exit marks are where this strategy *would* have traded,
+        whether or not the bot was running then. What it really routed is drawn
+        on top as its own marks; the difference between the two is the point.
 
-        A replay changes nothing: it never touches the bot, its run, its
-        position or its interval. Switching the timeframe on a chart must not be
-        a trading control.
+        ``before`` pages backwards: the oldest bar the panel already holds.
+        ``interval`` other than the bot's own replays that timeframe for
+        display and never touches the running bot.
         """
         bot = self.get_object()
         interval = request.query_params.get("interval") or bot.interval
-        limit = min(int(request.query_params.get("limit", 400)), 1500)
+        limit = min(int(request.query_params.get("limit", 400)), chart.MAX_BARS)
+        before = request.query_params.get("before")
         try:
-            payload = _chart_payload(bot, interval=interval, limit=limit)
+            payload = chart.payload(
+                bot,
+                interval=interval,
+                limit=limit,
+                before=int(before) if before else None,
+            )
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
         return Response(payload)
@@ -1073,229 +1089,3 @@ def _other_running_ids(bot_id: int) -> list[int]:
 
 def _get_version(pk) -> StrategyVersion | None:
     return StrategyVersion.objects.filter(id=pk).first() if pk else None
-
-
-def _chart_payload(bot: Bot, *, interval: str, limit: int) -> dict:
-    """Candles, the script's plotted series, and the bars it acted on.
-
-    Two paths, and the difference is stated in the payload rather than blurred:
-
-      **The bot's own interval** reads ``BotBar`` — the values the runtime
-      really recorded on the bars it really saw. Nothing is recomputed, so the
-      chart cannot disagree with the journal beside it.
-
-      **Any other interval** has no such record, so the strategy is replayed
-      over that timeframe *for display only*. ``replayed`` is true, and nothing
-      about the bot, its run, its position or its interval is touched.
-    """
-    from apps.bots.feed import interval_seconds, to_bar
-    from apps.exchanges import candlestore, marketdata
-    from apps.exchanges.base import MarketType
-
-    interval_seconds(interval)  # raises ValueError on an interval nothing supports
-    market = MarketType(bot.market)
-    run = bot.runs.order_by("-started_at").first()
-    own = interval == bot.interval
-
-    if own and run is not None:
-        rows = list(run.bars.order_by("-bar_time")[:limit])
-        rows.reverse()
-        if rows:
-            return {
-                "interval": interval,
-                "replayed": False,
-                "symbol": bot.symbol,
-                "candles": [
-                    {
-                        "time": row.bar_time,
-                        "open": str(row.open),
-                        "high": str(row.high),
-                        "low": str(row.low),
-                        "close": str(row.close),
-                        "volume": str(row.volume),
-                    }
-                    for row in rows
-                ],
-                "series": _series_from([(row.bar_time, row.plots or {}) for row in rows]),
-                "markers": _markers_from_bars(rows) + _markers_from_actions(run, limit),
-                "note": "",
-            }
-
-    # Nothing recorded at this interval — replay it, and say so.
-    warmup = _warmup_of(bot)
-    stored = candlestore.read_window(
-        symbol=bot.symbol,
-        interval=interval,
-        market=market,
-        limit=limit + warmup,
-        exchange=marketdata.pinned_provider(),
-    )
-    candles = list(stored[0]) if stored else []
-    if not candles:
-        return {
-            "interval": interval,
-            "replayed": True,
-            "symbol": bot.symbol,
-            "candles": [],
-            "series": [],
-            "markers": [],
-            # Not an error. The archive fills as the platform runs, and a
-            # timeframe nobody has looked at yet simply has no bars stored.
-            "note": "no_history",
-        }
-
-    traced = _replay_for_display(bot, [to_bar(candle) for candle in candles], interval, warmup)
-    drawn = candles[warmup:] or candles
-    return {
-        "interval": interval,
-        "replayed": True,
-        "symbol": bot.symbol,
-        "candles": [
-            {
-                "time": candle.time,
-                "open": str(candle.open),
-                "high": str(candle.high),
-                "low": str(candle.low),
-                "close": str(candle.close),
-                "volume": str(candle.volume),
-            }
-            for candle in drawn
-        ],
-        "series": _series_from([(time, plots) for time, plots, _ in traced]),
-        "markers": _markers_from_trace(traced),
-        "note": "",
-    }
-
-
-def _warmup_of(bot: Bot) -> int:
-    """The same warm-up the live loop and the backtest use, for this bot.
-
-    Drawn from ``feed.strategy_warmup`` rather than re-derived, so the chart
-    tab cannot show a series converged differently from the one the bot traded.
-    """
-    from apps.bots.feed import strategy_warmup
-
-    return strategy_warmup(
-        validate(bot.strategy_version.source, limits=limits()), bot.input_values or {}
-    )
-
-
-def _replay_for_display(bot: Bot, bars, interval: str, warmup: int) -> list[tuple]:
-    """Run the script over these bars purely to record what it plots.
-
-    The *same* ``Runtime`` the live loop and the backtest use — there is only
-    one — so the lines drawn here are the lines the bot would compute. What it
-    is not is a decision: nothing is routed, nothing is stored, and the first
-    ``warmup`` bars are dropped because their indicators have not converged.
-    """
-    from apps.pine.errors import PineError
-    from apps.pine.runtime import Runtime
-    from apps.pine.symbol import SymbolInfo, TimeframeInfo
-
-    result = validate(bot.strategy_version.source, limits=limits())
-    if not result.ok:
-        return []
-    runtime = Runtime(
-        result.program,
-        symbol=bot.symbol,
-        inputs=bot.input_values or {},
-        limits=limits(),
-        symbol_info=SymbolInfo.for_symbol(bot.symbol, market=bot.market),
-        timeframe=TimeframeInfo.for_interval(interval),
-    )
-    traced: list[tuple] = []
-    for index, bar in enumerate(bars):
-        try:
-            outcome = runtime.run_bar(bar, ishistory=index < warmup)
-        except PineError:
-            # A script that fails on a timeframe it was never run on is a fact
-            # about that timeframe, not an error worth a 500. Draw what it
-            # managed and stop.
-            break
-        if index >= warmup:
-            traced.append((bar.time, outcome.intent.as_dict()["plots"], outcome.intent.as_dict()))
-    return traced
-
-
-def _series_from(rows: list[tuple[int, dict]]) -> list[dict]:
-    """Per-bar plot dictionaries → one array per named series, chart-ready.
-
-    Sparse by construction: a bar where a series was ``na`` contributes no
-    point, so a line breaks where the script had no value rather than being
-    drawn through zero.
-    """
-    names: list[str] = []
-    for _, plots in rows:
-        for name in plots or {}:
-            if name not in names:
-                names.append(name)
-    series = []
-    for name in names:
-        points = []
-        for time, plots in rows:
-            value = (plots or {}).get(name)
-            if value is None or value == "":
-                continue
-            try:
-                points.append({"time": time, "value": float(value)})
-            except (TypeError, ValueError):
-                continue
-        if points:
-            series.append({"name": name, "points": points})
-    return series
-
-
-def _markers_from_bars(rows) -> list[dict]:
-    """Where the desired side changed. One marker per change, never per bar."""
-    markers = []
-    previous = None
-    for row in rows:
-        side = (row.intent or {}).get("side")
-        if side != previous:
-            markers.append(
-                {
-                    "time": row.bar_time,
-                    "side": side,
-                    "kind": "signal",
-                    "reason": (row.intent or {}).get("reason") or "",
-                }
-            )
-        previous = side
-    return markers
-
-
-def _markers_from_trace(traced: list[tuple]) -> list[dict]:
-    markers = []
-    previous = None
-    for time, _, intent in traced:
-        side = intent.get("side")
-        if side != previous:
-            markers.append(
-                {
-                    "time": time,
-                    "side": side,
-                    "kind": "signal",
-                    "reason": intent.get("reason") or "",
-                }
-            )
-        previous = side
-    return markers
-
-
-def _markers_from_actions(run, limit: int) -> list[dict]:
-    """What was actually *routed*, as distinct from what was merely wanted.
-
-    Both are drawn, and they are different marks: a signal the risk gate refused
-    is a signal with no action beside it, which is exactly the picture an
-    operator needs when a bot "did nothing".
-    """
-    return [
-        {
-            "time": action.bar_time,
-            "side": (action.intent or {}).get("side"),
-            "kind": action.action_type,
-            "ok": action.ok,
-            "reason": action.reason or "",
-        }
-        for action in run.actions.all()[:limit]
-    ]

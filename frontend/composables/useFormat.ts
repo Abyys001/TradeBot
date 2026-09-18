@@ -9,6 +9,8 @@
  *    the same figures on the exchange's own screen in Latin digits, and a
  *    mismatch between the two is exactly how a wrong size gets sent.
  */
+import { DISPLAY_TZ } from '~/utils/clock'
+
 const LATIN = 'en-US'
 
 export function useFormat() {
@@ -57,11 +59,20 @@ export function useFormat() {
     return value < 10 ? `${value.toFixed(1)}ms` : `${Math.round(value)}ms`
   }
 
+  /**
+   * A timestamp, always in **UK time** — never the reader's own zone.
+   *
+   * The admin compares these against a TradingView chart set to Europe/London,
+   * and a panel that quietly rendered the same bar in the browser's timezone
+   * made the two screens disagree about when a trade happened. See
+   * `utils/clock.ts`.
+   */
   function dateTime(value: string | null | undefined): string {
     if (!value) return '—'
     const d = new Date(value)
     if (Number.isNaN(d.getTime())) return '—'
     return d.toLocaleString(LATIN, {
+      timeZone: DISPLAY_TZ,
       month: 'short',
       day: '2-digit',
       hour: '2-digit',

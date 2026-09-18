@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+strategy.entry("L", strategy.long, limit=close * 0.99)
+//@expect code=unsupported_entry_pending line=3 col=36

@@ -1381,10 +1381,8 @@
     "noJournalBody": "Das Protokoll füllt sich, während der Bot Bars auswertet. Starten Sie ihn in den Papierhandel, und der erste Eintrag kommt beim nächsten geschlossenen Bar.",
     "showQuietBars": "Ruhige Bars anzeigen ({n})",
     "autoRefresh": "Automatisch aktualisieren",
-    "chartRecorded": "Aufgezeichnet",
-    "chartRecordedHint": "Das sind die Werte, die der Bot tatsächlich auf den Bars aufgezeichnet hat, die er tatsächlich gesehen hat. Nichts davon wird neu berechnet.",
     "chartReplayed": "Zur Anzeige nachgespielt",
-    "chartReplayedHint": "Der Bot läuft nicht auf diesem Zeitrahmen, die Strategie wurde also allein zum Zeichnen darüber nachgespielt. Am laufenden Bot hat sich nichts geändert.",
+    "chartReplayedHint": "Der Bot läuft nicht auf diesem Zeitraster; die Strategie wurde nur zum Zeichnen darüber zurückgespielt. Am laufenden Bot hat sich nichts geändert.",
     "chartNoHistory": "Keine Bars in diesem Zeitrahmen gespeichert",
     "chartNoHistoryBody": "Das Archiv füllt sich, während die Plattform läuft. Wählen Sie den eigenen Zeitrahmen des Bots oder starten Sie einen Backtest auf diesem Paar, um ihn herunterzuladen.",
     "capital": "Kapital",
@@ -1508,6 +1506,23 @@
       "protectedHint": "Bei jedem Einstieg liegen ein Stop-Loss und ein Take-Profit an der Börse. Beide sind erforderlich, bevor dieser Bot starten kann.",
       "managedHint": "Das Skript schließt seine Positionen selbst — strategy.close, eine Umkehr, ein selbst berechnetes Ziel. Stop und Ziel sind optional; das Skript braucht aber irgendeinen Ausstieg.",
       "switchAndStart": "Die Strategie ihre Trades selbst schließen lassen und starten"
+    },
+    "chartHistoryHint": "Echte Kerzen der Börse, durch diese Strategie zurückgespielt: Die Pfeile zeigen, wo sie ein- und ausgestiegen wäre. Nach links ziehen für mehr Historie. Ringmarken sind Orders, die der Bot wirklich abgesetzt hat — ein Einstieg ohne Ring wurde nie gesendet.",
+    "chartFeed": "{venue}",
+    "chartTrades": "{n} Trades über {bars} Kerzen",
+    "chartUnrouted": "{n} nicht ausgeführt",
+    "chartPaging": "ältere Kerzen werden geladen…",
+    "chartOldest": "Beginn der Historie dieser Börse",
+    "chartTradeList": "Trades in diesem Fenster",
+    "chartInvalid": "Diese Version validiert nicht mehr",
+    "chartInvalidBody": "Die Strategie lässt sich nicht zurückspielen, es gibt also nichts zu zeichnen. Die Fehler stehen im Quelltext-Tab.",
+    "chartMark": {
+      "entry": {
+        "long": "Long",
+        "short": "Short",
+        "flat": "Einstieg"
+      },
+      "exit": "Ausstieg"
     }
   },
   "security": {

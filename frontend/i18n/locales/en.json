@@ -1381,8 +1381,6 @@
     "noJournalBody": "The log fills as the bot evaluates bars. Start it into paper and the first entry lands on the next closed bar.",
     "showQuietBars": "Show quiet bars ({n})",
     "autoRefresh": "Auto-refresh",
-    "chartRecorded": "Recorded",
-    "chartRecordedHint": "These are the values the bot actually recorded on the bars it actually saw. Nothing here is recomputed.",
     "chartReplayed": "Replayed for display",
     "chartReplayedHint": "The bot does not run on this timeframe, so the strategy was replayed over it purely to draw this. Nothing about the running bot has changed.",
     "chartNoHistory": "No bars stored at this timeframe",
@@ -1508,6 +1506,23 @@
       "protectedHint": "A stop loss and a take profit rest at the exchange on every entry. Both are required before this bot can start.",
       "managedHint": "The script closes its own positions — strategy.close, a reversal, a target it computes. A stop and a target are optional; the script must have some exit.",
       "switchAndStart": "Let the strategy close its own trades, and start"
+    },
+    "chartHistoryHint": "Real bars from the venue, replayed through this strategy: the arrows are where it would have entered and exited. Drag left for more history. Ring marks are orders the bot actually routed — an entry with no ring beside it was never sent.",
+    "chartFeed": "{venue}",
+    "chartTrades": "{n} trades over {bars} bars",
+    "chartUnrouted": "{n} not taken",
+    "chartPaging": "loading older bars…",
+    "chartOldest": "start of this venue's history",
+    "chartTradeList": "Trades in this window",
+    "chartInvalid": "This version no longer validates",
+    "chartInvalidBody": "The strategy cannot be replayed, so there is nothing to draw. Open the Source tab for the errors.",
+    "chartMark": {
+      "entry": {
+        "long": "Long",
+        "short": "Short",
+        "flat": "Entry"
+      },
+      "exit": "Exit"
     }
   },
   "security": {

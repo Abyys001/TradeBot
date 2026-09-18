@@ -94,6 +94,34 @@ def journal(run: BotRun, *, limit: int = 300) -> list[dict]:
     return [event.as_dict() for event in events[:limit]]
 
 
+#: How many runs back the bot's journal will walk to fill a page. A bot that
+#: was restarted nine times this morning has nine `started` events and little
+#: else; past that, the page is history rather than "what is it doing".
+JOURNAL_RUNS = 10
+
+
+def journal_for_bot(bot, *, limit: int = 300) -> tuple[BotRun | None, list[dict]]:
+    """The **bot's** journal, not the latest restart's.
+
+    Runs newest first until the page is full. A restart is not the start of the
+    bot's history, and reading only the newest run is what made this panel show
+    one `started` line on a bot that had been evaluating bars for days — which
+    reads exactly like a bot that is doing nothing.
+
+    Returns the newest run alongside the events, because the header above the
+    list is about the run that is going now.
+    """
+    events: list[dict] = []
+    newest: BotRun | None = None
+    for run in bot.runs.order_by("-started_at")[:JOURNAL_RUNS]:
+        if newest is None:
+            newest = run
+        events.extend(journal(run, limit=limit - len(events)))
+        if len(events) >= limit:
+            break
+    return newest, events[:limit]
+
+
 # --- the run's own milestones -----------------------------------------------
 
 

@@ -59,8 +59,18 @@ class StrategyIntent:
     #: configured pair", which is the common case.
     sl_pct: Decimal | None = None
     tp_pct: Decimal | None = None
-    #: Human-readable, for the action log: "entry: L", "close: exit long".
+    #: Human-readable, for the action log: "entry: L", "close: exit long". A
+    #: ``comment=`` on the order that produced the bar wins, because that is the
+    #: author's own word for it and what TradingView prints in its Signal column.
     reason: str = ""
+    #: The label of the *close* this bar asked for, when it also asked for an
+    #: entry. A reversal is one bar with two orders — ``strategy.close("Long",
+    #: comment = "Long Exit")`` then ``strategy.entry("Short", comment =
+    #: "Short")`` — and ``reason`` can only hold the last of them. Without this,
+    #: the trade that ended gets labelled by the trade that started, or by the
+    #: engine's own paraphrase, and a List of Trades cannot be compared row for
+    #: row against TradingView's. Empty when the bar closed nothing.
+    exit_reason: str = ""
     #: Which line asked. Carried from Phase 1 through to the chart annotation
     #: in Phase 4 and the editor link in Phase 8.
     source_span: Span | None = None
@@ -103,6 +113,7 @@ class StrategyIntent:
             "sl_pct": str(self.sl_pct) if self.sl_pct is not None else None,
             "tp_pct": str(self.tp_pct) if self.tp_pct is not None else None,
             "reason": self.reason,
+            "exit_reason": self.exit_reason,
             "span": self.source_span.as_dict() if self.source_span else None,
             "plots": {k: (str(v) if isinstance(v, Decimal) else v) for k, v in self.plots.items()},
             "alerts": list(self.alerts),

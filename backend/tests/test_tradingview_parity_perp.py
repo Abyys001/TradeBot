@@ -118,6 +118,22 @@ def test_every_trade_opens_and_closes_on_the_bar_and_at_the_price_tradingview_di
         assert mine.exit_price == D(row["exit_price"]), where
 
 
+def test_every_exit_carries_the_signal_tradingview_printed_against_it(replay):
+    """The Signal column, matched row for row.
+
+    Side and price agreeing is not the same as the *same branch* having fired.
+    "Long TP1" and "Long TP2" are one side at prices a bar apart, and a replay
+    that took the second where TradingView took the first would agree on
+    everything this file otherwise checks. The label is the script's own
+    ``comment=``, carried through the runtime, so matching it is evidence about
+    which line ran rather than about the arithmetic afterwards.
+    """
+    ours, theirs = replay
+    closed = [row for row in theirs if row["exit_time_utc"]]
+    for mine, row in zip(ours, closed, strict=False):
+        assert mine.exit_reason == row["signal"], f"trade {row['trade']}"
+
+
 def test_every_slice_books_tradingviews_pnl_to_the_cent(replay):
     """TradingView prints PnL in cents, so a cent either way is its own rounding."""
     ours, theirs = replay

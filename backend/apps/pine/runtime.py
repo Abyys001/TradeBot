@@ -132,6 +132,7 @@ class RunContext:
         "desired_side",
         "entry_signal",
         "reason",
+        "exit_reason",
         "order_span",
         "sl_pct",
         "tp_pct",
@@ -191,6 +192,7 @@ class RunContext:
         self.desired_side: Side | None = None
         self.entry_signal: bool = False
         self.reason = ""
+        self.exit_reason = ""
         self.order_span: Span | None = None
         self.sl_pct: Decimal | None = None
         self.tp_pct: Decimal | None = None
@@ -393,6 +395,7 @@ class Runtime:
         ctx.alerts = []
         ctx.annotations = []
         ctx.reason = ""
+        ctx.exit_reason = ""
         ctx.order_span = None
         ctx.entry_signal = False
         ctx.scale_steps = []
@@ -404,11 +407,7 @@ class Runtime:
         # every quiet bar an instruction to close, which is a strategy that
         # trades once and then flattens itself for ever.
         ctx.desired_side = (
-            Side.LONG
-            if ctx.position_size > 0
-            else Side.SHORT
-            if ctx.position_size < 0
-            else None
+            Side.LONG if ctx.position_size > 0 else Side.SHORT if ctx.position_size < 0 else None
         )
         if ctx.desired_side is None:
             ctx.sl_pct = None
@@ -455,6 +454,7 @@ class Runtime:
             sl_pct=ctx.sl_pct,
             tp_pct=ctx.tp_pct,
             reason=ctx.reason,
+            exit_reason=ctx.exit_reason,
             source_span=ctx.order_span,
             entry_signal=ctx.entry_signal,
             position_fraction=ctx.position_fraction,
@@ -1293,8 +1293,10 @@ class Runtime:
         return PineObject(type_name, fields)
 
     def _call_method(self, node: ast.Call, receiver, method_name: str):
-        if isinstance(receiver, PineObject) and method_name == "copy" and (
-            "copy" not in self.methods
+        if (
+            isinstance(receiver, PineObject)
+            and method_name == "copy"
+            and ("copy" not in self.methods)
         ):
             return receiver.copy()
         overloads = self.methods.get(method_name)
@@ -1400,13 +1402,24 @@ class Runtime:
 
     def _call_strategy(self, node: ast.Call, dotted: str):
         ctx = self.ctx
+
+        # v5's `when =`. TradingView dropped it in v6 in favour of an `if`, and
+        # this engine reads both versions, so a v5 script's conditional order
+        # has to be gated here — accepting the argument and ignoring it would
+        # turn a conditional exit into one that fires on every bar.
+        when = node.keyword("when")
+        if when is not None and not bool(self._eval(when)):
+            return NA
+
         values = self._args(node)
         label = str(values[0]) if values else ""
 
         if dotted == "strategy.entry":
             direction = node.keyword("direction")
-            side = self._eval(direction) if direction is not None else (
-                values[1] if len(values) > 1 else Side.LONG
+            side = (
+                self._eval(direction)
+                if direction is not None
+                else (values[1] if len(values) > 1 else Side.LONG)
             )
             if not isinstance(side, Side):
                 side = Side.LONG if str(side).lower() in ("long", "buy") else Side.SHORT
@@ -1420,7 +1433,7 @@ class Runtime:
             ctx.scale_steps = []
             ctx.position_entry_name = label
             ctx.position_entry_side = side
-            ctx.reason = f"entry: {label}" if label else "entry"
+            ctx.reason = self._order_comment(node) or (f"entry: {label}" if label else "entry")
             ctx.order_span = node.span
             return NA
 
@@ -1451,7 +1464,7 @@ class Runtime:
                         if percent == percent.to_integral_value()
                         else percent.normalize()
                     )
-                    ctx.reason = (
+                    ctx.reason = self._order_comment(node) or (
                         f"scale out: {label} {percent}%" if label else f"scale out {percent}%"
                     )
                     ctx.scale_steps.append((ctx.position_fraction, ctx.reason))
@@ -1466,7 +1479,11 @@ class Runtime:
             ctx.tp_pct = None
             ctx.position_entry_name = ""
             ctx.position_entry_side = None
-            ctx.reason = f"close: {label}" if label else "close all"
+            ctx.reason = self._order_comment(node) or (f"close: {label}" if label else "close all")
+            # Kept apart from `reason` because a reversal bar issues this close
+            # and then an entry, and the entry overwrites `reason`. The trade
+            # that *ended* is labelled from here.
+            ctx.exit_reason = ctx.reason
             ctx.order_span = node.span
             return NA
 
@@ -1480,6 +1497,26 @@ class Runtime:
             return NA
 
         raise PineNameError(f"{dotted} is not supported", code="unknown_call", span=node.span)
+
+    def _order_comment(self, node: ast.Call) -> str:
+        """The order's ``comment=``, which is what TradingView labels it with.
+
+        A List of Trades prints this string in its Signal column, so it is the
+        only field in the export that says *which* branch of the script fired —
+        "Long TP1" and "Long TP2" are the same side at prices a bar apart, and
+        a replay that agrees on both while having taken the other path would
+        look identical without it. Carrying it through makes the label
+        comparable, and gives the operator's journal the author's own words for
+        an exit instead of the engine's paraphrase.
+
+        Empty or non-string falls back to the derived reason: a blank Signal
+        column would lose the paraphrase and say nothing in its place.
+        """
+        arg = node.keyword("comment")
+        if arg is None:
+            return ""
+        value = self._eval(arg)
+        return str(value).strip() if isinstance(value, str) else ""
 
     def _close_share(self, node: ast.Call) -> Decimal | None:
         """``qty_percent`` as a share of what is held, or ``None`` for a whole exit.
@@ -1633,8 +1670,7 @@ def _attribute(source, name: str, node: ast.Member):
         return getattr(source, name)
     except AttributeError as exc:
         raise PineNameError(
-            f"{ast.dotted_name(node)} is not something this platform knows about "
-            f"this symbol",
+            f"{ast.dotted_name(node)} is not something this platform knows about this symbol",
             code="undefined_member",
             span=node.span,
         ) from exc
@@ -1660,9 +1696,7 @@ def _as_decimal(value, what: str, span: Span) -> Decimal:
     try:
         return value if isinstance(value, Decimal) else Decimal(str(value))
     except (TypeError, ValueError, InvalidOperation) as exc:
-        raise PineRuntimeError(
-            f"{what} must be a number", code="not_a_number", span=span
-        ) from exc
+        raise PineRuntimeError(f"{what} must be a number", code="not_a_number", span=span) from exc
 
 
 def _coerce_input(value, default):

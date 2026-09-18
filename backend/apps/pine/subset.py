@@ -88,9 +88,7 @@ BUILTIN_SERIES = frozenset(
 )
 
 #: Scalars and namespaces that are values rather than calls.
-BUILTIN_VALUES = frozenset(
-    {"na", "last_bar_index", "last_bar_time", "timenow", "weekofyear"}
-)
+BUILTIN_VALUES = frozenset({"na", "last_bar_index", "last_bar_time", "timenow", "weekofyear"})
 
 NAMESPACE_FUNCTIONS: dict[str, frozenset[str]] = {
     "ta": frozenset(
@@ -300,9 +298,7 @@ NAMESPACE_VALUES: dict[str, frozenset[str]] = {
             "is_range",
         }
     ),
-    "barstate": frozenset(
-        {"isfirst", "islast", "isconfirmed", "isnew", "ishistory", "isrealtime"}
-    ),
+    "barstate": frozenset({"isfirst", "islast", "isconfirmed", "isnew", "ishistory", "isrealtime"}),
     "math": frozenset({"pi", "e"}),
 }
 
@@ -551,8 +547,7 @@ REJECTIONS: tuple[Rejection, ...] = (
         kind="name",
         pattern="strategy.order",
         message=(
-            "use strategy.entry / strategy.close — raw order primitives do not map to §5 "
-            "sizing"
+            "use strategy.entry / strategy.close — raw order primitives do not map to §5 sizing"
         ),
     ),
     Rejection(
@@ -560,8 +555,7 @@ REJECTIONS: tuple[Rejection, ...] = (
         kind="name",
         pattern="strategy.cancel",
         message=(
-            "use strategy.entry / strategy.close — raw order primitives do not map to §5 "
-            "sizing"
+            "use strategy.entry / strategy.close — raw order primitives do not map to §5 sizing"
         ),
     ),
     Rejection(
@@ -569,8 +563,7 @@ REJECTIONS: tuple[Rejection, ...] = (
         kind="name",
         pattern="strategy.cancel_all",
         message=(
-            "use strategy.entry / strategy.close — raw order primitives do not map to §5 "
-            "sizing"
+            "use strategy.entry / strategy.close — raw order primitives do not map to §5 sizing"
         ),
     ),
     Rejection(
@@ -578,8 +571,7 @@ REJECTIONS: tuple[Rejection, ...] = (
         kind="keyword",
         pattern="import",
         message=(
-            "libraries are not supported — resolution, versioning and trust are all unsolved "
-            "here"
+            "libraries are not supported — resolution, versioning and trust are all unsolved here"
         ),
     ),
     Rejection(
@@ -587,8 +579,7 @@ REJECTIONS: tuple[Rejection, ...] = (
         kind="keyword",
         pattern="export",
         message=(
-            "libraries are not supported — resolution, versioning and trust are all unsolved "
-            "here"
+            "libraries are not supported — resolution, versioning and trust are all unsolved here"
         ),
     ),
     Rejection(
@@ -645,6 +636,148 @@ REJECTIONS: tuple[Rejection, ...] = (
         pattern="trail_price",
         message="trailing stops are not supported yet — trail_price is an absolute price (Q21)",
     ),
+    Rejection(
+        code="unsupported_entry_pending",
+        kind="entry_arg",
+        pattern="limit",
+        message=(
+            "strategy.entry limit= places a *pending* order that fills only if price comes "
+            "back to that level — possibly bars later, possibly never — and this platform "
+            "routes an entry as a market order on the bar that asked for it. Honouring the "
+            "argument is a different execution model; ignoring it is a different strategy. "
+            "Compute the level into the entry condition instead"
+        ),
+    ),
+    Rejection(
+        code="unsupported_entry_pending",
+        kind="entry_arg",
+        pattern="stop",
+        message=(
+            "strategy.entry stop= places a *pending* stop order that fills only if price "
+            "reaches that level — possibly bars later, possibly never — and this platform "
+            "routes an entry as a market order on the bar that asked for it. Honouring the "
+            "argument is a different execution model; ignoring it is a different strategy. "
+            "Compute the level into the entry condition instead"
+        ),
+    ),
+    Rejection(
+        code="unsupported_entry_oca",
+        kind="entry_arg",
+        pattern="oca_name",
+        message=(
+            "one-cancels-all decides which of several *pending* orders survives, and this "
+            "platform has no pending orders for it to arbitrate — a group that silently "
+            "cancels nothing would let a script place entries it believes are exclusive"
+        ),
+    ),
+    Rejection(
+        code="unsupported_entry_oca",
+        kind="entry_arg",
+        pattern="oca_type",
+        message=(
+            "one-cancels-all decides which of several *pending* orders survives, and this "
+            "platform has no pending orders for it to arbitrate — a group that silently "
+            "cancels nothing would let a script place entries it believes are exclusive"
+        ),
+    ),
+)
+
+#: Every argument TradingView's ``strategy.*`` order commands actually take, per
+#: ``reference/pinescriptv6/``. The validator refuses anything outside these
+#: rather than dropping it: an argument this engine does not recognise is either
+#: a typo — which TradingView itself would reject — or a parameter it has not
+#: implemented, and both have to be *said*. Silence is the one answer that
+#: cannot be told apart from "honoured".
+#:
+#: ``loss_pct`` and ``profit_pct`` are not TradingView's; they are this
+#: platform's percentage replacements for ``loss=``/``stop=`` (Q21), which is why
+#: they sit in the exit row beside the names they stand in for.
+#:
+#: ``when`` is on every one of them because **v5 scripts use it**. TradingView
+#: dropped it in v6 in favour of an ``if``, and this engine accepts both
+#: versions, so a v5 script arriving with ``when = cond`` must be gated on that
+#: condition rather than refused — and rather than accepted and dropped, which
+#: would turn a conditional exit into an unconditional one. ``runtime`` honours
+#: it at the top of ``_call_strategy``.
+ORDER_ARGS: dict[str, frozenset[str]] = {
+    "strategy.entry": frozenset(
+        {
+            "id",
+            "when",
+            "direction",
+            "qty",
+            "limit",
+            "stop",
+            "oca_name",
+            "oca_type",
+            "comment",
+            "alert_message",
+            "disable_alert",
+        }
+    ),
+    "strategy.close": frozenset(
+        {
+            "id",
+            "when",
+            "comment",
+            "qty",
+            "qty_percent",
+            "alert_message",
+            "immediately",
+            "disable_alert",
+        }
+    ),
+    "strategy.close_all": frozenset(
+        {"when", "comment", "alert_message", "immediately", "disable_alert"}
+    ),
+    "strategy.exit": frozenset(
+        {
+            "id",
+            "when",
+            "from_entry",
+            "qty",
+            "qty_percent",
+            "profit",
+            "limit",
+            "loss",
+            "stop",
+            "trail_price",
+            "trail_points",
+            "trail_offset",
+            "oca_name",
+            "comment",
+            "comment_profit",
+            "comment_loss",
+            "comment_trailing",
+            "alert_message",
+            "alert_profit",
+            "alert_loss",
+            "alert_trailing",
+            "disable_alert",
+            "loss_pct",
+            "profit_pct",
+        }
+    ),
+}
+
+#: Arguments that are real, accepted, and change nothing about which order is
+#: placed or when. They are *labels*: ``comment`` is what TradingView prints in
+#: the Signal column of a List of Trades, and the runtime carries it into the
+#: trade's reason for exactly that reason. The alert arguments address a webhook
+#: this platform is not on the other end of — it executes the order itself — so
+#: they are recorded and never sent.
+ORDER_LABEL_ARGS = frozenset(
+    {
+        "comment",
+        "comment_profit",
+        "comment_loss",
+        "comment_trailing",
+        "alert_message",
+        "alert_profit",
+        "alert_loss",
+        "alert_trailing",
+        "disable_alert",
+    }
 )
 
 REJECTED_NAMESPACES = {r.pattern: r for r in REJECTIONS if r.kind == "namespace"}
@@ -652,4 +785,5 @@ REJECTED_NAMES = {r.pattern: r for r in REJECTIONS if r.kind == "name"}
 REJECTED_STRATEGY_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "strategy_arg"}
 REJECTED_KEYWORDS = {r.pattern: r for r in REJECTIONS if r.kind == "keyword"}
 REJECTED_EXIT_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "exit_arg"}
+REJECTED_ENTRY_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "entry_arg"}
 REJECTED_CLOSE_ARGS = {r.pattern: r for r in REJECTIONS if r.kind == "close_arg"}

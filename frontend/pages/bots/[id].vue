@@ -27,7 +27,6 @@ const id = computed(() => Number(route.params.id))
 
 const bot = ref<BotSummary | null>(null)
 const runs = ref<BotRun[]>([])
-const actions = ref<BotAction[]>([])
 const gate = ref<PromotionGate | null>(null)
 /** Which accounts a fan-out from this bot would actually reach. */
 const reach = ref<BotAccountRow[]>([])
@@ -42,18 +41,6 @@ const editing = ref(false)
 useHead({ title: () => bot.value?.name ?? t('bots.title') })
 
 const run = computed(() => store.runs[id.value] ?? runs.value[0] ?? null)
-
-/**
- * How much of the entry a scale-out left running, as a percentage. Read off the
- * action's own intent rather than the bot's current position: the log is a
- * history, and by the time it is read the position has usually moved on.
- */
-function remainingPct(action: BotAction): string {
-  const fraction = action.intent?.fraction
-  if (typeof fraction !== 'string') return ''
-  const pct = Number(fraction) * 100
-  return Number.isFinite(pct) ? `${Number(pct.toFixed(2))}` : ''
-}
 
 const TONE: Record<BotState, 'neutral' | 'ok' | 'signal' | 'brand'> = {
   draft: 'neutral',
@@ -94,16 +81,14 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [botRow, runRows, actionRows, gateRows, reachRows] = await Promise.all([
+    const [botRow, runRows, gateRows, reachRows] = await Promise.all([
       api.bot(id.value),
       api.botRuns(id.value),
-      api.botActions(id.value),
       api.botPromotion(id.value),
       api.botAccounts(id.value),
     ])
     bot.value = botRow
     runs.value = runRows
-    actions.value = actionRows
     gate.value = gateRows
     reach.value = reachRows.accounts
     store.upsert(botRow)
@@ -603,88 +588,25 @@ onMounted(load)
            the answer was "nothing", which is most of them. -->
       <BotsBotJournal v-if="tab === 'journal'" :bot-id="id" :interval="bot.interval" />
 
-      <!-- The chart, with the script's own indicators and its triggers drawn on
-           it. Changing the timeframe here replays for display and never touches
-           the running bot. -->
-      <BotsBotChart v-else-if="tab === 'chart'" :bot-id="id" :interval="bot.interval" />
+      <!-- The chart, and the activity log beside it. Two halves of one
+           question: the marks say where the strategy would have traded, the
+           list says which accounts a routed order actually reached, and on a
+           wide screen they are one glance apart rather than one tab apart. -->
+      <div v-else-if="tab === 'chart'" class="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <BotsBotChart :bot-id="id" :interval="bot.interval" />
+        <BotsBotActivity :bot-id="id" :intent="latestIntent" :run="run" compact />
+      </div>
 
       <!-- What makes it trade, in the script's own words. -->
       <BotsBotLogic v-else-if="tab === 'logic'" :bot-id="id" />
 
       <!-- Activity: what the bot decided, and what every account gave back. -->
-      <UiCard v-else-if="tab === 'activity'" flush>
-        <div
-          v-if="latestIntent"
-          class="px-3 py-2.5 border-b border-line text-xs flex items-center gap-2 flex-wrap"
-        >
-          <UiBadge tone="brand">{{ t('bots.liveIntent') }}</UiBadge>
-          <span class="num">
-            {{ latestIntent.side ? t(`side.${latestIntent.side}`) : t('bots.flat') }}
-            <template v-if="latestIntent.sl_pct"> · SL {{ latestIntent.sl_pct }}%</template>
-            <template v-if="latestIntent.tp_pct"> · TP {{ latestIntent.tp_pct }}%</template>
-          </span>
-          <span class="text-ink-faint">{{ latestIntent.reason }}</span>
-        </div>
-
-        <!-- Nothing yet. The bars counter is here rather than in a tab of its
-             own: "no actions" and "no bars either" are the same question asked
-             twice, and a bot that has evaluated four hundred bars without
-             trading is working, not broken. -->
-        <UiEmpty
-          v-if="!actions.length"
-          icon="history"
-          :title="t('bots.noActions')"
-          :body="
-            run
-              ? t('bots.noActionsEvaluated', { n: run.bars_evaluated })
-              : t('bots.noActionsBody')
-          "
-        />
-        <ul v-else class="divide-y divide-line">
-          <li v-for="action in actions" :key="action.id" class="px-3 py-2.5 space-y-1.5">
-            <div class="flex items-center gap-2 flex-wrap text-xs">
-              <!-- Shadow is neutral, never green: nothing was routed, and an
-                   "ok" tick beside a paper decision reads as a fill. -->
-              <UiBadge
-                :tone="action.action_type === 'shadow' ? 'neutral' : action.ok ? 'ok' : 'short'"
-              >
-                {{ t(`bots.action.${action.action_type}`) }}
-              </UiBadge>
-              <!-- What, where and at what. A dry run has no fills behind it, so
-                   without these the paper log could say only that something
-                   happened at a time — which is most of what a paper run is. -->
-              <UiBadge v-if="action.side" :tone="action.side === 'long' ? 'long' : 'short'">
-                {{ t(`side.${action.side}`) }}
-              </UiBadge>
-              <span class="num text-ink-muted">{{ action.symbol }} {{ action.interval }}</span>
-              <span v-if="action.price" class="num">@ {{ money(action.price) }}</span>
-              <span class="num text-ink-muted">
-                {{ dateTime(new Date(action.bar_time * 1000).toISOString()) }}
-              </span>
-              <span v-if="action.error" class="text-short">{{ action.error }}</span>
-              <span v-if="action.action_type === 'shadow'" class="text-ink-faint">
-                {{ t('bots.shadowNote') }}
-              </span>
-              <span v-else-if="remainingPct(action)" class="num text-ink-faint">
-                {{ t('bots.stillOpen', { pct: remainingPct(action) }) }}
-              </span>
-            </div>
-            <p v-if="action.reason" class="text-tick text-ink-faint leading-relaxed">
-              {{ action.reason }}
-            </p>
-            <div v-if="action.legs.length" class="flex flex-wrap gap-1.5">
-              <UiBadge
-                v-for="leg in action.legs"
-                :key="leg.account_id"
-                :tone="leg.ok ? 'ok' : 'short'"
-              >
-                {{ leg.account_label || `#${leg.account_id}` }}
-                <span v-if="!leg.ok && leg.code"> · {{ leg.code }}</span>
-              </UiBadge>
-            </div>
-          </li>
-        </ul>
-      </UiCard>
+      <BotsBotActivity
+        v-else-if="tab === 'activity'"
+        :bot-id="id"
+        :intent="latestIntent"
+        :run="run"
+      />
 
       <!-- Inputs: the script's own settings, and the one editable tab whose
            values reach live untouched. Its own component for the same reasons

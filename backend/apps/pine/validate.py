@@ -43,7 +43,9 @@ from apps.pine.subset import (
     EXIT_PERCENT_ARGS,
     NAMESPACE_FUNCTIONS,
     NAMESPACE_VALUES,
+    ORDER_ARGS,
     REJECTED_CLOSE_ARGS,
+    REJECTED_ENTRY_ARGS,
     REJECTED_EXIT_ARGS,
     REJECTED_KEYWORDS,
     REJECTED_NAMES,
@@ -811,16 +813,10 @@ class _Checker:
 
         if dotted in ORDER_CALLS:
             self._check_order_call(node, dotted, ancestors)
+        if dotted in ORDER_ARGS:
+            self._check_order_args(node, dotted)
         if dotted == "strategy.entry":
-            for arg in node.args:
-                if arg.name in SIZE_ARGS:
-                    self._warn(
-                        f"{arg.name} is parsed and then ignored (Q20) — the platform sizes "
-                        f"every account at 99% of its own balance, so honouring a fixed "
-                        f"quantity would be a different strategy on each account",
-                        code="ignored_qty",
-                        span=arg.span,
-                    )
+            self._check_entry_call(node)
         if dotted in ("strategy.close", "strategy.close_all"):
             self._check_close_call(node, dotted)
         if dotted == "strategy.exit":
@@ -882,6 +878,56 @@ class _Checker:
                 code="order_in_function",
                 span=node.span,
             )
+
+    def _check_order_args(self, node: ast.Call, dotted: str) -> None:
+        """Refuse an order argument this engine does not know by name.
+
+        An unrecognised argument is either a typo — which TradingView rejects
+        too — or a parameter that was never implemented. Both have to be said
+        out loud, because the alternative is the one failure mode a strategy
+        engine cannot be trusted through: an argument that changes what
+        TradingView does, accepted without complaint, and then dropped. Every
+        name TradingView's own signature carries is in ``ORDER_ARGS``; what is
+        in the signature but not honoured here is refused by ``REJECTIONS``
+        with the reason, and what is honoured is honoured.
+        """
+        known = ORDER_ARGS[dotted]
+        for arg in node.args:
+            # A positional argument carries no name and is checked by arity
+            # elsewhere; only a named one can be a name this engine does not know.
+            if not arg.name or arg.name in known:
+                continue
+            self._error(
+                f"{dotted} has no {arg.name}= argument — TradingView's own signature does "
+                f"not carry that name, so it cannot be honoured and will not be dropped "
+                f"quietly",
+                code="unknown_order_arg",
+                span=arg.span,
+            )
+
+    def _check_entry_call(self, node: ast.Call) -> None:
+        """What an entry may say, and what it may not say silently.
+
+        ``qty`` is a warning because the platform's own sizing is a complete
+        answer to the question it asked (Q20). ``limit``/``stop``/``oca_*`` are
+        errors because nothing here answers them: they describe a *pending*
+        order, and this platform routes an entry as a market order on the bar
+        that asked for it. A script written around a limit entry that fills at
+        market is not the same strategy, and the divergence would surface as
+        trades nobody could explain rather than as a refusal at load.
+        """
+        for arg in node.args:
+            if arg.name in REJECTED_ENTRY_ARGS:
+                row = REJECTED_ENTRY_ARGS[arg.name]
+                self._error(row.message, code=row.code, span=arg.span)
+            elif arg.name in SIZE_ARGS:
+                self._warn(
+                    f"{arg.name} is parsed and then ignored (Q20) — the platform sizes "
+                    f"every account at 99% of its own balance, so honouring a fixed "
+                    f"quantity would be a different strategy on each account",
+                    code="ignored_qty",
+                    span=arg.span,
+                )
 
     def _check_close_call(self, node: ast.Call, dotted: str) -> None:
         """A close takes a share of the position, never a number of contracts.

@@ -1397,3 +1397,78 @@ admin's TradingView year happened on bars nothing can fetch. They are not lost;
 the chart still has them. The importer copies: no resampling, no gap filling, no
 rounding to anybody's tick, and a bar off the interval's grid is refused rather
 than stored beside the real one.
+
+## Q39. The bot's chart ✅ A visual backtest of real history, on UK time
+
+**Asked:** the Chart tab draws only what the running bot recorded, so a bot
+started this morning has a chart that begins this morning. TradingView took
+trades overnight and this platform did not — and the chart could not be used to
+see where the two diverged, because it had no overnight to show. The Activity
+tab reads empty. The price does not tick. The clock is wrong.
+
+**Answered — five things, and the first is the shape of the other four.**
+
+**1. The chart is a replay, not a log.** `apps/bots/chart.py` builds every page
+by running `backtest.run` over the venue's own bars for that window, with the
+bot's leverage, inputs and property overrides. The arrows are where this
+strategy *would* have entered and exited, at the fill model's own price — the
+same model the Strategy Tester report uses, because a second one would be a
+second opinion about where a trade happened. It draws whether or not the bot
+was running then, which is the whole point: "would this have traded last night"
+is a question about the strategy, not about the platform's uptime.
+
+`BotBar` is no longer read by the chart at all. It was the honest source while
+the question was "what did the bot see", and the wrong one for "what does this
+strategy do" — and being the only source is what made the tab useless on a bot
+that had just been started.
+
+**2. What was really routed is drawn separately, and counted.** `BotAction`
+rows inside the window become their own ring marks, across **every** run rather
+than the latest one, and `summary.unrouted` is replayed entries with no action
+of any kind within a bar of them **while the bot was switched on**. Both halves
+of that matter: the bot cannot be blamed for a trade on a bar it was off for, and
+a paper bot's decisions are `shadow` rows which route nothing on purpose, so
+excluding those would report every correct paper decision as a fault. An entry
+with no ring beside it inside a run's own span is the execution discrepancy, and
+leaving it to be spotted by eye across a hundred marks is leaving it unfound.
+
+**3. Dragging back fetches history.** `before=<oldest bar on screen>` returns
+the page before it; each page carries its own warm-up bars ahead of the window
+so an older page's indicators are converged the same way the newest page's are.
+The scrollback ends on `note: "no_history"` — the venue's own floor — rather
+than on an error, because the end of the history is not a fault.
+
+**4. The price ticks, from Hyperliquid.** The bars and the stream are the pinned
+venue's (`MARKET_DATA_PIN`, Hyperliquid by default), and the payload names it so
+a chart nobody can check against anything is not on offer. The panel takes the
+engine's pushed frames through `live.onBar` rather than through the market
+store, which belongs to the admin's own trading chart: a bot page must not move
+the symbol that chart is on to get its own ticks.
+
+**5. One clock, and it is London's.** `frontend/utils/clock.ts`. Every
+timestamp in the panel — both charts' axes and crosshairs, the trade log, the
+journal, the activity list — renders in `Europe/London`, the zone the admin's
+TradingView is set to. Not the browser's: two screens disagreeing about when a
+trade happened is the one thing a trade log exists to settle. Nothing is
+shifted. Lightweight Charts has no timezone and the usual workaround is to move
+every value by the offset, which leaves the chart holding numbers that are not
+the instants they claim to be; the *formatters* are replaced instead, so every
+timestamp in the chart stays the epoch second the server sent. BST is handled by
+`Intl` with the IANA zone rather than a `+1` constant.
+
+**And the Activity tab.** It was empty because it read the newest `BotRun` only,
+so a restart emptied it. It now reads across `run__bot`, the journal falls back
+through earlier runs when the newest has evaluated nothing yet, and the list is
+its own component (`components/bots/BotActivity.vue`) shown both in its own tab
+and beside the chart — the mark on the candle and the accounts a routed order
+reached are one glance apart rather than one tab apart.
+
+**And `when =`, in passing.** The validator now refuses an order argument it
+does not know by name — silence is the one answer that cannot be told apart from
+"honoured" — which caught that `strategy.entry/close/close_all/exit(when = …)`
+was neither. TradingView dropped `when` in v6 in favour of an `if`; this engine
+reads v5 too, and v5 scripts use it. It is accepted and **gated on** at the top
+of `runtime._call_strategy`, because accepting it and ignoring it would turn a
+conditional exit into one that fires on every bar.
+
+`tests/test_bot_chart.py`.

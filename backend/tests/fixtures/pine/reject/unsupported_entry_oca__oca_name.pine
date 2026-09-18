@@ -1,0 +1,4 @@
+//@version=5
+strategy("reject")
+strategy.entry("L", strategy.long, oca_name="bracket")
+//@expect code=unsupported_entry_oca line=3 col=36
