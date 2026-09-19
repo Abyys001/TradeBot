@@ -45,7 +45,7 @@ from apps.pine import builtins as bi
 from apps.pine import ta as ta_lib
 from apps.pine.bar import Bar
 from apps.pine.errors import PineNameError, PineRuntimeError
-from apps.pine.intent import Annotation, Side, StrategyIntent
+from apps.pine.intent import Annotation, ShapeMark, Side, StrategyIntent
 from apps.pine.limits import DEFAULT_LIMITS, Limits
 from apps.pine.objects import EnumType, EnumValue, PineObject
 from apps.pine.series import NA, Series, is_na
@@ -127,6 +127,7 @@ class RunContext:
         "scratch",
         "current_call_id",
         "plots",
+        "shapes",
         "alerts",
         "annotations",
         "desired_side",
@@ -187,6 +188,7 @@ class RunContext:
         self.scratch: dict = {}
         self.current_call_id = ""
         self.plots: dict[str, object] = {}
+        self.shapes: list[ShapeMark] = []
         self.alerts: list[str] = []
         self.annotations: list[Annotation] = []
         self.desired_side: Side | None = None
@@ -392,6 +394,7 @@ class Runtime:
         ctx.touched = set()
         ctx.ta_pushed = set()
         ctx.plots = {}
+        ctx.shapes = []
         ctx.alerts = []
         ctx.annotations = []
         ctx.reason = ""
@@ -460,6 +463,7 @@ class Runtime:
             position_fraction=ctx.position_fraction,
             scale_steps=tuple(ctx.scale_steps),
             plots=dict(ctx.plots),
+            shapes=tuple(ctx.shapes),
             alerts=tuple(ctx.alerts),
         )
         return BarResult(intent=intent, annotations=list(ctx.annotations), elapsed_ms=elapsed_ms)
@@ -1619,7 +1623,50 @@ class Runtime:
         value = values[0] if values else NA
         ctx.plots[title] = None if is_na(value) else value
         ctx.annotations.append(Annotation(dotted, title, ctx.plots[title], node.span))
+        if dotted in ("plotshape", "plotchar"):
+            self._record_shape(node, values, title, value)
         return NA
+
+    def _record_shape(self, node: ast.Call, values: list, title: str, value) -> None:
+        """A ``plotshape``/``plotchar`` becomes a mark on the bars it fired on.
+
+        Its series is a condition, not a price, so it must never reach the
+        price scale: drawn as a line, ``False`` is a flat run at zero that
+        drags the whole scale down and leaves the candles a sliver of their
+        own chart. TradingView draws a label at the bar instead, and so does
+        the chart tab — which is what ``ShapeMark`` carries and ``plots``,
+        being one number per bar, cannot.
+
+        ``values`` is what ``_call_visual`` already evaluated, positional and
+        keyword alike in argument order. Re-evaluating the nodes here would run
+        every expression in the call a second time.
+        """
+        if is_na(value) or not bool(value):
+            return
+        named = {
+            argument.name: values[index]
+            for index, argument in enumerate(node.args)
+            if argument.name
+        }
+
+        def word(keyword: str, default: str = "") -> str:
+            if keyword not in named:
+                return default
+            resolved = named[keyword]
+            return "" if is_na(resolved) else str(resolved)
+
+        self.ctx.shapes.append(
+            ShapeMark(
+                title=title,
+                style=word("style", "shape.xcross"),
+                location=word("location", "location.abovebar"),
+                text=word("text") or word("char"),
+                # `location.absolute` is the one location that reads the
+                # series' own value as a price; for the rest it is a condition
+                # and there is no number to carry.
+                price=value if isinstance(value, Decimal) else None,
+            )
+        )
 
 
 class _Drawing:

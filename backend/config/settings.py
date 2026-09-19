@@ -378,6 +378,12 @@ BOT = {
     # is a percentage of the wrong number. The panel's own field defaults here
     # too, and either can be changed per run.
     "BACKTEST_INITIAL_CAPITAL": os.getenv("BOT_BACKTEST_INITIAL_CAPITAL", "100"),
+    # --- The chart tab's replay (`apps/bots/chart.py`). One replay covers
+    # every page, so this is how far back the chart can be dragged *and* how
+    # much history the position the strategy holds at the left edge of the
+    # newest page is derived from. A page-sized replay of its own starts flat
+    # in the middle of a campaign and opens one TradingView never opened.
+    "CHART_REPLAY_BARS": int(os.getenv("BOT_CHART_REPLAY_BARS", "4000")),
     # --- The platform's own exit (`apps/bots/exitguard.py`). A stop or target
     # that was sent to the venue and is no longer there looks exactly like one
     # that is quietly waiting, so the level is watched from here as well and a

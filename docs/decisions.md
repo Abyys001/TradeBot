@@ -1433,10 +1433,12 @@ with no ring beside it inside a run's own span is the execution discrepancy, and
 leaving it to be spotted by eye across a hundred marks is leaving it unfound.
 
 **3. Dragging back fetches history.** `before=<oldest bar on screen>` returns
-the page before it; each page carries its own warm-up bars ahead of the window
-so an older page's indicators are converged the same way the newest page's are.
-The scrollback ends on `note: "no_history"` — the venue's own floor — rather
-than on an error, because the end of the history is not a fault.
+the page before it. Each page was originally replayed on its own, with warm-up
+bars ahead of the window so its indicators were converged — **amended by Q40**,
+which found that converging the indicators is not enough and the page has to be
+a slice of one replay instead. The scrollback ends on `note: "no_history"` —
+now the oldest bar that replay covers — rather than on an error, because the
+end of the history is not a fault.
 
 **4. The price ticks, from Hyperliquid.** The bars and the stream are the pinned
 venue's (`MARKET_DATA_PIN`, Hyperliquid by default), and the payload names it so
@@ -1472,3 +1474,77 @@ of `runtime._call_strategy`, because accepting it and ignoring it would turn a
 conditional exit into one that fires on every bar.
 
 `tests/test_bot_chart.py`.
+
+
+## Q40. The chart did not look like TradingView ✅ One replay, sliced — and a condition is not a price
+
+**Asked:** the admin put the panel's chart beside the same script's TradingView
+chart, on the same pair, the same 30m and the same week, and they did not look
+like the same thing. Both are a replay of the McGinley T3 Flow Campaign on the
+ZEC perpetual; `tests/test_tradingview_parity_perp.py` proves the *engine*
+matches TradingView trade for trade, to the lot and to the cent. So the
+difference was above the engine, in what the chart tab did with it — and it was
+three separate faults with one appearance.
+
+**1. A condition was being drawn on the price scale.** The script ends with four
+`plotshape` calls — `Primary Long`, `Primary Short`, `Long Follow-up`,
+`Short Follow-up` — whose series are conditions, not prices. The runtime
+recorded each as one number per bar on `intent.plots`, and `chart._series_from`
+drew everything in `plots` as a line: `float(False)` is a perfectly valid `0.0`,
+so four flat lines ran along zero for the whole page, the price scale stretched
+to include them, and a 1,500-dollar instrument was rendered as a two-pixel
+ribbon at the top of the chart. It is the first thing the eye sees and it has
+nothing to do with trading.
+
+`plots` cannot fix this from the inside: one number per bar is all it holds, and
+0 and 1 are as legitimate there as 1,548.50. So the call site now rides out as
+what it is. `apps/pine/intent.py` gains `ShapeMark` — title, style, location,
+text — and `intent.shapes` carries one per `plotshape`/`plotchar` **on the bars
+where it fired**, which the chart draws as marks where TradingView draws labels.
+`plots` is unchanged, so the journal still shows the boolean per bar; the chart
+skips booleans outright, belt and braces.
+
+**2. Four arrows under one candle for one entry.** A scale-out is several rows
+of a List of Trades sharing one entry — TradingView's own export has `Long TP1`,
+`Long TP2`, `Long TP3` and `Long Exit` all opened on 2026-08-17 15:30 at
+513.9102 — and `_trade_markers` drew an entry per row. Stacked under one bar
+that reads as four entries the strategy never made, beside a TradingView chart
+drawing one. The marks are now **per campaign**: one entry, and an exit per row
+labelled with the script's own `comment=`, which is TradingView's Signal column.
+"3 Exit" became "Long TP2", so a mark here and a row there can be compared by
+name instead of by counting arrows. `summary.unrouted` counts campaigns too — a
+long that scaled out three times is one decision the bot took or did not, and
+counting its rows reported one missed entry as four.
+
+**3. Every page was its own backtest, and started flat.** This is the one that
+changes numbers rather than pictures. Warm-up converges indicators and does not
+trade (Q38), so a page-sized replay begins with **no position** on the page's
+left edge. Half way through a campaign that is a strategy TradingView holds long
+and this replay does not: it opens one of its own on the next signal, sizes it
+as a percentage of the untouched starting capital rather than of the equity ten
+trades of compounding produced, and every figure after that belongs to a run
+nobody is looking at. Measured on the fixture, the same short entered on the same
+bar at the same price in both — and carried **27.1038** contracts on the page
+against **44.4230** in the continuous run. Worse, two pages disagreed with each
+other: a bar in the middle of one page and near the left edge of the next had
+two different sets of marks, so dragging the chart moved the history.
+
+There is now **one replay per bot**, from a fixed origin
+(`BOT_CHART_REPLAY_BARS`, 4,000 bars) to the newest closed bar, and a page is a
+slice of it. Paging back re-slices rather than re-replays, so an older page
+costs a cache read; the replay is keyed on the version, the inputs, the
+properties and the last bar, so a new bar or an edited input is a new key rather
+than a stale chart. A page carries every trade with **either** end inside it,
+because an exit whose entry is off the left edge is the commonest thing on a
+chart and dropping it leaves the page showing an exit from nothing.
+
+**What this does not fix, and is not a fault.** The live bot still starts flat
+when it starts. A bot switched on mid-trend opens a campaign TradingView is
+already in, and its first trade is its own — recorded in
+`tests/fixtures/pine/tradingview/mcg_t3_flow_perp/README.md` since the parity
+fixture had to be started on a reversal for exactly this reason. The chart now
+shows that honestly rather than adding a second, invented version of it: the
+replay's arrows are the strategy's, the ring marks are the bot's, and
+`summary.unrouted` is the distance between them.
+
+`tests/test_bot_chart.py`, `tests/test_pine_runtime.py`.

@@ -164,11 +164,20 @@ function drawSeries() {
   })
 }
 
+/** Pine's shape vocabulary → the four Lightweight Charts offers. */
+function shapeFor(style: string | undefined, above: boolean) {
+  if (style?.startsWith('shape.arrow') || style?.startsWith('shape.triangle')) {
+    return (above ? 'arrowDown' : 'arrowUp') as 'arrowUp' | 'arrowDown'
+  }
+  if (style?.startsWith('shape.label')) return 'square' as const
+  return 'circle' as const
+}
+
 /**
- * One marker row → one mark. Four kinds, and they are deliberately not
- * collapsed: a signal, the fill it produced and the order that was really sent
- * are three different facts about the same bar, and the interesting case is
- * the one where the third is missing.
+ * One marker row → one mark. Five kinds, and they are deliberately not
+ * collapsed: a signal, the fill it produced, the shape the script drew and the
+ * order that was really sent are four different facts about the same bar, and
+ * the interesting case is the one where the last is missing.
  */
 function markFor(marker: ChartMarker) {
   const long = marker.side === 'long'
@@ -179,7 +188,8 @@ function markFor(marker: ChartMarker) {
       position: (long ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
       shape: (long ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
       color: long ? longColor : shortColor,
-      text: `${marker.trade ?? ''} ${t(`bots.chartMark.entry.${marker.side ?? 'flat'}`)}`.trim(),
+      text:
+        `${marker.trade ?? ''} ${marker.label || t(`bots.chartMark.entry.${marker.side ?? 'flat'}`)}`.trim(),
     }
   }
   if (marker.kind === 'exit') {
@@ -188,7 +198,21 @@ function markFor(marker: ChartMarker) {
       position: (long ? 'aboveBar' : 'belowBar') as 'belowBar' | 'aboveBar',
       shape: 'square' as const,
       color: win ? tokenColor('--c-ok', '#7DD87D') : shortColor,
-      text: `${marker.trade ?? ''} ${t('bots.chartMark.exit')}`.trim(),
+      text: `${marker.trade ?? ''} ${marker.label || t('bots.chartMark.exit')}`.trim(),
+    }
+  }
+  if (marker.kind === 'shape') {
+    // The script's own furniture, where the script put it: a `plotshape` is a
+    // condition, so `location=` is the whole of where it belongs and its
+    // series carries no price to place it at. Dimmed on purpose — this is what
+    // the author drew, not what the replay traded, and the two must stay
+    // distinguishable at a glance.
+    const above = marker.location !== 'location.belowbar'
+    return {
+      position: (above ? 'aboveBar' : 'belowBar') as 'belowBar' | 'aboveBar',
+      shape: shapeFor(marker.style, above),
+      color: tokenColor('--c-ink-muted', '#8B94A3'),
+      text: marker.label || '',
     }
   }
   if (marker.kind === 'action') {
@@ -225,6 +249,11 @@ function draw() {
   drawMarkers()
 }
 
+/** One replayed trade's identity: its two ends and its side. */
+function tradeKey(row: ChartTrade) {
+  return `${row.side}:${row.entry_time}:${row.exit_time}`
+}
+
 /** Merge a page of older bars in front of what is on screen, without duplicates. */
 function prepend(page: BotChart) {
   const oldest = candles.value[0]?.time ?? Infinity
@@ -235,7 +264,13 @@ function prepend(page: BotChart) {
   }
   candles.value = fresh.concat(candles.value)
   markers.value = page.markers.filter((m) => m.time < oldest).concat(markers.value)
-  trades.value = page.trades.filter((row) => row.entry_time < oldest).concat(trades.value)
+  // A campaign that opened on this page and closed on the one already held is
+  // on both, because a page carries every trade with *either* end inside it —
+  // the exit mark is the reason the operator is looking, and it cannot be
+  // dropped because the entry is off the left edge. So the merge is by
+  // identity, not by position.
+  const held = new Set(trades.value.map(tradeKey))
+  trades.value = page.trades.filter((row) => !held.has(tradeKey(row))).concat(trades.value)
 
   const byName = new Map(series.value.map((row) => [row.name, row]))
   for (const row of page.series) {

@@ -1792,15 +1792,27 @@ export interface ChartMarker {
   /**
    * `signal` — the strategy wanted this side on this bar.
    * `entry` / `exit` — the replay's own fills, at the fill model's price.
+   * `shape` — a `plotshape`/`plotchar` the script drew on this bar.
    * `action` — what the running bot actually routed.
    */
-  kind: 'signal' | 'entry' | 'exit' | 'action'
+  kind: 'signal' | 'entry' | 'exit' | 'shape' | 'action'
   reason: string
   price: string | null
   ok?: boolean
   pnl?: string
   trade?: number
   action_type?: string
+  /**
+   * The script's own word for this mark — a `comment=` on the order, which is
+   * TradingView's Signal column ("Long TP2"), or a `plotshape`'s `text=`.
+   * Preferred over the generic label so a mark here and a row in the Strategy
+   * Tester can be compared by name.
+   */
+  label?: string
+  /** `shape` only: the `plotshape` title, and the style/location the author gave it. */
+  title?: string
+  style?: string
+  location?: string
 }
 
 /** One closed trade of the window's replay — TradingView's List of Trades. */

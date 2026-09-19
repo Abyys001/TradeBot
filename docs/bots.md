@@ -781,24 +781,38 @@ the AST and slices the operator's own source back out by span, so the condition
 under a trigger is what was written rather than a paraphrase of it, and a
 one-level alias (`longCond = …`) is expanded once.
 
-**The chart is a visual backtest, not a log of the bot's uptime (Q39).** Every
-page is one `backtest.run` over the pinned venue's own bars for that window, so
-the arrows are where this strategy *would* have entered and exited — at the fill
-model's own price, whether or not a bot was running then. What the bot really
-routed is drawn beside them as separate ring marks, read across every run rather
-than the latest, and `summary.unrouted` counts the entries nothing was sent for.
-That number is the answer to "TradingView traded overnight and we did not":
-either the replay found nothing either (the strategy, or its inputs, differ) or
-it found trades with no ring beside them (the order path, the gate, or the
-accounts' `bot_trading_enabled`).
+**The chart is a visual backtest, not a log of the bot's uptime (Q39).** It is
+one `backtest.run` over the pinned venue's own bars, from a fixed origin to the
+newest closed bar, so the arrows are where this strategy *would* have entered
+and exited — at the fill model's own price, whether or not a bot was running
+then. What the bot really routed is drawn beside them as separate ring marks,
+read across every run rather than the latest, and `summary.unrouted` counts the
+entries nothing was sent for. That number is the answer to "TradingView traded
+overnight and we did not": either the replay found nothing either (the strategy,
+or its inputs, differ) or it found trades with no ring beside them (the order
+path, the gate, or the accounts' `bot_trading_enabled`).
 
-Dragging the chart left asks for the page before the one on screen
-(`before=<oldest bar>`); each page carries its own warm-up bars ahead of the
-window, so an older page's indicators are converged the way the newest page's
-are. The scrollback ends on `note: "no_history"` — the venue's own floor — and
-the panel stops asking. The last bar ticks from the same public stream the
-trading chart uses, and every timestamp on the page is **UK time**
-(`frontend/utils/clock.ts`), the zone the admin's TradingView is set to.
+**A page is a slice of that one replay, never a replay of its own (Q40).** It
+has to be. Warm-up converges indicators and does not trade, so a page-sized
+replay starts *flat* on the page's left edge: half way through a campaign that
+is a position TradingView holds and the replay does not, and it opens one of its
+own on the next signal off the wrong equity. Two pages then disagreed about the
+same bar, and dragging the chart moved the history. Dragging left asks for the
+page before the one on screen (`before=<oldest bar>`) and re-slices the cached
+replay; the scrollback ends on `note: "no_history"` at that replay's oldest bar
+(`BOT_CHART_REPLAY_BARS`, 4,000) and the panel stops asking.
+
+Marks are **per campaign**, labelled with the script's own `comment=` — which is
+TradingView's Signal column, so "Long TP2" on this chart and "Long TP2" in the
+Strategy Tester are the same row. A scale-out is several rows of a List of
+Trades sharing one entry, and drawing a row at a time stacked four arrows under
+one candle. A `plotshape` is a **mark, not a line**: its series is a condition,
+and drawn on the price scale `False` is a flat run at zero that stretches the
+scale and leaves the candles a sliver.
+
+The last bar ticks from the same public stream the trading chart uses, and every
+timestamp on the page is **UK time** (`frontend/utils/clock.ts`), the zone the
+admin's TradingView is set to.
 
 The timeframe selector **re-replays for display only**. Picking an interval the
 bot does not run on replays the strategy over that timeframe purely to draw it,

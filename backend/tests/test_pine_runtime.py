@@ -311,6 +311,51 @@ def test_a_plot_is_recorded_rather_than_executed():
     assert any(a.kind == "plot" for a in result.annotations)
 
 
+def test_a_plotshape_rides_out_as_a_mark_only_on_the_bars_it_fired_on():
+    """A condition is not a price, and `plots` cannot say which it is.
+
+    One number per bar is all `plots` holds, so `plotshape(close > 10)` is
+    indistinguishable there from a series worth 0 and 1 — and drawn as a line
+    that is a flat run along the bottom of the chart with the price scale
+    stretched to reach it. `shapes` is the same call site said properly:
+    present on the bars where it is true, with the style and location the
+    author asked for.
+    """
+    rt = runtime(
+        "plotshape(close > 10, title='Buy', style=shape.labelup, "
+        "location=location.belowbar, text='MG BUY')\n"
+    )
+    quiet, fired = run(rt, ["5", "20"])
+
+    assert quiet.intent.shapes == ()
+    assert len(fired.intent.shapes) == 1
+    mark = fired.intent.shapes[0]
+    assert (mark.title, mark.style, mark.location) == (
+        "Buy",
+        "shape.labelup",
+        "location.belowbar",
+    )
+    assert mark.text == "MG BUY"
+    assert fired.intent.as_dict()["shapes"][0]["title"] == "Buy"
+
+
+def test_a_plotshape_does_not_evaluate_its_arguments_twice():
+    """Its keywords are read off what `_call_visual` already evaluated.
+
+    Re-reading the nodes would run every expression in the call a second time,
+    and a `ta.*` call site advanced twice on one bar is a different indicator.
+    """
+    rt = runtime(
+        "var int hits = 0\n"
+        "count() =>\n"
+        "    hits := hits + 1\n"
+        "    'MG'\n"
+        "plotshape(true, title='Buy', text=count())\n"
+    )
+    rt.run_bar(bar("10"))
+    assert rt.ctx.globals["hits"].value == D("1")
+
+
 def test_an_alert_is_recorded_on_the_intent():
     rt = runtime("alert('fired')\n")
     assert "fired" in rt.run_bar(bar("10")).intent.alerts

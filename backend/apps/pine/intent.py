@@ -46,6 +46,38 @@ class Annotation:
 
 
 @dataclass(frozen=True, slots=True)
+class ShapeMark:
+    """A ``plotshape``/``plotchar`` that fired on this bar.
+
+    Separate from ``plots`` because it is not a price. A shape's series is a
+    *condition* — ``showSignals and primaryLong`` — and TradingView draws it as
+    a label at the bar, never as a line on the price scale. Recorded only on
+    the bars where it is true, so a chart draws marks where the script drew
+    marks instead of a flat line through the boolean's ``False``.
+    """
+
+    title: str
+    #: ``shape.labelup``, ``shape.triangledown``, … — the name is the value.
+    style: str
+    #: ``location.belowbar`` / ``location.abovebar`` / ``location.absolute``.
+    location: str
+    #: The ``text=`` the author wrote, newlines and all. Empty for a bare shape.
+    text: str = ""
+    #: ``location.absolute`` puts the shape at the series' own value; every
+    #: other location ignores it. ``None`` when there is no number to use.
+    price: Decimal | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "title": self.title,
+            "style": self.style,
+            "location": self.location,
+            "text": self.text,
+            "price": str(self.price) if self.price is not None else None,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyIntent:
     """The bar's outcome. Frozen: it is a value, and Phase 5 diffs against it."""
 
@@ -75,6 +107,10 @@ class StrategyIntent:
     #: in Phase 4 and the editor link in Phase 8.
     source_span: Span | None = None
     plots: dict[str, object] = field(default_factory=dict)
+    #: The shapes this bar drew — see ``ShapeMark``. Empty on the vast
+    #: majority of bars, which is the point: a condition is only a mark
+    #: where it is true.
+    shapes: tuple[ShapeMark, ...] = ()
     alerts: tuple[str, ...] = ()
     #: The script called ``strategy.entry`` on this bar — as opposed to the
     #: position simply persisting from an earlier one. It is **not** a quantity
@@ -116,6 +152,7 @@ class StrategyIntent:
             "exit_reason": self.exit_reason,
             "span": self.source_span.as_dict() if self.source_span else None,
             "plots": {k: (str(v) if isinstance(v, Decimal) else v) for k, v in self.plots.items()},
+            "shapes": [shape.as_dict() for shape in self.shapes],
             "alerts": list(self.alerts),
             "entry_signal": self.entry_signal,
             "position_fraction": str(self.position_fraction),
