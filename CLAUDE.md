@@ -39,7 +39,7 @@ signals from outside** (`BUY`/`SELL`/`EXIT_BUY`/`EXIT_SELL` posted to
 **optional security layer**: one On/Off row per control on
 `/settings`, every one off by default, none of them on the order-routing path
 (`docs/security-plan.md`).
-**~2365 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
+**~2370 backend tests pass** (the DB-backed ones need Postgres; `./run.sh
 setup`), **`ruff` clean, Nuxt build and typecheck clean.**
 
 Every section of `docs/spec/platform-spec.md` is implemented. Two departures are
@@ -89,8 +89,16 @@ with the skipped account raising a persistent notification.
   not **list** is a **404**, because "nothing is reachable" and "there is no
   such market here" are different facts and only the first is a fault. The panel
   draws no price either way; the log stops calling the second one a system error
-  on every poll. Note Hyperliquid is perpetuals only, so the spot chart has no
-  feed under the pin — and it names its 1000× perps `kSHIB`/`kPEPE`,
+  on every poll. A venue that *flaps* is the third fact: within
+  `marketdata.TICKER_GRACE` (60s) the last real quote covers it, labelled
+  `live: false` with its own age, exactly as downloaded history covers the
+  chart — so sizing and the risk gate, which both require `live`, still refuse
+  it. And the 503 that follows the grace is an **answer, not a fault**:
+  `logging.middleware.expected_state` keeps the status, drops it to WARNING and
+  silences `django.request`'s duplicate, because two ERROR rows a poll is two
+  Telegram alerts a poll for an outage at a venue this platform does not run.
+  Note Hyperliquid is perpetuals only, so the spot chart has no feed under the
+  pin — and it names its 1000× perps `kSHIB`/`kPEPE`,
   case-sensitively, which `public_sources.hyperliquid_coin` resolves from the
   venue's own universe so that `KSHIBUSDT` and Binance's `1000SHIBUSDT` both
   reach it. Clear `MARKET_DATA_PIN` to restore the old behaviour: the venue an
@@ -174,7 +182,7 @@ reference/                           read-only vendored docs & SDKs — never im
 | `apps/engine/executor.py` | `open_trade` / `amend_sltp` / `close_trade`; Q5e failure policy lives in `_protect`. |
 | `apps/trading/sizing.py` | Spec §5 — 99% as margin, round down, skip below minimum. |
 | `apps/trading/sltp.py` | Q5a both readings; `compare_bases()` powers `/risk`. |
-| `apps/exchanges/marketdata.py` | **Public** prices (Q13). Credential-free, cached, provider fallback, real-or-503 — never an adapter. Also times the engine→exchange round trip the top bar shows. |
+| `apps/exchanges/marketdata.py` | **Public** prices (Q13). Credential-free, cached, provider fallback, real-or-503 — never an adapter. Also times the engine→exchange round trip the top bar shows. An outage is reported **once** and its recovery once, not once per poll, and a quote survives a short one: `TICKER_GRACE` serves the venue's own last price, `live: false` and stamped with its age. |
 | `apps/exchanges/candlestore.py` | **The candle archive.** Every closed bar the platform sees is written here and never deleted — including the bot feed's own, which used to be the one path that read bars and threw them away (Q38), leaving holes exactly where a bot had been running. `persist`, `read_window`, `merge`, and `series_floor`/`record_series_floor`: how far back a venue has been **proved** to go, so a window reaching past it is not re-downloaded on every backtest. `manage.py import_candles` is the other door, for bars a venue will not sell any more. |
 | `apps/exchanges/public_stream.py` | The **live** sibling of the above: exchange WebSockets pushing bars. Same rules — never an adapter, no credentials, Decimal in. Bybit/Hyperliquid/Binance; anything else keeps polling. |
 | `apps/trading/streamhub.py` | One upstream socket per pair, reference counted, fanned out to every panel. Runs in the ASGI process — a broker hop would add latency to the one thing meant to be immediate. |

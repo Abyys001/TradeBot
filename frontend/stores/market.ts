@@ -571,10 +571,18 @@ export const useMarketStore = defineStore('market', {
         this.source = quote.source
         this.pinnedSource = quote.pinned ?? this.pinnedSource
         this.providerMs = quote.provider_ms ?? this.providerMs
-        this.lastTickAt = Date.now()
-        this.error = ''
+        // Aged by the quote's own age, not by when it arrived. The server may
+        // serve the last real quote for a short while after a venue stops
+        // answering (real exchange data, `live: false`) — stamping that
+        // `Date.now()` would badge a price from forty seconds ago as current,
+        // which is the one thing `stale` exists to prevent.
+        this.lastTickAt = Date.now() - (quote.age_s ?? 0) * 1000
+        this.error = quote.live ? '' : quote.feed_error || this.error
         this.feedDown = false
-        this.applyTick(this.price)
+        // A quote is evidence of a price *now*. One the server served out of
+        // its grace window is evidence of a price a minute ago, and folding it
+        // into the current bar would claim the market traded there since.
+        if (quote.live) this.applyTick(this.price)
       } catch (e: any) {
         // The last real price stays on screen but `stale` greys it within a few
         // seconds. What must never happen is a *new* price appearing from

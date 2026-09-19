@@ -1029,6 +1029,156 @@ def test_a_pair_the_pinned_venue_does_not_list_is_not_an_outage(monkeypatch):
         assert client.get("/api/trading/market/ticker/?symbol=BTCUSDT").status_code == 200
 
 
+# --- a venue that flaps is not a fault of this platform ----------------------
+#
+# Hyperliquid answered HTTP 502, then timed out, for about two minutes. The
+# pinned feed has no fallback by design, so every ticker poll became a 503 —
+# and every 503 wrote two ERROR rows, one from the access middleware and one
+# from ``django.request``, each of which Telegram sends as "System error". One
+# upstream blip, forty alerts, a blank price, and a `_mark_down` WARNING per
+# attempt underneath it. These pin all four halves of the answer.
+
+
+def flapping_feed(monkeypatch, *, fail: list[bool], price: str = "100"):
+    """A Hyperliquid stub whose calls fail while ``fail[0]`` is True."""
+
+    def fake_post(self, url, body):
+        if fail[0]:
+            raise MarketDataError("hyperliquid: HTTP 502")
+        marketdata.record_rtt(self.name, 10.0)
+        if body["type"] == "meta":
+            return {"universe": [{"name": "BTC"}]}
+        return [
+            {"universe": [{"name": "BTC"}]},
+            [{"markPx": price, "prevDayPx": "99"}],
+        ]
+
+    monkeypatch.setattr(marketdata.HttpSource, "_post", fake_post)
+    return override_settings(MARKET_DATA={"ENABLED": True, "PROVIDERS": ["hyperliquid"]})
+
+
+def next_poll(symbol: str = "BTCUSDT") -> None:
+    """What three seconds passing looks like.
+
+    Two caches sit in front of a quote: the quote itself, and the whole-universe
+    payload one Hyperliquid call shares across every symbol on the watchlist.
+    Both have to expire for the next poll to reach the venue at all.
+    """
+    marketdata.cache.delete(f"md:ticker:{symbol}:futures")
+    marketdata.cache.delete(marketdata.SOURCES["hyperliquid"]._CTX_KEY)
+
+
+@pytest.mark.django_db
+def test_the_last_real_quote_covers_a_venue_that_stops_answering(monkeypatch):
+    """The chart has always had this; the price had nothing.
+
+    Downloaded history is served when the live feed is down, labelled
+    ``live: false``, because a stored bar is old rather than invented. A quote
+    is the same kind of thing. Inside the grace it is served with its age; it
+    never claims to be live.
+    """
+    fail = [False]
+    with flapping_feed(monkeypatch, fail=fail):
+        fresh = get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        assert fresh["live"] is True and fresh["price"] == "100"
+
+        # Past the three-second quote cache, with the venue now dead.
+        next_poll()
+        fail[0] = True
+        stale = get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+
+    assert stale["price"] == "100"
+    assert stale["live"] is False and stale["stale"] is True
+    assert stale["age_s"] < marketdata.TICKER_GRACE
+    assert "502" in stale["feed_error"]
+
+
+@pytest.mark.django_db
+def test_past_the_grace_there_is_no_price_at_all(monkeypatch):
+    """The grace is a window, not a memory. Old enough, and it is an outage."""
+    fail = [False]
+    with flapping_feed(monkeypatch, fail=fail):
+        get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        next_poll()
+        # Age the stored quote past the window rather than sleeping a minute.
+        key = marketdata._last_ticker_key("BTCUSDT", MarketType.FUTURES)
+        aged = dict(marketdata.cache.get(key))
+        aged["at"] = int(time.time()) - marketdata.TICKER_GRACE - 1
+        marketdata.cache.set(key, aged, marketdata.TICKER_GRACE)
+        fail[0] = True
+        with pytest.raises(MarketDataError):
+            get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+
+
+@pytest.mark.django_db
+def test_a_stale_quote_is_never_used_to_size_or_to_measure_drift(monkeypatch):
+    """Good enough to look at, never good enough to trade on.
+
+    Both callers already refuse anything that is not ``live`` — that flag is
+    what makes serving the last quote safe at all, so it is pinned here rather
+    than left to be re-derived.
+    """
+    from apps.bots.riskgate import _ticker_price
+    from apps.trading.services import _reference_price
+
+    fail = [False]
+    with flapping_feed(monkeypatch, fail=fail):
+        get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        next_poll()
+        fail[0] = True
+
+        assert get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)["stale"] is True
+        assert _ticker_price("BTCUSDT", MarketType.FUTURES.value) is None
+        assert _reference_price.func("BTCUSDT", MarketType.FUTURES) is None
+
+
+@pytest.mark.django_db
+def test_an_outage_is_reported_once_not_once_per_poll(monkeypatch, caplog):
+    """One line when it goes, one when it comes back.
+
+    The cooldown key cannot double as the throttle: it expires every few
+    seconds so the next poll retries, which is the whole point of it.
+    """
+    fail = [True]
+    with flapping_feed(monkeypatch, fail=fail):
+        with caplog.at_level("WARNING", logger="apps.exchanges.marketdata"):
+            for _ in range(5):
+                next_poll()
+                marketdata.cache.delete("md:down:hyperliquid")
+                with pytest.raises(MarketDataError):
+                    get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        down = [r for r in caplog.records if "unavailable" in r.getMessage()]
+        assert len(down) == 1
+
+        caplog.clear()
+        fail[0] = False
+        # What the cooldown expiring looks like: the next poll reaches the venue.
+        marketdata.cache.delete("md:down:hyperliquid")
+        with caplog.at_level("INFO", logger="apps.exchanges.marketdata"):
+            get_ticker(symbol="BTCUSDT", market=MarketType.FUTURES)
+        assert any("answering again" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.django_db
+def test_no_feed_is_logged_as_an_answer_not_as_a_system_error(monkeypatch):
+    """503 stays 503 — the panel needs it — and stops being an ERROR row.
+
+    Two loggers wrote one ERROR each per poll, and every ERROR row is a
+    Telegram "System error". The fact is still recorded, at WARNING, every
+    time; what stops is calling a venue's outage a fault of this platform.
+    """
+    from apps.logging.middleware import EXPECTED_ATTR
+
+    fail = [True]
+    with flapping_feed(monkeypatch, fail=fail):
+        response = user_client().get("/api/trading/market/ticker/?symbol=BTCUSDT")
+
+    assert response.status_code == 503
+    assert getattr(response, EXPECTED_ATTR, False) is True
+    # Django's own escape hatch: `django.request` will not log it a second time.
+    assert response._has_been_logged is True
+
+
 # --- the candle archive ------------------------------------------------------
 #
 # Every closed bar the platform sees is written to StoredCandle. The two tests

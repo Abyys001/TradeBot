@@ -29,7 +29,33 @@ _ACCOUNT_IN_PATH = re.compile(r"/accounts/(\d+)(?:/|$)")
 #: (>=400) are always kept, whatever the method.
 MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+#: Set on a response by ``expected_state()`` below. A 5xx carrying it is logged
+#: at WARNING rather than ERROR.
+EXPECTED_ATTR = "_expected_state"
+
 logger = logging.getLogger("apps.logging.access")
+
+
+def expected_state(response: HttpResponse) -> HttpResponse:
+    """Mark a 5xx that is an **answer**, not a fault, and return it.
+
+    The one case so far is "no exchange is reachable": ``/market/ticker/``
+    answers 503 by design (see ``market_views.FEED_DOWN``) because the panel
+    has to be able to tell "no feed" from "a price". But an upstream venue
+    flapping for thirty seconds then wrote two ERROR rows per poll — this
+    middleware's and ``django.request``'s — and every ERROR row is a Telegram
+    "System error", so one outage at a venue this platform does not run
+    produced forty alerts on the operator's phone. That is alarm fatigue, and
+    it is the same reasoning that already moved an unlisted pair to 404.
+
+    The fact is still recorded, at WARNING, on every poll. What stops is
+    calling it a fault of this platform. ``_has_been_logged`` is Django's own
+    escape hatch in ``django.utils.log.log_response``, so the duplicate goes
+    with it.
+    """
+    setattr(response, EXPECTED_ATTR, True)
+    response._has_been_logged = True
+    return response
 
 
 class RequestLoggingMiddleware:
@@ -49,7 +75,7 @@ class RequestLoggingMiddleware:
             duration_ms = round((time.perf_counter() - start) * 1000, 1)
 
             status = response.status_code
-            if status >= 500:
+            if status >= 500 and not getattr(response, EXPECTED_ATTR, False):
                 level = "ERROR"
             elif status >= 400:
                 level = "WARNING"

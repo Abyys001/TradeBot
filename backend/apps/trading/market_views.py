@@ -37,6 +37,7 @@ from apps.exchanges.marketdata import (
     normalise_market,
     pinned_provider,
 )
+from apps.logging.middleware import expected_state
 from apps.trading.models import ExchangeSymbol, Trade, TradeLeg, TradeStatus
 from apps.trading.possync import sync_positions
 from apps.trading.services import reconcile_open_trade
@@ -45,6 +46,12 @@ from apps.trading.sltp import anchor_price, basis, resolve
 #: Returned when no exchange is reachable. 503, not 200-with-a-number: the panel
 #: has to be able to tell "no feed" from "a price", and every price it draws has
 #: to have come from an exchange.
+#:
+#: Every one of them goes out through ``expected_state`` (``apps.logging``):
+#: the status is a fact about a venue this platform does not run, not a fault
+#: in this platform, and logging it as one wrote two ERROR rows per poll — and
+#: therefore one Telegram alert per poll — for as long as the venue flapped.
+#: The row is still written, at WARNING, every time.
 FEED_DOWN = 503
 
 #: Returned while a chart-driven download is running: the chart is *going* to
@@ -131,7 +138,9 @@ def candles(request):
                 },
                 status=HISTORY_DOWNLOADING,
             )
-        return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+        return expected_state(
+            Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+        )
     payload["history"] = ensure_history(market.value, symbol, interval)
     return Response(payload)
 
@@ -150,7 +159,9 @@ def ticker(request):
             {"detail": str(exc), "live": False, "listed": False}, status=NOT_LISTED
         )
     except MarketDataError as exc:
-        return Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+        return expected_state(
+            Response({"detail": str(exc), "live": False}, status=FEED_DOWN)
+        )
     return Response(payload)
 
 
@@ -425,7 +436,12 @@ def open_positions(*, sees_hidden: bool) -> dict:
     try:
         quote = get_ticker(symbol=trade.symbol, market=market)
         mark = D(quote["price"])
-        feed_error = ""
+        # A quote served out of the grace window is real exchange data that is
+        # merely old (``marketdata.TICKER_GRACE``), so it still marks the legs
+        # — but the outage behind it is reported here exactly as a hard failure
+        # is, because a PnL figure against a price from forty seconds ago must
+        # not read as a live one.
+        feed_error = "" if quote.get("live") else quote.get("feed_error", "")
     except MarketDataError as exc:
         quote, mark, feed_error = None, None, str(exc)
     direction = Decimal("1") if trade.side == Side.LONG.value else Decimal("-1")

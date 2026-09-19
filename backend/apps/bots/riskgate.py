@@ -313,6 +313,13 @@ def _ticker_price(symbol: str, market: str) -> Decimal | None:
         payload = get_ticker(symbol=symbol, market=MarketType(market))
     except Exception:  # noqa: BLE001 - no ticker is not a drift, it is no reading
         return None
+    # The feed may serve the last real quote for a short while after a venue
+    # stops answering (``marketdata.TICKER_GRACE``). That is the right answer
+    # for a panel and the wrong one here: drift is this bar's close against the
+    # price *now*, and a quote from a minute ago would read as movement the
+    # market never made. No live reading is no reading.
+    if not payload.get("live"):
+        return None
     price = payload.get("price")
     return Decimal(str(price)) if price is not None else None
 

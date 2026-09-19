@@ -31,6 +31,7 @@ the browser's latency to the engine.
 from __future__ import annotations
 
 import logging
+import time
 
 import httpx
 from django.conf import settings
@@ -65,6 +66,24 @@ logger = logging.getLogger(__name__)
 
 CANDLE_TTL = 10
 TICKER_TTL = 3
+#: How long the last **real** quote may still be served after the venue stops
+#: answering. The candle path has had this since it was written — downloaded
+#: history is served when the live feed is down, labelled ``live: false``,
+#: because a stored bar is old rather than invented. A quote is the same kind
+#: of thing and had no such fallback: one 502 from the pinned venue and the
+#: price went to "no feed", which on a venue that flaps for thirty seconds is
+#: a blank top line and a system-error alert every three seconds for a panel
+#: that is working perfectly. The price served here came from the exchange;
+#: it is stamped with its age and never claims to be live, so ``_reference_price``
+#: and the risk gate — both of which require ``live`` — still refuse it.
+TICKER_GRACE = 60
+#: A quote asks for less patience than a download. The shared transport waits
+#: ``HTTP_TIMEOUT`` (8s), which is right for a page of candles and absurd for a
+#: number that is cached for three seconds and re-asked for three seconds later:
+#: a stalled venue held the panel's own request open for eight seconds to
+#: answer "no feed", when the poll after it was already due. Long enough to
+#: ride out a slow round trip, short enough that a dead one is not a hang.
+TICKER_TIMEOUT = 4.0
 #: How long a provider that just failed is skipped for. Without this, one dead
 #: provider costs every request its full timeout before the fallback runs.
 COOLDOWN = 60
@@ -256,16 +275,51 @@ def _note_unlisted(name: str, exc: Exception) -> None:
         logger.info("market data provider %s does not list this pair: %s", name, exc)
 
 
+#: How long an outage stays "already reported" for. The cooldown key cannot do
+#: this job — it expires every ``SOLE_COOLDOWN`` seconds so the next poll
+#: retries, which is exactly right for retrying and exactly wrong for logging:
+#: a venue down for five minutes wrote sixty identical WARNINGs. One line when
+#: it goes, one when it comes back, and the count of what happened in between.
+OUTAGE_LOG_TTL = 900
+
+
 def _cooling_off(name: str) -> bool:
     return cache.get(f"md:down:{name}") is not None
 
 
 def _mark_down(name: str, exc: Exception, cooldown: int = COOLDOWN) -> None:
+    """Hold this provider off, and report the outage **once**.
+
+    Every failed attempt is still counted — the recovery line carries the
+    total — because "it blipped twice" and "it was gone for ten minutes" are
+    different facts and the second one is why a chart went blank.
+    """
     cache.set(f"md:down:{name}", str(exc), cooldown)
+    key = f"md:outage:{name}"
+    try:
+        failures = cache.incr(key)
+    except ValueError:
+        failures = 0
+    if failures:
+        return
+    cache.set(key, 1, OUTAGE_LOG_TTL)
     logger.warning("market data provider %s unavailable: %s", name, exc)
 
 
-def _try_providers(call, *, what: str):
+def _mark_up(name: str) -> None:
+    """Note that a provider answered again, if it had been reported down."""
+    key = f"md:outage:{name}"
+    failures = cache.get(key)
+    if failures is None:
+        return
+    cache.delete(key)
+    cache.delete(f"md:down:{name}")
+    logger.info(
+        "market data provider %s is answering again after %s failed call(s)", name, failures
+    )
+
+
+def _try_providers(call, *, what: str, timeout: float | None = None):
     """Run ``call(source)`` against each live provider; return (value, name).
 
     Raises ``MarketDataError`` when nothing answers. There is no fallback value:
@@ -290,7 +344,7 @@ def _try_providers(call, *, what: str):
             reasons.append(f"{name}: cooling off ({cache.get(f'md:down:{name}')})")
             continue
         try:
-            return call(SOURCES[name]()), name
+            value = call(SOURCES[name](timeout=timeout) if timeout else SOURCES[name]())
         except SymbolNotListed as exc:
             # Not an outage: this venue answered, and the answer is that it does
             # not list this pair. Marking it down would hold the *whole* feed off
@@ -300,6 +354,10 @@ def _try_providers(call, *, what: str):
             unlisted += 1
             reasons.append(f"{name}: {exc}")
             _note_unlisted(name, exc)
+            # It answered, so if it had been reported down it is back — one
+            # symbol nobody lists must not leave a working venue marked as an
+            # outage that never gets a recovery line.
+            _mark_up(name)
         except (MarketDataError, httpx.HTTPError, KeyError, ValueError, IndexError) as exc:
             _mark_down(name, exc, cooldown)
             reasons.append(f"{name}: {exc}")
@@ -307,6 +365,9 @@ def _try_providers(call, *, what: str):
             _mark_down(name, exc, cooldown)
             reasons.append(f"{name}: {exc}")
             logger.exception("unexpected market data failure fetching %s", what)
+        else:
+            _mark_up(name)
+            return value, name
     detail = f"no provider could serve {what} — " + "; ".join(reasons)
     # Every provider answered, and the answer was that none of them lists this
     # pair. Nothing is down — there is simply no such market here, which is the
@@ -519,22 +580,75 @@ def stored_candles(
 
 
 def get_ticker(*, symbol: str, market: MarketType = MarketType.FUTURES) -> dict:
+    """The last price, or ``MarketDataError``. Never an invented number.
+
+    Within ``TICKER_GRACE`` of a successful call, a venue that has stopped
+    answering is covered by that call's own quote — real exchange data, stamped
+    with its age and marked ``live: false``, exactly as downloaded history
+    covers the chart. Past the grace it raises, and the panel says "no feed".
+    """
     symbol = symbol.upper()
     key = f"md:ticker:{symbol}:{market.value}"
     cached = cache.get(key)
     if cached is not None:
         return cached
 
-    ticker, provider = _try_providers(
-        lambda source: source.ticker(symbol=symbol, market=market), what="ticker"
-    )
+    try:
+        ticker, provider = _try_providers(
+            lambda source: source.ticker(symbol=symbol, market=market),
+            what="ticker",
+            timeout=TICKER_TIMEOUT,
+        )
+    except SymbolNotListed:
+        # The venue answered and has no such market. A quote from before it was
+        # delisted is not the answer to that question.
+        raise
+    except MarketDataError as exc:
+        stale = _stale_ticker(symbol, market, exc)
+        if stale is None:
+            raise
+        return stale
+
     payload = {
         **ticker.as_dict(),
         "market": market.value,
         "source": provider,
         "live": True,
+        "stale": False,
+        "age_s": 0,
         "pinned": pinned_provider(),
         "provider_ms": last_rtt(provider),
     }
     cache.set(key, payload, TICKER_TTL)
+    # The same payload, kept far longer than it is served as fresh. This is the
+    # only thing that stands between a flapping venue and a blank price.
+    cache.set(_last_ticker_key(symbol, market), payload, TICKER_GRACE)
     return payload
+
+
+def _last_ticker_key(symbol: str, market: MarketType) -> str:
+    return f"md:ticker:last:{symbol}:{market.value}"
+
+
+def _stale_ticker(symbol: str, market: MarketType, exc: MarketDataError) -> dict | None:
+    """The last real quote for this pair, if one is still inside the grace.
+
+    Returned with ``live`` false and its own age, so every caller that needs a
+    current price — sizing, the risk gate's drift check — refuses it on the
+    flag it already reads, and the panel greys the number rather than dropping
+    it. ``None`` when there is nothing recent enough, and then the outage is
+    the answer.
+    """
+    payload = cache.get(_last_ticker_key(symbol, market))
+    if not payload:
+        return None
+    age = max(0, int(time.time()) - int(payload.get("at") or 0))
+    if age > TICKER_GRACE:
+        return None
+    return {
+        **payload,
+        "live": False,
+        "stale": True,
+        "age_s": age,
+        "feed_error": str(exc),
+    }

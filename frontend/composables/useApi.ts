@@ -653,6 +653,14 @@ export interface TickerQuote {
   market: string
   source: string
   live: boolean
+  /**
+   * True when the venue stopped answering and this is the last real quote it
+   * gave, inside the server's grace window. `age_s` is how old it is — the
+   * panel ages the tick by it rather than treating it as having just arrived.
+   */
+  stale?: boolean
+  age_s?: number
+  feed_error?: string
   pinned: string
   provider_ms: number | null
 }
