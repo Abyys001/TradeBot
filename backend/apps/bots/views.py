@@ -30,7 +30,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from apps.accounts.visibility import _filtered  # read surface only — see apps/bots/__init__.py
-from apps.bots import chart, drills, gate, jobs, lifecycle, narrate
+from apps.bots import chart, desk, drills, gate, intervene, jobs, lifecycle, narrate
 from apps.bots.config import limits, platform_properties
 from apps.bots.models import (
     BacktestJob,
@@ -59,6 +59,7 @@ from apps.bots.serializers import (
     StrategyVersionSerializer,
 )
 from apps.core.auth import admin_required
+from apps.engine.fanout import StopAllActive
 from apps.logging.utils import system_log
 from apps.pine.validate import validate
 from apps.security import stepup
@@ -342,6 +343,18 @@ class BotViewSet(viewsets.ModelViewSet):
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=400)
         return Response(payload)
+
+    @action(detail=True, methods=["get"])
+    def desk(self, request: Request, pk=None) -> Response:
+        """The control tab's single read — Q41, ``desk.py``.
+
+        One request rather than six, because the question it answers is a
+        comparison: what the strategy last said against what the platform is
+        actually holding, with the money and the recent orders beside them.
+        Six requests would be six ages of six facts, and the operator would be
+        comparing a position from one second against a signal from another.
+        """
+        return Response(desk.payload(self.get_object(), user=request.user))
 
     @action(detail=True, methods=["get"])
     def accounts(self, request: Request, pk=None) -> Response:
@@ -817,6 +830,49 @@ async def stop_bot(request: HttpRequest, pk: int) -> JsonResponse:
         actor=(await request.auser()).get_username(),
     )
     return JsonResponse({"bot_id": bot.id, "state": BotState.STOPPED})
+
+
+@require_POST
+@csrf_protect
+@admin_required
+async def intervene_bot(request: HttpRequest, pk: int) -> JsonResponse:
+    """Do by hand what the strategy and the chart disagree about — Q41.
+
+    ``{"verb": "open_long" | "open_short" | "close"}``. A plain async view for
+    the same reason ``start``/``stop`` are: this one routes, and a fan-out
+    behind DRF would run in a worker thread with the spec §4 per-leg deadline
+    already ticking.
+
+    **No step-up.** ``apps.security.stepup`` guards credentials, money records
+    and putting a bot live, and deliberately never guards opening, amending or
+    closing a position — a password prompt in front of "close this" costs money
+    during the one minute it matters, and the attacker it would stop already
+    holds the session. This button is that button.
+    """
+    verb = str(_body(request).get("verb", ""))
+    actor = (await request.auser()).get_username()
+    try:
+        outcome = await intervene.act(bot_id=pk, verb=verb, actor=actor)
+    except intervene.Refused as exc:
+        return JsonResponse(
+            {"detail": exc.detail, "code": exc.code}, status=exc.status
+        )
+    except StopAllActive as exc:
+        # The §7 halt, hit inside the order path. Not an error the operator
+        # needs a traceback for — it is the platform answering, and the answer
+        # is the one thing the halt exists to say.
+        return JsonResponse({"detail": str(exc), "code": "stop_all"}, status=409)
+    return JsonResponse(
+        {
+            "ok": outcome.ok,
+            "code": outcome.code,
+            "detail": outcome.detail,
+            "actions": outcome.actions,
+            "run_id": outcome.run_id,
+            "trade_id": outcome.trade_id,
+        },
+        status=outcome.status,
+    )
 
 
 @require_POST

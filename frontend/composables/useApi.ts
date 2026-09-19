@@ -386,6 +386,22 @@ export function useApi() {
         body: { reason },
       }),
     /**
+     * The control tab's single read (Q41): what the strategy last said, what
+     * the platform is holding, the money behind an entry, and the difference
+     * between the first two — in one request, because the question is a
+     * comparison and six requests would compare six different moments.
+     */
+    botDesk: (id: number) => request<BotDesk>(`/bots/bots/${id}/desk/`),
+    /**
+     * Do by hand what the chart and the bot disagree about. Same order path as
+     * a bar: the verb becomes the intent a Pine bar would have produced.
+     */
+    interveneBot: (id: number, verb: 'open_long' | 'open_short' | 'close') =>
+      request<BotIntervention>(`/bots/bots/${id}/intervene/`, {
+        method: 'POST',
+        body: { verb },
+      }),
+    /**
      * Start a replay. Answers with a **job**, not a report — the first run on a
      * pair the archive has never seen spends most of its wall clock downloading
      * history, and a spinner over that is indistinguishable from a hang. Poll
@@ -1721,6 +1737,114 @@ export interface BotAction {
   /** The bot's instrument, so a dry-run row says *what* as well as *when*. */
   symbol: string
   interval: string
+}
+
+/** One account's money, as the control tab reads it. */
+export interface BotDeskAccount {
+  id: number
+  label: string
+  exchange: string
+  status: string
+  bot_trading_enabled: boolean
+  /** Active *and* opted into bot trading — the only rows an entry reaches. */
+  eligible: boolean
+  in_a_trade: boolean
+  equity: string | null
+  available: string | null
+  asset: string
+  at: string | null
+}
+
+/** One evaluated bar, as the control tab lists it. */
+export interface BotDeskBar {
+  bar_time: number
+  close: string | null
+  side: 'long' | 'short' | null
+  /** The script called `strategy.entry` on this bar, as opposed to the
+   * position simply persisting from an earlier one. */
+  entry_signal: boolean
+  reason: string
+  exit_reason: string
+}
+
+/**
+ * Everything the operator needs before pressing anything (Q41).
+ *
+ * Nothing here is recomputed in the browser: the PnL is the same arithmetic
+ * the positions panel shows, and `divergence` is the server's answer to the
+ * one question the tab exists for.
+ */
+export interface BotDesk {
+  bot: {
+    id: number
+    name: string
+    symbol: string
+    interval: string
+    market: string
+    leverage: number
+    state: BotState
+    dry_run: boolean
+    exit_policy: string
+    sl_pct: string | null
+    tp_pct: string | null
+    safety_net_pct: string | null
+    running: boolean
+  }
+  run: {
+    id: number
+    started_at: string
+    stopped_at: string | null
+    stop_reason: string
+    last_bar_time: number | null
+    bars_evaluated: number
+  } | null
+  strategy: {
+    bar_time: number
+    close: string | null
+    desired_side: 'long' | 'short' | null
+    entry_signal: boolean
+    reason: string
+    exit_reason: string
+    sl_pct: string | null
+    tp_pct: string | null
+    position_fraction: string | null
+    bars: BotDeskBar[]
+  } | null
+  /**
+   * This bot's own trade, priced by the same server function the positions
+   * panel uses (`market_views.mark_to_market`) — so the PnL the operator is
+   * about to close on cannot disagree with the one on the terminal.
+   */
+  position: PositionSnapshot
+  capital: {
+    accounts: BotDeskAccount[]
+    eligible: number
+    equity: string | null
+    available: string | null
+    asset: string
+  }
+  mark: TickerQuote | null
+  divergence: {
+    /** `aligned` | `strategy_wants_in` | `strategy_wants_out` | `side_mismatch` | `unknown` */
+    code: string
+    wants: 'long' | 'short' | null
+    holds: 'long' | 'short' | null
+    bar_time: number | null
+  }
+  /** A side closed by hand and not yet re-signalled. Null the rest of the time. */
+  hold_off: { side: string; bar_time: number | null } | null
+  actions: BotAction[]
+  can: { open: boolean; close: boolean; code: string }
+}
+
+/** What came back from a press. `code` is why, when nothing was sent. */
+export interface BotIntervention {
+  ok: boolean
+  code: string
+  detail: string
+  actions: Record<string, any>[]
+  run_id: number | null
+  trade_id: number | null
 }
 
 /** One row of the Phase 7 gate, with the number behind it. */

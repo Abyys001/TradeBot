@@ -8,6 +8,7 @@ from apps.bots.views import (
     StrategyViewSet,
     backtest_coverage,
     backtest_job,
+    intervene_bot,
     policy,
     run_backtest,
     start_bot,
@@ -45,5 +46,9 @@ urlpatterns = [
     path("versions/<int:pk>/", strategy_version, name="bots-version"),
     path("bots/<int:pk>/start/", start_bot, name="bots-start"),
     path("bots/<int:pk>/stop/", stop_bot, name="bots-stop"),
+    # Q41. The operator's own hand: open or close this bot's position when the
+    # chart and the bot disagree. Routes, so it is a plain async view like the
+    # two above it rather than a DRF action.
+    path("bots/<int:pk>/intervene/", intervene_bot, name="bots-intervene"),
     *router.urls,
 ]

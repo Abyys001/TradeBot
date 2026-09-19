@@ -69,9 +69,18 @@ class Action:
     #: rule and be recorded under another.
     exit_policy: str = ExitPolicy.PROTECTED
     safety_net_pct: Decimal | None = None
+    #: Q41. Empty for everything a bar or a webhook produced, ``"manual"`` for
+    #: the one the operator pressed in the control tab. It changes nothing
+    #: below this line — the same plan, the same gate, the same ``route_*`` —
+    #: and exists so the log can say a person did it.
+    origin: str = ""
+    #: Who pressed it. Blank for everything the platform decided by itself; the
+    #: panel has one shared staff login per person, so this is the only place
+    #: "which of them" is recorded for an action taken by hand.
+    actor: str = ""
 
     def as_dict(self) -> dict:
-        return {
+        row = {
             "type": self.type,
             "side": self.side.value if self.side else None,
             "sl_pct": str(self.sl_pct) if self.sl_pct is not None else None,
@@ -84,6 +93,14 @@ class Action:
                 str(self.safety_net_pct) if self.safety_net_pct is not None else None
             ),
         }
+        # Written **only** when a person is behind the action, so every row a
+        # bar produced serialises to exactly the bytes it did before this field
+        # existed — the stored intents of every bot that predates Q41 keep
+        # reading the same way.
+        if self.origin:
+            row["origin"] = self.origin
+            row["actor"] = self.actor
+        return row
 
 
 @dataclass(frozen=True, slots=True)

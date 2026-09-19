@@ -82,6 +82,10 @@ EVENTS: dict[str, Event] = {
     # not BOTS: it is the operator being told that something resting at the
     # exchange did not do its job, which is worth a phone buzzing.
     "bot_exit_guard": Event(Group.RISK),
+    # Q41: a person opened or closed this bot's position by hand. BOTS, not
+    # ADMIN: the operator watching a book at 03:00 wants to know the bot's
+    # position moved for a reason that was not the strategy.
+    "bot_intervention": Event(Group.BOTS),
     "bot_gate_changed": Event(Group.ADMIN),
     "bot_deleted": Event(Group.ADMIN),
     # The Q25 auto-stops, logged by ``supervisor._announce_stop`` with the

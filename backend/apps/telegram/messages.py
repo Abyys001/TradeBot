@@ -64,6 +64,10 @@ TITLES: dict[str, tuple[str, str]] = {
         "Position closed by the platform — its level was reached",
         "پلتفرم موقعیت را بست — سطح تعیین‌شده لمس شد",
     ),
+    "bot_intervention": (
+        "Bot position changed by hand",
+        "پوزیشن ربات به‌صورت دستی تغییر کرد",
+    ),
     "bot_gate_changed": ("Promotion gate changed", "دروازه ارتقا تغییر کرد"),
     "bot_deleted": ("Bot deleted", "ربات حذف شد"),
     "consecutive_losses": ("Bot auto-stopped: losing streak", "توقف خودکار ربات: ضررهای پیاپی"),

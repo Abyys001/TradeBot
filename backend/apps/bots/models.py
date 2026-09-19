@@ -348,6 +348,16 @@ class BotRun(models.Model):
     divergences = models.PositiveIntegerField(default=0)
     bars_evaluated = models.PositiveBigIntegerField(default=0)
 
+    # --- what the operator did by hand, and what follows from it (Q41) ------
+    #: The side of a position the operator closed from the control tab, kept
+    #: until the strategy asks for that side again with an entry of its own.
+    #: Blank the rest of the time, which is almost always.
+    manual_flat_side = models.CharField(max_length=5, blank=True, default="")
+    #: The last bar the bot had evaluated when that close went out. The guard
+    #: releases on a **later** bar, so the bar that was in progress cannot
+    #: re-enter the position the operator has just taken off.
+    manual_flat_bar = models.BigIntegerField(null=True, blank=True)
+
     class Meta:
         ordering = ["-started_at"]
         indexes = [models.Index(fields=["bot", "-started_at"])]

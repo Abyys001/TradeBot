@@ -292,6 +292,12 @@ def _action_events(action: BotAction) -> list[Event]:
     at = int(action.created_at.timestamp())
 
     intent = action.intent or {}
+    # Q41. Two rows that are both "decided, routed nowhere" and mean opposite
+    # things: a paper bot's would-have-been, and an entry the operator's own
+    # manual close is holding off. The second names the side it is holding.
+    if intent.get("held_off"):
+        code, level = "actionHeldOff", WARN
+    manual = intent.get("origin") == "manual"
     events = [
         Event(
             at=at,
@@ -307,7 +313,13 @@ def _action_events(action: BotAction) -> list[Event]:
                 "fraction": intent.get("fraction"),
                 "sl": intent.get("sl_pct"),
                 "tp": intent.get("tp_pct"),
-                "shadow": action.action_type == ActionType.SHADOW,
+                "shadow": action.action_type == ActionType.SHADOW
+                and not intent.get("held_off"),
+                # Who, and whether a person at all. The journal reads very
+                # differently when the answer is "somebody pressed this".
+                "manual": manual,
+                "actor": intent.get("actor", "") if manual else "",
+                "held_off_side": intent.get("held_off_side", ""),
             },
             bar_time=action.bar_time,
         )

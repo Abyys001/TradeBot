@@ -36,7 +36,7 @@ from asgiref.sync import ThreadSensitiveContext, sync_to_async
 from channels.layers import get_channel_layer
 from django.utils import timezone
 
-from apps.bots import exitguard, retention, translate
+from apps.bots import exitguard, intervene, retention, translate
 from apps.bots import recovery as recovery_module
 from apps.bots.config import limits
 from apps.bots.feed import BarFeed, ClockSkew, FeedGap, NotEnoughHistory, strategy_warmup
@@ -551,6 +551,31 @@ async def _run_bot(bot_id: int, run_id: int) -> None:
             policy=bot.exit_policy,
             safety_net=bot.safety_net_pct,
         )
+        # Q41. The operator closed this side by hand, and a strategy whose
+        # entry condition is a *state* is still asking for it on this bar — so
+        # the position they just took off would be back within one bar. The
+        # side waits until the script stops asking and asks again, which is
+        # what "the next entry signal" means for a condition. Run on every bar,
+        # empty plan included: a bar with nothing on it is exactly how the
+        # script says it has stopped asking. `intervene.decide` is the rule.
+        if await sync_to_async(intervene.resolve)(run, actions, intent):
+            system_log(
+                "INFO",
+                "BOT",
+                f"bot {bot.name}: not re-entering {run.manual_flat_side} — it was closed "
+                f"by hand and the strategy has not signalled a new entry since",
+                source="apps.bots.supervisor",
+                context={
+                    "bot": bot.name,
+                    "bot_id": bot.id,
+                    "run_id": run.id,
+                    "side": run.manual_flat_side,
+                    "bar_time": feed_bar.bar.time,
+                },
+            )
+            await sync_to_async(_record_hold_off)(run, feed_bar.bar.time, actions)
+            continue
+
         if not actions:
             continue
 
@@ -772,7 +797,9 @@ def _persist_bar(run: BotRun, feed_bar, outcome, previous: dict | None) -> dict:
     return {"intent": intent, "plots": plots}
 
 
-def _record_shadow(run: BotRun, bar_time: int, actions, intent, scope: str = "") -> None:
+def _record_shadow(
+    run: BotRun, bar_time: int, actions, intent, scope: str = "", note: dict | None = None
+) -> None:
     """A dry-run bot's would-have-been, written down like any other action.
 
     Recorded rather than only logged because Phase 7's divergence check compares
@@ -781,6 +808,11 @@ def _record_shadow(run: BotRun, bar_time: int, actions, intent, scope: str = "")
     ``scope`` is the webhook's (Q37): a signal-driven shadow is keyed on the
     delivery rather than on a bar, and the two numbering schemes must not be
     able to land on the same key.
+
+    ``note`` is merged into the stored intent. Q41's held-off entry uses it:
+    that row is the same shape — decided, routed nowhere — but the reason is
+    not "this bot is in paper", and a log that could not tell them apart would
+    read as a paper bot on a live book.
     """
     for ordinal, action in enumerate(actions):
         BotAction.objects.get_or_create(
@@ -792,11 +824,29 @@ def _record_shadow(run: BotRun, bar_time: int, actions, intent, scope: str = "")
                 "bar_time": bar_time,
                 "action_type": "shadow",
                 "reason": action.reason[:200],
-                "intent": {**action.as_dict(), "would_be": action.type},
+                "intent": {**action.as_dict(), "would_be": action.type, **(note or {})},
                 "ok": True,
                 "settled_at": timezone.now(),
             },
         )
+
+
+def _record_hold_off(run: BotRun, bar_time: int, actions) -> None:
+    """The entry Q41's guard did not send, kept like any other decision.
+
+    Written down rather than only logged: "the strategy wanted in and the
+    platform did not act" is the one thing an operator who closed a position by
+    hand needs to be able to check afterwards, and a line that exists only in a
+    log file is a line nobody will find.
+    """
+    _record_shadow(
+        run,
+        bar_time,
+        actions,
+        None,
+        scope="hold",
+        note={"held_off": True, "held_off_side": run.manual_flat_side},
+    )
 
 
 def _record_outcomes(run: BotRun, outcomes: list[dict]) -> None:

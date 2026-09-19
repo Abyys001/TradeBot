@@ -412,8 +412,23 @@ def open_positions(*, sees_hidden: bool) -> dict:
     # while the others run is the panel reporting flat on a live position. The
     # count says so out loud; the close button flattens all of them.
     others = max(0, len(open_trades) - 1)
+    priced = mark_to_market(trade, sees_hidden=sees_hidden)
+    # A reader who cannot see a single leg of the open trade is not told how
+    # many others are running either: the count would give away exactly what
+    # the per-leg filtering just took out.
+    return {**priced, "other_open_trades": others if priced["trade"] else 0}
+
+
+def mark_to_market(trade: Trade | None, *, sees_hidden: bool) -> dict:
+    """One trade, priced — entry, size, margin, liquidation and PnL per leg.
+
+    Split out of ``open_positions`` for the bot control tab (Q41), which asks
+    the same question about **one bot's** position rather than about the
+    newest trade on the platform. One function, so a PnL the operator is about
+    to close on cannot disagree with the one the positions panel is showing.
+    """
     if trade is None:
-        return {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
+        return {"trade": None, "legs": [], "totals": None, "mark": None}
 
     # Hidden accounts are dropped here, before anything is priced or summed, so
     # the totals below are computed over the visible legs rather than trimmed
@@ -426,7 +441,7 @@ def open_positions(*, sees_hidden: bool) -> dict:
         # Every leg of the open trade belongs to an account this reader cannot
         # see, so as far as they are concerned there is no open trade — not an
         # empty one, which would still be an admission that something is running.
-        return {"trade": None, "legs": [], "totals": None, "mark": None, "other_open_trades": 0}
+        return {"trade": None, "legs": [], "totals": None, "mark": None}
 
     market = MarketType(trade.market)
     # The position itself is a fact and is reported either way; only the
@@ -543,7 +558,6 @@ def open_positions(*, sees_hidden: bool) -> dict:
             },
             "mark": None if quote is None else {**quote},
             "feed_error": feed_error,
-            "other_open_trades": others,
             "legs": rows,
             "totals": {
                 "accounts": sum(1 for row in rows if row["ok"]),

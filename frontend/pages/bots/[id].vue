@@ -34,7 +34,15 @@ const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
 const tab = ref<
-  'journal' | 'chart' | 'logic' | 'activity' | 'inputs' | 'properties' | 'promotion' | 'source'
+  | 'journal'
+  | 'control'
+  | 'chart'
+  | 'logic'
+  | 'activity'
+  | 'inputs'
+  | 'properties'
+  | 'promotion'
+  | 'source'
 >('journal')
 const editing = ref(false)
 
@@ -540,11 +548,13 @@ onMounted(load)
         <UiStat :label="t('bots.feed')" :value="run.feed_transport || run.feed_source || '—'" />
       </div>
 
-      <!-- Seven tabs is a lot, so they scroll rather than wrap into three rows
+      <!-- Nine tabs is a lot, so they scroll rather than wrap into three rows
            that push the content off a phone screen. Order is by how often they
            are opened: the log first, because "what is it doing" is the question
-           that brings anyone here. The labels are never clipped — a tab reading
-           "Prope…" is a tab nobody can choose between. -->
+           that brings anyone here, and manual control second, because the
+           question after it is "and is that what the chart says". The labels
+           are never clipped — a tab reading "Prope…" is a tab nobody can
+           choose between. -->
       <div class="overflow-x-auto -mx-1 px-1">
         <UiSegmented
           v-model="tab"
@@ -552,6 +562,7 @@ onMounted(load)
           :block="false"
           :options="[
             { value: 'journal', label: t('bots.tab.journal') },
+            { value: 'control', label: t('bots.tab.control') },
             { value: 'chart', label: t('bots.tab.chart') },
             { value: 'logic', label: t('bots.tab.logic') },
             { value: 'activity', label: t('bots.tab.activity') },
@@ -587,6 +598,11 @@ onMounted(load)
       <!-- The log. What it was thinking, bar by bar — including the bars where
            the answer was "nothing", which is most of them. -->
       <BotsBotJournal v-if="tab === 'journal'" :bot-id="id" :interval="bot.interval" />
+
+      <!-- Manual control (Q41): where the operator does by hand what the
+           strategy and the chart disagree about, with everything the decision
+           needs on the same screen as the buttons. -->
+      <BotsBotDesk v-else-if="tab === 'control'" :bot-id="id" />
 
       <!-- The chart, and the activity log beside it. Two halves of one
            question: the marks say where the strategy would have traded, the
