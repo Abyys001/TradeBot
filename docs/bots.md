@@ -761,6 +761,9 @@ record.
 | Activity | `GET …/actions/` | every routed order, across every run, with the accounts each leg reached |
 | Routing | `GET …/accounts/` | which connected accounts have `bot_trading_enabled` |
 
+The sixth tab, **Control**, is the one that is not read-only — "Taking over by
+hand" below.
+
 **The log records the quiet bars too.** "No bars recorded yet" on a running bot
 used to mean the page only listed the bars where something happened, which reads
 as a bot that is not working. Every evaluated bar gets a line, the ones where the
@@ -817,6 +820,79 @@ admin's TradingView is set to.
 The timeframe selector **re-replays for display only**. Picking an interval the
 bot does not run on replays the strategy over that timeframe purely to draw it,
 says so on the badge, and touches nothing about the running bot.
+
+### Taking over by hand — the Control tab (Q41)
+
+TradingView and the bot can come apart. The bot was stopped when the signal
+fired. The feed was repairing a gap. A bar arrived late, or the script's
+condition landed one tick the other side. Whatever the cause, the chart says
+long and the platform is flat — and waiting for the *next* signal means sitting
+out the trade the strategy is already in.
+
+The **Control** tab is where you do the missing thing by hand. It opens with a
+verdict — aligned, or the exact way the two differ — and everything under it is
+the evidence for that line:
+
+| | |
+|---|---|
+| What the strategy last said | the side it wants, and whether that bar was an entry **signal** or a position simply persisting — different facts, and only the first is a signal |
+| The last twelve evaluated bars | side, close, and the script's own words for why |
+| What is held | side, entry, SL/TP, when it opened, and every leg with its own PnL |
+| The money | total capital and free balance **over the accounts this bot can actually reach**, position size, PnL and ROE |
+| The mark | the public feed's price, or "no price feed" — never a number when there is none |
+| Just sent | the tail of the routed actions, so a press and its legs are on the same screen as the button |
+
+Two buttons: **open** what the chart shows, **close** what the platform is
+holding. The first click arms, the second sends — a market order across every
+partner account is not an undo. A dead button says why rather than leaving it to
+be discovered by pressing it, and the commonest reason is that no account has
+bot trading switched on.
+
+**A press is not a second order path.** It becomes the same `StrategyIntent` a
+Pine bar produces and goes through the same sizing (§5), the same risk gate, the
+same fan-out, the same reconciliation and the same history. So the §7 halt still
+refuses an entry, an account that has not opted into bot trading is still not
+asked, and a manual entry is protected by **this bot's own** SL/TP percentages
+rather than a second pair typed into a dialog.
+
+**What happens next is the point.**
+
+*If you open by hand*, the trade is stamped with the run. The runtime is told
+what is held before the next bar, exactly as on every other bar, so the script's
+own exit — a `strategy.close`, a reversal, a level it computed — closes what you
+opened. The bot keeps running the strategy; it does not need to be told
+anything.
+
+*If you close by hand*, the platform will not quietly put it back on. The naive
+rule — "ignore the next entry" — is wrong both ways: a strategy whose entry is a
+*state* (`emaFast > emaSlow`) asks again on every bar it holds, so ignoring one
+bar re-enters on the next; a strategy that signals on a *crossing* may not ask
+again for days, so ignoring its next ask would skip a trade you wanted. What
+counts is the transition. The entry you overrode is the one **still being asked
+for**, so the guard waits for the script to stop asking and ask again:
+
+```
+closed by hand  ──▶  HOLDING ──(script still asking)──▶ HOLDING
+                         │
+                (script quiet on a later bar)
+                         ▼
+                      ARMED ──(script asks again)──▶ released, routed
+```
+
+Bars held off this way are recorded and appear in the log saying so, and the tab
+says plainly which of the two states a quiet bot is in — because an operator who
+closed by hand and sees nothing reopen deserves to know whether that is the
+strategy being quiet or the platform holding the side off. Opening by hand
+clears the guard outright: you have just put a position back on, so there is
+nothing left to protect.
+
+**A stopped bot can still be flattened.** Closing is allowed on the run that
+holds the trade, running or not — a bot that stopped itself at 03:00 while
+holding is the case this tab is most needed for. Opening is not: an entry with
+no run behind it is a position no strategy is watching.
+
+`apps/bots/intervene.py`, `apps/bots/desk.py`,
+`backend/tests/test_bot_manual_control.py`.
 
 ### What is kept (Q26)
 

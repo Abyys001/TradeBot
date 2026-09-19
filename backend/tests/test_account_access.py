@@ -859,13 +859,15 @@ def test_a_bot_still_fans_out_to_the_hidden_account():
 
 
 def test_no_execution_module_imports_the_visibility_rule():
-    """Q27, enforced rather than remembered. The carve-out is `views` and
-    `serializers` — the read surfaces, which are *required* to filter."""
+    """Q27, enforced rather than remembered. The carve-out is the read
+    surfaces, which are *required* to filter — `views`, `serializers`, and
+    Q41's control-tab payload, which sums balances and names accounts and so
+    has to know which ones this reader may see."""
     import ast
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parent.parent / "apps"
-    allowed = {"apps/bots/views.py", "apps/bots/serializers.py"}
+    allowed = {"apps/bots/views.py", "apps/bots/serializers.py", "apps/bots/desk.py"}
     offenders = []
     for path in list((root / "bots").rglob("*.py")) + list((root / "pine").rglob("*.py")):
         relative = str(path.relative_to(root.parent))
@@ -886,9 +888,52 @@ def test_both_carve_out_modules_actually_do_filter():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parent.parent / "apps" / "bots"
-    for name in ("views.py", "serializers.py"):
+    for name in ("views.py", "serializers.py", "desk.py"):
         source = (root / name).read_text()
         assert "hidden_ids" in source or "_filtered" in source, name
+
+
+@pytest.mark.django_db
+def test_the_control_tab_hides_a_hidden_account_and_leaves_it_out_of_the_totals():
+    """Q41's payload is a read surface, so Q27 applies to it — and the part that
+    matters most is the money. The tab puts "total capital" and "available" in
+    front of an entry button; a total that silently included an account this
+    reader may not see is a number they would size a decision from and could
+    never reconcile against the rows underneath it."""
+    from apps.bots import desk
+    from tests.bot_factory import make_bot
+
+    User.objects.create_user("boss", password="pw12345!", is_staff=True)
+    boss = User.objects.get(username="boss")
+    make_account("open-book", last_balance="100", bot_trading_enabled=True)
+    make_account("quiet", hidden=True, last_balance="5000", bot_trading_enabled=True)
+    bot = make_bot()
+
+    capital = desk.payload(bot, user=boss)["capital"]
+
+    assert [row["label"] for row in capital["accounts"]] == ["open-book"]
+    assert capital["eligible"] == 1
+    assert D(capital["available"]) == D("100")
+
+
+@pytest.mark.django_db
+def test_the_control_tab_shows_the_viewer_everything():
+    """The other side of the same rule: the one named operator sees the hidden
+    account and it is inside the totals they are shown."""
+    from apps.bots import desk
+    from tests.bot_factory import make_bot
+
+    User.objects.create_user(_svc, password="pw12345!", is_staff=True)
+    viewer = User.objects.get(username=_svc)
+    make_account("open-book", last_balance="100", bot_trading_enabled=True)
+    make_account("quiet", hidden=True, last_balance="5000", bot_trading_enabled=True)
+    bot = make_bot()
+
+    capital = desk.payload(bot, user=viewer)["capital"]
+
+    assert {row["label"] for row in capital["accounts"]} == {"open-book", "quiet"}
+    assert capital["eligible"] == 2
+    assert D(capital["available"]) == D("5100")
 
 
 @pytest.mark.django_db(transaction=True)

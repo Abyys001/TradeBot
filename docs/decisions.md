@@ -1548,3 +1548,84 @@ replay's arrows are the strategy's, the ring marks are the bot's, and
 `summary.unrouted` is the distance between them.
 
 `tests/test_bot_chart.py`, `tests/test_pine_runtime.py`.
+
+## Q41. TradingView and the bot disagreed ✅ A control tab, on the one order path
+
+**Asked:** the admin watches the same strategy on TradingView and on this
+platform, and the two can come apart. The bot was stopped when the signal
+fired. The feed was repairing a gap. A bar arrived late, or the script's
+condition landed one tick the other side. Whatever the cause, the chart says
+long and the platform is flat — and waiting for the *next* signal means sitting
+out the trade the strategy is already in. The ask: a section of the bot
+dashboard to do the missing thing by hand, with enough on the screen to decide
+whether to, and **the bot still running the strategy afterwards** — still
+waiting for, and correctly processing, the next exit signal.
+
+**Answered:** a ninth tab, `Control`, and two rules underneath it.
+
+**There is no second order path.** `apps/bots/translate.py` opens with that
+rule and `apps/signals/service.py` repeats it; `apps/bots/intervene.py` is the
+third caller and not an exception. A press becomes a `StrategyIntent` — the
+same object a Pine bar produces — and goes through the same `translate.plan`,
+the same `RiskGate`, the same `translate.dispatch`, the same `route_*`, the
+same fan-out, the same reconciliation, the same history. Everything below
+`plan()` cannot tell a press from a bar. So an override of the *strategy* is
+not an override of the platform: the §7 halt still refuses an entry, sizing is
+still §5, an account that has not opted into bot trading is still not asked,
+and a manual entry carries the bot's own SL/TP percentages rather than a second
+pair typed into a dialog.
+
+The consequence that answers the second half of the ask is free: the trade is
+stamped with the run (`translate._link_trade`), so `read_held` finds it,
+`sync_position` tells the runtime about it before the next bar, and the
+script's own exit — a `strategy.close`, a reversal, a level it computed —
+closes what the operator opened, exactly as if the bot had opened it. Nothing
+teaches the strategy anything. It is told what is held, which is what it is
+told on every other bar.
+
+**A manual exit is not an invitation to re-enter.** This is the hard half, and
+the naive reading — "ignore the next entry" — is wrong in both directions. A
+strategy whose entry condition is a *state* (`emaFast > emaSlow`) calls
+`strategy.entry` on every bar the state holds, so ignoring one bar re-enters on
+the next; a strategy that signals on a *crossing* asks once and may not ask
+again for days, so ignoring its next ask would skip a trade the operator
+wanted. What both have in common is the transition. The entry the operator
+overrode is the one **still being asked for**; the next valid one is the ask
+that arrives after the script has stopped asking. Two fields on `BotRun`
+(`manual_flat_side`, `manual_flat_bar`) hold that as a state machine — HOLDING
+while the script keeps asking, ARMED once it goes quiet, released and retired
+on the next ask — with no timer and nothing re-derived from the script's
+source. `intervene.decide` is pure and the panel says which of the two states a
+quiet bot is in, because an operator who closed by hand and sees nothing reopen
+deserves to know whether that is the strategy or the guard.
+
+**The evidence, in one payload.** `apps/bots/desk.py` answers the tab's one
+question — does what the platform holds match what the chart says it should? —
+with the strategy's last bars and whether each was an entry *signal* or a
+position persisting, the held trade marked to market through the positions
+panel's own `mark_to_market`, equity and free balance **over the accounts this
+bot can actually reach**, the public mark, the recent routed actions, and the
+divergence between the first two named as a code rather than left for the
+reader to spot. It derives and never decides; the browser recomputes nothing.
+`unknown` is its own answer and not a quiet `aligned`: a bot with no evaluated
+bars has said nothing to compare against.
+
+**Two faults found on the way, both of the same shape — an answer that was
+wrong rather than absent.**
+
+`supervisor.stop` sets `dry_run` on every bot it stops, the Q22 halt and the
+Q25 auto-stops included. So a live bot that stopped itself at 03:00 while
+holding read as *paper* from this door: its close was recorded as a
+would-have-been, routed nowhere, and answered `ok`. The panel would have said
+flat while the venue still held the position, and the operator would have found
+out from the balance. Paper is now a property of the **position**, not of the
+flag — a trade that is there was really sent, so a close of one really goes
+out, whatever the flag says now.
+
+And a halted platform answered an entry with `bot_not_running`, because Q22 had
+already stopped the bot. That is the symptom, and acting on it means pressing
+Start, which the halt refuses as well. The halt is checked first now, in
+`intervene.act` and in `desk._can` in the same order, so the button and the
+press give the same reason.
+
+`backend/tests/test_bot_manual_control.py`.

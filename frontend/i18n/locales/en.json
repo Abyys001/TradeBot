@@ -1234,7 +1234,8 @@
       "journal": "Log",
       "chart": "Chart",
       "logic": "Logic",
-      "inputs": "Inputs"
+      "inputs": "Inputs",
+      "control": "Control"
     },
     "action": {
       "open": "Open",
@@ -1491,7 +1492,8 @@
       "actionOther": "Action recorded. {reason}",
       "actionOtherFailed": "Action failed. {error}",
       "legsFailed": "{n} account(s) did not take it",
-      "unsettled": "This action was dispatched and its outcome was never written back — the platform sent something and never learned what happened."
+      "unsettled": "This action was dispatched and its outcome was never written back — the platform sent something and never learned what happened.",
+      "actionHeldOff": "Entry held off: you closed this {held_off_side} by hand and the strategy is still asking for it. {reason}"
     },
     "chartLoading": "Drawing the chart…",
     "editBot": "Edit bot",
@@ -1523,6 +1525,70 @@
         "flat": "Entry"
       },
       "exit": "Exit"
+    },
+    "desk": {
+      "lastSignal": "Strategy wants",
+      "entrySignal": "entry signal",
+      "lastBar": "Bar",
+      "barClose": "Bar close",
+      "mark": "Mark",
+      "noFeed": "no price feed",
+      "noBars": "No bars evaluated yet",
+      "noBarsBody": "Once this bot has run over a bar, what the script said about it appears here.",
+      "equity": "Total capital",
+      "available": "Available",
+      "acrossN": "across {n} account(s)",
+      "position": "Position",
+      "flatBody": "This bot is holding nothing. If the chart says it should be, open it from above.",
+      "side": "Side",
+      "opened": "Opened",
+      "signals": "Recent signals",
+      "why": "Why",
+      "recent": "Just sent",
+      "byHand": "by hand",
+      "heldOff": "held off",
+      "open_long": "Open long",
+      "open_short": "Open short",
+      "close": "Close position",
+      "confirm": "Press again to send",
+      "noEligibleAccounts": "No account has bot trading switched on, so an entry would reach nobody. Turn it on per account on the accounts page.",
+      "holdOff": "You closed this {side} by hand. The strategy is still asking for it, so the platform is holding it off until the script stops asking and asks again.",
+      "samePathNote": "A press here goes through the same sizing, risk gate and fan-out a signal does. The bot keeps running the strategy, and its next exit signal closes what you open.",
+      "divergence": {
+        "aligned": "In agreement",
+        "strategy_wants_in": "Strategy is in, platform is flat",
+        "strategy_wants_out": "Platform is in, strategy is out",
+        "side_mismatch": "Opposite sides",
+        "unknown": "Nothing to compare"
+      },
+      "divergenceBody": {
+        "aligned": "The strategy wants {wants} and the platform holds {holds}. Nothing to do here.",
+        "strategy_wants_in": "The strategy wants to be {wants} and nothing is held. If the chart agrees, open it.",
+        "strategy_wants_out": "The platform holds {holds} and the strategy wants nothing. If the chart agrees, close it.",
+        "side_mismatch": "The strategy wants {wants} and the platform holds {holds}. Opening the other way closes this one first.",
+        "unknown": "This bot has evaluated no bars, so there is no strategy position to compare against."
+      },
+      "result": {
+        "routed": "Sent.",
+        "paper": "Recorded. This bot is in paper, so nothing was routed to an exchange.",
+        "already_flat": "Nothing is held, so there was nothing to close.",
+        "already_there": "The position already matches this, so nothing was sent."
+      },
+      "refused": {
+        "halt": "The platform halt is on (§7). Release it before opening a position from here.",
+        "bot_not_running": "This bot is stopped. Start it before opening a position — an entry with no run behind it is a position the strategy will never close.",
+        "no_run": "This bot has never run.",
+        "no_bot": "No such bot.",
+        "unknown_verb": "That is not an instruction this tab can send.",
+        "outside_window": "This bot is outside its trading window.",
+        "paused": "This bot is paused.",
+        "risk_gate": "The risk gate refused this order.",
+        "consecutive_losses": "This bot hit its losing-streak limit.",
+        "drawdown": "This bot hit its drawdown limit.",
+        "trade_rate": "This bot hit its trades-per-hour limit.",
+        "no_bars": "This bot's feed has stopped delivering bars.",
+        "stop_all": "The platform halt is on (§7) and the order path refused this. Release it from the top bar first."
+      }
     }
   },
   "security": {

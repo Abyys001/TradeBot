@@ -34,6 +34,7 @@ from apps.accounts.models import AccountStatus, ConnectedAccount
 from apps.accounts.visibility import _check, _filtered
 from apps.bots import intervene
 from apps.bots.models import Bot, BotAction, BotBar, BotState
+from apps.bots.riskgate import _halted
 from apps.bots.serializers import BotActionSerializer
 from apps.exchanges.base import MarketType
 from apps.exchanges.marketdata import MarketDataError, get_ticker
@@ -300,6 +301,12 @@ def _can(bot: Bot, run, held_side: str | None) -> dict:
     is the same question ``intervene.act`` answers, and two implementations of
     it would disagree on the day it matters.
     """
+    # Same order ``intervene.act`` refuses in, and for the same reason: with
+    # the halt on, Q22 has already stopped the bot, so "not running" is the
+    # symptom and the halt is the cause. A button greyed out for the wrong
+    # reason sends the operator to press Start, which the halt refuses too.
+    if _halted():
+        return {"open": False, "close": held_side is not None, "code": "halt"}
     running = bot.state in (BotState.PAPER, BotState.LIVE) and run is not None
     if not running:
         return {"open": False, "close": held_side is not None, "code": "bot_not_running"}

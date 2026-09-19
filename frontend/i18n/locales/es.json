@@ -1234,7 +1234,8 @@
       "journal": "Registro",
       "chart": "Gráfico",
       "logic": "Lógica",
-      "inputs": "Entradas"
+      "inputs": "Entradas",
+      "control": "Control"
     },
     "action": {
       "open": "Abrir",
@@ -1491,7 +1492,8 @@
       "actionOther": "Acción registrada. {reason}",
       "actionOtherFailed": "La acción falló. {error}",
       "legsFailed": "{n} cuenta(s) no la aceptaron",
-      "unsettled": "Esta acción se despachó y su resultado nunca se escribió de vuelta — la plataforma envió algo y nunca supo qué pasó."
+      "unsettled": "Esta acción se despachó y su resultado nunca se escribió de vuelta — la plataforma envió algo y nunca supo qué pasó.",
+      "actionHeldOff": "Entrada retenida: cerraste este {held_off_side} a mano y la estrategia lo sigue pidiendo. {reason}"
     },
     "chartLoading": "Dibujando el gráfico…",
     "editBot": "Editar bot",
@@ -1523,6 +1525,70 @@
         "flat": "Entrada"
       },
       "exit": "Salida"
+    },
+    "desk": {
+      "lastSignal": "La estrategia quiere",
+      "entrySignal": "señal de entrada",
+      "lastBar": "Vela",
+      "barClose": "Cierre de vela",
+      "mark": "Precio de referencia",
+      "noFeed": "sin feed de precios",
+      "noBars": "Todavía no se ha evaluado ninguna vela",
+      "noBarsBody": "En cuanto este bot corra sobre una vela, aquí aparecerá lo que el script dijo de ella.",
+      "equity": "Capital total",
+      "available": "Disponible",
+      "acrossN": "en {n} cuenta(s)",
+      "position": "Posición",
+      "flatBody": "Este bot no tiene nada abierto. Si el gráfico dice que debería, ábrelo desde arriba.",
+      "side": "Lado",
+      "opened": "Abierta",
+      "signals": "Señales recientes",
+      "why": "Motivo",
+      "recent": "Recién enviado",
+      "byHand": "a mano",
+      "heldOff": "retenida",
+      "open_long": "Abrir largo",
+      "open_short": "Abrir corto",
+      "close": "Cerrar posición",
+      "confirm": "Pulsa otra vez para enviar",
+      "noEligibleAccounts": "Ninguna cuenta tiene activado el trading por bot, así que una entrada no llegaría a nadie. Actívalo por cuenta en la página de cuentas.",
+      "holdOff": "Cerraste este {side} a mano. La estrategia lo sigue pidiendo, así que la plataforma lo retiene hasta que el script deje de pedirlo y vuelva a pedirlo.",
+      "samePathNote": "Pulsar aquí pasa por el mismo dimensionamiento, la misma puerta de riesgo y el mismo reparto que una señal. El bot sigue ejecutando la estrategia, y su próxima señal de salida cierra lo que abras.",
+      "divergence": {
+        "aligned": "De acuerdo",
+        "strategy_wants_in": "La estrategia está dentro, la plataforma plana",
+        "strategy_wants_out": "La plataforma está dentro, la estrategia fuera",
+        "side_mismatch": "Lados opuestos",
+        "unknown": "Nada que comparar"
+      },
+      "divergenceBody": {
+        "aligned": "La estrategia quiere {wants} y la plataforma tiene {holds}. Aquí no hay nada que hacer.",
+        "strategy_wants_in": "La estrategia quiere estar {wants} y no hay nada abierto. Si el gráfico coincide, ábrelo.",
+        "strategy_wants_out": "La plataforma tiene {holds} y la estrategia no quiere nada. Si el gráfico coincide, ciérralo.",
+        "side_mismatch": "La estrategia quiere {wants} y la plataforma tiene {holds}. Abrir del otro lado cierra esta primero.",
+        "unknown": "Este bot no ha evaluado ninguna vela, así que no hay posición de estrategia con la que comparar."
+      },
+      "result": {
+        "routed": "Enviado.",
+        "paper": "Registrado. Este bot está en papel, así que no se envió nada a ningún exchange.",
+        "already_flat": "No hay nada abierto, así que no había nada que cerrar.",
+        "already_there": "La posición ya coincide con esto, así que no se envió nada."
+      },
+      "refused": {
+        "halt": "La parada de la plataforma está activa (§7). Libérala antes de abrir una posición desde aquí.",
+        "bot_not_running": "Este bot está parado. Arráncalo antes de abrir una posición: una entrada sin una ejecución detrás es una posición que la estrategia nunca cerrará.",
+        "no_run": "Este bot nunca ha corrido.",
+        "no_bot": "No existe ese bot.",
+        "unknown_verb": "Esa no es una instrucción que esta pestaña pueda enviar.",
+        "outside_window": "Este bot está fuera de su ventana de trading.",
+        "paused": "Este bot está en pausa.",
+        "risk_gate": "La puerta de riesgo rechazó esta orden.",
+        "consecutive_losses": "Este bot alcanzó su límite de pérdidas seguidas.",
+        "drawdown": "Este bot alcanzó su límite de drawdown.",
+        "trade_rate": "Este bot alcanzó su límite de operaciones por hora.",
+        "no_bars": "El feed de este bot ha dejado de entregar velas.",
+        "stop_all": "La parada de la plataforma está activa (§7) y la ruta de órdenes lo rechazó. Libérala primero desde la barra superior."
+      }
     }
   },
   "security": {

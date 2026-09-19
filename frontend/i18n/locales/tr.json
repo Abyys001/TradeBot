@@ -1234,7 +1234,8 @@
       "journal": "Günlük",
       "chart": "Grafik",
       "logic": "Mantık",
-      "inputs": "Girdiler"
+      "inputs": "Girdiler",
+      "control": "Kontrol"
     },
     "action": {
       "open": "Aç",
@@ -1491,7 +1492,8 @@
       "actionOther": "Eylem kaydedildi. {reason}",
       "actionOtherFailed": "Eylem başarısız oldu. {error}",
       "legsFailed": "{n} hesap bunu almadı",
-      "unsettled": "Bu eylem gönderildi ve sonucu hiçbir zaman geri yazılmadı — platform bir şey gönderdi ve ne olduğunu hiç öğrenmedi."
+      "unsettled": "Bu eylem gönderildi ve sonucu hiçbir zaman geri yazılmadı — platform bir şey gönderdi ve ne olduğunu hiç öğrenmedi.",
+      "actionHeldOff": "Giriş bekletildi: bu {held_off_side} pozisyonunu elle kapattınız ve strateji hâlâ onu istiyor. {reason}"
     },
     "chartLoading": "Grafik çiziliyor…",
     "editBot": "Botu düzenle",
@@ -1523,6 +1525,70 @@
         "flat": "Giriş"
       },
       "exit": "Çıkış"
+    },
+    "desk": {
+      "lastSignal": "Stratejinin istediği",
+      "entrySignal": "giriş sinyali",
+      "lastBar": "Mum",
+      "barClose": "Mum kapanışı",
+      "mark": "Referans fiyat",
+      "noFeed": "fiyat akışı yok",
+      "noBars": "Henüz değerlendirilen mum yok",
+      "noBarsBody": "Bu bot bir mum üzerinde çalıştığı anda, betiğin o mum hakkında söylediği burada görünür.",
+      "equity": "Toplam sermaye",
+      "available": "Kullanılabilir",
+      "acrossN": "{n} hesapta",
+      "position": "Pozisyon",
+      "flatBody": "Bu bot hiçbir şey tutmuyor. Grafik tutması gerektiğini söylüyorsa, yukarıdan açın.",
+      "side": "Yön",
+      "opened": "Açılış",
+      "signals": "Son sinyaller",
+      "why": "Neden",
+      "recent": "Az önce gönderildi",
+      "byHand": "elle",
+      "heldOff": "bekletildi",
+      "open_long": "Long aç",
+      "open_short": "Short aç",
+      "close": "Pozisyonu kapat",
+      "confirm": "Göndermek için tekrar basın",
+      "noEligibleAccounts": "Hiçbir hesapta bot işlemi açık değil, bu yüzden bir giriş kimseye ulaşmaz. Hesaplar sayfasından hesap başına açın.",
+      "holdOff": "Bu {side} pozisyonunu elle kapattınız. Strateji hâlâ onu istiyor, bu yüzden platform, betik istemeyi bırakıp yeniden isteyene kadar onu bekletiyor.",
+      "samePathNote": "Buradaki bir basış, bir sinyalin geçtiği aynı boyutlandırmadan, aynı risk kapısından ve aynı dağıtımdan geçer. Bot stratejiyi işletmeye devam eder ve bir sonraki çıkış sinyali sizin açtığınızı kapatır.",
+      "divergence": {
+        "aligned": "Uyumlu",
+        "strategy_wants_in": "Strateji içeride, platform boşta",
+        "strategy_wants_out": "Platform içeride, strateji dışarıda",
+        "side_mismatch": "Ters yönler",
+        "unknown": "Karşılaştıracak bir şey yok"
+      },
+      "divergenceBody": {
+        "aligned": "Strateji {wants} istiyor, platform {holds} tutuyor. Burada yapacak bir şey yok.",
+        "strategy_wants_in": "Strateji {wants} olmak istiyor ve tutulan bir şey yok. Grafik de öyle diyorsa açın.",
+        "strategy_wants_out": "Platform {holds} tutuyor ve strateji hiçbir şey istemiyor. Grafik de öyle diyorsa kapatın.",
+        "side_mismatch": "Strateji {wants} istiyor, platform {holds} tutuyor. Ters yönde açmak önce bunu kapatır.",
+        "unknown": "Bu bot hiç mum değerlendirmedi, dolayısıyla karşılaştırılacak bir strateji pozisyonu yok."
+      },
+      "result": {
+        "routed": "Gönderildi.",
+        "paper": "Kaydedildi. Bu bot kâğıt modunda, bu yüzden hiçbir borsaya bir şey gönderilmedi.",
+        "already_flat": "Tutulan bir şey yok, kapatılacak bir şey de yoktu.",
+        "already_there": "Pozisyon zaten bununla uyuşuyor, bu yüzden bir şey gönderilmedi."
+      },
+      "refused": {
+        "halt": "Platform durdurması açık (§7). Buradan pozisyon açmadan önce onu serbest bırakın.",
+        "bot_not_running": "Bu bot durmuş. Pozisyon açmadan önce başlatın — arkasında bir çalışma olmayan giriş, stratejinin asla kapatmayacağı bir pozisyondur.",
+        "no_run": "Bu bot hiç çalışmadı.",
+        "no_bot": "Böyle bir bot yok.",
+        "unknown_verb": "Bu, bu sekmenin gönderebileceği bir talimat değil.",
+        "outside_window": "Bu bot kendi işlem penceresinin dışında.",
+        "paused": "Bu bot duraklatıldı.",
+        "risk_gate": "Risk kapısı bu emri reddetti.",
+        "consecutive_losses": "Bu bot üst üste zarar sınırına ulaştı.",
+        "drawdown": "Bu bot düşüş sınırına ulaştı.",
+        "trade_rate": "Bu bot saatlik işlem sınırına ulaştı.",
+        "no_bars": "Bu botun akışı artık mum teslim etmiyor.",
+        "stop_all": "Platform durdurması açık (§7) ve emir yolu bunu reddetti. Önce üst çubuktan serbest bırakın."
+      }
     }
   },
   "security": {

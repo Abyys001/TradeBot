@@ -67,7 +67,8 @@ class StagedFeed(ScriptedFeed):
 
 @pytest.fixture
 def staged(monkeypatch):
-    from apps.exchanges import marketdata
+    from apps.exchanges import marketdata, registry
+    from apps.exchanges.paper import PaperAdapter
 
     StagedFeed.live = []
     monkeypatch.setattr(supervisor, "BarFeed", StagedFeed)
@@ -79,6 +80,18 @@ def staged(monkeypatch):
         "get_ticker",
         lambda **_: {"price": "101", "live": True, "source": "test"},
     )
+
+    # And the venue quotes the same instrument the bars describe. The paper
+    # adapter's default mark is 100_000 while ``_bar`` trades around 100, so an
+    # entry here is recorded at a price a thousand times every bar that
+    # follows it — which means the exit guard (Q38) reads the *next* bar as a
+    # stop breach and closes a position nothing was wrong with. That is a
+    # fixture disagreeing with itself, not a rule, and these are the only tests
+    # that evaluate a bar after an entry.
+    def _paper(**kwargs):
+        return PaperAdapter(**{"mark_price": Decimal("101"), **kwargs})
+
+    monkeypatch.setattr(registry, "PaperAdapter", _paper)
     return StagedFeed
 
 
@@ -372,7 +385,14 @@ async def test_a_quiet_bar_after_a_hand_opened_entry_does_not_close_it(staged):
             'strategy("enter on green only", overlay=true)\n'
             "if close > open\n"
             '    strategy.entry("Long", strategy.long)\n'
-        )
+        ),
+        # Wide enough that the red bar this test turns on is not also a stop
+        # breach. The subject here is what the *runtime* is told it holds; a
+        # stop the bar genuinely reached would close the position for a reason
+        # that has nothing to do with it, and the test would pass or fail on
+        # the fixture's arithmetic instead of on the rule.
+        sl_pct="5",
+        tp_pct="10",
     )
     run = await _open_run(bot)
     await intervene.act(bot_id=bot.id, verb=intervene.OPEN_LONG, actor="boss")
@@ -458,7 +478,13 @@ async def test_a_hand_closed_side_is_not_re_entered_until_the_signal_comes_again
     (the script stops asking) — green bar (a new signal, routed).
     """
     await _account("bot-on", bot=True)
-    bot = await _bot()
+    # This is the one test that resumes the same run over four separate passes
+    # of the loop, and the staged bars carry a fixed 2023 clock. Q25's
+    # proof-of-life stop measures the newest bar against *now*, so from the
+    # second pass on it would stop the bot for a feed three years behind —
+    # firing at the fixture rather than at anything the guard does. Off for
+    # this bot only, which is what ``risk_config`` is for.
+    bot = await _bot(risk_config={"NO_BAR_TIMEOUT_MULTIPLE": 0})
     run = await _open_run(bot)
 
     await _bars(run, bot, (1000, True))

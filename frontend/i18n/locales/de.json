@@ -1234,7 +1234,8 @@
       "journal": "Protokoll",
       "chart": "Chart",
       "logic": "Logik",
-      "inputs": "Eingaben"
+      "inputs": "Eingaben",
+      "control": "Steuerung"
     },
     "action": {
       "open": "Eröffnen",
@@ -1491,7 +1492,8 @@
       "actionOther": "Aktion erfasst. {reason}",
       "actionOtherFailed": "Aktion fehlgeschlagen. {error}",
       "legsFailed": "{n} Konto/Konten haben es nicht angenommen",
-      "unsettled": "Diese Aktion wurde abgeschickt und ihr Ergebnis nie zurückgeschrieben — die Plattform hat etwas gesendet und nie erfahren, was passiert ist."
+      "unsettled": "Diese Aktion wurde abgeschickt und ihr Ergebnis nie zurückgeschrieben — die Plattform hat etwas gesendet und nie erfahren, was passiert ist.",
+      "actionHeldOff": "Einstieg zurückgehalten: Sie haben dieses {held_off_side} von Hand geschlossen, und die Strategie fordert es weiterhin an. {reason}"
     },
     "chartLoading": "Chart wird gezeichnet…",
     "editBot": "Bot bearbeiten",
@@ -1523,6 +1525,70 @@
         "flat": "Einstieg"
       },
       "exit": "Ausstieg"
+    },
+    "desk": {
+      "lastSignal": "Strategie will",
+      "entrySignal": "Einstiegssignal",
+      "lastBar": "Kerze",
+      "barClose": "Kerzenschluss",
+      "mark": "Markpreis",
+      "noFeed": "kein Preisfeed",
+      "noBars": "Noch keine Kerze ausgewertet",
+      "noBarsBody": "Sobald dieser Bot über eine Kerze gelaufen ist, steht hier, was das Skript dazu gesagt hat.",
+      "equity": "Gesamtkapital",
+      "available": "Verfügbar",
+      "acrossN": "über {n} Konto/Konten",
+      "position": "Position",
+      "flatBody": "Dieser Bot hält nichts. Wenn der Chart etwas anderes sagt, öffnen Sie es oben.",
+      "side": "Richtung",
+      "opened": "Eröffnet",
+      "signals": "Letzte Signale",
+      "why": "Grund",
+      "recent": "Gerade gesendet",
+      "byHand": "von Hand",
+      "heldOff": "zurückgehalten",
+      "open_long": "Long eröffnen",
+      "open_short": "Short eröffnen",
+      "close": "Position schließen",
+      "confirm": "Zum Senden erneut drücken",
+      "noEligibleAccounts": "Bei keinem Konto ist Bot-Handel eingeschaltet, ein Einstieg würde also niemanden erreichen. Schalten Sie ihn pro Konto auf der Kontenseite ein.",
+      "holdOff": "Sie haben dieses {side} von Hand geschlossen. Die Strategie fordert es weiterhin an, deshalb hält die Plattform es zurück, bis das Skript aufhört zu fragen und erneut fragt.",
+      "samePathNote": "Ein Druck hier läuft durch dieselbe Größenberechnung, dasselbe Risk-Gate und denselben Fan-out wie ein Signal. Der Bot führt die Strategie weiter aus, und sein nächstes Ausstiegssignal schließt, was Sie eröffnet haben.",
+      "divergence": {
+        "aligned": "Einig",
+        "strategy_wants_in": "Strategie drin, Plattform flat",
+        "strategy_wants_out": "Plattform drin, Strategie draußen",
+        "side_mismatch": "Gegenläufige Richtungen",
+        "unknown": "Nichts zu vergleichen"
+      },
+      "divergenceBody": {
+        "aligned": "Die Strategie will {wants}, die Plattform hält {holds}. Hier ist nichts zu tun.",
+        "strategy_wants_in": "Die Strategie will {wants} sein, gehalten wird nichts. Wenn der Chart zustimmt, eröffnen Sie es.",
+        "strategy_wants_out": "Die Plattform hält {holds}, die Strategie will nichts. Wenn der Chart zustimmt, schließen Sie es.",
+        "side_mismatch": "Die Strategie will {wants}, die Plattform hält {holds}. Ein Einstieg in die Gegenrichtung schließt zuerst diesen hier.",
+        "unknown": "Dieser Bot hat keine Kerze ausgewertet, es gibt also keine Strategie-Position zum Vergleich."
+      },
+      "result": {
+        "routed": "Gesendet.",
+        "paper": "Aufgezeichnet. Dieser Bot läuft im Papiermodus, es ging nichts an eine Börse.",
+        "already_flat": "Es wird nichts gehalten, es gab also nichts zu schließen.",
+        "already_there": "Die Position entspricht dem bereits, es wurde nichts gesendet."
+      },
+      "refused": {
+        "halt": "Der Plattform-Halt ist an (§7). Lösen Sie ihn, bevor Sie hier eine Position eröffnen.",
+        "bot_not_running": "Dieser Bot ist gestoppt. Starten Sie ihn, bevor Sie eine Position eröffnen — ein Einstieg ohne Lauf dahinter ist eine Position, die die Strategie nie schließt.",
+        "no_run": "Dieser Bot ist nie gelaufen.",
+        "no_bot": "Diesen Bot gibt es nicht.",
+        "unknown_verb": "Das ist keine Anweisung, die dieser Tab senden kann.",
+        "outside_window": "Dieser Bot ist außerhalb seines Handelsfensters.",
+        "paused": "Dieser Bot pausiert.",
+        "risk_gate": "Das Risk-Gate hat diese Order abgelehnt.",
+        "consecutive_losses": "Dieser Bot hat sein Limit für Verlustserien erreicht.",
+        "drawdown": "Dieser Bot hat sein Drawdown-Limit erreicht.",
+        "trade_rate": "Dieser Bot hat sein Limit für Trades pro Stunde erreicht.",
+        "no_bars": "Der Feed dieses Bots liefert keine Kerzen mehr.",
+        "stop_all": "Der Plattform-Halt ist an (§7) und der Orderpfad hat das abgelehnt. Lösen Sie ihn zuerst in der oberen Leiste."
+      }
     }
   },
   "security": {

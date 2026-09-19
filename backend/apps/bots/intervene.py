@@ -55,7 +55,7 @@ from asgiref.sync import sync_to_async
 
 from apps.bots import translate
 from apps.bots.models import ActionType, Bot, BotRun, BotState
-from apps.bots.riskgate import RiskGate
+from apps.bots.riskgate import RiskGate, _halted
 from apps.logging.utils import system_log
 from apps.pine.intent import Side, StrategyIntent
 
@@ -150,6 +150,19 @@ async def act(*, bot_id: int, verb: str, actor: str = "") -> Outcome:
     side = _SIDE_OF[verb]
     running = bot.state in (BotState.PAPER, BotState.LIVE) and run is not None
 
+    if side is not None and await sync_to_async(_halted)():
+        # Before the running check, deliberately. Q22 wires the halt to stop
+        # every running bot, so by the time a press arrives at a halted
+        # platform the bot is already stopped — and answering "this bot is not
+        # running" names the symptom while hiding the cause. The operator then
+        # presses Start, which the halt refuses as well. The halt is the fact
+        # they can act on, so the halt is what they are told.
+        raise Refused(
+            "halt",
+            "the platform halt is on (spec §7) — release it before opening a "
+            "position from here.",
+        )
+
     if side is not None and not running:
         # An entry needs somebody to manage it afterwards, and that somebody is
         # the run. Opening into a stopped bot would produce a position no
@@ -231,7 +244,17 @@ async def act(*, bot_id: int, verb: str, actor: str = "") -> Outcome:
             # not ask for.
             raise Refused(decision.code or "risk_gate", decision.reason)
 
-    if bot.dry_run:
+    # Paper is a property of the *position*, not of the flag. ``supervisor.stop``
+    # sets ``dry_run`` on every bot it stops — the Q22 halt and the Q25
+    # auto-stops included — so a live bot that stopped itself at 03:00 while
+    # holding reads as paper from this door. Recording its close as a
+    # would-have-been and answering ``ok`` is the position nobody closed: the
+    # panel says flat, the venue still holds it, and the operator finds out
+    # from the balance. A trade that is *there* was really sent, so a close of
+    # one really goes out — whatever the flag says now.
+    routes_anyway = side is None and not held.flat
+
+    if bot.dry_run and not routes_anyway:
         # Paper. Everything above this line ran for real; only the routing did
         # not — the same single branch the supervisor's shadow mode is.
         await sync_to_async(_record_shadow)(run, bar_time, actions, intent)
