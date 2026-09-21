@@ -21,7 +21,7 @@
     "lightweight-charts": "^5.2.1",
     "nuxt": "^4.5.2",
     "pinia": "^4.0.3",
-    "vue": "^3.5.42",
+    "vue": "^3.5.43",
     "ws": "^8.21.3"
   },
   "devDependencies": {
