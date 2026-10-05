@@ -28,6 +28,6 @@
     "@nuxtjs/tailwindcss": "^6.13.1",
     "@types/ws": "^8.18.1",
     "typescript": "^7.0.2",
-    "vue-tsc": "^3.3.11"
+    "vue-tsc": "^3.3.12"
   }
 }
