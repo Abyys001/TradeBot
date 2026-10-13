@@ -253,7 +253,7 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter accounts by caller access before every detail route."""
-        return accessible(self.request.user, ConnectedAccount.objects.all())
+        return accessible(self.request.user, ConnectedAccount.objects.select_related("bot"))
 
     def get_serializer_class(self):
         if self.action in {"create", "update", "partial_update"}:
@@ -392,44 +392,93 @@ class ConnectedAccountViewSet(_StepUpGuard, viewsets.ModelViewSet):
             },
         )
 
-    @action(detail=True, methods=["post"], url_path="manual-trading")
-    def manual_trading(self, request, pk=None):
-        """On/off: may this account take the admin's own manual entries.
+    @action(detail=True, methods=["post"])
+    def assign(self, request, pk=None):
+        """Hand this account to the admin's ticket (``bot: null``) or to one bot (Q42).
 
-        Independent of ``bot_trading`` (below) and of ``status`` — pausing an
-        account already stops every new entry, manual or bot; this is the
-        finer-grained switch for "this account, but not from my own hand" (or
-        the reverse). Neither switch touches a trade this account already
-        holds a leg of — ``eligible_accounts`` resolves an amend or a close
-        from the leg, not from these fields, so flipping one mid-trade can
-        never strand a live position.
+        An account holding a position is not handed over silently: the leg
+        belongs to whichever hand opened it, and the new one would either
+        trade on top of it or never know it is there. So the first press
+        answers 409 ``account_has_position`` with the position, and the panel
+        asks; a second press with ``close_position: true`` flattens **this
+        account's leg only** — the trade keeps running on every other account
+        — and reassigns once the exchange confirms it flat. A close that did
+        not flatten leaves the assignment where it was.
         """
-        account = self.get_object()
-        account.manual_trading_enabled = bool(request.data.get("enabled", True))
-        account.save(update_fields=["manual_trading_enabled", "updated_at"])
-        _announce_change(
-            account,
-            "account_changed",
-            f"account {account.label} manual trading "
-            f"{'on' if account.manual_trading_enabled else 'off'}",
-            changed=f"manual trading {'on' if account.manual_trading_enabled else 'off'}",
-            actor=request.user.get_username(),
-        )
-        return Response(ConnectedAccountSerializer(account).data)
+        from apps.bots.models import Bot
+        from apps.engine.fanout import StopAllActive
+        from apps.trading.models import TradeLeg, TradeStatus
+        from apps.trading.services import NoLegsToRoute, route_close
 
-    @action(detail=True, methods=["post"], url_path="bot-trading")
-    def bot_trading(self, request, pk=None):
-        """On/off: may a bot's entries reach this account. Off by default —
-        see ``ConnectedAccount.bot_trading_enabled``."""
         account = self.get_object()
-        account.bot_trading_enabled = bool(request.data.get("enabled", True))
-        account.save(update_fields=["bot_trading_enabled", "updated_at"])
+        raw = request.data.get("bot")
+        bot = None
+        if raw not in (None, ""):
+            bot = Bot.objects.filter(pk=raw).first()
+            if bot is None:
+                return Response({"detail": "no such bot", "code": "no_bot"}, status=404)
+        if (bot.id if bot else None) == account.bot_id:
+            return Response(ConnectedAccountSerializer(account).data)
+
+        leg = (
+            TradeLeg.objects.filter(
+                account=account, trade__status=TradeStatus.OPEN, closed_at__isnull=True
+            )
+            .select_related("trade")
+            .first()
+        )
+        if leg is not None:
+            trade = leg.trade
+            if not request.data.get("close_position"):
+                return Response(
+                    {
+                        "detail": (
+                            f"{account.label} holds a {trade.side} {trade.symbol} "
+                            f"position. Close it on this account before handing it over."
+                        ),
+                        "code": "account_has_position",
+                        "trade_id": trade.id,
+                        "symbol": trade.symbol,
+                        "side": trade.side,
+                        "qty": str(leg.qty) if leg.qty is not None else None,
+                        "entry_price": str(leg.entry_price) if leg.entry_price else None,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            try:
+                result = async_to_sync(route_close)(trade=trade, account_ids=[account.id])
+            except StopAllActive:
+                return Response(
+                    {"detail": "STOP_ALL is on — nothing was sent", "code": "stop_all"},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            except NoLegsToRoute as exc:
+                return Response(
+                    {"detail": str(exc), "code": "no_legs"}, status=status.HTTP_409_CONFLICT
+                )
+            outcome = next((o for o in result.legs if o.account_id == account.id), None)
+            if outcome is None or not (outcome.ok or outcome.error_code == "no_position"):
+                return Response(
+                    {
+                        "detail": (
+                            "the exchange did not confirm the close — the account "
+                            "keeps its current assignment"
+                            + (f": {outcome.error}" if outcome and outcome.error else "")
+                        ),
+                        "code": "close_failed",
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+
+        before = account.bot.name if account.bot_id else "manual"
+        account.bot = bot
+        account.save(update_fields=["bot", "updated_at"])
+        after = bot.name if bot else "manual"
         _announce_change(
             account,
             "account_changed",
-            f"account {account.label} bot trading "
-            f"{'on' if account.bot_trading_enabled else 'off'}",
-            changed=f"bot trading {'on' if account.bot_trading_enabled else 'off'}",
+            f"account {account.label} handed from {before} to {after}",
+            changed=f"driven by {after}",
             actor=request.user.get_username(),
         )
         return Response(ConnectedAccountSerializer(account).data)

@@ -206,10 +206,16 @@ const pnlSeries = computed(() => {
       />
     </div>
 
+    <!-- Bots: every running one appears by itself, so nobody picks one from a
+         menu to see whether it is making money. -->
+    <DashboardBots />
+
     <!-- What needs you -->
     <DashboardAlerts />
 
-    <!-- Running state -->
+    <!-- Manual trading: the admin's own hand, kept visibly apart from the bots
+         above. A bot's position never appears here. -->
+    <h2 class="display text-base sm:text-lg pt-1">{{ t('dashboard.manual') }}</h2>
     <DashboardOpenPosition />
 
     <!-- Markets: the same list as the chart rail, with room to edit. -->

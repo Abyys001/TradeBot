@@ -83,6 +83,8 @@ export const usePositionsStore = defineStore('positions', {
      * the second one from being invisible until then.
      */
     otherOpenTrades: (s) => s.snapshot?.other_open_trades ?? 0,
+    /** Open trades a bot placed; `trade` is the newest manual one. */
+    botOpenTrades: (s) => s.snapshot?.bot_open_trades ?? 0,
 
     byAccount: (s) => (id: number) => s.snapshot?.legs.find((leg) => leg.account === id) ?? null,
   },

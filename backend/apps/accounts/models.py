@@ -50,19 +50,23 @@ class ConnectedAccount(models.Model):
         db_index=True,
     )
 
-    # --- who may enter a *new* trade on this account -----------------------
-    # Two independent switches, not one "trading enabled" flag: an account can
-    # take the admin's own manual entries, a bot's, both, or neither. Neither
-    # one affects an amend or a close on a trade this account already holds a
-    # leg of — `eligible_accounts` resolves those from the leg, not from these
-    # fields, so flipping a switch mid-trade never strands a live position.
+    # --- who drives this account (Q42) -------------------------------------
+    # Exactly one of two hands: the admin's own ticket (``bot`` is null) or one
+    # bot. Never both — a manual entry landing on an account a strategy is
+    # trading leaves that strategy describing a position it no longer has. A
+    # bot may drive several accounts; an account answers to at most one bot,
+    # which is what lets several bots run at once on disjoint books.
     #
-    # Manual defaults on: every account already trades manually today, and
-    # flipping this to opt-in on upgrade would silently pause every one of
-    # them. Bot defaults off: a bot fanning out to an account nobody opted in
-    # is the one mistake this field exists to prevent.
-    manual_trading_enabled = models.BooleanField(default=True)
-    bot_trading_enabled = models.BooleanField(default=False)
+    # Only *new* entries follow this. An amend or a close resolves from the
+    # leg (`eligible_accounts`), and reassigning an account that holds a
+    # position closes that account's leg first (`accounts.views.assign`).
+    bot = models.ForeignKey(
+        "bots.Bot",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="accounts",
+    )
 
     # --- credentials, encrypted at rest (spec §7) --------------------------
     api_key_encrypted = models.TextField(blank=True)

@@ -30,6 +30,8 @@ export const useAccountsStore = defineStore('accounts', {
     labelFor: (s) => (id: number | null) =>
       s.items.find((a) => a.id === id)?.label ?? (id === null ? '' : `#${id}`),
 
+    forBot: (s) => (botId: number) => s.items.filter((a) => a.bot === botId),
+
     active: (s) => s.items.filter((a) => a.status === 'active'),
     paused: (s) => s.items.filter((a) => a.status === 'paused'),
     failing: (s) => s.items.filter((a) => a.status === 'error'),
@@ -167,14 +169,8 @@ export const useAccountsStore = defineStore('accounts', {
       return updated
     },
 
-    async setManualTrading(account: Account, enabled: boolean) {
-      const updated = await useApi().setManualTrading(account.id, enabled)
-      this.replace(updated)
-      return updated
-    },
-
-    async setBotTrading(account: Account, enabled: boolean) {
-      const updated = await useApi().setBotTrading(account.id, enabled)
+    async assign(account: Account, bot: number | null, closePosition = false) {
+      const updated = await useApi().assignAccount(account.id, bot, closePosition)
       this.replace(updated)
       return updated
     },

@@ -486,7 +486,7 @@ onBeforeUnmount(() => {
            element it is given, so it cannot be created behind a `v-if` that is
            still false — the loading and empty states are drawn *over* it. -->
       <div v-else class="relative p-1">
-        <div ref="el" class="h-[22rem] sm:h-[30rem] w-full" />
+        <div ref="el" class="h-[18rem] sm:h-[26rem] lg:h-[30rem] w-full" />
         <div
           v-if="loading"
           class="absolute inset-1 rounded-lg bg-sunken/80 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3"

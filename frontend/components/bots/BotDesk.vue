@@ -26,6 +26,7 @@ const props = defineProps<{ botId: number }>()
 
 const { t, te } = useI18n()
 const api = useApi()
+const localePath = useLocalePath()
 const live = useLiveStore()
 const { money, qty, pct, signed, dateTime } = useFormat()
 
@@ -369,7 +370,8 @@ onBeforeUnmount(() => {
             :title="t('bots.desk.noBars')"
             :body="t('bots.desk.noBarsBody')"
           />
-          <table v-else class="w-full text-xs">
+          <div v-else class="overflow-x-auto">
+          <table class="w-full text-xs">
             <thead class="text-ink-faint">
               <tr class="border-b border-line">
                 <th class="text-start font-normal px-4 py-2">{{ t('bots.desk.lastBar') }}</th>
@@ -396,41 +398,19 @@ onBeforeUnmount(() => {
               </tr>
             </tbody>
           </table>
+          </div>
         </UiCard>
       </div>
 
-      <!-- What was actually sent, most recent first. The activity tab is the
-           full log; this is the tail, so a press and its legs are on the same
-           screen as the button that made them. -->
-      <UiCard :title="t('bots.desk.recent')" flush>
-        <UiEmpty
-          v-if="!desk.actions.length"
-          icon="history"
-          :title="t('bots.noActions')"
-          :body="t('bots.noActionsBody')"
-        />
-        <ul v-else class="divide-y divide-line">
-          <li v-for="action in desk.actions" :key="action.id" class="px-4 py-2.5 space-y-1">
-            <div class="flex items-center gap-2 flex-wrap text-xs">
-              <UiBadge :tone="action.action_type === 'shadow' ? 'neutral' : action.ok ? 'ok' : 'short'">
-                {{ t(`bots.action.${action.action_type}`) }}
-              </UiBadge>
-              <UiBadge v-if="action.intent?.origin === 'manual'" tone="brand">
-                {{ t('bots.desk.byHand') }}
-              </UiBadge>
-              <UiBadge v-if="action.intent?.held_off" tone="signal">
-                {{ t('bots.desk.heldOff') }}
-              </UiBadge>
-              <span v-if="action.side" :class="action.side === 'long' ? 'text-long' : 'text-short'">
-                {{ t(`side.${action.side}`) }}
-              </span>
-              <span class="num text-ink-muted">{{ dateTime(action.created_at) }}</span>
-              <span v-if="action.error" class="text-short">{{ action.error }}</span>
-            </div>
-            <p v-if="action.reason" class="text-tick text-ink-faint">{{ action.reason }}</p>
-          </li>
-        </ul>
-      </UiCard>
+      <!-- The routed-order log lives with the other bot logs; a second copy of
+           it here is the duplicate this link replaces. -->
+      <NuxtLink
+        :to="{ path: localePath('/logs'), query: { tag: 'bot', bot: String(botId) } }"
+        class="btn-ghost btn-sm w-full justify-center"
+      >
+        <UiIcon name="logs" :size="14" />
+        {{ t('bots.desk.viewLogs') }}
+      </NuxtLink>
     </template>
   </div>
 </template>

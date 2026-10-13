@@ -21,7 +21,7 @@ from cryptography.fernet import Fernet
 from django.test import Client, override_settings
 
 from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange
-from apps.bots.models import BotState, ExitPolicy, SignalSourceKind
+from apps.bots.models import Bot, BotState, ExitPolicy, SignalSourceKind
 from apps.signals.auth import sign
 from apps.signals.models import SignalEvent, SignalSource, Verdict
 from apps.signals.payload import SignalRejected, Verb, parse
@@ -41,6 +41,8 @@ def _encryption_key():
 
 
 def account(label: str = "partner", *, balance: str = "1000") -> ConnectedAccount:
+    # A signal routes as a bot does (`source="bot"`), so the account has to be
+    # driven by the webhook's bot (Q42) — the newest one, or the next one made.
     return ConnectedAccount.objects.create(
         label=label,
         exchange=Exchange.PAPER,
@@ -48,11 +50,11 @@ def account(label: str = "partner", *, balance: str = "1000") -> ConnectedAccoun
         withdrawal_check_passed=True,
         last_balance=D(balance),
         last_balance_asset="USDT",
-        # A signal routes as a bot does (`source="bot"`), so the account has to
-        # be opted into bot trading — the second of the two independent
-        # switches in `docs/bots.md` §7. Off by default, deliberately.
-        bot_trading_enabled=True,
+        bot=Bot.objects.order_by("-id").first(),
     )
+
+
+_UNDRIVEN = ("not-opted-in",)
 
 
 def webhook_bot(*, state: str = BotState.LIVE, **kwargs):
@@ -65,6 +67,11 @@ def webhook_bot(*, state: str = BotState.LIVE, **kwargs):
     }
     bot = make_bot(**{**defaults, **kwargs})
     make_run(bot)
+    # Accounts made before any bot existed are manual; hand them to this one.
+    # One that a test deliberately took away (`_UNDRIVEN`) stays manual.
+    ConnectedAccount.objects.filter(bot__isnull=True).exclude(label__in=_UNDRIVEN).update(
+        bot=bot
+    )
     return bot
 
 
@@ -269,9 +276,7 @@ def test_an_exit_closes_the_position_on_every_connected_account():
     """
     account("partner-a")
     account("partner-b")
-    account("not-opted-in").__class__.objects.filter(label="not-opted-in").update(
-        bot_trading_enabled=False
-    )
+    account("not-opted-in")
     src = source()
     post(src, buy())
     trade = Trade.objects.get()

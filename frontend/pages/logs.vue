@@ -24,13 +24,42 @@
  */
 const { t, locale } = useI18n()
 const store = useSystemLogStore()
+const localePath = useLocalePath()
 const live = useLiveStore()
 const notifications = useNotificationStore()
+const bots = useBotsStore()
+const route = useRoute()
+const router = useRouter()
 
 useHead({ title: t('logs.title') })
 
+/**
+ * Two views of one table. "System" is every backend row; "Bots" is the same
+ * stream pinned to category BOT, with the chosen bot's journal and routed
+ * orders above it — the bot logs live here, not on the bot's own page.
+ * `?tag=bot&bot=<id>` deep-links straight into it.
+ */
+const BOT_CATEGORY = 'BOT'
+const tag = ref<'system' | 'bot'>(route.query.tag === 'bot' ? 'bot' : 'system')
+const botId = ref<number | null>(Number(route.query.bot) || null)
+const botChoice = computed({
+  get: () => (botId.value === null ? '' : String(botId.value)),
+  set: (value: string) => (botId.value = value ? Number(value) : null),
+})
+const selectedBot = computed(() => (botId.value === null ? null : bots.byId(botId.value) ?? null))
+const tagOptions = computed(() => [
+  { value: 'system', label: t('logs.tag.system') },
+  { value: 'bot', label: t('logs.tag.bot') },
+])
+
+/** Defaults to the first running bot, so the page opens on something live. */
+function pickDefaultBot() {
+  if (botId.value !== null && bots.byId(botId.value)) return
+  botId.value = (bots.running[0] ?? bots.bots[0])?.id ?? null
+}
+
 const level = ref('')
-const category = ref('')
+const category = ref(tag.value === 'bot' ? BOT_CATEGORY : '')
 const source = ref('')
 const search = ref('')
 const requestId = ref('')
@@ -98,7 +127,7 @@ const filtered = computed(() => {
 const hasFilters = computed(
   () =>
     Boolean(level.value) ||
-    Boolean(category.value) ||
+    (tag.value === 'system' && Boolean(category.value)) ||
     Boolean(source.value) ||
     Boolean(search.value) ||
     Boolean(requestId.value) ||
@@ -121,9 +150,29 @@ watch([level, category, source, search, requestId, accountId], () => {
 })
 onBeforeUnmount(() => clearTimeout(debounceTimer))
 
+watch(tag, (value) => {
+  category.value = value === 'bot' ? BOT_CATEGORY : ''
+  if (value === 'bot') pickDefaultBot()
+})
+watch([tag, botId], () => {
+  router.replace({
+    query: {
+      ...route.query,
+      tag: tag.value === 'bot' ? 'bot' : undefined,
+      bot: tag.value === 'bot' && botId.value !== null ? String(botId.value) : undefined,
+    },
+  })
+})
+watch(
+  () => bots.bots.length,
+  () => {
+    if (tag.value === 'bot') pickDefaultBot()
+  },
+)
+
 function clearFilters() {
   level.value = ''
-  category.value = ''
+  category.value = tag.value === 'bot' ? BOT_CATEGORY : ''
   source.value = ''
   search.value = ''
   requestId.value = ''
@@ -239,6 +288,8 @@ async function confirmPrune() {
 const n = (value: number) => value.toLocaleString(locale.value === 'fa' ? 'fa-IR' : 'en-US')
 
 onMounted(async () => {
+  if (!bots.bots.length && !bots.loading) bots.load()
+  if (tag.value === 'bot') pickDefaultBot()
   await Promise.all([store.load(buildParams()), store.loadFacets()])
   followTail()
 })
@@ -257,29 +308,74 @@ onMounted(async () => {
       <!-- "Real-time" is a claim, so the page shows whether the channel that
            makes it true is actually up. Without this a dead socket looked
            exactly like a quiet system. -->
+      <div class="flex flex-wrap items-center gap-2">
+      <UiSegmented v-model="tag" :options="tagOptions" size="sm" :block="false" />
       <UiBadge :tone="live.status === 'live' ? 'ok' : live.status === 'connecting' ? 'neutral' : 'signal'" dot>
         {{ live.status === 'live' ? t('logs.streaming') : t(`common.${live.status}`) }}
       </UiBadge>
+      </div>
     </header>
+
+    <!-- Bots view: pick a bot, then read what it thought and what it sent. -->
+    <template v-if="tag === 'bot'">
+      <section class="panel p-3 flex flex-wrap items-center gap-3">
+        <label class="flex items-center gap-2 min-w-0 flex-1 sm:flex-none">
+          <span class="label shrink-0">{{ t('logs.bot') }}</span>
+          <select v-model="botChoice" class="field h-9 text-sm min-w-0 sm:min-w-[16rem]">
+            <option v-if="!bots.bots.length" value="">{{ t('bots.none') }}</option>
+            <option v-for="bot in bots.bots" :key="bot.id" :value="String(bot.id)">
+              {{ bot.name }} · {{ t(`bots.state.${bot.state}`) }}
+            </option>
+          </select>
+        </label>
+        <NuxtLink
+          v-if="selectedBot"
+          :to="localePath(`/bots/${selectedBot.id}`)"
+          class="btn-ghost btn-sm ms-auto"
+        >
+          {{ t('bots.perf.open') }}
+          <UiIcon name="arrowRight" :size="13" class="flip-rtl" />
+        </NuxtLink>
+      </section>
+
+      <div v-if="selectedBot" class="grid gap-3 sm:gap-4 xl:grid-cols-2 items-start">
+        <BotsBotJournal :bot-id="selectedBot.id" :interval="selectedBot.interval" />
+        <BotsBotActivity :bot-id="selectedBot.id" compact />
+      </div>
+      <UiCard v-else>
+        <UiEmpty icon="bot" :title="t('bots.none')" :body="t('bots.noneBody')" />
+      </UiCard>
+
+      <h2 class="display text-base sm:text-lg pt-1">{{ t('logs.botSystem') }}</h2>
+    </template>
 
     <!-- Filter bar -->
     <section class="panel p-2.5 sm:p-3 space-y-2.5">
       <div class="flex flex-wrap items-center gap-2">
-        <select v-model="level" class="field h-8 w-auto text-xs !py-0 !px-2" :aria-label="t('logs.level')">
+        <select
+          v-model="level"
+          class="field h-8 w-auto min-w-0 flex-1 sm:flex-none text-xs !py-0 !px-2"
+          :aria-label="t('logs.level')"
+        >
           <option value="">{{ t('logs.allLevels') }}</option>
           <option v-for="lv in levels" :key="lv" :value="lv">{{ lv }}</option>
         </select>
-        <select v-model="category" class="field h-8 w-auto text-xs !py-0 !px-2" :aria-label="t('logs.category')">
+        <select
+          v-if="tag === 'system'"
+          v-model="category"
+          class="field h-8 w-auto min-w-0 flex-1 sm:flex-none text-xs !py-0 !px-2"
+          :aria-label="t('logs.category')"
+        >
           <option value="">{{ t('logs.allCategories') }}</option>
           <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
         </select>
         <input
           v-model="source"
-          class="field h-8 text-xs !py-0 !px-2 w-32 sm:w-40"
+          class="field h-8 text-xs !py-0 !px-2 min-w-0 flex-1 sm:flex-none sm:w-40"
           :aria-label="t('logs.source')"
           :placeholder="t('logs.source')"
         />
-        <div class="relative flex-1 min-w-[10rem]">
+        <div class="relative flex-1 min-w-[min(10rem,100%)] basis-full sm:basis-auto">
           <UiIcon
             name="search"
             :size="13"
@@ -411,7 +507,7 @@ onMounted(async () => {
       <div
         v-else
         ref="scrollContainer"
-        class="overflow-auto max-h-[calc(100vh-19rem)]"
+        class="overflow-auto max-h-[calc(100dvh-19rem)]"
         @scroll.passive="onScroll"
       >
         <table class="w-full text-xs border-collapse">
@@ -463,6 +559,7 @@ onMounted(async () => {
                     class="text-ink-muted hover:text-ink transition-colors"
                     :class="category === entry.category ? 'text-brand' : ''"
                     :title="t('logs.filterCategory')"
+                    :disabled="tag === 'bot'"
                     @click.stop="category = category === entry.category ? '' : entry.category"
                   >
                     {{ entry.category }}

@@ -38,7 +38,14 @@ from apps.pine.intent import Side
 from apps.trading import killswitch
 from apps.trading.models import Trade, TradeStatus
 from tests.bot_factory import make_bot
-from tests.test_bot_live_bar import KEY, ScriptedFeed, _account, _bar
+from tests.test_bot_live_bar import (  # noqa: F401
+    KEY,
+    ScriptedFeed,
+    _account,
+    _bar,
+    _drive,
+    _forget_driven,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -104,7 +111,9 @@ async def _bot(**kwargs):
         "sl_pct": "1",
         "tp_pct": "2",
     }
-    return await sync_to_async(make_bot)(**{**defaults, **kwargs})
+    bot = await sync_to_async(make_bot)(**{**defaults, **kwargs})
+    await _drive(bot)
+    return bot
 
 
 async def _open_run(bot) -> BotRun:

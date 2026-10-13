@@ -48,6 +48,8 @@ async function signOut() {
            where they covered the chart; still persistent, still unmissable. -->
       <AppNotificationCenter />
 
+      <AppInstallButton />
+
       <span class="w-px h-5 bg-line hidden sm:block" />
 
       <!-- Theme and language live in the drawer on a phone: six controls in a

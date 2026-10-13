@@ -282,7 +282,7 @@
       "capitalSub": "en {n} cuentas operables",
       "accounts": "Cuentas activas",
       "accountsSub": "en {n} exchanges",
-      "position": "Posición",
+      "position": "Posición manual",
       "flat": "Plana",
       "flatSub": "sin operación abierta",
       "legs": "tramos",
@@ -317,7 +317,16 @@
       "emptyBody": "Registre un depósito en la página de finanzas y el reparto aparecerá aquí."
     },
     "sessionRevoke": "Cerrar",
-    "sessionRevokeHint": "Cierra la sesión de este navegador. Necesitará la contraseña de nuevo."
+    "sessionRevokeHint": "Cierra la sesión de este navegador. Necesitará la contraseña de nuevo.",
+    "manual": "Trading manual",
+    "manualPosition": "Posición manual",
+    "botPositions": "{n} posición(es) de bots abierta(s).",
+    "seeBots": "Ver Bots",
+    "bots": {
+      "title": "Bots",
+      "running": "{n} en marcha",
+      "noneRunning": "Ningún bot en marcha. Inicia uno abajo u opera manualmente."
+    }
   },
   "alerts": {
     "title": "Requiere tu atención",
@@ -402,10 +411,6 @@
     "pause": "Pausar",
     "resume": "Reanudar",
     "verify": "Verificar clave",
-    "manualTrading": "Trading manual",
-    "manualTradingHint": "Acepta las entradas manuales del propio administrador.",
-    "botTrading": "Trading con bot",
-    "botTradingHint": "Acepta entradas de un bot en marcha. Apagado por defecto.",
     "empty": "Todavía no hay cuentas conectadas.",
     "emptyBody": "Conecte una clave API solo de trading y se une desde la siguiente operación — nunca a una ya en curso.",
     "emptyFilter": "Nada coincide con este filtro.",
@@ -573,7 +578,14 @@
       "hint": "Esta credencial caduca pronto. El exchange no se lo avisará."
     },
     "expiresAt": "La aprobación del agente caduca",
-    "expiresAtHint": "Opcional. El valid_until que fijó al aprobar el agente — como mucho a 180 días vista. Si lo deja en blanco, el panel no puede avisarle antes de que caduque."
+    "expiresAtHint": "Opcional. El valid_until que fijó al aprobar el agente — como mucho a 180 días vista. Si lo deja en blanco, el panel no puede avisarle antes de que caduque.",
+    "driven": {
+      "label": "Gestionada por",
+      "manual": "Manual",
+      "positionTitle": "Esta cuenta tiene una posición abierta",
+      "positionBody": "Esta cuenta tiene una posición {side} en {symbol} ({qty} a {entry}). ¿Cerrar la posición de esta cuenta y pasarla a «{target}»? Solo se cierra la parte de esta cuenta; la operación continúa en las demás.",
+      "closeAndSwitch": "Cerrar posición y cambiar"
+    }
   },
   "history": {
     "title": "Historial de operaciones",
@@ -1102,11 +1114,17 @@
     "time": "Hora",
     "message": "Mensaje",
     "details": "Detalles",
-    "filterCategory": "Filtrar por esta categoría"
+    "filterCategory": "Filtrar por esta categoría",
+    "tag": {
+      "system": "Sistema",
+      "bot": "Bots"
+    },
+    "bot": "Bot",
+    "botSystem": "Registro del sistema: eventos de bots"
   },
   "bots": {
     "title": "Bots",
-    "lead": "Un bot es una fuente de señal, no una segunda vía de ejecución. La estrategia de Pine Script decide el lado; el dimensionado, el reparto y la parada de emergencia son el mismo código por el que pasa el botón manual.",
+    "lead": "Un bot es una fuente de señales, no un segundo camino de ejecución. Una estrategia Pine Script decide el lado; el dimensionado, el reparto y la parada son el mismo código que usa el botón manual. Varios bots pueden funcionar a la vez, cada uno sobre las cuentas que tiene asignadas: una cuenta responde a un bot o a ti, nunca a ambos.",
     "strategies": "Estrategias",
     "strategiesLead": "Pine Script v5 y v6, comprobado mientras escribes. Todo lo que quede fuera del subconjunto admitido se rechaza por nombre, línea y columna: nada se analiza y se ignora en silencio.",
     "backtest": "Backtest",
@@ -1235,7 +1253,10 @@
       "chart": "Gráfico",
       "logic": "Lógica",
       "inputs": "Entradas",
-      "control": "Control"
+      "control": "Control",
+      "overview": "Resumen",
+      "settings": "Ajustes",
+      "strategy": "Estrategia"
     },
     "action": {
       "open": "Abrir",
@@ -1374,7 +1395,7 @@
     "useTyped": "usar tal cual",
     "noSymbolsYet": "Todavía no se ha descargado ningún par — conecte una cuenta o escriba el par.",
     "openAccounts": "Abrir cuentas",
-    "noBotAccounts": "Ninguna cuenta conectada tiene el trading con bot activado, así que este bot no tiene a dónde enrutar. Active «Trading con bot» en al menos una cuenta.",
+    "noBotAccounts": "Este bot no tiene ninguna cuenta asignada, así que no tiene adónde enrutar. Asigna al menos una cuenta en la página Cuentas.",
     "reachesN": "Enruta a {n} de {total} cuentas conectadas:",
     "journalTitle": "Registro del bot",
     "journalHint": "Lo que estaba pensando, vela a vela — incluidas las velas en las que la respuesta fue «nada».",
@@ -1551,7 +1572,7 @@
       "open_short": "Abrir corto",
       "close": "Cerrar posición",
       "confirm": "Pulsa otra vez para enviar",
-      "noEligibleAccounts": "Ninguna cuenta tiene activado el trading por bot, así que una entrada no llegaría a nadie. Actívalo por cuenta en la página de cuentas.",
+      "noEligibleAccounts": "Este bot no tiene ninguna cuenta asignada, así que una entrada no llegaría a nadie. Asigna una en la página Cuentas.",
       "holdOff": "Cerraste este {side} a mano. La estrategia lo sigue pidiendo, así que la plataforma lo retiene hasta que el script deje de pedirlo y vuelva a pedirlo.",
       "samePathNote": "Pulsar aquí pasa por el mismo dimensionamiento, la misma puerta de riesgo y el mismo reparto que una señal. El bot sigue ejecutando la estrategia, y su próxima señal de salida cierra lo que abras.",
       "divergence": {
@@ -1588,7 +1609,27 @@
         "trade_rate": "Este bot alcanzó su límite de operaciones por hora.",
         "no_bars": "El feed de este bot ha dejado de entregar velas.",
         "stop_all": "La parada de la plataforma está activa (§7) y la ruta de órdenes lo rechazó. Libérala primero desde la barra superior."
-      }
+      },
+      "viewLogs": "Ver los registros de este bot"
+    },
+    "viewLogs": "Ver registros",
+    "moreActions": "Más acciones",
+    "noAccountsAssigned": "Sin cuentas asignadas: asigna una en Cuentas.",
+    "perf": {
+      "noCurve": "Aún no hay operaciones cerradas: la curva empieza con la primera.",
+      "open": "Abrir",
+      "noAccounts": "Sin cuentas asignadas: este bot no enruta a ningún sitio.",
+      "accountsN": "{n} cuenta | {n} cuentas",
+      "realised": "PnL realizado",
+      "trades": "Operaciones",
+      "winRate": "Tasa de acierto",
+      "unrealised": "No realizado",
+      "accounts": "Cuentas",
+      "curve": "Resultado realizado",
+      "curveHint": "Acumulado, solo operaciones cerradas",
+      "runDetails": "Detalles de la ejecución",
+      "gateReady": "Listo",
+      "gateNotReady": "No listo"
     }
   },
   "security": {
@@ -1813,5 +1854,15 @@
       "help": "Se muestra una vez y nunca más. Tu emisor firma cada petición con él. Si lo pierdes, emite uno nuevo: la URL no cambia.",
       "saved": "Guardado"
     }
+  },
+  "install": {
+    "button": "Instalar app",
+    "hint": "Instala este panel en tu dispositivo",
+    "dismiss": "Ocultar sugerencia de instalación",
+    "dontAsk": "No volver a mostrar",
+    "iosTitle": "Añadir a pantalla de inicio",
+    "iosStep1": "Toca el botón Compartir en la barra de Safari.",
+    "iosStep2": "Desplázate y elige «Añadir a pantalla de inicio».",
+    "iosStep3": "Toca Añadir. El panel se abrirá como una app."
   }
 }

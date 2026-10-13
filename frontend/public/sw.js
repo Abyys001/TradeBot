@@ -14,7 +14,7 @@
  * Only immutable build assets (/_nuxt/** carry a content hash in the filename)
  * and the icons are cached, and only after the network has served them once.
  */
-const CACHE = 'wm-static-v1'
+const CACHE = 'wm-static-v2'
 const PRECACHE = ['/favicon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png']
 
 self.addEventListener('install', (event) => {

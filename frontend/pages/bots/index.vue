@@ -15,6 +15,7 @@ import { INTERVALS } from '~/stores/market'
 const { t } = useI18n()
 const api = useApi()
 const store = useBotsStore()
+const accounts = useAccountsStore()
 const live = useLiveStore()
 const localePath = useLocalePath()
 const { dateTime } = useFormat()
@@ -53,8 +54,12 @@ const choices = computed(() =>
 
 const chosen = computed(() => choices.value.find((row) => row.id === form.strategy_version) ?? null)
 
-/** Stopped first, then live, then paper, then draft. See the page comment. */
-const ORDER: Record<BotState, number> = { stopped: 0, live: 1, paper: 2, draft: 3 }
+/**
+ * Running first — live, then paper — then stopped, then draft. A bot that
+ * stopped itself stays loud: its row is amber and states the reason, it just
+ * no longer outranks the bots that are trading right now.
+ */
+const ORDER: Record<BotState, number> = { live: 0, paper: 1, stopped: 2, draft: 3 }
 const ordered = computed(() =>
   [...store.bots].sort((a, b) => ORDER[a.state] - ORDER[b.state] || a.name.localeCompare(b.name)),
 )
@@ -169,7 +174,10 @@ async function create() {
   }
 }
 
-onMounted(() => store.load())
+onMounted(() => {
+  store.load()
+  accounts.ensure()
+})
 </script>
 
 <template>
@@ -234,6 +242,22 @@ onMounted(() => store.load())
                 <template v-if="bot.sl_pct"> · SL {{ bot.sl_pct }}%</template>
                 <template v-if="bot.tp_pct"> · TP {{ bot.tp_pct }}%</template>
               </p>
+              <!-- Which accounts this bot drives. None means it can evaluate
+                   forever and place nothing. -->
+              <p
+                v-if="!accounts.forBot(bot.id).length"
+                class="text-xs text-signal leading-relaxed flex flex-wrap items-center gap-x-1.5"
+              >
+                <UiIcon name="alert" :size="12" class="shrink-0" />
+                {{ t('bots.noAccountsAssigned') }}
+                <NuxtLink :to="localePath('/accounts')" class="text-brand hover:underline">
+                  {{ t('bots.openAccounts') }}
+                </NuxtLink>
+              </p>
+              <p v-else class="text-xs text-ink-muted leading-relaxed">
+                <span class="text-ink">{{ t('bots.perf.accountsN', { n: accounts.forBot(bot.id).length }) }}</span>
+                · {{ accounts.forBot(bot.id).map((a) => a.label).join(', ') }}
+              </p>
               <p
                 v-if="bot.state === 'stopped' && runOf(bot)?.stop_reason"
                 class="text-xs text-signal leading-relaxed"
@@ -258,7 +282,7 @@ onMounted(() => store.load())
               </p>
             </div>
 
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 v-if="bot.state === 'draft' || bot.state === 'stopped'"
                 class="btn-info btn-sm"

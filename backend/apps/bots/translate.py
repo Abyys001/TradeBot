@@ -441,12 +441,12 @@ async def _route(*, bot: Bot, run: BotRun, action: Action, services) -> dict:
             exit_policy=action.exit_policy,
             safety_net_pct=action.safety_net_pct,
             source="bot",
+            bot_id=bot.id,
         )
         if trade is None:
-            # No account is both eligible and opted into bot trading right now
-            # — either every one is already in a trade, or none has switched
-            # bot trading on. Q22: "sat out", not a failure — the accounts join
-            # the next one (spec §6).
+            # No account assigned to this bot is free right now — either each
+            # one is already in a trade, or none is assigned to it (Q42). Q22:
+            # "sat out", not a failure — the accounts join the next one (§6).
             return {"ok": True, "sat_out": True, "legs": []}
         await _link_trade(trade, run)
         return {

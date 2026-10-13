@@ -470,15 +470,17 @@ def test_account_pause_and_trading_switches_are_events():
     account = make_account("Main")
     client = staff_client()
     client.post(f"/api/accounts/accounts/{account.id}/pause/")
+    from tests.bot_factory import make_bot
+
     client.post(
-        f"/api/accounts/accounts/{account.id}/bot-trading/",
-        {"enabled": True},
+        f"/api/accounts/accounts/{account.id}/assign/",
+        {"bot": make_bot(name="trend").id},
         content_type="application/json",
     )
 
     text = "\n\n".join(pending())
     assert "Account paused" in text
-    assert "Account settings changed" in text and "bot trading on" in text
+    assert "Account settings changed" in text and "driven by trend" in text
     assert "Main" in text
 
 

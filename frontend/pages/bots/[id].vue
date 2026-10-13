@@ -17,11 +17,12 @@ import { INTERVALS } from '~/stores/market'
 
 const { t, te } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const api = useApi()
 const store = useBotsStore()
 const live = useLiveStore()
 const localePath = useLocalePath()
-const { dateTime, money, ms } = useFormat()
+const { dateTime, signed } = useFormat()
 
 const id = computed(() => Number(route.params.id))
 
@@ -33,17 +34,29 @@ const reach = ref<BotAccountRow[]>([])
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
-const tab = ref<
-  | 'journal'
-  | 'control'
-  | 'chart'
-  | 'logic'
-  | 'activity'
-  | 'inputs'
-  | 'properties'
-  | 'promotion'
-  | 'source'
->('journal')
+/**
+ * Three tabs, not nine. Overview is what the bot is doing now; Settings is
+ * everything that configures it; Strategy is the script. The logs live with
+ * the other logs (`/logs?tag=bot`). `?tab=` makes each one linkable.
+ */
+const TABS = ['overview', 'settings', 'strategy'] as const
+type Tab = (typeof TABS)[number]
+const tabFromQuery = (): Tab => {
+  const raw = String(route.query.tab ?? '')
+  return (TABS as readonly string[]).includes(raw) ? (raw as Tab) : 'overview'
+}
+const tab = ref<Tab>(tabFromQuery())
+watch(tab, (value) => {
+  router.replace({ query: { ...route.query, tab: value === 'overview' ? undefined : value } })
+  if (value === 'strategy') loadSource()
+})
+watch(
+  () => route.query.tab,
+  () => {
+    tab.value = tabFromQuery()
+  },
+)
+const menuOpen = ref(false)
 const editing = ref(false)
 
 useHead({ title: () => bot.value?.name ?? t('bots.title') })
@@ -62,11 +75,21 @@ const TONE: Record<BotState, 'neutral' | 'ok' | 'signal' | 'brand'> = {
  * a 1m timeframe would otherwise look frozen between polls.
  */
 const latestBar = computed(() => live.botBars[id.value] ?? null)
-const latestIntent = computed(() => live.botIntents[id.value] ?? null)
+
+const isRunning = computed(() => bot.value?.state === 'paper' || bot.value?.state === 'live')
+const { perf } = useBotPerformance(id, isRunning)
+const winRate = computed(() =>
+  perf.value && perf.value.trades > 0
+    ? `${Math.round((perf.value.wins / perf.value.trades) * 100)}%`
+    : '—',
+)
+const unrealised = computed(() => perf.value?.position.totals?.pnl ?? null)
+const toneOf = (value: string | null | undefined): 'long' | 'short' | undefined =>
+  value == null || Number(value) === 0 ? undefined : Number(value) > 0 ? 'long' : 'short'
 
 /**
  * The exact source this bot runs — the version it points at, never the latest.
- * Fetched by id, and only when the Source tab is opened: it used to come out of
+ * Fetched by id, and only when the Strategy tab is opened: it used to come out of
  * the whole strategy list, which meant every bot page downloaded every version
  * of every script on the platform to show one.
  */
@@ -193,7 +216,8 @@ async function act(action: 'paper' | 'live' | 'stop') {
   } catch (e: any) {
     if (e?.data?.gate) {
       gate.value = e.data.gate
-      tab.value = 'promotion'
+      tab.value = 'settings'
+      gateOpen.value = true
       error.value = t('bots.gateUnmetHere')
     } else if (e?.data?.code === 'unprotected') {
       // **The server's own words, not a canned string.** It knows which half is
@@ -362,7 +386,7 @@ async function acknowledgeAdapters(on: boolean) {
   }
 }
 
-/** Accounts that are active *and* opted in to bot orders — the real fan-out set. */
+/** Accounts that are active and assigned to this bot — the real fan-out set. */
 const eligible = computed(() => reach.value.filter((row) => row.eligible))
 
 /**
@@ -382,11 +406,19 @@ async function setGate(body: { enforced?: boolean; waive?: string; on?: boolean 
   }
 }
 
-watch(tab, (value) => {
-  if (value === 'source') loadSource()
+const gateOpen = ref(false)
+const inputsOpen = ref(true)
+const propsOpen = ref(false)
+const logicOpen = ref(true)
+const sourceOpen = ref(false)
+watch(sourceOpen, (open) => {
+  if (open) loadSource()
 })
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  if (tab.value === 'strategy') loadSource()
+})
 </script>
 
 <template>
@@ -435,7 +467,7 @@ onMounted(load)
           </button>
         </div>
 
-        <div class="flex items-center gap-2 shrink-0">
+        <div class="flex items-center gap-2 shrink-0 ms-auto sm:ms-0">
           <button
             v-if="bot.state === 'draft' || bot.state === 'stopped'"
             class="btn-info btn-sm"
@@ -463,19 +495,71 @@ onMounted(load)
             <UiIcon name="pause" :size="14" />
             {{ t('bots.stop.action') }}
           </button>
+
+          <!-- Secondary actions: inline from sm up, one overflow menu on a
+               phone where four buttons would wrap the header into a block. -->
+          <NuxtLink
+            :to="{ path: localePath('/logs'), query: { tag: 'bot', bot: String(bot.id) } }"
+            class="btn-ghost btn-sm hidden sm:inline-flex"
+          >
+            <UiIcon name="logs" :size="14" />
+            {{ t('bots.viewLogs') }}
+          </NuxtLink>
           <button
-            class="btn-quiet btn-sm btn-icon text-ink-muted hover:text-short"
-            :disabled="busy || bot.state === 'paper' || bot.state === 'live'"
+            class="btn-quiet btn-sm btn-icon text-ink-muted hover:text-short hidden sm:inline-flex"
+            :disabled="busy || isRunning"
             :aria-label="t('bots.deleteBot')"
-            :title="
-              bot.state === 'paper' || bot.state === 'live'
-                ? t('bots.deleteBotRunning')
-                : t('bots.deleteBot')
-            "
+            :title="isRunning ? t('bots.deleteBotRunning') : t('bots.deleteBot')"
             @click="confirmingDelete = true"
           >
             <UiIcon name="trash" :size="15" />
           </button>
+
+          <div class="relative sm:hidden" @keydown.esc="menuOpen = false">
+            <button
+              class="btn-ghost btn-sm btn-icon"
+              :aria-label="t('bots.moreActions')"
+              aria-haspopup="menu"
+              :aria-expanded="menuOpen"
+              @click="menuOpen = !menuOpen"
+            >
+              <UiIcon name="menu" :size="16" />
+            </button>
+            <div v-if="menuOpen" class="fixed inset-0 z-40" @click="menuOpen = false" />
+            <div
+              v-if="menuOpen"
+              role="menu"
+              class="absolute end-0 top-full mt-1 z-50 w-52 rounded-lg bg-panel border border-line
+                     shadow-pop p-1"
+            >
+              <NuxtLink
+                role="menuitem"
+                :to="{ path: localePath('/logs'), query: { tag: 'bot', bot: String(bot.id) } }"
+                class="flex items-center gap-2 rounded-md px-3 h-11 text-sm hover:bg-raised"
+              >
+                <UiIcon name="logs" :size="16" />
+                {{ t('bots.viewLogs') }}
+              </NuxtLink>
+              <button
+                role="menuitem"
+                class="w-full flex items-center gap-2 rounded-md px-3 h-11 text-sm text-start hover:bg-raised"
+                @click="menuOpen = false; openSettings()"
+              >
+                <UiIcon name="edit" :size="16" />
+                {{ t('bots.editBot') }}
+              </button>
+              <button
+                role="menuitem"
+                class="w-full flex items-center gap-2 rounded-md px-3 h-11 text-sm text-start text-short
+                       hover:bg-raised disabled:opacity-50"
+                :disabled="busy || isRunning"
+                @click="menuOpen = false; confirmingDelete = true"
+              >
+                <UiIcon name="trash" :size="16" />
+                {{ t('bots.deleteBot') }}
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -526,125 +610,119 @@ onMounted(load)
         <p class="text-ink-muted mt-1">{{ t('bots.noAutoResume') }}</p>
       </div>
 
-      <!-- The run's own counters. Every one of these is a gate input. -->
-      <div v-if="run" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        <UiStat :label="t('bots.barsEvaluated')" :value="String(run.bars_evaluated)" />
-        <UiStat
-          :label="t('bots.lastBar')"
-          :value="
-            (latestBar?.bar_time ?? run.last_bar_time)
-              ? dateTime(new Date(((latestBar?.bar_time ?? run.last_bar_time) as number) * 1000).toISOString())
-              : '—'
-          "
-        />
-        <UiStat :label="t('bots.divergences')" :value="String(run.divergences)" :tone="run.divergences ? 'short' : 'ok'" />
-        <UiStat
-          :label="t('bots.feedGaps')"
-          :value="`${run.feed_gaps_repaired}/${run.feed_gaps}`"
-          :tone="run.feed_gaps > run.feed_gaps_repaired ? 'signal' : undefined"
-        />
-        <UiStat :label="t('bots.restarts')" :value="String(run.recoveries)" />
-        <UiStat :label="t('bots.startedByLabel')" :value="run.started_by || '—'" />
-        <UiStat :label="t('bots.feed')" :value="run.feed_transport || run.feed_source || '—'" />
-      </div>
-
-      <!-- Nine tabs is a lot, so they scroll rather than wrap into three rows
-           that push the content off a phone screen. Order is by how often they
-           are opened: the log first, because "what is it doing" is the question
-           that brings anyone here, and manual control second, because the
-           question after it is "and is that what the chart says". The labels
-           are never clipped — a tab reading "Prope…" is a tab nobody can
-           choose between. -->
       <div class="overflow-x-auto -mx-1 px-1">
         <UiSegmented
           v-model="tab"
           class="min-w-max"
           :block="false"
           :options="[
-            { value: 'journal', label: t('bots.tab.journal') },
-            { value: 'control', label: t('bots.tab.control') },
-            { value: 'chart', label: t('bots.tab.chart') },
-            { value: 'logic', label: t('bots.tab.logic') },
-            { value: 'activity', label: t('bots.tab.activity') },
-            { value: 'inputs', label: t('bots.tab.inputs') },
-            { value: 'properties', label: t('bots.tab.properties') },
-            { value: 'promotion', label: t('bots.tab.promotion') },
-            { value: 'source', label: t('bots.tab.source') },
+            { value: 'overview', label: t('bots.tab.overview') },
+            { value: 'settings', label: t('bots.tab.settings') },
+            { value: 'strategy', label: t('bots.tab.strategy') },
           ]"
         />
       </div>
 
-      <!-- The commonest reason a working bot does nothing: no account has
-           opted in to bot orders. That switch defaults off, and a page that
-           did not say so left the operator debugging the strategy. -->
-      <div
-        v-if="bot.state !== 'draft' && !eligible.length"
-        class="alert px-3 py-2.5 text-xs leading-relaxed flex flex-wrap items-center gap-x-3 gap-y-1.5"
-      >
-        <UiIcon name="alert" :size="14" class="shrink-0" />
-        <span>{{ t('bots.noBotAccounts') }}</span>
-        <NuxtLink :to="localePath('/accounts')" class="text-brand hover:underline">
-          {{ t('bots.openAccounts') }}
-        </NuxtLink>
-      </div>
-      <p
-        v-else-if="bot.state !== 'draft'"
-        class="text-tick text-ink-faint leading-relaxed px-1"
-      >
-        {{ t('bots.reachesN', { n: eligible.length, total: reach.length }) }}
-        <span class="num">{{ eligible.map((row) => row.label).join(', ') }}</span>
-      </p>
+      <!-- Overview: what it is doing now, at a glance. -->
+      <template v-if="tab === 'overview'">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+          <UiStat
+            :label="t('bots.perf.realised')"
+            :value="perf ? signed(perf.realised) : '—'"
+            :tone="toneOf(perf?.realised)"
+            icon="trend"
+          />
+          <UiStat :label="t('bots.perf.trades')" :value="perf ? String(perf.trades) : '—'" icon="history" />
+          <UiStat :label="t('bots.perf.winRate')" :value="winRate" icon="target" />
+          <UiStat
+            :label="t('bots.perf.unrealised')"
+            :value="unrealised === null ? '—' : signed(unrealised)"
+            :tone="toneOf(unrealised)"
+            icon="gauge"
+          />
+          <UiStat
+            :label="t('bots.perf.accounts')"
+            :value="`${eligible.length}/${reach.length}`"
+            :sub="eligible.map((row) => row.label).join(', ')"
+            icon="accounts"
+          />
+          <UiStat
+            :label="t('bots.lastBar')"
+            :value="
+              ((latestBar?.bar_time ?? run?.last_bar_time) as number | null | undefined)
+                ? dateTime(new Date(((latestBar?.bar_time ?? run?.last_bar_time) as number) * 1000).toISOString())
+                : '—'
+            "
+            icon="clock"
+          />
+        </div>
 
-      <!-- The log. What it was thinking, bar by bar — including the bars where
-           the answer was "nothing", which is most of them. -->
-      <BotsBotJournal v-if="tab === 'journal'" :bot-id="id" :interval="bot.interval" />
+        <!-- Assigned accounts. A bot with none evaluates every bar and routes
+             nothing, which looks exactly like a quiet market. -->
+        <div
+          v-if="bot.state !== 'draft' && !eligible.length"
+          class="alert px-3 py-2.5 text-xs leading-relaxed flex flex-wrap items-center gap-x-3 gap-y-1.5"
+        >
+          <UiIcon name="alert" :size="14" class="shrink-0" />
+          <span>{{ t('bots.noBotAccounts') }}</span>
+          <NuxtLink :to="localePath('/accounts')" class="text-brand hover:underline">
+            {{ t('bots.openAccounts') }}
+          </NuxtLink>
+        </div>
 
-      <!-- Manual control (Q41): where the operator does by hand what the
-           strategy and the chart disagree about, with everything the decision
-           needs on the same screen as the buttons. -->
-      <BotsBotDesk v-else-if="tab === 'control'" :bot-id="id" />
+        <UiCard :title="t('bots.perf.curve')" :hint="t('bots.perf.curveHint')">
+          <BotsPnlCurve :perf="perf" :height="130" />
+        </UiCard>
 
-      <!-- The chart, and the activity log beside it. Two halves of one
-           question: the marks say where the strategy would have traded, the
-           list says which accounts a routed order actually reached, and on a
-           wide screen they are one glance apart rather than one tab apart. -->
-      <div v-else-if="tab === 'chart'" class="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <!-- The visual backtest. Its activity list used to sit beside it; the
+             same rows are in the logs now, one click away. -->
         <BotsBotChart :bot-id="id" :interval="bot.interval" />
-        <BotsBotActivity :bot-id="id" :intent="latestIntent" :run="run" compact />
-      </div>
 
-      <!-- What makes it trade, in the script's own words. -->
-      <BotsBotLogic v-else-if="tab === 'logic'" :bot-id="id" />
+        <!-- Manual control (Q41): where the operator does by hand what the
+             strategy and the chart disagree about. -->
+        <BotsBotDesk :bot-id="id" />
 
-      <!-- Activity: what the bot decided, and what every account gave back. -->
-      <BotsBotActivity
-        v-else-if="tab === 'activity'"
-        :bot-id="id"
-        :intent="latestIntent"
-        :run="run"
-      />
+        <details v-if="run" class="panel group">
+          <summary class="px-4 py-3 min-h-11 cursor-pointer text-sm font-medium select-none flex items-center">
+            {{ t('bots.perf.runDetails') }}
+          </summary>
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 p-3 border-t border-line">
+            <UiStat :label="t('bots.barsEvaluated')" :value="String(run.bars_evaluated)" />
+            <UiStat
+              :label="t('bots.divergences')"
+              :value="String(run.divergences)"
+              :tone="run.divergences ? 'short' : 'ok'"
+            />
+            <UiStat
+              :label="t('bots.feedGaps')"
+              :value="`${run.feed_gaps_repaired}/${run.feed_gaps}`"
+              :tone="run.feed_gaps > run.feed_gaps_repaired ? 'signal' : undefined"
+            />
+            <UiStat :label="t('bots.restarts')" :value="String(run.recoveries)" />
+            <UiStat :label="t('bots.startedByLabel')" :value="run.started_by || '—'" />
+            <UiStat :label="t('bots.feed')" :value="run.feed_transport || run.feed_source || '—'" />
+          </div>
+        </details>
+      </template>
 
-      <!-- Inputs: the script's own settings, and the one editable tab whose
-           values reach live untouched. Its own component for the same reasons
-           the Properties tab is: it loads, saves and can be refused. -->
-      <BotsStrategyInputs
-        v-else-if="tab === 'inputs'"
-        :bot-id="id"
-        :running="bot.state === 'paper' || bot.state === 'live'"
-      />
+      <!-- Settings: the script's inputs, the backtest's broker model, and the
+           promotion gate — stacked and folded. -->
+      <div v-else-if="tab === 'settings'" class="space-y-3">
+        <UiCollapse v-model="inputsOpen" :title="t('bots.tab.inputs')" :hint="t('bots.inputs.lead')">
+          <BotsStrategyInputs :bot-id="id" :running="isRunning" />
+        </UiCollapse>
 
-      <!-- Properties: the backtest's model of a broker, per bot. Its own
-           component because it owns a draft, a save and a validation round
-           trip, none of which the read-only tabs around it have. -->
-      <BotsStrategyProperties v-else-if="tab === 'properties'" :bot-id="id" />
+        <UiCollapse v-model="propsOpen" :title="t('bots.tab.properties')" :hint="t('bots.props.lead')">
+          <BotsStrategyProperties :bot-id="id" />
+        </UiCollapse>
 
-      <UiCard
-        v-else-if="tab === 'promotion'"
-        :title="t('bots.promotion')"
-        :hint="t('bots.promotionHint')"
-        flush
-        :tone="gate?.ready ? 'ok' : 'default'"
-      >
+        <UiCollapse v-model="gateOpen" :title="t('bots.promotion')" :hint="t('bots.promotionHint')">
+          <template #badge>
+            <UiBadge v-if="gate" :tone="gate.ready ? 'ok' : 'signal'">
+              {{ gate.ready ? t('bots.perf.gateReady') : t('bots.perf.gateNotReady') }}
+            </UiBadge>
+          </template>
+          <UiCard flush :tone="gate?.ready ? 'ok' : 'default'">
         <div v-if="gate">
           <!-- The master switch. On is the platform's answer; off is the
                admin's, and it is stored on the bot so a promotion that skipped
@@ -745,20 +823,30 @@ onMounted(load)
             {{ t('bots.gateFootnote') }}
           </p>
         </div>
-      </UiCard>
+          </UiCard>
+        </UiCollapse>
+      </div>
 
-      <!-- The exact source this bot is running. Read-only on purpose: a version
-           is immutable, so editing here would silently be editing a new one. -->
-      <UiCard v-else-if="tab === 'source'" :hint="t('bots.sourceHint')" flush>
-        <BotsPineEditor
-          v-if="sourceOf"
-          :model-value="sourceOf"
-          readonly
-          :min-rows="24"
-          @update:model-value="() => {}"
-        />
-        <UiEmpty v-else icon="logs" :title="t('bots.noSource')" />
-      </UiCard>
+      <!-- Strategy: what makes it trade, then the exact source. Read-only on
+           purpose: a version is immutable, so editing here would silently be
+           editing a new one. -->
+      <div v-else class="space-y-3">
+        <UiCollapse v-model="logicOpen" :title="t('bots.tab.logic')">
+          <BotsBotLogic :bot-id="id" />
+        </UiCollapse>
+        <UiCollapse v-model="sourceOpen" :title="t('bots.tab.source')" :hint="t('bots.sourceHint')">
+          <UiCard flush>
+            <BotsPineEditor
+              v-if="sourceOf"
+              :model-value="sourceOf"
+              readonly
+              :min-rows="24"
+              @update:model-value="() => {}"
+            />
+            <UiEmpty v-else icon="logs" :title="t('bots.noSource')" />
+          </UiCard>
+        </UiCollapse>
+      </div>
 
       <!-- Everything this bot is, except the version it pins. A version is
            immutable and is the bot's identity; the pair, the timeframe and the

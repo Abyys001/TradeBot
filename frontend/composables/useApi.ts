@@ -134,17 +134,16 @@ export function useApi() {
     pause: (id: number) => request<Account>(`/accounts/accounts/${id}/pause/`, { method: 'POST' }),
     resume: (id: number) =>
       request<Account>(`/accounts/accounts/${id}/resume/`, { method: 'POST' }),
-    /** Whether this account takes the admin's own manual entries. */
-    setManualTrading: (id: number, enabled: boolean) =>
-      request<Account>(`/accounts/accounts/${id}/manual-trading/`, {
+    /**
+     * Hand an account to a bot (or back to manual with `bot: null`). An account
+     * answers to at most one. 409 `account_has_position` means it holds a
+     * position and nothing moved; repeat with `close_position` to close that
+     * one account's leg and switch.
+     */
+    assignAccount: (id: number, bot: number | null, closePosition = false) =>
+      request<Account>(`/accounts/accounts/${id}/assign/`, {
         method: 'POST',
-        body: { enabled },
-      }),
-    /** Whether a bot's entries may reach this account. Off by default. */
-    setBotTrading: (id: number, enabled: boolean) =>
-      request<Account>(`/accounts/accounts/${id}/bot-trading/`, {
-        method: 'POST',
-        body: { enabled },
+        body: closePosition ? { bot, close_position: true } : { bot },
       }),
     remove: (id: number) => request<void>(`/accounts/accounts/${id}/`, { method: 'DELETE' }),
     /**
@@ -376,7 +375,7 @@ export function useApi() {
       request<InputPreset>(`/bots/presets/${id}/`, { method: 'PATCH', body }),
     deletePreset: (id: number) => request<void>(`/bots/presets/${id}/`, { method: 'DELETE' }),
     startBot: (id: number, state: 'paper' | 'live') =>
-      request<{ bot_id: number; state: string; run_id: number; deactivated: number[] }>(
+      request<{ bot_id: number; state: string; run_id: number }>(
         `/bots/bots/${id}/start/`,
         { method: 'POST', body: { state } },
       ),
@@ -385,6 +384,8 @@ export function useApi() {
         method: 'POST',
         body: { reason },
       }),
+    /** Realised PnL, win rate, the equity curve and the open position of one bot. */
+    botPerformance: (id: number) => request<BotPerformance>(`/bots/bots/${id}/performance/`),
     /**
      * The control tab's single read (Q41): what the strategy last said, what
      * the platform is holding, the money behind an entry, and the difference
@@ -750,6 +751,8 @@ export interface PositionSnapshot {
    * one side — so a second one running elsewhere would otherwise be invisible.
    */
   other_open_trades?: number
+  /** Open trades a bot placed — `trade` above is the newest manual one. */
+  bot_open_trades?: number
   legs: PositionLeg[]
   totals: {
     accounts: number
@@ -972,10 +975,9 @@ export interface Account {
    * rows out entirely rather than sending them with a flag to respect.
    */
   hidden?: boolean
-  /** Whether this account takes the admin's own manual entries. */
-  manual_trading_enabled: boolean
-  /** Whether a bot's entries may reach this account. Off by default. */
-  bot_trading_enabled: boolean
+  /** The bot that drives this account; null means the admin trades it by hand. */
+  bot: number | null
+  bot_name: string | null
   wallet_address?: string
   key_fingerprint?: string
   last_balance: string | null
@@ -1745,8 +1747,7 @@ export interface BotDeskAccount {
   label: string
   exchange: string
   status: string
-  bot_trading_enabled: boolean
-  /** Active *and* opted into bot trading — the only rows an entry reaches. */
+  /** Active and assigned to this bot — the only rows an entry reaches. */
   eligible: boolean
   in_a_trade: boolean
   equity: string | null
@@ -1985,10 +1986,35 @@ export interface BotAccountRow {
   label: string
   exchange: string
   status: string
-  bot_trading_enabled: boolean
-  manual_trading_enabled: boolean
-  /** Active *and* opted in to bot orders — the set a fan-out would actually reach. */
+  /** Active and assigned to this bot — the set a fan-out would actually reach. */
   eligible: boolean
+  balance?: string | null
+  equity?: string | null
+}
+
+/** `GET /bots/bots/{id}/performance/` — Decimal strings, drawn and never recomputed. */
+export interface BotPerformance {
+  realised: string
+  trades: number
+  wins: number
+  curve: { at: string; pnl: string; total: string }[]
+  position: {
+    trade: PositionSnapshot['trade']
+    legs: PositionSnapshot['legs']
+    totals: PositionSnapshot['totals']
+    mark: PositionSnapshot['mark']
+  }
+}
+
+/** 409 body of the assign endpoint when the account holds an open position. */
+export interface AccountHasPosition {
+  code: 'account_has_position'
+  detail: string
+  trade_id: number
+  symbol: string
+  side: string
+  qty: string
+  entry_price: string | null
 }
 
 /** A backtest in flight. The progress bar's whole source of truth. */

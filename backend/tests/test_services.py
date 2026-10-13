@@ -81,41 +81,61 @@ async def test_open_persists_a_leg_per_account():
     assert sizes == [D("990"), D("4950")]
 
 
+async def _assign(label: str, bot) -> ConnectedAccount:
+    account = await ConnectedAccount.objects.aget(label=label)
+    account.bot = bot
+    await sync_to_async(account.save)(update_fields=["bot"])
+    return account
+
+
+async def _a_bot(name: str = "bot"):
+    from tests.bot_factory import make_bot
+
+    return await sync_to_async(make_bot)(name=name)
+
+
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-async def test_a_manual_entry_skips_an_account_with_manual_trading_off():
-    await make_account("manual-off")
-    manual_off = await ConnectedAccount.objects.aget(label="manual-off")
-    manual_off.manual_trading_enabled = False
-    await sync_to_async(manual_off.save)(update_fields=["manual_trading_enabled"])
-    await make_account("manual-on")
+async def test_a_manual_entry_skips_an_account_a_bot_drives():
+    """Q42: an account answers to one hand. A manual entry landing on a bot's
+    book would leave that bot describing a position it no longer has."""
+    bot = await _a_bot()
+    await make_account("bot-driven")
+    await _assign("bot-driven", bot)
+    await make_account("manual")
 
     accounts = await eligible_accounts(source="manual")
 
-    assert [a.label for a in accounts] == ["manual-on"]
+    assert [a.label for a in accounts] == ["manual"]
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-async def test_a_bot_entry_only_reaches_accounts_opted_into_bot_trading():
-    """Off by default (see the model) — a bot fanning out to an account nobody
-    opted in is the one mistake the switch exists to prevent."""
-    await make_account("bot-off")
-    await make_account("bot-on")
-    bot_on = await ConnectedAccount.objects.aget(label="bot-on")
-    bot_on.bot_trading_enabled = True
-    await sync_to_async(bot_on.save)(update_fields=["bot_trading_enabled"])
+async def test_a_bot_entry_only_reaches_the_accounts_assigned_to_that_bot():
+    """None by default — a bot fanning out to an account nobody handed it is
+    the one mistake the assignment exists to prevent — and never another
+    bot's, which is what lets several run at once."""
+    mine, theirs = await _a_bot("mine"), await _a_bot("theirs")
+    await make_account("manual")
+    await make_account("mine")
+    await make_account("theirs")
+    await _assign("mine", mine)
+    await _assign("theirs", theirs)
 
-    accounts = await eligible_accounts(source="bot")
+    accounts = await eligible_accounts(source="bot", bot_id=mine.id)
 
-    assert [a.label for a in accounts] == ["bot-on"]
+    assert [a.label for a in accounts] == ["mine"]
+
+
+async def test_a_bot_entry_that_does_not_name_its_bot_is_refused():
+    with pytest.raises(ValueError):
+        await eligible_accounts(source="bot")
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-async def test_route_open_for_a_bot_only_fans_out_to_opted_in_accounts():
+async def test_route_open_for_a_bot_only_fans_out_to_its_own_accounts():
+    bot = await _a_bot()
     await make_account("bot-on", balance="1000")
-    await make_account("bot-off", balance="1000")
-    bot_on = await ConnectedAccount.objects.aget(label="bot-on")
-    bot_on.bot_trading_enabled = True
-    await sync_to_async(bot_on.save)(update_fields=["bot_trading_enabled"])
+    await make_account("manual", balance="1000")
+    await _assign("bot-on", bot)
 
     trade, result = await route_open(
         symbol="BTCUSDT",
@@ -127,6 +147,7 @@ async def test_route_open_for_a_bot_only_fans_out_to_opted_in_accounts():
         tp_pct=D("1"),
         limit_price=D("100000"),
         source="bot",
+        bot_id=bot.id,
     )
 
     legs = await sync_to_async(lambda: list(trade.legs.select_related("account")))()
@@ -142,11 +163,10 @@ async def test_a_bot_entry_commits_ninety_nine_percent_of_every_account_it_reach
     end-to-end rather than trusted: this is the number that decides how much of
     a partner's capital a strategy commits.
     """
+    bot = await _a_bot()
     for label, balance in (("small", "10"), ("medium", "50"), ("large", "100")):
         await make_account(label, balance=balance)
-        account = await ConnectedAccount.objects.aget(label=label)
-        account.bot_trading_enabled = True
-        await sync_to_async(account.save)(update_fields=["bot_trading_enabled"])
+        await _assign(label, bot)
 
     trade, _ = await route_open(
         symbol="BTCUSDT",
@@ -157,6 +177,7 @@ async def test_a_bot_entry_commits_ninety_nine_percent_of_every_account_it_reach
         sl_pct=D("0.5"),
         tp_pct=D("1"),
         source="bot",
+        bot_id=bot.id,
     )
 
     legs = await sync_to_async(lambda: list(trade.legs.select_related("account")))()
@@ -168,24 +189,21 @@ async def test_a_bot_entry_commits_ninety_nine_percent_of_every_account_it_reach
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-async def test_a_paused_account_never_takes_a_bot_entry_however_the_switch_is_set():
+async def test_a_paused_account_never_takes_a_bot_entry_however_it_is_assigned():
     """Two independent conditions, and both have to hold.
 
-    ``bot_trading_enabled`` on a paused account is an intention, not a
-    permission — the commonest way a fan-out would reach somewhere it should
-    not is one of the two being checked and the other assumed.
+    An assignment on a paused account is an intention, not a permission — the
+    commonest way a fan-out would reach somewhere it should not is one of the
+    two being checked and the other assumed.
     """
+    bot = await _a_bot()
     await make_account("paused", status=AccountStatus.PAUSED)
-    paused = await ConnectedAccount.objects.aget(label="paused")
-    paused.bot_trading_enabled = True
-    await sync_to_async(paused.save)(update_fields=["bot_trading_enabled"])
-    await make_account("active-opted-in")
-    active = await ConnectedAccount.objects.aget(label="active-opted-in")
-    active.bot_trading_enabled = True
-    await sync_to_async(active.save)(update_fields=["bot_trading_enabled"])
+    await _assign("paused", bot)
+    await make_account("active-assigned")
+    await _assign("active-assigned", bot)
 
-    accounts = await eligible_accounts(source="bot")
-    assert [a.label for a in accounts] == ["active-opted-in"]
+    accounts = await eligible_accounts(source="bot", bot_id=bot.id)
+    assert [a.label for a in accounts] == ["active-assigned"]
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -198,10 +216,9 @@ async def test_a_bot_trade_is_in_the_ledger_arithmetic_like_any_other():
     """
     from apps.accounts.detection import _closed_trade_pnl
 
+    bot = await _a_bot()
     await make_account("ledger", balance="1000")
-    account = await ConnectedAccount.objects.aget(label="ledger")
-    account.bot_trading_enabled = True
-    await sync_to_async(account.save)(update_fields=["bot_trading_enabled"])
+    account = await _assign("ledger", bot)
 
     trade, _ = await route_open(
         symbol="BTCUSDT",
@@ -212,6 +229,7 @@ async def test_a_bot_trade_is_in_the_ledger_arithmetic_like_any_other():
         sl_pct=D("0.5"),
         tp_pct=D("1"),
         source="bot",
+        bot_id=bot.id,
     )
     await route_close(trade=trade)
 
@@ -229,18 +247,55 @@ async def test_a_bot_trade_is_in_the_ledger_arithmetic_like_any_other():
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-async def test_manual_and_bot_trading_switches_are_independent():
-    """An account can take both, either, or neither — not one flag."""
-    await make_account("both")
-    both = await ConnectedAccount.objects.aget(label="both")
-    both.bot_trading_enabled = True
-    await sync_to_async(both.save)(update_fields=["bot_trading_enabled"])
+async def test_manual_and_bot_books_are_disjoint_and_trade_at_the_same_time():
+    """Q42: the admin's ticket and a running bot each reach only their own
+    accounts, so both can hold a position at once without touching the other's."""
+    bot = await _a_bot()
+    await make_account("manual", balance="1000")
+    await make_account("botted", balance="1000")
+    await _assign("botted", bot)
 
-    manual_accounts = await eligible_accounts(source="manual")
-    bot_accounts = await eligible_accounts(source="bot")
+    common = dict(
+        symbol="BTCUSDT",
+        side=Side.LONG,
+        market=MarketType.FUTURES,
+        order_type=OrderType.MARKET,
+        leverage=10,
+        sl_pct=D("0.5"),
+        tp_pct=D("1"),
+        limit_price=D("100000"),
+    )
+    bot_trade, _ = await route_open(**common, source="bot", bot_id=bot.id)
+    manual_trade, _ = await route_open(**common)
 
-    assert [a.label for a in manual_accounts] == ["both"]
-    assert [a.label for a in bot_accounts] == ["both"]
+    labels = lambda t: sync_to_async(  # noqa: E731
+        lambda: [leg.account.label for leg in t.legs.select_related("account")]
+    )()
+    assert await labels(bot_trade) == ["botted"]
+    assert await labels(manual_trade) == ["manual"]
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+async def test_closing_one_account_leaves_the_rest_of_the_trade_open():
+    """Q42's reassignment closes one account's leg; the trade runs on."""
+    await make_account("leaving", balance="1000")
+    await make_account("staying", balance="1000")
+    trade, _ = await open_a_trade()
+    leaving = await ConnectedAccount.objects.aget(label="leaving")
+
+    await route_close(trade=trade, account_ids=[leaving.id])
+
+    await trade.arefresh_from_db()
+    assert trade.status == TradeStatus.OPEN
+    legs = await sync_to_async(
+        lambda: {leg.account.label: leg.closed_at for leg in trade.legs.select_related("account")}
+    )()
+    assert legs["leaving"] is not None
+    assert legs["staying"] is None
+
+    await route_close(trade=trade)
+    await trade.arefresh_from_db()
+    assert trade.status == TradeStatus.CLOSED
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
@@ -253,10 +308,9 @@ async def test_a_bot_dispatched_trade_is_stamped_and_labelled_on_the_wire():
     from apps.trading.serializers import TradeSerializer
     from tests.bot_factory import make_bot, make_run
 
-    account = await make_account("bot-on", balance="1000")
-    account.bot_trading_enabled = True
-    await sync_to_async(account.save)(update_fields=["bot_trading_enabled"])
     bot = await sync_to_async(make_bot)(name="my strategy")
+    await make_account("bot-on", balance="1000")
+    await _assign("bot-on", bot)
     run = await sync_to_async(make_run)(bot)
 
     action = translate.Action(type="open", side=PineSide.LONG, sl_pct=D("1"), tp_pct=D("2"))

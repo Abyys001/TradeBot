@@ -84,6 +84,7 @@ async function signOut() {
 
           <div class="p-3 border-t border-line space-y-3">
             <!-- The two controls the top bar gives up on a phone. -->
+            <AppInstallButton variant="row" />
             <div class="flex items-center gap-2">
               <AppThemeToggle />
               <AppLocaleToggle />

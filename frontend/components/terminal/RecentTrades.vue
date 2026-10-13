@@ -70,6 +70,7 @@ function tone(value: number) {
     />
 
     <template v-else>
+      <div class="overflow-x-auto">
       <table class="w-full text-xs">
         <thead>
           <tr class="border-b border-line">
@@ -102,6 +103,7 @@ function tone(value: number) {
           </tr>
         </tbody>
       </table>
+      </div>
 
       <div class="px-4 py-2">
         <NuxtLink :to="localePath('/history')" class="text-xs text-brand hover:underline">

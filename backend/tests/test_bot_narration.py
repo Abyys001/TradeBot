@@ -255,7 +255,7 @@ def test_the_accounts_endpoint_says_which_accounts_this_bot_can_reach():
     bot = make_bot()
     body = staff().get(f"/api/bots/bots/{bot.id}/accounts/").json()
     assert "accounts" in body
-    assert all({"bot_trading_enabled", "eligible"} <= set(row) for row in body["accounts"])
+    assert all({"id", "label", "eligible"} <= set(row) for row in body["accounts"])
 
 
 def test_acknowledging_the_adapters_row_over_the_api_records_the_signed_in_user():

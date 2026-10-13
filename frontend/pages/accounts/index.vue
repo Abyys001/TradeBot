@@ -115,12 +115,6 @@ const toggle = (account: Account) =>
 
 const verify = (account: Account) => run(account, () => accounts.verify(account))
 
-const toggleManual = (account: Account, on: boolean) =>
-  run(account, () => accounts.setManualTrading(account, on))
-
-const toggleBot = (account: Account, on: boolean) =>
-  run(account, () => accounts.setBotTrading(account, on))
-
 async function confirmDelete() {
   const account = pendingDelete.value
   if (!account) return
@@ -241,6 +235,7 @@ async function confirmDelete() {
               <tr class="border-b border-line">
                 <th class="label text-start font-normal px-4 py-2.5">{{ t('accounts.label') }}</th>
                 <th class="label text-start font-normal py-2.5">{{ t('accounts.exchange') }}</th>
+                <th class="label text-start font-normal ps-4 py-2.5 w-52">{{ t('accounts.driven.label') }}</th>
                 <th class="label text-end font-normal py-2.5">{{ t('accounts.balance') }}</th>
                 <th class="label text-start font-normal ps-4 py-2.5">{{ t('accounts.status') }}</th>
                 <th class="label text-end font-normal px-4 py-2.5">{{ t('accounts.actions') }}</th>
@@ -249,7 +244,7 @@ async function confirmDelete() {
             <tbody>
               <template v-for="account in filtered" :key="account.id">
               <tr
-                class="hover:bg-raised/60 transition-colors"
+                class="hover:bg-raised/60 transition-colors border-b border-line/60 last:border-0"
               >
                 <td class="px-4 py-3 min-w-0">
                   <div class="flex items-center gap-2 min-w-0">
@@ -260,6 +255,10 @@ async function confirmDelete() {
                       {{ account.label }}
                     </NuxtLink>
                     <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
+                    <UiBadge :tone="account.bot === null ? 'neutral' : 'brand'">
+                      <UiIcon :name="account.bot === null ? 'terminal' : 'bot'" :size="12" />
+                      {{ account.bot_name ?? t('accounts.driven.manual') }}
+                    </UiBadge>
                     <!-- Only ever rendered for the one operator who can see the
                          account at all: no other session receives the row. -->
                     <UiBadge v-if="account.hidden" tone="signal">
@@ -272,6 +271,10 @@ async function confirmDelete() {
                   </p>
                 </td>
                 <td class="text-ink-muted py-3">{{ account.exchange_label }}</td>
+                <!-- Manual or one bot — never both, never neither. -->
+                <td class="ps-4 py-3">
+                  <AccountsDrivenBy :account="account" compact />
+                </td>
                 <td class="text-end py-3 whitespace-nowrap">
                   <span class="num">{{ money(account.last_balance) }}</span>
                   <span class="text-ink-faint text-xs ms-1">{{ account.last_balance_asset || '—' }}</span>
@@ -360,30 +363,6 @@ async function confirmDelete() {
                   </div>
                 </td>
               </tr>
-              <!-- Spec: per-account control over which order sources may enter
-                   a *new* trade here. Independent of pause/resume, which stops
-                   both at once — this is the finer-grained split between the
-                   admin's own hand and a running bot's. -->
-              <tr class="border-b border-line/60 last:border-0 bg-sunken/40">
-                <td colspan="5" class="px-4 py-2.5">
-                  <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-                    <UiSwitch
-                      :model-value="account.manual_trading_enabled"
-                      :disabled="busy === account.id"
-                      :label="t('accounts.manualTrading')"
-                      :hint="t('accounts.manualTradingHint')"
-                      @update:model-value="(v) => toggleManual(account, v)"
-                    />
-                    <UiSwitch
-                      :model-value="account.bot_trading_enabled"
-                      :disabled="busy === account.id"
-                      :label="t('accounts.botTrading')"
-                      :hint="t('accounts.botTradingHint')"
-                      @update:model-value="(v) => toggleBot(account, v)"
-                    />
-                  </div>
-                </td>
-              </tr>
               </template>
             </tbody>
           </table>
@@ -413,6 +392,10 @@ async function confirmDelete() {
                 {{ t(`accounts.state.${account.status}`) }}
               </UiBadge>
               <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
+              <UiBadge :tone="account.bot === null ? 'neutral' : 'brand'">
+                <UiIcon :name="account.bot === null ? 'terminal' : 'bot'" :size="12" />
+                {{ account.bot_name ?? t('accounts.driven.manual') }}
+              </UiBadge>
               <UiBadge v-if="account.hidden" tone="signal">
                 <UiIcon name="eyeOff" :size="12" />
                 {{ t('accounts.hidden') }}
@@ -427,19 +410,8 @@ async function confirmDelete() {
 
             <p v-if="account.last_error" class="text-xs text-signal">{{ account.last_error }}</p>
 
-            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-sunken/40 px-3 py-2.5">
-              <UiSwitch
-                :model-value="account.manual_trading_enabled"
-                :disabled="busy === account.id"
-                :label="t('accounts.manualTrading')"
-                @update:model-value="(v) => toggleManual(account, v)"
-              />
-              <UiSwitch
-                :model-value="account.bot_trading_enabled"
-                :disabled="busy === account.id"
-                :label="t('accounts.botTrading')"
-                @update:model-value="(v) => toggleBot(account, v)"
-              />
+            <div class="rounded-lg bg-sunken/40 px-3 py-2.5">
+              <AccountsDrivenBy :account="account" />
             </div>
 
             <div class="flex gap-2">

@@ -94,14 +94,28 @@ class ScriptedFeed:
         yield FeedBar(bar=_bar(1_000, green=True), source="scripted", transport="poll")
 
 
+#: Labels of the accounts a test wants driven by the bot it creates next (Q42).
+#: The accounts are made before the bot, so the assignment lands in
+#: ``_run_one_bar``, once the bot exists.
+_DRIVEN: set[str] = set()
+
+
+@pytest.fixture(autouse=True)
+def _forget_driven():
+    _DRIVEN.clear()
+    yield
+    _DRIVEN.clear()
+
+
 @sync_to_async
 def _account(label: str, *, bot: bool, balance: str = "1000", status=AccountStatus.ACTIVE):
+    if bot:
+        _DRIVEN.add(label)
     return ConnectedAccount.objects.create(
         label=label,
         exchange=Exchange.PAPER,
         status=status,
         withdrawal_check_passed=True,
-        bot_trading_enabled=bot,
         last_balance=Decimal(balance),
         last_balance_asset="USDT",
     )
@@ -120,7 +134,13 @@ def live_loop(monkeypatch):
     )
 
 
+async def _drive(bot) -> None:
+    """Hand the accounts made with ``bot=True`` to this bot (Q42)."""
+    await ConnectedAccount.objects.filter(label__in=_DRIVEN).aupdate(bot=bot)
+
+
 async def _run_one_bar(bot) -> None:
+    await _drive(bot)
     run = await supervisor._open_run(bot, actor="tester")
     await supervisor._run_bot(bot.id, run.id)
 

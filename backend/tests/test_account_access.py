@@ -905,9 +905,9 @@ def test_the_control_tab_hides_a_hidden_account_and_leaves_it_out_of_the_totals(
 
     User.objects.create_user("boss", password="pw12345!", is_staff=True)
     boss = User.objects.get(username="boss")
-    make_account("open-book", last_balance="100", bot_trading_enabled=True)
-    make_account("quiet", hidden=True, last_balance="5000", bot_trading_enabled=True)
     bot = make_bot()
+    make_account("open-book", last_balance="100", bot=bot)
+    make_account("quiet", hidden=True, last_balance="5000", bot=bot)
 
     capital = desk.payload(bot, user=boss)["capital"]
 
@@ -925,15 +925,68 @@ def test_the_control_tab_shows_the_viewer_everything():
 
     User.objects.create_user(_svc, password="pw12345!", is_staff=True)
     viewer = User.objects.get(username=_svc)
-    make_account("open-book", last_balance="100", bot_trading_enabled=True)
-    make_account("quiet", hidden=True, last_balance="5000", bot_trading_enabled=True)
     bot = make_bot()
+    make_account("open-book", last_balance="100", bot=bot)
+    make_account("quiet", hidden=True, last_balance="5000", bot=bot)
 
     capital = desk.payload(bot, user=viewer)["capital"]
 
     assert {row["label"] for row in capital["accounts"]} == {"open-book", "quiet"}
     assert capital["eligible"] == 2
     assert D(capital["available"]) == D("5100")
+
+
+def _bot_with_two_closed_legs():
+    """A bot whose one closed trade made 10 on a visible account and 500 on a
+    hidden one — so a total that leaked the hidden leg is off by fifty times."""
+    from tests.bot_factory import make_bot, make_run
+
+    bot = make_bot()
+    run = make_run(bot)
+    open_book = make_account("open-book", bot=bot)
+    quiet = make_account("quiet", hidden=True, bot=bot)
+    trade = Trade.objects.create(
+        symbol="BTCUSDT", side="long", bot_run=run, status=TradeStatus.CLOSED,
+        closed_at=timezone.now(),
+    )
+    for account, pnl in ((open_book, "10"), (quiet, "500")):
+        TradeLeg.objects.create(
+            trade=trade, account=account, ok=True, pnl=D(pnl), closed_at=timezone.now()
+        )
+    return bot
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_bots_performance_leaves_a_hidden_account_out_of_its_total():
+    """Q42's dashboard curve is a read surface: the hidden account's PnL is
+    gone before anything is summed, totals included (Q27)."""
+    bot = _bot_with_two_closed_legs()
+
+    body = other_client().get(f"/api/bots/bots/{bot.id}/performance/").json()
+
+    assert D(body["realised"]) == D("10")
+    assert [D(p["total"]) for p in body["curve"]] == [D("10")]
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_bots_performance_shows_the_viewer_everything():
+    bot = _bot_with_two_closed_legs()
+
+    body = viewer_client().get(f"/api/bots/bots/{bot.id}/performance/").json()
+
+    assert D(body["realised"]) == D("510")
+
+
+@pytest.mark.django_db
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_bots_account_list_hides_the_hidden_account():
+    bot = _bot_with_two_closed_legs()
+
+    body = other_client().get(f"/api/bots/bots/{bot.id}/accounts/").json()
+
+    assert [row["label"] for row in body["accounts"]] == ["open-book"]
 
 
 @pytest.mark.django_db(transaction=True)

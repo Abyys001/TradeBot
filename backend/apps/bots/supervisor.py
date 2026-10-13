@@ -49,7 +49,7 @@ from apps.bots.models import (
     BotState,
     StopReason,
 )
-from apps.bots.riskgate import RiskGate
+from apps.bots.riskgate import RiskGate, _run_equity
 from apps.exchanges.base import MarketType
 from apps.logging.utils import system_log
 from apps.pine.errors import PineError, PineRuntimeError
@@ -246,23 +246,14 @@ def stop_all_sync(*, reason: str = StopReason.HALT, detail: str = "") -> list[in
 
 
 async def resume_all() -> list[int]:
-    """On process start, resume the one bot whose state says it should be running.
+    """On process start, resume every bot whose state says it should be running.
 
-    Only one at a time may be active (the panel enforces this on every
-    ``start`` — see ``bots.views.start_bot``), but a restart still re-reads
-    ``Bot.state`` rather than trusting it: if more than one row is somehow
-    left ``paper``/``live`` — data from before this rule existed, or a race —
-    the most recently started one wins and the rest are stopped outright,
-    never resumed, so a crash can never silently bring two bots back at once.
-
-    The survivor's first act is warm-up and reconciliation, never trading —
-    see ``_supervise``.
+    Several may run at once (Q42) — each on its own assigned accounts — so a
+    restart brings back all of them rather than electing one. The state is
+    still re-read rather than trusted from memory, and each one's first act is
+    warm-up and reconciliation, never trading — see ``_supervise``.
     """
     bots = await sync_to_async(_bots_to_resume)()
-    if len(bots) > 1:
-        survivor, *extra = bots
-        await sync_to_async(_stop_extra_at_rest)(extra)
-        bots = [survivor]
     for bot in bots:
         await start(bot)
     return [bot.id for bot in bots]
@@ -674,28 +665,9 @@ async def _exit_guard(bot: Bot, run: BotRun, feed_bar) -> bool:
 
 
 def _bots_to_resume() -> list[Bot]:
-    # Most recently started/updated first — see resume_all()'s tie-break.
     return list(
         Bot.objects.filter(state__in=[BotState.PAPER, BotState.LIVE]).order_by("-updated_at")
     )
-
-
-def _stop_extra_at_rest(bots: list[Bot]) -> None:
-    """Mark bots stopped without going through the running-task machinery.
-
-    Called only at process start, before any of these bots has a task — there
-    is nothing to cancel, only a database row describing a state the panel's
-    own one-at-a-time rule no longer allows to resume.
-    """
-    ids = [bot.id for bot in bots]
-    if not ids:
-        return
-    BotRun.objects.filter(bot_id__in=ids, stopped_at__isnull=True).update(
-        stopped_at=timezone.now(),
-        stop_reason=StopReason.MANUAL,
-        stop_detail="not resumed — only one bot may run at a time",
-    )
-    Bot.objects.filter(id__in=ids).update(state=BotState.STOPPED, dry_run=True)
 
 
 def _load_bot(bot_id: int) -> Bot | None:
@@ -868,7 +840,10 @@ def _record_outcomes(run: BotRun, outcomes: list[dict]) -> None:
             continue
         pnl = sum((leg.pnl or Decimal("0")) for leg in trade.legs.all())
         run.consecutive_losses = run.consecutive_losses + 1 if pnl <= 0 else 0
-    equity = _current_equity()
+
+    # The same book the drawdown check reads (Q42: this bot's own accounts) —
+    # a peak taken over a wider set reads every bar after it as a loss.
+    equity = _run_equity(run)
     if equity is not None and (run.peak_equity is None or equity > run.peak_equity):
         run.peak_equity = equity
     run.save(update_fields=["consecutive_losses", "peak_equity"])

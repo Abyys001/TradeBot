@@ -54,7 +54,12 @@ export const useTradingStore = defineStore('trading', {
       return Math.round((this.policy?.fanout_timeout_seconds ?? 10.0) * 1000)
     },
 
-    openTrade: (s) => s.trades.find((t) => t.status === 'open') ?? null,
+    /**
+     * The newest open **manual** trade. Bots run alongside it on their own
+     * accounts and have their own surface; the ticket, the chart and the
+     * manual position card must never adopt a bot's trade as theirs.
+     */
+    openTrade: (s) => s.trades.find((t) => t.status === 'open' && t.bot_run === null) ?? null,
     closedTrades: (s) => s.trades.filter((t) => t.status !== 'open'),
     latest: (s) => s.trades[0] ?? null,
 

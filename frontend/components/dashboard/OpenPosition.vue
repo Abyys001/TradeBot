@@ -37,12 +37,23 @@ const tone = (value: string | number | null) =>
 </script>
 
 <template>
-  <UiCard :title="t('dashboard.openPosition')" flush>
+  <UiCard :title="t('dashboard.manualPosition')" flush>
     <template #actions>
       <NuxtLink :to="localePath('/chart')" class="btn-ghost btn-sm">
         {{ t('dashboard.manage') }}
       </NuxtLink>
     </template>
+
+    <p
+      v-if="positions.botOpenTrades > 0"
+      class="px-4 py-2.5 text-xs text-ink-muted border-b border-line flex flex-wrap items-center gap-x-2"
+    >
+      <UiIcon name="bot" :size="13" class="text-brand" />
+      {{ t('dashboard.botPositions', { n: positions.botOpenTrades }) }}
+      <NuxtLink :to="localePath('/bots')" class="text-brand hover:underline">
+        {{ t('dashboard.seeBots') }}
+      </NuxtLink>
+    </p>
 
     <template v-if="trade">
       <!-- The terms every account shares. -->

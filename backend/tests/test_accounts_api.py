@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from apps.accounts import views as account_views
 from apps.accounts.models import AccountStatus, ConnectedAccount, Exchange
+from apps.core.money import D
 from apps.exchanges.base import WithdrawalPermissionError
 
 KEY = Fernet.generate_key().decode()
@@ -163,74 +164,151 @@ def test_pause_leaves_the_account_untouched_apart_from_its_status():
     assert account.withdrawal_checked_at is not None
 
 
-# --- manual/bot trading switches --------------------------------------------
+# --- who drives the account (Q42) -------------------------------------------
 #
-# Two independent on/off controls on whether a *new* entry may reach this
-# account: the admin's own ticket, and a running bot's. See
+# One hand per account: the admin's ticket (``bot`` null) or one bot. See
 # ``apps.trading.services.eligible_accounts`` for the filtering itself.
 
 
-@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-def test_manual_trading_defaults_on_and_bot_trading_defaults_off():
-    """Every account already trades manually today; a bot fanning out to an
-    account nobody opted in is the mistake the default guards against."""
-    account = make_account()
-    assert account.manual_trading_enabled is True
-    assert account.bot_trading_enabled is False
-
-
-@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-def test_manual_trading_can_be_switched_off():
-    account = make_account()
-
-    response = staff_client().post(
-        f"/api/accounts/accounts/{account.id}/manual-trading/", data={"enabled": False},
+def _assign(client, account, bot, **extra):
+    return client.post(
+        f"/api/accounts/accounts/{account.id}/assign/",
+        data={"bot": bot.id if bot else None, **extra},
         content_type="application/json",
     )
 
-    assert response.status_code == 200
-    assert response.json()["manual_trading_enabled"] is False
-    account.refresh_from_db()
-    assert account.manual_trading_enabled is False
-    # The other switch, and everything else about the account, is untouched.
-    assert account.bot_trading_enabled is False
-    assert account.status == AccountStatus.PAUSED
+
+def _open_leg(account, symbol="BTCUSDT"):
+    from apps.trading.models import Trade, TradeLeg
+
+    trade = Trade.objects.create(
+        symbol=symbol, side="long", market="futures", order_type="market", leverage=5
+    )
+    TradeLeg.objects.create(trade=trade, account=account, ok=True, qty=D("1"))
+    return trade
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-def test_flipping_a_trading_switch_records_who_flipped_it(caplog):
+def test_an_account_is_manual_until_a_bot_is_assigned():
+    """A bot fanning out to an account nobody handed it is the mistake the
+    default guards against."""
+    assert make_account().bot_id is None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_an_account_can_be_handed_to_a_bot_and_back():
+    from tests.bot_factory import make_bot
+
+    account = make_account()
+    bot = make_bot(name="trend")
+    client = staff_client()
+
+    response = _assign(client, account, bot)
+    assert response.status_code == 200
+    assert response.json()["bot"] == bot.id
+    assert response.json()["bot_name"] == "trend"
+
+    response = _assign(client, account, None)
+    assert response.status_code == 200
+    account.refresh_from_db()
+    assert account.bot_id is None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_handing_an_account_over_records_who_did_it(caplog):
     """Two people share the panel's login screen, not the login.
 
-    Which switch moved is already in the log; on a book somebody else's money
-    is in, *who* moved it is the half nobody can reconstruct afterwards — and
-    it is what the Telegram notice carries.
+    Which hand took the account is already in the log; on a book somebody
+    else's money is in, *who* moved it is the half nobody can reconstruct
+    afterwards — and it is what the Telegram notice carries.
     """
+    from tests.bot_factory import make_bot
+
     account = make_account()
+    bot = make_bot(name="trend")
     with caplog.at_level(logging.INFO, logger="apps.accounts.views"):
-        staff_client().post(
-            f"/api/accounts/accounts/{account.id}/bot-trading/",
-            data={"enabled": True},
-            content_type="application/json",
-        )
+        _assign(staff_client(), account, bot)
 
     [record] = [r for r in caplog.records if getattr(r, "error_code", "") == "account_changed"]
     assert record.context["actor"] == "boss"
-    assert record.context["changed"] == "bot trading on"
+    assert record.context["changed"] == "driven by trend"
     assert "boss" in record.getMessage()
 
 
 @override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
-def test_bot_trading_can_be_switched_on():
-    account = make_account()
+def test_an_account_holding_a_position_is_not_handed_over_silently():
+    from tests.bot_factory import make_bot
 
-    response = staff_client().post(
-        f"/api/accounts/accounts/{account.id}/bot-trading/", data={"enabled": True},
-        content_type="application/json",
-    )
+    account = make_account()
+    trade = _open_leg(account)
+
+    response = _assign(staff_client(), account, make_bot())
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == "account_has_position"
+    assert body["trade_id"] == trade.id
+    assert body["symbol"] == "BTCUSDT"
+    account.refresh_from_db()
+    assert account.bot_id is None
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_confirming_closes_that_accounts_leg_only_and_then_hands_it_over(monkeypatch):
+    from apps.engine.fanout import FanOutResult, LegResult
+    from apps.trading import services
+    from tests.bot_factory import make_bot
+
+    account = make_account()
+    trade = _open_leg(account)
+    bot = make_bot()
+    calls = []
+
+    async def fake_close(*, trade, account_ids=None):
+        calls.append((trade.id, account_ids))
+        return FanOutResult(
+            legs=[LegResult(account_id=account.id, ok=True, value=None, duration_ms=1.0)],
+            total_ms=1.0,
+        )
+
+    monkeypatch.setattr(services, "route_close", fake_close)
+
+    response = _assign(staff_client(), account, bot, close_position=True)
 
     assert response.status_code == 200
-    assert response.json()["bot_trading_enabled"] is True
+    assert calls == [(trade.id, [account.id])]
     account.refresh_from_db()
-    assert account.bot_trading_enabled is True
-    # The other switch is untouched.
-    assert account.manual_trading_enabled is True
+    assert account.bot_id == bot.id
+
+
+@override_settings(CREDENTIAL_ENCRYPTION_KEYS=[KEY])
+def test_a_close_the_exchange_did_not_confirm_keeps_the_assignment(monkeypatch):
+    from apps.engine.fanout import FanOutResult, LegResult
+    from apps.trading import services
+    from tests.bot_factory import make_bot
+
+    account = make_account()
+    _open_leg(account)
+
+    async def failing_close(*, trade, account_ids=None):
+        return FanOutResult(
+            legs=[
+                LegResult(
+                    account_id=account.id,
+                    ok=False,
+                    error="venue down",
+                    error_code="exchange_error",
+                    duration_ms=1.0,
+                )
+            ],
+            total_ms=1.0,
+        )
+
+    monkeypatch.setattr(services, "route_close", failing_close)
+
+    response = _assign(staff_client(), account, make_bot(), close_position=True)
+
+    assert response.status_code == 502
+    assert response.json()["code"] == "close_failed"
+    account.refresh_from_db()
+    assert account.bot_id is None

@@ -405,18 +405,30 @@ def open_positions(*, sees_hidden: bool) -> dict:
     open_trades = list(
         Trade.objects.filter(status=TradeStatus.OPEN).prefetch_related("legs__account")
     )
-    trade = open_trades[0] if open_trades else None
-    # This panel draws **one** trade — one symbol, one side, one set of lines.
+    # This panel draws **one** trade — one symbol, one side, one set of lines —
+    # and it is the admin's own (Q42). A bot's position lives on that bot's
+    # card, where its own controls are; drawing it here put a close button for
+    # a strategy's book under the manual ticket. The newest manual trade wins,
+    # and only when there is none does a bot's stand in, so the panel never
+    # reports flat while anything is live.
+    manual = [t for t in open_trades if t.bot_run_id is None]
+    pool = manual or open_trades
+    trade = pool[0] if pool else None
     # More than one can be open (accounts freed by a close take the next entry
-    # while the rest are still in the old trade), and drawing only the first
-    # while the others run is the panel reporting flat on a live position. The
-    # count says so out loud; the close button flattens all of them.
-    others = max(0, len(open_trades) - 1)
+    # while the rest are still in the old trade). The count says so out loud;
+    # the close button flattens all of them.
+    others = max(0, len(pool) - 1)
     priced = mark_to_market(trade, sees_hidden=sees_hidden)
     # A reader who cannot see a single leg of the open trade is not told how
     # many others are running either: the count would give away exactly what
     # the per-leg filtering just took out.
-    return {**priced, "other_open_trades": others if priced["trade"] else 0}
+    bot_trades = sum(1 for t in open_trades if t.bot_run_id is not None and t is not trade)
+    seen = bool(priced["trade"])
+    return {
+        **priced,
+        "other_open_trades": others if seen else 0,
+        "bot_open_trades": bot_trades if seen else 0,
+    }
 
 
 def mark_to_market(trade: Trade | None, *, sees_hidden: bool) -> dict:

@@ -22,6 +22,7 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
     is_tradeable = serializers.BooleanField(read_only=True)
     # Spec §7: a Hyperliquid agent approval expires and is then pruned in
     # silence. The countdown is the only warning there is.
+    bot_name = serializers.CharField(source="bot.name", read_only=True, default=None)
     credential_days_left = serializers.IntegerField(read_only=True)
     credential_state = serializers.CharField(read_only=True)
 
@@ -35,8 +36,9 @@ class ConnectedAccountSerializer(serializers.ModelSerializer):
             "status",
             "testnet",
             "hidden",
-            "manual_trading_enabled",
-            "bot_trading_enabled",
+            # Q42: who drives this account — null is the admin's own ticket.
+            "bot",
+            "bot_name",
             "wallet_address",
             "credential_expires_at",
             "credential_days_left",

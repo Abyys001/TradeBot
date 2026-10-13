@@ -282,7 +282,7 @@
       "capitalSub": "über {n} handelbare Konten",
       "accounts": "Aktive Konten",
       "accountsSub": "auf {n} Börsen",
-      "position": "Position",
+      "position": "Manuelle Position",
       "flat": "Flat",
       "flatSub": "kein offener Trade",
       "legs": "Teilorders",
@@ -317,7 +317,16 @@
       "emptyBody": "Erfassen Sie eine Einzahlung auf der Finanzseite, dann erscheint die Aufteilung hier."
     },
     "sessionRevoke": "Beenden",
-    "sessionRevokeHint": "Diesen Browser abmelden. Er braucht dann wieder das Passwort."
+    "sessionRevokeHint": "Diesen Browser abmelden. Er braucht dann wieder das Passwort.",
+    "manual": "Manueller Handel",
+    "manualPosition": "Manuelle Position",
+    "botPositions": "{n} Bot-Position(en) offen.",
+    "seeBots": "Bots ansehen",
+    "bots": {
+      "title": "Bots",
+      "running": "{n} laufend",
+      "noneRunning": "Kein Bot läuft. Starte unten einen oder handle manuell."
+    }
   },
   "alerts": {
     "title": "Braucht Sie",
@@ -402,10 +411,6 @@
     "pause": "Pausieren",
     "resume": "Fortsetzen",
     "verify": "Schlüssel prüfen",
-    "manualTrading": "Manueller Handel",
-    "manualTradingHint": "Nimmt die eigenen manuellen Einstiege des Admins an.",
-    "botTrading": "Bot-Handel",
-    "botTradingHint": "Nimmt Einstiege eines laufenden Bots an. Standardmäßig aus.",
     "empty": "Noch keine Konten verbunden.",
     "emptyBody": "Verbinden Sie einen reinen Handels-API-Schlüssel; er steigt beim nächsten Trade ein — nie bei einem bereits laufenden.",
     "emptyFilter": "Nichts entspricht diesem Filter.",
@@ -573,7 +578,14 @@
       "hint": "Diese Zugangsdaten laufen bald ab. Die Börse warnt Sie nicht."
     },
     "expiresAt": "Agent-Freigabe läuft ab",
-    "expiresAtHint": "Optional. Das valid_until, das Sie bei der Freigabe des Agents gesetzt haben — höchstens 180 Tage in der Zukunft. Bleibt es leer, kann das Panel vor dem Ablauf nicht warnen."
+    "expiresAtHint": "Optional. Das valid_until, das Sie bei der Freigabe des Agents gesetzt haben — höchstens 180 Tage in der Zukunft. Bleibt es leer, kann das Panel vor dem Ablauf nicht warnen.",
+    "driven": {
+      "label": "Gesteuert von",
+      "manual": "Manuell",
+      "positionTitle": "Dieses Konto hält eine Position",
+      "positionBody": "Dieses Konto hält eine {side}-Position in {symbol} ({qty} zu {entry}). Die Position dieses Kontos schließen und es an „{target}“ übergeben? Nur der Anteil dieses Kontos wird geschlossen; der Trade läuft auf allen anderen Konten weiter.",
+      "closeAndSwitch": "Position schließen & wechseln"
+    }
   },
   "history": {
     "title": "Handelshistorie",
@@ -1102,11 +1114,17 @@
     "time": "Zeit",
     "message": "Meldung",
     "details": "Details",
-    "filterCategory": "Nach dieser Kategorie filtern"
+    "filterCategory": "Nach dieser Kategorie filtern",
+    "tag": {
+      "system": "System",
+      "bot": "Bots"
+    },
+    "bot": "Bot",
+    "botSystem": "Systemlog – Bot-Ereignisse"
   },
   "bots": {
     "title": "Bots",
-    "lead": "Ein Bot ist eine Signalquelle, kein zweiter Ausführungspfad. Die Pine-Script-Strategie entscheidet die Richtung; Positionsgröße, Fan-out und Not-Halt sind derselbe Code, den auch der manuelle Knopf durchläuft.",
+    "lead": "Ein Bot ist eine Signalquelle, kein zweiter Ausführungsweg. Eine Pine-Script-Strategie bestimmt die Richtung; Größenberechnung, Fan-out und Halt sind derselbe Code wie beim manuellen Button. Mehrere Bots können gleichzeitig laufen, jeder auf den ihm zugewiesenen Konten – ein Konto gehört einem Bot oder dir, nie beiden.",
     "strategies": "Strategien",
     "strategiesLead": "Pine Script v5 und v6, beim Tippen geprüft. Alles außerhalb der unterstützten Teilmenge wird mit Namen, Zeile und Spalte abgelehnt — nichts wird geparst und stillschweigend ignoriert.",
     "backtest": "Backtest",
@@ -1235,7 +1253,10 @@
       "chart": "Chart",
       "logic": "Logik",
       "inputs": "Eingaben",
-      "control": "Steuerung"
+      "control": "Steuerung",
+      "overview": "Übersicht",
+      "settings": "Einstellungen",
+      "strategy": "Strategie"
     },
     "action": {
       "open": "Eröffnen",
@@ -1374,7 +1395,7 @@
     "useTyped": "wie eingegeben verwenden",
     "noSymbolsYet": "Noch keine Paare heruntergeladen — verbinden Sie ein Konto oder tippen Sie das Paar.",
     "openAccounts": "Konten öffnen",
-    "noBotAccounts": "Bei keinem verbundenen Konto ist der Bot-Handel eingeschaltet, dieser Bot hat also nirgendwohin zu routen. Schalten Sie „Bot-Handel“ für mindestens ein Konto ein.",
+    "noBotAccounts": "Diesem Bot ist kein Konto zugewiesen, er hat also kein Ziel. Weise auf der Konten-Seite mindestens ein Konto zu.",
     "reachesN": "Routet an {n} von {total} verbundenen Konten:",
     "journalTitle": "Bot-Protokoll",
     "journalHint": "Was er dachte, Bar für Bar — einschließlich der Bars, auf denen die Antwort „nichts“ war.",
@@ -1551,7 +1572,7 @@
       "open_short": "Short eröffnen",
       "close": "Position schließen",
       "confirm": "Zum Senden erneut drücken",
-      "noEligibleAccounts": "Bei keinem Konto ist Bot-Handel eingeschaltet, ein Einstieg würde also niemanden erreichen. Schalten Sie ihn pro Konto auf der Kontenseite ein.",
+      "noEligibleAccounts": "Diesem Bot ist kein Konto zugewiesen, ein Einstieg würde niemanden erreichen. Weise auf der Konten-Seite eines zu.",
       "holdOff": "Sie haben dieses {side} von Hand geschlossen. Die Strategie fordert es weiterhin an, deshalb hält die Plattform es zurück, bis das Skript aufhört zu fragen und erneut fragt.",
       "samePathNote": "Ein Druck hier läuft durch dieselbe Größenberechnung, dasselbe Risk-Gate und denselben Fan-out wie ein Signal. Der Bot führt die Strategie weiter aus, und sein nächstes Ausstiegssignal schließt, was Sie eröffnet haben.",
       "divergence": {
@@ -1588,7 +1609,27 @@
         "trade_rate": "Dieser Bot hat sein Limit für Trades pro Stunde erreicht.",
         "no_bars": "Der Feed dieses Bots liefert keine Kerzen mehr.",
         "stop_all": "Der Plattform-Halt ist an (§7) und der Orderpfad hat das abgelehnt. Lösen Sie ihn zuerst in der oberen Leiste."
-      }
+      },
+      "viewLogs": "Logs dieses Bots ansehen"
+    },
+    "viewLogs": "Logs ansehen",
+    "moreActions": "Weitere Aktionen",
+    "noAccountsAssigned": "Keine Konten zugewiesen – weise eines unter „Konten“ zu.",
+    "perf": {
+      "noCurve": "Noch keine geschlossenen Trades – die Kurve beginnt mit dem ersten.",
+      "open": "Öffnen",
+      "noAccounts": "Keine Konten zugewiesen – dieser Bot sendet nirgendwohin.",
+      "accountsN": "{n} Konto | {n} Konten",
+      "realised": "Realisierter PnL",
+      "trades": "Trades",
+      "winRate": "Gewinnquote",
+      "unrealised": "Unrealisiert",
+      "accounts": "Konten",
+      "curve": "Realisiertes Ergebnis",
+      "curveHint": "Kumuliert, nur geschlossene Trades",
+      "runDetails": "Laufdetails",
+      "gateReady": "Bereit",
+      "gateNotReady": "Nicht bereit"
     }
   },
   "security": {
@@ -1813,5 +1854,15 @@
       "help": "Es wird einmal gezeigt und nie wieder. Dein Sender signiert damit jede Anfrage. Geht es verloren, erzeuge ein neues — die URL bleibt gleich.",
       "saved": "Gespeichert"
     }
+  },
+  "install": {
+    "button": "App installieren",
+    "hint": "Dieses Panel auf dem Gerät installieren",
+    "dismiss": "Installationshinweis ausblenden",
+    "dontAsk": "Nicht mehr anzeigen",
+    "iosTitle": "Zum Home-Bildschirm",
+    "iosStep1": "Tippe in der Safari-Leiste auf „Teilen“.",
+    "iosStep2": "Scrolle nach unten und wähle „Zum Home-Bildschirm“.",
+    "iosStep3": "Tippe auf „Hinzufügen“. Danach öffnet sich das Panel wie eine App."
   }
 }

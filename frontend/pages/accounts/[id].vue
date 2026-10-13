@@ -194,6 +194,10 @@ const checkText = computed(() => {
               {{ t(`accounts.state.${account.status}`) }}
             </UiBadge>
             <UiBadge v-if="account.testnet" tone="brand">{{ t('accounts.testnet') }}</UiBadge>
+            <UiBadge :tone="account.bot === null ? 'neutral' : 'brand'">
+              <UiIcon :name="account.bot === null ? 'terminal' : 'bot'" :size="12" />
+              {{ account.bot_name ?? t('accounts.driven.manual') }}
+            </UiBadge>
             <UiBadge v-if="account.hidden" tone="signal">
               <UiIcon name="eyeOff" :size="12" />
               {{ t('accounts.hidden') }}
@@ -206,7 +210,8 @@ const checkText = computed(() => {
           </p>
         </div>
 
-        <div class="ms-auto flex flex-wrap items-center gap-2">
+        <div class="ms-auto flex flex-wrap items-end gap-2">
+          <div class="w-48"><AccountsDrivenBy :account="account" @changed="load" /></div>
           <button class="btn-ghost btn-sm" :disabled="loading" @click="load">
             <UiIcon name="refresh" :size="14" :class="loading ? 'animate-spin' : ''" />
             <span class="hidden xs:inline">{{ t('common.reload') }}</span>

@@ -1629,3 +1629,57 @@ Start, which the halt refuses as well. The halt is checked first now, in
 press give the same reason.
 
 `backend/tests/test_bot_manual_control.py`.
+
+---
+
+## Q42. Manual and bot trading at the same time ✅ One hand per account, one bot per account
+
+**The question.** The admin wanted each account handled *either* by hand *or*
+by a bot — one bot per account — and both kinds of trading running at once:
+while a bot trades its accounts, the manual ticket still trades the rest.
+
+**What stood in the way.** Two independent switches per account
+(`manual_trading_enabled`, `bot_trading_enabled`) let an account take both
+hands, and every running bot fanned out to every bot-enabled account, so only
+one bot could run (`start` stopped the others, `resume_all` elected one). The
+manual ticket was then refused outright while any bot held any position
+(`bot_holds_position`), whatever the account. And the reconciliation sweeps —
+`reconcile_open_trade` and `possync` — each looked at only the newest open
+trade.
+
+**The answer.**
+
+- `ConnectedAccount.bot` replaces both switches: null is manual, otherwise the
+  one bot that drives it. A bot may drive several accounts. Migration 0009
+  hands bot-enabled accounts to the bot that was running (at most one existed)
+  and pauses accounts that had opted out of both hands, rather than quietly
+  opening them to the ticket.
+- `eligible_accounts(source="bot", bot_id=…)` / `source="manual"` select the
+  two disjoint books. A bot entry that does not name its bot is a `ValueError`.
+- Several bots run at once; `resume_all` brings every one back.
+- The manual ticket's bot check is gone — it cannot reach a bot's book.
+- `reconcile_open_trade` settles every open trade; `possync` checks every open
+  trade's legs and adopts a found position only into a trade whose owner (bot
+  or manual) matches the account's, and never an account already in another
+  open trade.
+- `/positions/` draws the newest *manual* trade and counts bot trades
+  separately (`bot_open_trades`); each bot's position is on its own card.
+- The risk gate's account cap, drawdown and notional are measured over the
+  bot's own accounts — the cap had been counting *manual*-eligible accounts.
+- **Reassigning an account that holds a position** (admin: "close that
+  specific account by asking on a modal"): 409 `account_has_position`, a modal,
+  then `close_position: true` closes that account's leg only and reassigns
+  once the venue confirms it flat. `_persist_close` now ends a trade only when
+  every leg is flat, so a one-account close leaves the rest running.
+- `GET /bots/bots/<id>/performance/` — realised curve over every run, plus the
+  open position marked to market — feeds the dashboard's bot cards. A read
+  surface: hidden accounts are dropped before summing.
+
+**The panel** (admin: fewer tabs, everything at a glance, bot logs in the log
+section, bots below Dashboard and above Chart, seamless install, mobile): bots
+on the dashboard with running ones shown automatically; the bot page reduced to
+Overview / Settings / Strategy; the journal and routed-order activity moved to
+`/logs` under a Bots tag; an install prompt for the PWA.
+
+`backend/tests/test_services.py`, `test_accounts_api.py`, `test_account_access.py`,
+`test_bot_api.py`, `test_bot_stop_all.py`.

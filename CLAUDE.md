@@ -26,9 +26,9 @@ stops at the backtest),
 backtest, supervisor and panel (`docs/bots.md`) — **with one warm-up shared by
 the live loop and the backtest** (`feed.strategy_warmup`; when they differed, a
 bot traded a strategy its own report had never described, Q38) — gated
-per account by two independent switches (`manual_trading_enabled`,
-`bot_trading_enabled` — `docs/bots.md` §7) and restricted to **one running bot
-at a time**, with **how a trade ends as a policy rather than a constant** (Q37:
+per account by **one hand per account** — the admin's ticket or one bot
+(`ConnectedAccount.bot`, Q42) — so **several bots run at once** on disjoint
+books while the admin trades the manual accounts, with **how a trade ends as a policy rather than a constant** (Q37:
 `protected` is spec §3's required stop-and-target and stays the default;
 `strategy_managed` makes them optional and treats the strategy's own exit — a
 `strategy.close`, a reversal, a level it computed — as the instruction that

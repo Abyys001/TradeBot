@@ -653,35 +653,30 @@ Q22, first claim wins:
 - A bot **skips** an account that is already in a trade and reports it as **"sat
   out"** — never as a failure. One account being busy is not a reason to keep the
   other nine flat.
-- A manual entry into an account a bot is holding is **refused, naming the bot**
-  (409 `bot_holds_position`).
+- A manual entry never reaches an account a bot drives (Q42) — the two books
+  are disjoint, so the admin's ticket keeps working while bots trade.
 - The admin outranks a bot: close-all and Stop-all win, always.
 - An account whose last entry is **unconfirmed** counts as possibly holding one.
   A failed leg is not proof that nothing happened.
 
-**Only one bot runs at a time.** The panel's bots list shows several bots but
-activates one: `POST /bots/bots/<id>/start/` stops every *other* `paper`/`live`
-bot first (`StopReason.MANUAL`, naming the bot that took its slot) and only then
-starts this one — after that bot's own transition and, for `live`, the
-promotion gate have already passed, so a start that was going to be refused
-anyway never takes down a bot that was working fine. The response's
-`deactivated` field lists what it stopped, and its own `bot_state` broadcast
-catches every open tab up immediately, not just the one that clicked. A restart
-re-checks rather than trusting `Bot.state`: if more than one row is somehow
-left `paper`/`live` — data from before this rule existed, or a crash mid-write
-— `resume_all()` resumes only the most recently started one and stops the rest
-outright, never resumes two at once.
+**Each account answers to one hand, and several bots run at once (Q42).**
+`ConnectedAccount.bot` names the bot that drives an account; null is the
+admin's own ticket. A bot may drive several accounts, an account at most one
+bot, so running bots trade disjoint books and starting one never touches
+another. A restart resumes every bot whose `Bot.state` says it should run.
+`eligible_accounts(source="bot", bot_id=…)` reaches only that bot's active,
+free accounts; `source="manual"` reaches only accounts with no bot. None is
+assigned by default — an account nobody handed to a bot does not appear in its
+fan-out, and reads as **"sat out"** exactly like one already holding a position
+(Q22), never as a failure.
 
-**Which accounts a bot may reach is a per-account switch, off by default.**
-`ConnectedAccount.bot_trading_enabled` (panel: the account row's "Bot trading"
-toggle) gates every *new* bot entry the same way `manual_trading_enabled` gates
-the admin's own ticket — see `eligible_accounts` in `apps/trading/services.py`.
-The two are independent: an account can take the admin's own hand, a bot's,
-both, or neither. Neither switch touches a trade the account already holds a
-leg of — an amend or a close still resolves from the leg, so flipping either
-mid-trade can never strand a live position. An account nobody opted in simply
-does not appear in a bot's fan-out, and reads as **"sat out"** exactly like one
-already holding a position (Q22) — never as a failure.
+The hand is chosen on the accounts page (`POST /accounts/accounts/<id>/assign/`).
+Only *new* entries follow it — an amend or a close resolves from the leg. An
+account holding a position is never handed over silently: the first press
+answers 409 `account_has_position`, the panel asks, and the confirmed press
+closes **that account's leg only** (`route_close(trade, account_ids=[…])`) and
+reassigns once the exchange confirms it flat. A close that did not flatten
+leaves the assignment where it was.
 
 Hidden accounts (Q27) take part in every fan-out **identically** — nothing in
 `apps/pine/` or `apps/bots/` may import `accounts.visibility` — and every bot
@@ -759,7 +754,7 @@ record.
 | Chart | `GET …/chart/?interval=&before=` | `apps/bots/chart.py` — the venue's own bars for that window, replayed |
 | Logic | `GET …/logic/` | `apps/pine/explain.py` over the version's own source |
 | Activity | `GET …/actions/` | every routed order, across every run, with the accounts each leg reached |
-| Routing | `GET …/accounts/` | which connected accounts have `bot_trading_enabled` |
+| Routing | `GET …/accounts/` | which connected accounts are assigned to this bot (Q42) |
 
 The sixth tab, **Control**, is the one that is not read-only — "Taking over by
 hand" below.
@@ -793,7 +788,7 @@ read across every run rather than the latest, and `summary.unrouted` counts the
 entries nothing was sent for. That number is the answer to "TradingView traded
 overnight and we did not": either the replay found nothing either (the strategy,
 or its inputs, differ) or it found trades with no ring beside them (the order
-path, the gate, or the accounts' `bot_trading_enabled`).
+path, the gate, or no account assigned to the bot).
 
 **A page is a slice of that one replay, never a replay of its own (Q40).** It
 has to be. Warm-up converges indicators and does not trade, so a page-sized

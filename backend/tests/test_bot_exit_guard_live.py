@@ -25,7 +25,14 @@ from apps.bots.models import ActionType, BotAction, BotState
 from apps.pine.bar import Bar
 from apps.trading.models import Trade, TradeStatus
 from tests.bot_factory import make_bot
-from tests.test_bot_live_bar import KEY, STEP, ScriptedFeed, _account
+from tests.test_bot_live_bar import (  # noqa: F401
+    KEY,
+    STEP,
+    ScriptedFeed,
+    _account,
+    _drive,
+    _forget_driven,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -124,16 +131,19 @@ def two_bars(monkeypatch):
 
 
 async def _bot(**kwargs):
-    return await sync_to_async(make_bot)(
+    bot = await sync_to_async(make_bot)(
         source=SOURCE,
         state=BotState.LIVE,
         symbol="BTCUSDT",
         interval="30m",
         **kwargs,
     )
+    await _drive(bot)
+    return bot
 
 
 async def _run(bot):
+    await _drive(bot)
     run = await supervisor._open_run(bot, actor="tester")
     await supervisor._run_bot(bot.id, run.id)
 

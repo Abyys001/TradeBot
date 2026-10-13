@@ -282,7 +282,7 @@
       "capitalSub": "işlem yapılabilir {n} hesapta",
       "accounts": "Aktif hesaplar",
       "accountsSub": "{n} borsada",
-      "position": "Pozisyon",
+      "position": "Manuel pozisyon",
       "flat": "Düz",
       "flatSub": "açık işlem yok",
       "legs": "bacak",
@@ -317,7 +317,16 @@
       "emptyBody": "Finans sayfasında bir yatırma kaydedin; paylaşım burada görünür."
     },
     "sessionRevoke": "Sonlandır",
-    "sessionRevokeHint": "Bu tarayıcının oturumunu kapatır. Yeniden parola gerekecek."
+    "sessionRevokeHint": "Bu tarayıcının oturumunu kapatır. Yeniden parola gerekecek.",
+    "manual": "Manuel işlem",
+    "manualPosition": "Manuel pozisyon",
+    "botPositions": "{n} bot pozisyonu açık.",
+    "seeBots": "Botları gör",
+    "bots": {
+      "title": "Botlar",
+      "running": "{n} çalışıyor",
+      "noneRunning": "Çalışan bot yok. Aşağıdan birini başlatın veya manuel işlem yapın."
+    }
   },
   "alerts": {
     "title": "Sizi bekliyor",
@@ -402,10 +411,6 @@
     "pause": "Duraklat",
     "resume": "Sürdür",
     "verify": "Anahtarı doğrula",
-    "manualTrading": "Manuel işlem",
-    "manualTradingHint": "Yöneticinin kendi manuel girişlerini alır.",
-    "botTrading": "Bot ile işlem",
-    "botTradingHint": "Çalışan bir bottan gelen girişleri alır. Varsayılan olarak kapalı.",
     "empty": "Henüz bağlı hesap yok.",
     "emptyBody": "Yalnızca işlem yetkili bir API anahtarı bağlayın; bir sonraki işlemden itibaren katılır — hiçbir zaman sürmekte olan bir işleme değil.",
     "emptyFilter": "Bu filtreye uyan bir şey yok.",
@@ -573,7 +578,14 @@
       "hint": "Bu kimlik bilgisinin süresi yakında doluyor. Borsa sizi uyarmayacak."
     },
     "expiresAt": "Agent onayının bitişi",
-    "expiresAtHint": "İsteğe bağlı. Agent'ı onaylarken belirlediğiniz valid_until — en fazla 180 gün ileride. Boş bırakılırsa panel süre dolmadan sizi uyaramaz."
+    "expiresAtHint": "İsteğe bağlı. Agent'ı onaylarken belirlediğiniz valid_until — en fazla 180 gün ileride. Boş bırakılırsa panel süre dolmadan sizi uyaramaz.",
+    "driven": {
+      "label": "Yöneten",
+      "manual": "Manuel",
+      "positionTitle": "Bu hesapta açık bir pozisyon var",
+      "positionBody": "Bu hesapta {symbol} üzerinde {side} pozisyon var ({qty}, giriş {entry}). Bu hesabın pozisyonu kapatılıp hesap “{target}” tarafına devredilsin mi? Yalnızca bu hesabın bacağı kapatılır; işlem diğer hesaplarda sürer.",
+      "closeAndSwitch": "Pozisyonu kapat ve geç"
+    }
   },
   "history": {
     "title": "İşlem geçmişi",
@@ -1102,11 +1114,17 @@
     "time": "Zaman",
     "message": "Mesaj",
     "details": "Ayrıntılar",
-    "filterCategory": "Bu kategoriye göre filtrele"
+    "filterCategory": "Bu kategoriye göre filtrele",
+    "tag": {
+      "system": "Sistem",
+      "bot": "Botlar"
+    },
+    "bot": "Bot",
+    "botSystem": "Sistem günlüğü — bot olayları"
   },
   "bots": {
     "title": "Botlar",
-    "lead": "Bot bir sinyal kaynağıdır, ikinci bir yürütme yolu değil. Pine Script stratejisi yönü belirler; boyutlandırma, dağıtım ve acil durdurma manuel düğmenin geçtiği kodun aynısıdır.",
+    "lead": "Bot, ikinci bir yürütme yolu değil, bir sinyal kaynağıdır. Pine Script stratejisi yönü belirler; boyutlandırma, çoklu dağıtım ve durdurma manuel düğmenin kullandığı kodun aynısıdır. Birden fazla bot aynı anda çalışabilir, her biri kendisine atanan hesaplarda — bir hesap ya tek bir bota ya da size bağlıdır, ikisine birden değil.",
     "strategies": "Stratejiler",
     "strategiesLead": "Pine Script v5 ve v6, siz yazarken denetlenir. Desteklenen alt kümenin dışındaki her şey adı, satırı ve sütunuyla reddedilir — hiçbir şey ayrıştırılıp sessizce yok sayılmaz.",
     "backtest": "Geri test",
@@ -1235,7 +1253,10 @@
       "chart": "Grafik",
       "logic": "Mantık",
       "inputs": "Girdiler",
-      "control": "Kontrol"
+      "control": "Kontrol",
+      "overview": "Genel bakış",
+      "settings": "Ayarlar",
+      "strategy": "Strateji"
     },
     "action": {
       "open": "Aç",
@@ -1374,7 +1395,7 @@
     "useTyped": "yazıldığı gibi kullan",
     "noSymbolsYet": "Henüz indirilmiş parite yok — bir hesap bağlayın ya da pariteyi yazın.",
     "openAccounts": "Hesapları aç",
-    "noBotAccounts": "Bağlı hiçbir hesapta bot ile işlem açık değil, bu yüzden bu botun yönlendireceği bir yer yok. En az bir hesapta \"Bot ile işlem\" seçeneğini açın.",
+    "noBotAccounts": "Bu bota atanmış hesap yok, bu yüzden emir gönderecek yer yok. Hesaplar sayfasından en az bir hesap atayın.",
     "reachesN": "Bağlı {total} hesabın {n} tanesine yönlendirir:",
     "journalTitle": "Bot günlüğü",
     "journalHint": "Mum mum ne düşündüğü — cevabın \"hiçbir şey\" olduğu mumlar dahil.",
@@ -1551,7 +1572,7 @@
       "open_short": "Short aç",
       "close": "Pozisyonu kapat",
       "confirm": "Göndermek için tekrar basın",
-      "noEligibleAccounts": "Hiçbir hesapta bot işlemi açık değil, bu yüzden bir giriş kimseye ulaşmaz. Hesaplar sayfasından hesap başına açın.",
+      "noEligibleAccounts": "Bu bota atanmış hesap yok, bu yüzden bir giriş kimseye ulaşmaz. Hesaplar sayfasından bir hesap atayın.",
       "holdOff": "Bu {side} pozisyonunu elle kapattınız. Strateji hâlâ onu istiyor, bu yüzden platform, betik istemeyi bırakıp yeniden isteyene kadar onu bekletiyor.",
       "samePathNote": "Buradaki bir basış, bir sinyalin geçtiği aynı boyutlandırmadan, aynı risk kapısından ve aynı dağıtımdan geçer. Bot stratejiyi işletmeye devam eder ve bir sonraki çıkış sinyali sizin açtığınızı kapatır.",
       "divergence": {
@@ -1588,7 +1609,27 @@
         "trade_rate": "Bu bot saatlik işlem sınırına ulaştı.",
         "no_bars": "Bu botun akışı artık mum teslim etmiyor.",
         "stop_all": "Platform durdurması açık (§7) ve emir yolu bunu reddetti. Önce üst çubuktan serbest bırakın."
-      }
+      },
+      "viewLogs": "Bu botun günlüklerini gör"
+    },
+    "viewLogs": "Günlükleri gör",
+    "moreActions": "Diğer işlemler",
+    "noAccountsAssigned": "Atanmış hesap yok — Hesaplar sayfasından atayın.",
+    "perf": {
+      "noCurve": "Henüz kapanmış işlem yok — eğri ilk işlemle başlar.",
+      "open": "Aç",
+      "noAccounts": "Atanmış hesap yok; bu bot hiçbir yere emir göndermez.",
+      "accountsN": "{n} hesap | {n} hesap",
+      "realised": "Gerçekleşen K/Z",
+      "trades": "İşlemler",
+      "winRate": "Kazanma oranı",
+      "unrealised": "Gerçekleşmemiş",
+      "accounts": "Hesaplar",
+      "curve": "Gerçekleşen sonuç",
+      "curveHint": "Kümülatif, yalnızca kapanmış işlemler",
+      "runDetails": "Çalıştırma ayrıntıları",
+      "gateReady": "Hazır",
+      "gateNotReady": "Hazır değil"
     }
   },
   "security": {
@@ -1813,5 +1854,15 @@
       "help": "Bir kez gösterilir, bir daha asla. Göndericin her isteği bununla imzalar. Kaybedersen yenisini üret — adres aynı kalır.",
       "saved": "Kaydettim"
     }
+  },
+  "install": {
+    "button": "Uygulamayı yükle",
+    "hint": "Bu paneli cihazınıza yükleyin",
+    "dismiss": "Yükleme önerisini gizle",
+    "dontAsk": "Bir daha gösterme",
+    "iosTitle": "Ana Ekrana Ekle",
+    "iosStep1": "Safari araç çubuğundaki Paylaş düğmesine dokunun.",
+    "iosStep2": "Aşağı kaydırıp “Ana Ekrana Ekle”yi seçin.",
+    "iosStep3": "Ekle’ye dokunun. Panel artık bir uygulama gibi açılır."
   }
 }

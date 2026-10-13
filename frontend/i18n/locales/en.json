@@ -282,7 +282,7 @@
       "capitalSub": "across {n} tradeable accounts",
       "accounts": "Accounts active",
       "accountsSub": "on {n} exchanges",
-      "position": "Position",
+      "position": "Manual position",
       "flat": "Flat",
       "flatSub": "no open trade",
       "legs": "legs",
@@ -317,7 +317,16 @@
       "emptyBody": "Record a deposit on the finance page and the split appears here."
     },
     "sessionRevoke": "End",
-    "sessionRevokeHint": "Sign this browser out. It will need the password again."
+    "sessionRevokeHint": "Sign this browser out. It will need the password again.",
+    "manual": "Manual trading",
+    "manualPosition": "Manual position",
+    "botPositions": "{n} bot position(s) open.",
+    "seeBots": "See Bots",
+    "bots": {
+      "title": "Bots",
+      "running": "{n} running",
+      "noneRunning": "No bot is running. Start one below, or trade manually."
+    }
   },
   "alerts": {
     "title": "Needs you",
@@ -402,10 +411,6 @@
     "pause": "Pause",
     "resume": "Resume",
     "verify": "Verify key",
-    "manualTrading": "Manual trading",
-    "manualTradingHint": "Takes the admin's own manual entries.",
-    "botTrading": "Bot trading",
-    "botTradingHint": "Takes entries from a running bot. Off by default.",
     "empty": "No accounts connected yet.",
     "emptyBody": "Connect a trade-only API key and it joins from the next trade — never one already in progress.",
     "emptyFilter": "Nothing matches this filter.",
@@ -573,7 +578,14 @@
       "hint": "This credential expires soon. The exchange will not warn you."
     },
     "expiresAt": "Agent approval expires",
-    "expiresAtHint": "Optional. The valid_until you set when approving the agent — at most 180 days out. Left blank, the panel cannot warn you before it lapses."
+    "expiresAtHint": "Optional. The valid_until you set when approving the agent — at most 180 days out. Left blank, the panel cannot warn you before it lapses.",
+    "driven": {
+      "label": "Driven by",
+      "manual": "Manual",
+      "positionTitle": "This account holds a position",
+      "positionBody": "This account holds a {side} {symbol} position ({qty} at {entry}). Close this account's position and hand it to {target}? Only this account's leg is closed; the trade continues on every other account.",
+      "closeAndSwitch": "Close position & switch"
+    }
   },
   "history": {
     "title": "Trade history",
@@ -1102,11 +1114,17 @@
     "time": "Time",
     "message": "Message",
     "details": "Details",
-    "filterCategory": "Filter by this category"
+    "filterCategory": "Filter by this category",
+    "tag": {
+      "system": "System",
+      "bot": "Bots"
+    },
+    "bot": "Bot",
+    "botSystem": "System log — bot events"
   },
   "bots": {
     "title": "Bots",
-    "lead": "A bot is a signal source, not a second execution path. A Pine Script strategy decides the side; sizing, the fan-out and the halt are the same code the manual button goes through. Only one bot runs at a time — starting another stops whichever one was running.",
+    "lead": "A bot is a signal source, not a second execution path. A Pine Script strategy decides the side; sizing, the fan-out and the halt are the same code the manual button goes through. Several bots can run at once, each on the accounts assigned to it — an account answers to one bot or to you, never both.",
     "strategies": "Strategies",
     "strategiesLead": "Pine Script v5 and v6, checked as you type. Anything outside the supported subset is refused by name, line and column — nothing is parsed and quietly ignored.",
     "backtest": "Backtest",
@@ -1235,7 +1253,10 @@
       "chart": "Chart",
       "logic": "Logic",
       "inputs": "Inputs",
-      "control": "Control"
+      "control": "Control",
+      "overview": "Overview",
+      "settings": "Settings",
+      "strategy": "Strategy"
     },
     "action": {
       "open": "Open",
@@ -1374,7 +1395,7 @@
     "useTyped": "use as typed",
     "noSymbolsYet": "No pairs downloaded yet — connect an account, or type the pair.",
     "openAccounts": "Open accounts",
-    "noBotAccounts": "No connected account has bot trading switched on, so this bot has nowhere to route. Turn on “Bot trading” for at least one account.",
+    "noBotAccounts": "No account is assigned to this bot, so it has nowhere to route. Assign at least one account on the Accounts page.",
     "reachesN": "Routes to {n} of {total} connected accounts:",
     "journalTitle": "Bot log",
     "journalHint": "What it was thinking, bar by bar — including the bars where the answer was “nothing”.",
@@ -1551,7 +1572,7 @@
       "open_short": "Open short",
       "close": "Close position",
       "confirm": "Press again to send",
-      "noEligibleAccounts": "No account has bot trading switched on, so an entry would reach nobody. Turn it on per account on the accounts page.",
+      "noEligibleAccounts": "No account is assigned to this bot, so an entry would reach nobody. Assign one on the Accounts page.",
       "holdOff": "You closed this {side} by hand. The strategy is still asking for it, so the platform is holding it off until the script stops asking and asks again.",
       "samePathNote": "A press here goes through the same sizing, risk gate and fan-out a signal does. The bot keeps running the strategy, and its next exit signal closes what you open.",
       "divergence": {
@@ -1588,7 +1609,27 @@
         "trade_rate": "This bot hit its trades-per-hour limit.",
         "no_bars": "This bot's feed has stopped delivering bars.",
         "stop_all": "The platform halt is on (§7) and the order path refused this. Release it from the top bar first."
-      }
+      },
+      "viewLogs": "View this bot’s logs"
+    },
+    "viewLogs": "View logs",
+    "moreActions": "More actions",
+    "noAccountsAssigned": "No accounts assigned — assign one on Accounts.",
+    "perf": {
+      "noCurve": "No closed trades yet — the curve starts with the first one.",
+      "open": "Open",
+      "noAccounts": "No accounts assigned, so this bot routes nowhere.",
+      "accountsN": "{n} account | {n} accounts",
+      "realised": "Realised PnL",
+      "trades": "Trades",
+      "winRate": "Win rate",
+      "unrealised": "Unrealised",
+      "accounts": "Accounts",
+      "curve": "Realised result",
+      "curveHint": "Cumulative, closed trades only",
+      "runDetails": "Run details",
+      "gateReady": "Ready",
+      "gateNotReady": "Not ready"
     }
   },
   "security": {
@@ -1813,5 +1854,15 @@
       "help": "It is shown once and never again. Your sender signs each request with it. If you lose it, issue a new one — the URL stays the same.",
       "saved": "Saved it"
     }
+  },
+  "install": {
+    "button": "Install app",
+    "hint": "Install this panel on your device",
+    "dismiss": "Hide install prompt",
+    "dontAsk": "Don’t show again",
+    "iosTitle": "Add to Home Screen",
+    "iosStep1": "Tap the Share button in Safari’s toolbar.",
+    "iosStep2": "Scroll down and choose “Add to Home Screen”.",
+    "iosStep3": "Tap Add. The panel then opens like an app."
   }
 }

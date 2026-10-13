@@ -93,7 +93,7 @@ def payload(bot: Bot, *, user) -> dict:
         },
         "strategy": strategy,
         "position": position,
-        "capital": _capital(user),
+        "capital": _capital(bot, user),
         "mark": _mark(bot),
         # What the two disagree about, if anything. Named here rather than in
         # the browser: the panel would be a second opinion about the one
@@ -194,7 +194,7 @@ def _divergence(strategy: dict | None, held_side: str | None) -> dict:
     }
 
 
-def _capital(user) -> dict:
+def _capital(bot: Bot, user) -> dict:
     """The money this bot can actually reach, per account and in total.
 
     Filtered exactly like every other read surface (Q27) — hidden accounts are
@@ -202,12 +202,12 @@ def _capital(user) -> dict:
     rather than trimmed afterwards.
 
     ``eligible`` is the one that matters in front of an entry button: a bot
-    routes only to accounts with ``bot_trading_enabled`` on, and that switch is
-    off by default. Zero eligible accounts is the commonest reason a press does
-    nothing, and it is said here rather than discovered in a failure notice.
+    routes only to the accounts assigned to it (Q42), and none is by default.
+    Zero eligible accounts is the commonest reason a press does nothing, and it
+    is said here rather than discovered in a failure notice.
     """
     hidden = _filtered(user)
-    rows = ConnectedAccount.objects.exclude(id__in=hidden).order_by("label")
+    rows = ConnectedAccount.objects.exclude(id__in=hidden).filter(bot=bot).order_by("label")
     busy = set(
         Trade.objects.filter(status=TradeStatus.OPEN)
         .values_list("legs__account_id", flat=True)
@@ -217,7 +217,7 @@ def _capital(user) -> dict:
     available = Decimal("0")
     out = []
     for row in rows:
-        eligible = row.status == AccountStatus.ACTIVE and row.bot_trading_enabled
+        eligible = row.status == AccountStatus.ACTIVE
         if eligible:
             equity += row.last_equity or Decimal("0")
             available += row.last_balance or Decimal("0")
@@ -227,7 +227,6 @@ def _capital(user) -> dict:
                 "label": row.label,
                 "exchange": row.exchange,
                 "status": row.status,
-                "bot_trading_enabled": row.bot_trading_enabled,
                 "eligible": eligible,
                 "in_a_trade": row.id in busy,
                 "equity": _s(row.last_equity),

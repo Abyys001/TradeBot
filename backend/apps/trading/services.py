@@ -101,19 +101,9 @@ def leg_is_flat(leg: TradeLeg) -> bool:
     return not leg.ok and leg.error_code in SAT_OUT_CODES
 
 
-#: The two ways a *new* entry can be sent, and the field on ``ConnectedAccount``
-#: each one is gated by. An amend or a close is never gated by either — those
-#: reach whoever already holds a leg of the trade, whatever the switches say
-#: now, so flipping one mid-trade can never strand a live position.
-_ENTRY_SOURCE_FIELD = {
-    "manual": "manual_trading_enabled",
-    "bot": "bot_trading_enabled",
-}
-
-
 @sync_to_async
 def eligible_accounts(
-    trade: Trade | None = None, *, source: str = "manual"
+    trade: Trade | None = None, *, source: str = "manual", bot_id: int | None = None
 ) -> list[ConnectedAccount]:
     """Accounts that take part in this action.
 
@@ -124,12 +114,11 @@ def eligible_accounts(
     position, that is not a reason to keep the other nine flat.
 
     ``source`` says who is asking for the entry — the admin's own ticket
-    (``"manual"``) or a running bot (``"bot"``) — and narrows the set to
-    accounts that opted into *that* source. An account can take both, either,
-    or neither; the fields are independent switches, not one "trading
-    enabled" flag, because a partner may want the admin's own hand on their
-    account without ever letting an automated strategy touch it, or the
-    reverse.
+    (``"manual"``) or a running bot (``"bot"``, with its ``bot_id``) — and
+    narrows the set to the accounts that hand drives (Q42): manual accounts
+    have no bot, a bot's accounts name it. The two sets are disjoint by
+    construction, which is what lets a bot and the admin trade at the same
+    time without either one landing on the other's book.
 
     For an amend or a close, the answer is not "who is active" but **"who may
     still be holding a leg of this trade"** — every leg that is not closed and
@@ -155,9 +144,16 @@ def eligible_accounts(
                 .values_list("account_id", flat=True)
             )
         )
-    field = _ENTRY_SOURCE_FIELD[source]
+    if source == "bot":
+        if bot_id is None:
+            raise ValueError("a bot entry must say which bot it is for")
+        owner = {"bot_id": bot_id}
+    elif source == "manual":
+        owner = {"bot__isnull": True}
+    else:
+        raise ValueError(f"unknown entry source {source!r}")
     return list(
-        ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE, **{field: True}).exclude(
+        ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE, **owner).exclude(
             id__in=accounts_in_open_trades()
         )
     )
@@ -369,6 +365,10 @@ def _persist_close(trade: Trade, result: FanOutResult) -> None:
     TradeLeg.objects.bulk_update(
         updated, ["closed_at", "exit_price", "pnl", "ok", "error", "error_code"]
     )
+    # A close aimed at one account (Q42's reassignment) flattens that leg and
+    # leaves the rest of the trade running; only the last flat leg ends it.
+    if not unflat and not all(leg_is_flat(leg) for leg in legs.values()):
+        return
     if unflat:
         logger.error(
             "close left trade=%s open on at least one account — the exchange still "
@@ -546,6 +546,7 @@ async def route_open(
     safety_net_pct: Decimal | None = None,
     limit_price: Decimal | None = None,
     source: str = "manual",
+    bot_id: int | None = None,
 ) -> tuple[Trade | None, FanOutResult]:
     """Fan a new entry out to every eligible account.
 
@@ -565,7 +566,7 @@ async def route_open(
     # were a full exchange round trip spent *before* the fan-out started, which
     # comes straight out of the §4 budget — on a cache miss that was most of it.
     accounts, reference_price = await asyncio.gather(
-        eligible_accounts(source=source),
+        eligible_accounts(source=source, bot_id=bot_id),
         # A limit order carries its own price, so there is nothing to look up.
         _reference_price(symbol, market) if limit_price is None else _no_price(),
     )
@@ -613,6 +614,7 @@ async def route_open(
             **intent.protection().as_dict(),
             "origin": "bot" if source == "bot" else "manual",
             "bot": None,
+            "bot_id": bot_id,
             "fanout_ms": result.total_ms,
         },
     )
@@ -631,19 +633,24 @@ _RECHECK_GUARD_KEY = "trading:unconfirmed:checked_at"
 
 
 @sync_to_async
-def _unconfirmed_legs() -> tuple[Trade | None, list[ConnectedAccount]]:
-    """The open trade and the accounts whose entry outcome is still unknown."""
-    trade = Trade.objects.filter(status=TradeStatus.OPEN).first()
-    if trade is None:
-        return None, []
-    accounts = list(
-        ConnectedAccount.objects.filter(
-            id__in=trade.legs.filter(ok=False, closed_at__isnull=True)
-            .exclude(error_code__in=SAT_OUT_CODES)
-            .values_list("account_id", flat=True)
+def _unconfirmed_legs() -> list[tuple[Trade, list[ConnectedAccount]]]:
+    """Every open trade, with the accounts whose entry outcome is still unknown.
+
+    Every one, not the newest: a bot's trade and the admin's own can be open
+    side by side (Q42), and settling only the first left the other's late fill
+    reading as a failure forever.
+    """
+    out = []
+    for trade in Trade.objects.filter(status=TradeStatus.OPEN):
+        accounts = list(
+            ConnectedAccount.objects.filter(
+                id__in=trade.legs.filter(ok=False, closed_at__isnull=True)
+                .exclude(error_code__in=SAT_OUT_CODES)
+                .values_list("account_id", flat=True)
+            )
         )
-    )
-    return trade, accounts
+        out.append((trade, accounts))
+    return out
 
 
 @sync_to_async
@@ -720,9 +727,13 @@ async def reconcile_open_trade() -> bool:
     """
     if not cache.add(_RECHECK_GUARD_KEY, "1", UNCONFIRMED_RECHECK_INTERVAL):
         return False
-    trade, accounts = await _unconfirmed_legs()
-    if trade is None:
-        return False
+    changed = False
+    for trade, accounts in await _unconfirmed_legs():
+        changed = await _reconcile_one(trade, accounts) or changed
+    return changed
+
+
+async def _reconcile_one(trade: Trade, accounts: list[ConnectedAccount]) -> bool:
     if not accounts:
         # No leg is waiting on an exchange, so there is nothing to ask. If none
         # of them can be holding anything either, this trade is a ghost that
@@ -879,8 +890,19 @@ def _every_account_in(trade: Trade) -> list[ConnectedAccount]:
     )
 
 
-async def route_close(*, trade: Trade) -> FanOutResult:
+async def route_close(*, trade: Trade, account_ids: list[int] | None = None) -> FanOutResult:
+    """Flatten this trade — on every account holding it, or on ``account_ids`` only.
+
+    The narrowed form is Q42's: an account being handed from one hand to the
+    other is closed on its own, and the trade keeps running everywhere else.
+    """
     accounts = await eligible_accounts(trade)
+    if account_ids is not None:
+        accounts = [a for a in accounts if a.id in account_ids]
+        if not accounts:
+            raise NoLegsToRoute(
+                "that account holds no leg of this trade — nothing was sent"
+            )
     if not accounts:
         # Every leg is recorded as having sat the entry out — and that record can
         # be wrong. A leg written off as ``not_filled`` on one point-in-time read

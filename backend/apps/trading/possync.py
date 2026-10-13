@@ -152,37 +152,40 @@ def norm(symbol: str) -> str:
 
 
 @sync_to_async
-def _plan(*, deep: bool) -> tuple[Trade | None, list[ConnectedAccount], list[str]]:
-    """The open trade, the accounts to ask, and the symbols to ask about.
+def _plan(*, deep: bool) -> tuple[list[int], list[ConnectedAccount], list[str]]:
+    """The open trades, the accounts to ask, and the symbols to ask about.
+
+    Every open trade, not the newest: a bot's and the admin's own run side by
+    side (Q42), and a sweep that checked only one left the other's stops
+    firing unseen.
 
     Accounts are every connected account that is not in ``ERROR``, not only the
     active ones: pausing an account stops new orders, it does not close the
     position that is already live at leverage, and that position is exactly the
     one a sync must keep honest.
     """
-    trade = (
-        Trade.objects.filter(status=TradeStatus.OPEN)
-        .prefetch_related("legs")
-        .first()
-    )
+    trades = list(Trade.objects.filter(status=TradeStatus.OPEN).values_list("id", "symbol"))
     symbols: list[str] = []
-    if trade is not None:
-        symbols.append(trade.symbol)
+    seen: set[str] = set()
+    for _, symbol in trades:
+        if norm(symbol) not in seen:
+            seen.add(norm(symbol))
+            symbols.append(symbol)
     if deep:
         recent = (
             Trade.objects.filter(closed_at__gte=timezone.now() - LOOKBACK)
             .values_list("symbol", flat=True)
             .distinct()
         )
-        seen = {norm(s) for s in symbols}
         for symbol in recent:
             if norm(symbol) not in seen:
                 seen.add(norm(symbol))
                 symbols.append(symbol)
+    ids = [trade_id for trade_id, _ in trades]
     if not symbols:
-        return trade, [], []
+        return ids, [], []
     accounts = list(ConnectedAccount.objects.exclude(status=AccountStatus.ERROR))
-    return trade, accounts, symbols
+    return ids, accounts, symbols
 
 
 def _read(adapter: ExchangeAdapter, symbols: list[str]):
@@ -317,9 +320,14 @@ def _record_shrink(leg: TradeLeg, position: Position) -> None:
     )
 
 
+def _owner(trade: Trade) -> int | None:
+    """The bot whose accounts this trade belongs to — ``None`` for the admin's."""
+    return trade.bot_run.bot_id if trade.bot_run_id else None
+
+
 @transaction.atomic
 def _reconcile(
-    trade_id: int | None, held: dict[int, Held]
+    trade_ids: list[int], held: dict[int, Held]
 ) -> tuple[SyncReport, list[dict]]:
     """Write the exchanges' answers over the platform's record.
 
@@ -334,20 +342,29 @@ def _reconcile(
     notices: list[dict] = []
     now = timezone.now()
 
-    trade = (
-        Trade.objects.select_for_update().filter(pk=trade_id).first()
-        if trade_id is not None
-        else None
+    trades = list(
+        Trade.objects.select_for_update(of=("self",))
+        .filter(pk__in=trade_ids, status=TradeStatus.OPEN)
+        .select_related("bot_run")
+        .order_by("opened_at")
     )
     # Deliberately not prefetched: ``retire_if_nothing_open`` re-reads the legs
     # at the end of this function, and a prefetch cache filled before the
     # repairs below would hide a leg this sweep had just adopted — closing a
     # trade that has a live position under it.
-    legs = list(trade.legs.all()) if trade is not None else []
+    legs_of = {trade.id: list(trade.legs.all()) for trade in trades}
+    # An account with a leg in *any* open trade is never adopted into another:
+    # with two trades on one pair, "holds this pair, has no leg here" is no
+    # longer proof the position belongs to this one.
+    known = {leg.account_id for legs in legs_of.values() for leg in legs}
+    owners = dict(
+        ConnectedAccount.objects.filter(id__in=list(held)).values_list("id", "bot_id")
+    )
 
     matched: set[tuple[int, str]] = set()
 
-    if trade is not None:
+    for trade in trades:
+        legs = legs_of[trade.id]
         key = norm(trade.symbol)
         for leg in legs:
             answer = held.get(leg.account_id)
@@ -483,12 +500,20 @@ def _reconcile(
         # does not break that: the position already exists on the exchange, so
         # recording it is the only way the panel can show it and close can reach
         # it. Nothing is routed on its behalf.
-        known = {leg.account_id for leg in legs}
+    for trade in trades:
+        key = norm(trade.symbol)
         for account_id, answer in held.items():
             position = answer.positions.get(key)
-            if position is None or account_id in known:
+            if position is None or account_id in known or (account_id, key) in matched:
+                continue
+            if owners.get(account_id) != _owner(trade):
+                # The position is on this pair but the account answers to a
+                # different hand (Q42). It is not this trade's leg; if no
+                # trade of its own owner claims it, it falls through to the
+                # untracked notice below.
                 continue
             matched.add((account_id, key))
+            known.add(account_id)
             if position.side.value != trade.side:
                 # Same pair, opposite direction: not a leg of this trade.
                 report.untracked.append(f"{account_id}:{position.symbol}")
@@ -599,14 +624,14 @@ def _reopen(account_id: int, position: Position, now) -> int | None:
     """Put a closed trade back if the exchange never actually flattened it.
 
     Only a trade this account was part of, on this pair, closed inside
-    ``LOOKBACK``, and only when no other trade is open — the rest of the
-    platform is built around one open trade at a time (``Trade.objects.filter
-    (status=OPEN).first()``), so minting a second one would make the panel and
-    the router disagree about which trade is *the* trade. Where that guard bites,
-    the caller falls through to an untracked-position notice instead, which says
-    the true thing rather than a convenient one.
+    ``LOOKBACK``, and only while the account holds no leg of another open
+    trade — spec §5's one trade per account. Where that guard bites, the caller
+    falls through to an untracked-position notice instead, which says the true
+    thing rather than a convenient one.
     """
-    if Trade.objects.filter(status=TradeStatus.OPEN).exists():
+    if TradeLeg.objects.filter(
+        account_id=account_id, trade__status=TradeStatus.OPEN, closed_at__isnull=True
+    ).exists():
         return None
     candidates = (
         Trade.objects.filter(
@@ -687,7 +712,7 @@ async def sync_positions(*, force: bool = False, deep: bool | None = None) -> Sy
     if deep is None:
         deep = await sync_to_async(_claim_deep)()
 
-    trade, accounts, symbols = await _plan(deep=deep)
+    trade_ids, accounts, symbols = await _plan(deep=deep)
     if not accounts or not symbols:
         return SyncReport()
 
@@ -725,9 +750,7 @@ async def sync_positions(*, force: bool = False, deep: bool | None = None) -> Sy
     if not held:
         return SyncReport(unreachable=unreachable)
 
-    report, notices = await sync_to_async(_reconcile)(
-        trade.id if trade is not None else None, held
-    )
+    report, notices = await sync_to_async(_reconcile)(trade_ids, held)
     report.unreachable = unreachable
     report.priced = await _recover_exits(adapters)
 

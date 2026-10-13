@@ -448,28 +448,24 @@ def test_stopping_a_bot_that_is_not_running_is_not_an_error():
     assert post(staff(), f"/api/bots/bots/{bot.id}/stop/", {}).status_code == 200
 
 
-# --- only one bot runs at a time --------------------------------------------
+# --- several bots run at once (Q42) ------------------------------------------
 
 
-def test_starting_a_bot_stops_whichever_one_was_running():
+def test_starting_a_bot_leaves_the_running_one_running():
+    """Each bot drives only its own accounts, so starting one never touches
+    another's book — the old one-at-a-time rule stopped it."""
     running = make_bot(name="running", state=BotState.PAPER)
     make_run(running)
     draft = make_bot(name="draft", state=BotState.DRAFT)
 
     body = post(staff(), f"/api/bots/bots/{draft.id}/start/", {"state": "paper"}).json()
 
-    assert body["deactivated"] == [running.id]
+    assert "deactivated" not in body
     running.refresh_from_db()
-    assert running.state == BotState.STOPPED
-    assert running.runs.first().stop_reason == "manual"
+    assert running.state == BotState.PAPER
+    assert running.runs.first().stopped_at is None
     draft.refresh_from_db()
     assert draft.state == BotState.PAPER
-
-
-def test_starting_the_only_bot_deactivates_nothing():
-    bot = make_bot(state=BotState.DRAFT)
-    body = post(staff(), f"/api/bots/bots/{bot.id}/start/", {"state": "paper"}).json()
-    assert body["deactivated"] == []
 
 
 def test_an_illegal_transition_does_not_deactivate_the_running_bot():

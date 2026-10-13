@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+from decimal import Decimal
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -29,7 +30,10 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from apps.accounts.visibility import _filtered  # read surface only — see apps/bots/__init__.py
+from apps.accounts.visibility import (  # read surface only — see apps/bots/__init__.py
+    _check,
+    _filtered,
+)
 from apps.bots import chart, desk, drills, gate, intervene, jobs, lifecycle, narrate
 from apps.bots.config import limits, platform_properties
 from apps.bots.models import (
@@ -358,18 +362,21 @@ class BotViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def accounts(self, request: Request, pk=None) -> Response:
-        """Which connected accounts this bot would actually reach.
+        """Which connected accounts this bot drives (Q42).
 
-        A bot routes only to accounts with ``bot_trading_enabled`` on (the
-        accounts page's second switch). That switch defaults **off**, so the
-        commonest reason a working bot does nothing is that no account has
-        opted in — and a bot page that did not say so left the operator
+        Only the ones assigned to it — an account answers to one hand, and the
+        accounts page is where that hand is chosen. None is assigned by
+        default, so the commonest reason a working bot does nothing is an empty
+        list here, and a bot page that did not say so left the operator
         debugging the strategy.
         """
         from apps.accounts.models import AccountStatus, ConnectedAccount
 
+        bot = self.get_object()
         hidden = _filtered(request.user)
-        rows = ConnectedAccount.objects.exclude(id__in=hidden).order_by("label")
+        rows = (
+            ConnectedAccount.objects.exclude(id__in=hidden).filter(bot=bot).order_by("label")
+        )
         return Response(
             {
                 "accounts": [
@@ -378,12 +385,64 @@ class BotViewSet(viewsets.ModelViewSet):
                         "label": row.label,
                         "exchange": row.exchange,
                         "status": row.status,
-                        "bot_trading_enabled": row.bot_trading_enabled,
-                        "manual_trading_enabled": row.manual_trading_enabled,
-                        "eligible": row.status == AccountStatus.ACTIVE and row.bot_trading_enabled,
+                        "eligible": row.status == AccountStatus.ACTIVE,
+                        "balance": _str(row.last_balance),
+                        "equity": _str(row.last_equity),
                     }
                     for row in rows
                 ]
+            }
+        )
+
+    @action(detail=True, methods=["get"])
+    def performance(self, request: Request, pk=None) -> Response:
+        """What this bot has made, as money — the curve the dashboard draws.
+
+        Every closed leg of every trade any of its runs opened, in close order,
+        summed into a running total. Across runs, because a restart is not the
+        start of the bot's history. Hidden accounts are dropped before anything
+        is summed (Q27), so the totals are over the rows this reader can see.
+        Nothing is recomputed: a leg's ``pnl`` is what ``_persist_close`` or
+        the venue's own fill record wrote.
+        """
+        from apps.trading.market_views import mark_to_market
+        from apps.trading.models import Trade, TradeLeg, TradeStatus
+
+        bot = self.get_object()
+        hidden = _filtered(request.user)
+        legs = (
+            TradeLeg.objects.filter(
+                trade__bot_run__bot=bot, closed_at__isnull=False, pnl__isnull=False
+            )
+            .exclude(account_id__in=hidden)
+            .order_by("closed_at", "id")
+            .values_list("trade_id", "closed_at", "pnl")
+        )
+        by_trade: dict[int, list] = {}
+        for trade_id, closed_at, pnl in legs:
+            entry = by_trade.setdefault(trade_id, [closed_at, Decimal("0")])
+            entry[0] = max(entry[0], closed_at)
+            entry[1] += pnl
+        running = Decimal("0")
+        curve = []
+        wins = 0
+        for closed_at, pnl in sorted(by_trade.values(), key=lambda row: row[0]):
+            running += pnl
+            wins += pnl > 0
+            curve.append({"at": closed_at, "pnl": _str(pnl), "total": _str(running)})
+        trade = (
+            Trade.objects.filter(bot_run__bot=bot, status=TradeStatus.OPEN)
+            .prefetch_related("legs__account")
+            .first()
+        )
+        position = mark_to_market(trade, sees_hidden=_check(request.user))
+        return Response(
+            {
+                "realised": _str(running),
+                "trades": len(curve),
+                "wins": wins,
+                "curve": curve[-500:],
+                "position": position,
             }
         )
 
@@ -769,23 +828,12 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
     except lifecycle.IllegalTransition as exc:
         return JsonResponse({"detail": str(exc), "code": "illegal_transition"}, status=409)
 
-    # Only one bot may run at a time. Deactivating the others *after* this
-    # one's own transition and gate checks have already passed means a start
-    # that is about to be refused (an illegal transition, an unmet live gate)
-    # never takes down a bot that was working fine.
+    # Several bots may run at once (Q42): each drives only the accounts
+    # assigned to it, so starting one never touches another's book.
     # ``request.user`` is a lazy object that would hit the database from the
     # event loop; ``auser()`` is the async door onto the same user, and
     # ``admin_required`` has already been through it.
     actor = (await request.auser()).get_username()
-    deactivated = await sync_to_async(_other_running_ids)(bot.id)
-    for other_id in deactivated:
-        await supervisor.stop(
-            other_id,
-            reason=StopReason.MANUAL,
-            detail=f"deactivated to activate “{bot.name}” — only one bot runs at a time",
-            actor=actor,
-        )
-
     run = await supervisor.start(bot, actor=actor)
     if target == BotState.LIVE:
         system_log(
@@ -808,7 +856,7 @@ async def start_bot(request: HttpRequest, pk: int) -> JsonResponse:
             },
         )
     return JsonResponse(
-        {"bot_id": bot.id, "state": bot.state, "run_id": run.id, "deactivated": deactivated}
+        {"bot_id": bot.id, "state": bot.state, "run_id": run.id}
     )
 
 
@@ -1130,17 +1178,12 @@ def _decimal(value):
     return None if value in (None, "") else Decimal(str(value))
 
 
+def _str(value) -> str | None:
+    return None if value is None else str(value)
+
+
 def _get_bot(pk: int) -> Bot | None:
     return Bot.objects.filter(id=pk).select_related("strategy_version").first()
-
-
-def _other_running_ids(bot_id: int) -> list[int]:
-    """Every *other* bot currently paper or live — the ones about to lose the slot."""
-    return list(
-        Bot.objects.filter(state__in=[BotState.PAPER, BotState.LIVE])
-        .exclude(id=bot_id)
-        .values_list("id", flat=True)
-    )
 
 
 def _get_version(pk) -> StrategyVersion | None:

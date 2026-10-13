@@ -6,7 +6,7 @@
  * rather than to any one page:
  *
  *  - one WebSocket, opened here and shared by every page (stores/live.ts)
- *  - the accounts list, loaded once
+ *  - the accounts list and the bots list, loaded once
  *  - spec §4 notices, reconciled from REST so a reload cannot silently clear
  *    an outstanding failure
  *
@@ -24,6 +24,7 @@ const live = useLiveStore()
 const accounts = useAccountsStore()
 const notifications = useNotificationStore()
 const trading = useTradingStore()
+const bots = useBotsStore()
 const ui = useUiStore()
 const connection = useConnectionStore()
 const route = useRoute()
@@ -47,6 +48,8 @@ onMounted(async () => {
   accounts.startAutoRefresh()
   await notifications.hydrate()
   trading.loadPolicy()
+  // The tab bar and rail badge count running bots on every page.
+  bots.load()
 })
 
 onBeforeUnmount(() => {

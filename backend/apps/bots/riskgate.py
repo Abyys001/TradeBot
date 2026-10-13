@@ -215,7 +215,7 @@ class RiskGate:
         if cap_accounts:
             from apps.trading.services import eligible_accounts
 
-            eligible = len(await eligible_accounts())
+            eligible = len(await eligible_accounts(source="bot", bot_id=self.bot.id))
             if eligible > cap_accounts:
                 return Decision(
                     allowed=False,
@@ -236,7 +236,7 @@ class RiskGate:
                     allowed=False,
                     stop=True,
                     reason=(
-                        f"this entry would commit {notional:.2f} USDT across all accounts, "
+                        f"this entry would commit {notional:.2f} USDT across its accounts, "
                         f"over this bot's {max_notional} cap"
                     ),
                     code=StopReason.RISK_GATE,
@@ -275,7 +275,11 @@ def _actions_since(run: BotRun, moment) -> int:
 
 
 def _run_equity(run: BotRun) -> Decimal | None:
-    """Total equity across the accounts this bot's trades touched.
+    """Total equity across the accounts this bot drives (Q42).
+
+    Its own book, not the platform's: with several bots and the admin trading
+    side by side, a drawdown measured over every account is diluted by money
+    this bot never touched.
 
     Deliberately *not* filtered by ``accounts.visibility`` — Q27 puts that on
     read surfaces, and a drawdown limit that ignored a hidden account would be a
@@ -283,22 +287,29 @@ def _run_equity(run: BotRun) -> Decimal | None:
     """
     from apps.accounts.models import AccountStatus, ConnectedAccount
 
-    rows = ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE).values_list(
-        "last_balance", flat=True
-    )
-    values = [Decimal(str(v)) for v in rows if v is not None]
+    rows = ConnectedAccount.objects.filter(
+        status=AccountStatus.ACTIVE, bot_id=run.bot_id
+    ).values_list("last_equity", "last_balance")
+    # Equity, not free balance: an entry moves 99% of the balance into margin,
+    # and reading that as a loss stopped the bot on its own first fill. The
+    # balance stands in only where no equity has been read yet.
+    values = [
+        Decimal(str(equity if equity is not None else balance))
+        for equity, balance in rows
+        if equity is not None or balance is not None
+    ]
     return sum(values, ZERO) if values else None
 
 
 def _planned_notional(bot: Bot) -> Decimal:
-    """What an entry would commit across every eligible account, at spec §5 sizing."""
+    """What an entry would commit across this bot's accounts, at spec §5 sizing."""
     from apps.accounts.models import AccountStatus, ConnectedAccount
 
     fraction = Decimal(str(settings.TRADING["BALANCE_FRACTION"]))
     total = ZERO
-    for balance in ConnectedAccount.objects.filter(status=AccountStatus.ACTIVE).values_list(
-        "last_balance", flat=True
-    ):
+    for balance in ConnectedAccount.objects.filter(
+        status=AccountStatus.ACTIVE, bot_id=bot.id
+    ).values_list("last_balance", flat=True):
         if balance is None:
             continue
         total += Decimal(str(balance)) * fraction * Decimal(bot.leverage)

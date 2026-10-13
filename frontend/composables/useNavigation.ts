@@ -12,7 +12,7 @@ export interface NavItem {
   icon: IconName
   label: string
   primary: boolean
-  /** A count rendered as a badge — currently only unresolved failures. */
+  /** A count rendered as a badge — unresolved failures, or bots running. */
   badge?: number
 }
 
@@ -21,6 +21,7 @@ export function useNavigation() {
   const localePath = useLocalePath()
   const route = useRoute()
   const notifications = useNotificationStore()
+  const bots = useBotsStore()
 
   const items = computed<NavItem[]>(() => [
     {
@@ -30,6 +31,14 @@ export function useNavigation() {
       label: t('nav.dashboard'),
       primary: true,
       badge: notifications.count || undefined,
+    },
+    {
+      name: 'bots',
+      path: localePath('/bots'),
+      icon: 'bot',
+      label: t('nav.bots'),
+      primary: true,
+      badge: bots.running.length || undefined,
     },
     {
       name: 'chart',
@@ -50,13 +59,6 @@ export function useNavigation() {
       path: localePath('/history'),
       icon: 'history',
       label: t('nav.history'),
-      primary: true,
-    },
-    {
-      name: 'bots',
-      path: localePath('/bots'),
-      icon: 'bot',
-      label: t('nav.bots'),
       primary: false,
     },
     // /strategies is deliberately **not** in the sidebar. The editor is reached
